@@ -503,14 +503,17 @@ jobs:
           ${{ env.VAULT_KV_WEB_SAAS }} AUTH_TOKEN_PUBLIC_TOKEN | WEB_SAAS_AUTH_TOKEN_PUBLIC_TOKEN ;
           ${{ env.VAULT_KV_WEB_SAAS }} AUTH_TOKEN_REFRESH_SECRET | WEB_SAAS_AUTH_TOKEN_REFRESH_SECRET ;
           ${{ env.VAULT_KV_WEB_SAAS }} AUTH_TOKEN_ACCESS_SECRET | WEB_SAAS_AUTH_TOKEN_ACCESS_SECRET ;
-          ${{ env.VAULT_KV_WEB_SAAS }} OAUTH_GITHUB_CLIENT_ID | WEB_SAAS_OAUTH_GITHUB_CLIENT_ID ;
-          ${{ env.VAULT_KV_WEB_SAAS }} OAUTH_GITHUB_CLIENT_SECRET | WEB_SAAS_OAUTH_GITHUB_CLIENT_SECRET ;
-          ${{ env.VAULT_KV_WEB_SAAS }} OAUTH_GOOGLE_CLIENT_ID | WEB_SAAS_OAUTH_GOOGLE_CLIENT_ID ;
-          ${{ env.VAULT_KV_WEB_SAAS }} OAUTH_GOOGLE_CLIENT_SECRET | WEB_SAAS_OAUTH_GOOGLE_CLIENT_SECRET ;
-          ${{ env.VAULT_KV_WEB_SAAS }} INTERNAL_SERVICE_TOKEN | WEB_SAAS_INTERNAL_SERVICE_TOKEN ;
           ${{ env.VAULT_KV_WEB_SAAS }} STUNNEL_CA_CERT_B64 | WEB_SAAS_STUNNEL_CA_CERT_B64 ;
           ${{ env.VAULT_KV_WEB_SAAS }} STUNNEL_SERVER_CERT_B64 | WEB_SAAS_STUNNEL_SERVER_CERT_B64 ;
           ${{ env.VAULT_KV_WEB_SAAS }} STUNNEL_SERVER_KEY_B64 | WEB_SAAS_STUNNEL_SERVER_KEY_B64
+
+    # OAUTH_* / INTERNAL_SERVICE_TOKEN 是真正可选的(不影响是否能起服务),
+    # 但 vault-action 的 ignoreNotFound 只在整个 KV 路径 404 时生效 —— 路径
+    # 存在而某个键缺失照样硬失败。放到独立脚本里自己读、缺则空。
+    - name: Load optional web-saas secrets
+      env:
+        VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
+      run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_base_load-optional-web-saas.sh
 
     - name: Configure SSH Key
       env:
@@ -542,11 +545,10 @@ jobs:
         AUTH_TOKEN_PUBLIC_TOKEN:           ${{ steps.vault.outputs.WEB_SAAS_AUTH_TOKEN_PUBLIC_TOKEN }}
         AUTH_TOKEN_REFRESH_SECRET:         ${{ steps.vault.outputs.WEB_SAAS_AUTH_TOKEN_REFRESH_SECRET }}
         AUTH_TOKEN_ACCESS_SECRET:          ${{ steps.vault.outputs.WEB_SAAS_AUTH_TOKEN_ACCESS_SECRET }}
-        OAUTH_GITHUB_CLIENT_ID:            ${{ steps.vault.outputs.WEB_SAAS_OAUTH_GITHUB_CLIENT_ID }}
-        OAUTH_GITHUB_CLIENT_SECRET:        ${{ steps.vault.outputs.WEB_SAAS_OAUTH_GITHUB_CLIENT_SECRET }}
-        OAUTH_GOOGLE_CLIENT_ID:            ${{ steps.vault.outputs.WEB_SAAS_OAUTH_GOOGLE_CLIENT_ID }}
-        OAUTH_GOOGLE_CLIENT_SECRET:        ${{ steps.vault.outputs.WEB_SAAS_OAUTH_GOOGLE_CLIENT_SECRET }}
-        INTERNAL_SERVICE_TOKEN:            ${{ steps.vault.outputs.WEB_SAAS_INTERNAL_SERVICE_TOKEN }}
+        # OAUTH_GITHUB_CLIENT_ID / OAUTH_GITHUB_CLIENT_SECRET / OAUTH_GOOGLE_CLIENT_ID /
+        # OAUTH_GOOGLE_CLIENT_SECRET / INTERNAL_SERVICE_TOKEN 由上面 "Load optional
+        # web-saas secrets" 写进 GITHUB_ENV, 此处不再重复声明 —— 它们已经是这个
+        # step 的环境变量, 重复写只会用同名 env 覆盖同名 env, 没有意义。
         WEB_SAAS_STUNNEL_CA_CERT_B64:      ${{ steps.vault.outputs.WEB_SAAS_STUNNEL_CA_CERT_B64 }}
         WEB_SAAS_STUNNEL_SERVER_CERT_B64:  ${{ steps.vault.outputs.WEB_SAAS_STUNNEL_SERVER_CERT_B64 }}
         WEB_SAAS_STUNNEL_SERVER_KEY_B64:   ${{ steps.vault.outputs.WEB_SAAS_STUNNEL_SERVER_KEY_B64 }}
