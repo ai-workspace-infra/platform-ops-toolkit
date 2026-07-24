@@ -217,7 +217,7 @@ jobs:
   provision:
     name: Resolve Profile, Provision Environment & Init Secrets
     needs: resize
-    if: ${{ !cancelled() && (needs.resize.result == 'success' || needs.resize.result == 'skipped') }}
+    if: ${{ !cancelled() && !failure() }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     # Static job-level env: inputs known at job start (no step output refs allowed here)
     env:
@@ -445,13 +445,8 @@ jobs:
     name: Bootstrap Node on ${{ matrix.host }}
     # 只初始化节点；服务安装由后续 deploy_* jobs 负责。
     needs: provision
-    # !cancelled() 是必须的: resize 被跳过时 provision 靠 !cancelled() 才运行,
-    # 该 skip 会沿 needs 链继续传递, 因此下游每个 job 都要显式接住,
-    # 并自行断言上游 result == 'success'。
     if: >-
-      ${{ !cancelled() &&
-      needs.provision.result == 'success' &&
-      needs.provision.outputs.run_application_deploy == 'true' &&
+      ${{ needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
       needs.provision.outputs.hosts != '[]' &&
@@ -578,10 +573,7 @@ jobs:
     name: Deploy Web SaaS Services on ${{ matrix.host }}
     needs: [provision, deploy_base]
     if: >-
-      ${{ !cancelled() &&
-      needs.provision.result == 'success' &&
-      needs.deploy_base.result == 'success' &&
-      needs.provision.outputs.run_application_deploy == 'true' &&
+      ${{ needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
       (needs.provision.outputs.target_domains == 'all' || needs.provision.outputs.target_domains == 'web-saas') &&
@@ -601,10 +593,7 @@ jobs:
     name: Deploy Open Platform Services on ${{ matrix.host }}
     needs: [provision, deploy_base]
     if: >-
-      ${{ !cancelled() &&
-      needs.provision.result == 'success' &&
-      needs.deploy_base.result == 'success' &&
-      needs.provision.outputs.run_application_deploy == 'true' &&
+      ${{ needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
       contains(fromJSON('["all","infra-platform"]'), needs.provision.outputs.target_domains) &&
@@ -624,10 +613,7 @@ jobs:
     name: Deploy Agent Proxy Services on ${{ matrix.host }}
     needs: [provision, deploy_base]
     if: >-
-      ${{ !cancelled() &&
-      needs.provision.result == 'success' &&
-      needs.deploy_base.result == 'success' &&
-      needs.provision.outputs.run_application_deploy == 'true' &&
+      ${{ needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
       contains(fromJSON('["all","agent-proxy"]'), needs.provision.outputs.target_domains) &&
@@ -647,10 +633,7 @@ jobs:
     name: Deploy AI Workspace Services on ${{ matrix.host }}
     needs: [provision, deploy_base]
     if: >-
-      ${{ !cancelled() &&
-      needs.provision.result == 'success' &&
-      needs.deploy_base.result == 'success' &&
-      needs.provision.outputs.run_application_deploy == 'true' &&
+      ${{ needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
       contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.target_domains) &&
@@ -669,7 +652,7 @@ jobs:
   data_migration:
     name: Migrate Site Data (Source -> Target)
     needs: [provision, deploy_base, deploy_web_saas, deploy_infra_platform, deploy_agent_proxy]
-    if: ${{ !cancelled() && (needs.deploy_base.result == 'success' || needs.deploy_base.result == 'skipped') && (needs.deploy_web_saas.result == 'success' || needs.deploy_web_saas.result == 'skipped') && (needs.deploy_infra_platform.result == 'success' || needs.deploy_infra_platform.result == 'skipped') && (needs.deploy_agent_proxy.result == 'success' || needs.deploy_agent_proxy.result == 'skipped') && needs.provision.outputs.terraform_action == 'apply' && needs.provision.outputs.toolkit_action != 'deploy' }}
+    if: ${{ !cancelled() && !failure() && needs.provision.outputs.terraform_action == 'apply' && needs.provision.outputs.toolkit_action != 'deploy' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     env:
       ANSIBLE_HOST_KEY_CHECKING: "False"
@@ -741,15 +724,9 @@ jobs:
     name: Switch DNS Traffic (Manual Approval)
     needs: [provision, deploy_base, deploy_web_saas, deploy_infra_platform, deploy_agent_proxy, data_migration]
     if: |
-      !cancelled() &&
+      !cancelled() && !failure() &&
       needs.provision.outputs.terraform_action == 'apply' &&
-      (github.event.inputs.confirm_dns_switch == 'true' || github.event.inputs.confirm_dns_switch == true) &&
-      (needs.provision.result == 'success' || needs.provision.result == 'skipped') &&
-      (needs.deploy_base.result == 'success' || needs.deploy_base.result == 'skipped') &&
-      (needs.deploy_web_saas.result == 'success' || needs.deploy_web_saas.result == 'skipped') &&
-      (needs.deploy_infra_platform.result == 'success' || needs.deploy_infra_platform.result == 'skipped') &&
-      (needs.deploy_agent_proxy.result == 'success' || needs.deploy_agent_proxy.result == 'skipped') &&
-      (needs.data_migration.result == 'success' || needs.data_migration.result == 'skipped')
+      (github.event.inputs.confirm_dns_switch == 'true' || github.event.inputs.confirm_dns_switch == true)
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     environment: production
     env:
