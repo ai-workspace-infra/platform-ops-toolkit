@@ -510,9 +510,12 @@ jobs:
     # OAUTH_* / INTERNAL_SERVICE_TOKEN 是真正可选的(不影响是否能起服务),
     # 但 vault-action 的 ignoreNotFound 只在整个 KV 路径 404 时生效 —— 路径
     # 存在而某个键缺失照样硬失败。放到独立脚本里自己读、缺则空。
+    # 脚本自己走 GitHub OIDC -> Vault JWT role 认证(与 vault-action 内部
+    # 做的事一样), 不依赖上一步导出的静态 token —— 那只是别处场景下的可选
+    # fallback, 不该在这里造出一条"依赖前一步是否恰好导出了 token"的隐式
+    # 耦合。ACTIONS_ID_TOKEN_REQUEST_URL/TOKEN 由 id-token: write 权限
+    # (workflow 顶层已声明)自动注入, 无需在此显式传递。
     - name: Load optional web-saas secrets
-      env:
-        VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_base_load-optional-web-saas.sh
 
     - name: Configure SSH Key

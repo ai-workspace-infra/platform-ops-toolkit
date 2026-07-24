@@ -6,12 +6,19 @@
 # 缺失时, 它照样以 "No match data was found" 硬失败。所以"路径在、键可缺"
 # 这种真正可选的语义, vault-action 表达不了, 只能自己读整份 secret 再按键
 # 取值、缺则空。必需键仍留在 vault-action 里硬读(缺了就该失败)。
+#
+# 认证自己走 JWT role, 不依赖上一步导出的 VAULT_TOKEN: 静态 token 只是
+# 别处场景下的可选 fallback, 这条流水线的默认认证方式是 GitHub OIDC ->
+# Vault JWT role(与 vault-action 内部做的事一样), 不应该在这里引入一条
+# "依赖前一步是否恰好导出了 token"的隐式耦合。
 set -euo pipefail
 
 : "${VAULT_ADDR:?VAULT_ADDR is required}"
-: "${VAULT_TOKEN:?VAULT_TOKEN is required}"
+: "${VAULT_ROLE:?VAULT_ROLE is required}"
 : "${VAULT_KV_WEB_SAAS:?VAULT_KV_WEB_SAAS is required (e.g. kv/data/WEB_SAAS)}"
 : "${GITHUB_ENV:?GITHUB_ENV is required}"
+: "${ACTIONS_ID_TOKEN_REQUEST_URL:?ACTIONS_ID_TOKEN_REQUEST_URL is required (needs id-token: write)}"
+: "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:?ACTIONS_ID_TOKEN_REQUEST_TOKEN is required (needs id-token: write)}"
 
 OPTIONAL_KEYS=(
   OAUTH_GITHUB_CLIENT_ID
@@ -21,16 +28,45 @@ OPTIONAL_KEYS=(
   INTERNAL_SERVICE_TOKEN
 )
 
+# 1. 用 GitHub 的 OIDC id-token 换 Vault JWT 登录用的 JWT。
+oidc="$(curl -sS --retry 3 \
+  -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+  "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=vault")"
+gh_jwt="$(jq -r '.value // empty' <<<"${oidc}")"
+[[ -n "${gh_jwt}" ]] || {
+  echo "::error::Failed to obtain a GitHub OIDC token for audience=vault." >&2
+  exit 1
+}
+
+# 2. 用这个 JWT 走 role 登录 Vault, 拿一次性 client token。
+login_body="$(mktemp)"
+trap 'rm -f "${login_body}"' EXIT
+login_status="$(curl -sS -o "${login_body}" -w '%{http_code}' \
+  -X POST -H "Content-Type: application/json" \
+  -d "$(jq -n --arg role "${VAULT_ROLE}" --arg jwt "${gh_jwt}" '{role: $role, jwt: $jwt}')" \
+  "${VAULT_ADDR}/v1/auth/jwt/login")"
+[[ "${login_status}" == "200" ]] || {
+  echo "::error::Vault JWT login failed (HTTP ${login_status}) for role ${VAULT_ROLE}." >&2
+  head -c 300 "${login_body}" >&2
+  exit 1
+}
+vault_token="$(jq -r '.auth.client_token // empty' < "${login_body}")"
+[[ -n "${vault_token}" ]] || {
+  echo "::error::Vault JWT login response had no client_token." >&2
+  exit 1
+}
+
+# 3. 用这个 token 读整份 WEB_SAAS, 按键取值、缺则空。
 body="$(mktemp)"
-trap 'rm -f "${body}"' EXIT
-status="$(curl -s -o "${body}" -w '%{http_code}' \
-  -H "X-Vault-Token: ${VAULT_TOKEN}" "${VAULT_ADDR}/v1/${VAULT_KV_WEB_SAAS}")"
+status="$(curl -sS -o "${body}" -w '%{http_code}' \
+  -H "X-Vault-Token: ${vault_token}" "${VAULT_ADDR}/v1/${VAULT_KV_WEB_SAAS}")"
 
 # 404 = 整份 WEB_SAAS 不存在。可选键全部按空处理, 不失败 —— 这正是"可选"。
 # 其它非 2xx 才是真异常(权限/服务端), 要报出来。
 if [[ "${status}" != "200" && "${status}" != "404" ]]; then
   echo "::error::Reading ${VAULT_KV_WEB_SAAS} returned HTTP ${status}." >&2
   head -c 300 "${body}" >&2
+  rm -f "${body}"
   exit 1
 fi
 
@@ -45,5 +81,6 @@ for key in "${OPTIONAL_KEYS[@]}"; do
   [[ -n "${val}" ]] && echo "::add-mask::${val}"
   echo "${key}=${val}" >> "${GITHUB_ENV}"
 done
+rm -f "${body}"
 
 echo "Loaded ${#OPTIONAL_KEYS[@]} optional web-saas key(s) from ${VAULT_KV_WEB_SAAS} (missing -> empty)."
