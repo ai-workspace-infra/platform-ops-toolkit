@@ -82,7 +82,31 @@ run 30072783294:**provision 成功(Terraform no-op,4C8G 与实例一致,resize
 所以不存在"旧口令已初始化 postgres"的对齐问题 —— 新口令首次初始化即可。
 用户已确认 UAT 可重建。
 
-### 待办(合 #107 后)
+### 现象四:补键用 HTTP PATCH 得 403(已修 #109,待合)
+
+run 30073339591:init 正确诊断"secret 存在但缺 postgres_root_password",
+但用 HTTP `PATCH` 补键返回 **403** —— KV v2 patch 需要 policy 里专门的
+`patch` capability,各环境 policy 只给了 create/read/update/delete/list。
+
+**#109**:改为读-合并-写(已读的 .data.data 与新生成缺失键合并后整体 POST,
+只用已授权的 update;已有键值原样保留)。
+
+### instance_plan 覆盖:机制本就是通的(不是缺陷)
+
+用户强调"新建主机选 2C4G 需能覆盖默认值"。链路完整且已生效:
+`instance_plan=2C4G` → Map Instance Plan(vc2-2c-4gb)→ INSTANCE_PLAN_API →
+generate.py render → 资源 YAML `plan: {{ env.get('INSTANCE_PLAN_API', ...) }}`。
+run 30063710395 的 TF 计划 `vc2-4c-8gb -> vc2-2c-4gb` 即证据。2C4G 没"直接成功"
+是因为对已存在的 4C8G 主机做 in-place 降配被守卫拦下,与覆盖无关。
+
+**决策(用户确认)**:先用 4C8G 打通全链路,再销毁重建为 2C4G 验证降配路径。
+
+**后续项(未做,勿轻改)**:9 个资源 YAML 的 `env.get('INSTANCE_PLAN_API',
+'vc2-4c-8gb')` 有 fallback 默认值,违反 IaC 规范"渲染变量不设默认值"。但这些
+文件也被多云 matrix 流水线消费,改成必填 `env['INSTANCE_PLAN_API']` 前要先确认
+那些渲染路径都设了此变量,否则会拖垮它们。含 prod 文件,需谨慎。
+
+### 待办(合 #109 后)
 
 1. 合 **#107** → 重新触发同一条 deploy(4C8G / action=deploy /
    confirm_dns_switch=true / vault_env_path=uat)。
