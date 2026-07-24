@@ -7,8 +7,9 @@ is the whole point: a broken gate is invisible in the run summary, so it has to
 be caught by an assertion instead of by review.
 
   C1  folded-scalar `if:` that swallows the expression
-  C2  skip propagating past an always() job into a downstream job without one
-  C3  always() without a result assertion on each upstream
+  C2  skip propagating past a guarded job into a downstream job without a guard
+      (a guard is always() or !cancelled() -- they are equivalent here)
+  C3  a guard without a result assertion on each upstream
   C4  needs.<x> referenced in an `if:` but not declared in needs:
   C5  a script invoked bare from `run:` without the exec bit set in git
 
@@ -91,6 +92,15 @@ def iter_run_blocks(node):
             yield from iter_run_blocks(item)
 
 
+# always() and !cancelled() are the same thing for skip propagation: both make
+# the job evaluate its own `if` instead of inheriting an upstream skip. Treating
+# only always() as a guard is how a real regression slipped through -- PR #116
+# swapped every always() for !cancelled(), this check went on reporting OK, and
+# #117 then deleted the guard from deploy_base with nothing left to catch it.
+def has_guard(cond):
+    return "always()" in cond or "cancelled()" in cond
+
+
 def report(wf, job, check, msg):
     violations.append(f"{wf}: job `{job}`: [{check}] {msg}")
 
@@ -151,25 +161,30 @@ def check_workflow(path, modes):
             # chain. always() stops it only for the job carrying it, so a job
             # downstream of an always() job is skipped before its own `if` is
             # ever evaluated -- however correct that `if` may be.
-            if "always()" not in cond:
+            if not has_guard(cond):
                 upstream_always = [
                     u for u in needs
-                    if isinstance(jobs.get(u), dict) and "always()" in str(jobs[u].get("if", ""))
+                    if isinstance(jobs.get(u), dict) and has_guard(str(jobs[u].get("if", "")))
                 ]
                 if upstream_always:
                     report(wf, name, "C2",
-                           f"needs {', '.join(upstream_always)} which run(s) under always(), "
-                           f"but this job's `if:` has no always() -- it will be skipped "
+                           f"needs {', '.join(upstream_always)} which run(s) under a guard, "
+                           f"but this job's `if:` has no always()/!cancelled() -- it will be skipped "
                            f"without its condition ever being evaluated")
 
             # C3 -- always() also disables the implicit "upstream succeeded"
             # guard, so each upstream result has to be asserted explicitly or
             # the job runs after a real failure.
-            if "always()" in cond:
+            # `!failure()` is job-level: it is false if ANY needs job failed, so
+            # it asserts every upstream at once and makes per-job result checks
+            # redundant. Demanding them anyway would push authors toward
+            # deleting the guard instead -- which is the defect this file exists
+            # to catch.
+            if has_guard(cond) and "failure()" not in cond:
                 unasserted = [u for u in needs if u not in refs]
                 if unasserted:
                     report(wf, name, "C3",
-                           f"uses always() but never checks needs.<job>.result for: "
+                           f"uses a guard but never checks needs.<job>.result for: "
                            f"{', '.join(unasserted)} -- it would run after those fail")
 
         # C4 -- needs.<x> for a job absent from needs: evaluates to empty, so
