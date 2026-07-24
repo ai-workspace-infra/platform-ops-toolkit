@@ -162,6 +162,11 @@ jobs:
           TARGET_PLAN: ${{ inputs.target_plan }}
           RESIZE_MODE: ${{ inputs.resize_mode }}
           CONFIRM_RESIZE: ${{ inputs.confirm_resize }}
+          VAULT_ENV_PATH: ${{ inputs.vault_env_path }}
+          # 传入的 instance_id 若因主机重建而陈旧, preflight 用这两个稳定
+          # 标识现查真实 ID。target_domain 就是主机 label(命名约定保证),
+          # 是自愈的主线索。
+          EXPECTED_HOSTNAME: ${{ inputs.target_domain }}
         run: ${{ github.workspace }}/.github/scripts/resize-instance_preflight.sh
 
       - name: Create backup snapshot
