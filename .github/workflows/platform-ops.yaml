@@ -494,6 +494,12 @@ jobs:
         role: ${{ env.VAULT_ROLE }}
         jwtGithubAudience: vault
         ignoreNotFound: true
+        # 下面 "Load optional web-saas secrets" 步骤要用这个 token 自己发起
+        # 一次读请求(vault-action 的 ignoreNotFound 覆盖不了"路径存在、
+        # 键缺失"的情形, 所以那个可选读取只能自己实现)。不导出就是空字符串,
+        # 那一步会在自己的必填检查上报错, 而不是被 Vault 拒绝, 容易误判成
+        # 权限问题。
+        exportToken: true
         secrets: |
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
           ${{ env.VAULT_KV }} AI_WORKSPACE_AUTH_TOKEN | AI_WORKSPACE_AUTH_TOKEN ;
