@@ -446,7 +446,9 @@ jobs:
     # 只初始化节点；服务安装由后续 deploy_* jobs 负责。
     needs: provision
     if: >-
-      ${{ needs.provision.outputs.run_application_deploy == 'true' &&
+      ${{ !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
       needs.provision.outputs.hosts != '[]' &&
@@ -573,7 +575,10 @@ jobs:
     name: Deploy Web SaaS Services on ${{ matrix.host }}
     needs: [provision, deploy_base]
     if: >-
-      ${{ needs.provision.outputs.run_application_deploy == 'true' &&
+      ${{ !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.deploy_base.result == 'success' &&
+      needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
       (needs.provision.outputs.target_domains == 'all' || needs.provision.outputs.target_domains == 'web-saas') &&
@@ -593,7 +598,10 @@ jobs:
     name: Deploy Open Platform Services on ${{ matrix.host }}
     needs: [provision, deploy_base]
     if: >-
-      ${{ needs.provision.outputs.run_application_deploy == 'true' &&
+      ${{ !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.deploy_base.result == 'success' &&
+      needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
       contains(fromJSON('["all","infra-platform"]'), needs.provision.outputs.target_domains) &&
@@ -613,7 +621,10 @@ jobs:
     name: Deploy Agent Proxy Services on ${{ matrix.host }}
     needs: [provision, deploy_base]
     if: >-
-      ${{ needs.provision.outputs.run_application_deploy == 'true' &&
+      ${{ !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.deploy_base.result == 'success' &&
+      needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
       contains(fromJSON('["all","agent-proxy"]'), needs.provision.outputs.target_domains) &&
@@ -633,7 +644,10 @@ jobs:
     name: Deploy AI Workspace Services on ${{ matrix.host }}
     needs: [provision, deploy_base]
     if: >-
-      ${{ needs.provision.outputs.run_application_deploy == 'true' &&
+      ${{ !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.deploy_base.result == 'success' &&
+      needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
       contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.target_domains) &&
