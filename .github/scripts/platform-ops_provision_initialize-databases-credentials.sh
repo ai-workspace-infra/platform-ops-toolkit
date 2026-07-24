@@ -66,22 +66,30 @@ case "${status}" in
     if [[ ${#missing[@]} -eq 0 ]]; then
       echo "All ${#REQUIRED_KEYS[@]} required database credentials present. Skipping."
     else
-      # merge-patch 只增补缺失键, 保留已有键的值(不轮换在用口令)。
-      echo "::warning::${URL} exists but is missing: ${missing[*]}. Patching only the missing keys."
-      patch_args=()
+      # 读-合并-写, 而不是 HTTP PATCH。KV v2 的 patch 需要 policy 里专门的
+      # `patch` capability, 而各环境 policy 只给了 create/read/update/delete/
+      # list —— 用 PATCH 会 403。这里把已读到的 .data.data 与新生成的缺失键
+      # 合并后整体 POST, 只用到已授权的 update, 且已有键的值原样保留(不轮换
+      # 一个在用的口令)。
+      echo "::warning::${URL} exists but is missing: ${missing[*]}. Merging in only the missing keys."
+      gen_args=()
       for k in "${missing[@]}"; do
-        patch_args+=(--arg "${k}" "$(openssl rand -base64 16)")
+        gen_args+=(--arg "${k}" "$(openssl rand -base64 16)")
       done
-      patch_payload="$(jq -n "${patch_args[@]}" '{data: $ARGS.named}')"
-      http="$(curl -s -o /dev/null -w '%{http_code}' -X PATCH \
-        -H "X-Vault-Token: ${VAULT_TOKEN}" \
-        -H "Content-Type: application/merge-patch+json" \
-        -d "${patch_payload}" "${URL}")"
+      # 已有数据从 stdin 进(作为 `.`), 缺失键作为 named args。用 stdin 而
+      # 非 --argjson 传已有数据, 是因为 --argjson 也会落进 $ARGS.named, 反而
+      # 混进一个多余的键。两者键集不相交(missing 就是从已有数据判出缺的),
+      # 所以 `. + $ARGS.named` 不会覆盖任何现存值。
+      merged="$(jq -c '.data.data' < "${body}" \
+        | jq "${gen_args[@]}" '{data: (. + $ARGS.named)}')"
+      http="$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+        -H "X-Vault-Token: ${VAULT_TOKEN}" -H "Content-Type: application/json" \
+        -d "${merged}" "${URL}")"
       [[ "${http}" =~ ^2 ]] || {
-        echo "::error::Failed to patch missing keys into ${URL} (HTTP ${http})." >&2
+        echo "::error::Failed to merge missing keys into ${URL} (HTTP ${http})." >&2
         exit 1
       }
-      echo "Patched ${#missing[@]} missing key(s) into ${URL}."
+      echo "Merged ${#missing[@]} missing key(s) into ${URL}."
     fi
     ;;
   *)
