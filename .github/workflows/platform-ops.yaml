@@ -494,6 +494,8 @@ jobs:
         secrets: |
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
           ${{ env.VAULT_KV }} AI_WORKSPACE_AUTH_TOKEN | AI_WORKSPACE_AUTH_TOKEN ;
+          ${{ env.VAULT_KV }} GHCR_USERNAME | GHCR_USERNAME ;
+          ${{ env.VAULT_KV }} GHCR_TOKEN | GHCR_PASSWORD ;
           ${{ env.VAULT_KV_DATABASES }} postgres_root_password | WEB_SAAS_POSTGRES_PASSWORD ;
           ${{ env.VAULT_KV_DATABASES }} account_pg_password | WEB_SAAS_ACCOUNT_PG_PASSWORD ;
           ${{ env.VAULT_KV_DATABASES }} billing_pg_password | WEB_SAAS_BILLING_DB_PASSWORD ;
@@ -552,6 +554,12 @@ jobs:
         WEB_SAAS_STUNNEL_CA_CERT_B64:      ${{ steps.vault.outputs.WEB_SAAS_STUNNEL_CA_CERT_B64 }}
         WEB_SAAS_STUNNEL_SERVER_CERT_B64:  ${{ steps.vault.outputs.WEB_SAAS_STUNNEL_SERVER_CERT_B64 }}
         WEB_SAAS_STUNNEL_SERVER_KEY_B64:   ${{ steps.vault.outputs.WEB_SAAS_STUNNEL_SERVER_KEY_B64 }}
+        # Doco-CD 角色用这两个做 docker login, 生成 /root/.docker/config.json ——
+        # compose 把那个文件挂进容器好拉私有镜像。不传的话 Docker 会用一个
+        # 自动创建的空目录顶上, Doco-CD 照样 healthy, 但每次轮询都以
+        # "failed to pull images: unauthorized" 结束, 从容器状态上看不出来。
+        GHCR_USERNAME:                     ${{ steps.vault.outputs.GHCR_USERNAME }}
+        GHCR_PASSWORD:                     ${{ steps.vault.outputs.GHCR_PASSWORD }}
         WEB_SAAS_CONSOLE_DOMAIN:           console-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
         WEB_SAAS_ACCOUNTS_DOMAIN:          accounts-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_base_bootstrap-node.sh
