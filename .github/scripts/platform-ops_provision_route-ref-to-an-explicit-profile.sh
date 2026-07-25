@@ -21,7 +21,7 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   deployment_env="${INPUT_VAULT_ENV_PATH}"
   target_domains="${INPUT_TARGET_DOMAINS}"
   
-  if [ "${deployment_env}" = "sit" ] && [ "${target_domains}" = "all" ]; then
+  if [ "${deployment_env}" = "sit" ]; then
     rf="all-in-one"
   elif [ "${target_domains}" = "all" ]; then
     rf="web-saas"
