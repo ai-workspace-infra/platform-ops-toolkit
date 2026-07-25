@@ -1,10 +1,10 @@
-name: Deploy Environment & Migrate Data (Data Sync)
+name: Deploy Environment & Provision Infrastructure
 
 # =============================================================================
-# IaC ↔ 数据流单向迁移流水线 (Site Recovery)
+# IaC 环境交付与应用部署流水线 (Environment Provisioning & Deployment)
 # 1. 动态 Provision (基于 Terraform 创建新环境 platform-ops-toolkit)
-# 2. 部署基础服务 (Bootstrap 部署，跑空环境)
-# 3. 生产环境克隆与单向同步 (通过 site_migration Ansible 角色)
+# 2. 部署基础服务与业务服务 (Bootstrap Node 与全域业务服务部署)
+# 3. 可选 DNS 流量接管与发布 (Cloudflare DNS Cutover)
 # =============================================================================
 
 on:
@@ -122,23 +122,6 @@ on:
         default: "deploy"
         type: choice
         options: [deploy, resize, destroy, migrate, backup, restore]
-      resize_instance_id:
-        description: "resize 时的现有 Vultr instance ID"
-        required: false
-        type: string
-      resize_target_domain:
-        description: "resize 健康检查和可选 DNS 切换使用的完整域名"
-        required: false
-        type: string
-      confirm_resize:
-        description: "危险：确认创建替代实例以执行 VPS 降配"
-        required: false
-        default: false
-        type: boolean
-      resize_cloudflare_zone_id:
-        description: "仅 confirm_dns_switch=true 时必填"
-        required: false
-        type: string
       confirm_dns_switch:
         description: "危险: 勾选此项将在最后一步接管原域名的生产流量 (仅真实灾备启用)"
         required: false
@@ -197,27 +180,8 @@ env:
   PLAYBOOKS_DIR: infra/playbooks
 
 jobs:
-  resize:
-    name: Replace VPS for a guarded downgrade
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'resize' && inputs.resize_instance_id != '' }}
-    uses: ./.github/workflows/resize-instance.yaml
-    with:
-      vault_env_path: ${{ inputs.vault_env_path }}
-      target_domain: ${{ inputs.resize_target_domain }}
-      instance_id: ${{ inputs.resize_instance_id }}
-      target_plan: ${{ inputs.instance_plan == '1C2G' && 'vc2-1c-2gb' || inputs.instance_plan == '2C4G' && 'vc2-2c-4gb' || 'vc2-4c-8gb' }}
-      resize_mode: auto
-      confirm_resize: ${{ inputs.confirm_resize }}
-      switch_dns: ${{ inputs.confirm_dns_switch }}
-      cloudflare_zone_id: ${{ inputs.resize_cloudflare_zone_id }}
-      destroy_old_instance: false
-      observation_seconds: "1800"
-      infra_ref: ${{ inputs.infra_ref || 'main' }}
-
   provision:
     name: Resolve Profile, Provision Environment & Init Secrets
-    needs: resize
-    if: ${{ !cancelled() && !failure() }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     # Static job-level env: inputs known at job start (no step output refs allowed here)
     env:
@@ -671,80 +635,9 @@ jobs:
       deploy_env: ${{ needs.provision.outputs.deployment_env }}
       deploy_tag: ${{ needs.provision.outputs.deploy_tag }}
 
-  data_migration:
-    name: Migrate Site Data (Source -> Target)
-    needs: [provision, deploy_base, deploy_web_saas, deploy_infra_platform, deploy_agent_proxy]
-    if: ${{ !cancelled() && !failure() && needs.provision.outputs.terraform_action == 'apply' && needs.provision.outputs.toolkit_action != 'deploy' }}
-    runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
-    env:
-      ANSIBLE_HOST_KEY_CHECKING: "False"
-      ANSIBLE_SSH_ARGS:         "-o IdentityFile=~/.ssh/id_deploy -o StrictHostKeyChecking=no"
-    steps:
-    - name: Download CMDB
-      # 与上传条件保持一致: artifact 只在基础设施阶段 apply 时产生。
-      if: >-
-        ${{ needs.provision.outputs.run_infrastructure == 'true' &&
-        needs.provision.outputs.terraform_action == 'apply' }}
-      uses: actions/download-artifact@v8
-      with:
-        name: platform-ops-toolkit-cmdb
-        path: cmdb
-
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        ref: ${{ github.event.inputs.toolkit_ref || '' }}
-
-    - name: Checkout playbooks
-      uses: actions/checkout@v7
-      with:
-        repository: ai-workspace-infra/playbooks
-        ref: ${{ github.event.inputs.infra_ref }}
-        path: playbooks
-
-    - name: Install Ansible
-      run: ${{ github.workspace }}/.github/scripts/common_install_ansible.sh
-
-    - name: Load Vault secrets for SSH
-      id: vault
-      uses: hashicorp/vault-action@v4
-      with:
-        url: ${{ env.VAULT_ADDR }}
-        method: jwt
-        role: ${{ env.VAULT_ROLE }}
-        jwtGithubAudience: vault
-        ignoreNotFound: true
-        secrets: |
-          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
-          ${{ env.VAULT_KV_BASE }} TF_STATE_BUCKET     | MIGRATION_S3_BUCKET ;
-          ${{ env.VAULT_KV_BASE }} TF_STATE_ACCESS_KEY | MIGRATION_S3_ACCESS_KEY ;
-          ${{ env.VAULT_KV_BASE }} TF_STATE_SECRET_KEY | MIGRATION_S3_SECRET_KEY ;
-          ${{ env.VAULT_KV_BASE }} TF_STATE_REGION     | MIGRATION_S3_REGION ;
-          ${{ env.VAULT_KV_BASE }} TF_STATE_ENDPOINT   | MIGRATION_S3_ENDPOINT ;
-
-    - name: Configure SSH Key
-      run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops_data_migration_configure-ssh-key.sh
-
-    # Export Vault-sourced migration credentials into GITHUB_ENV for the run step.
-    - name: Export migration credentials
-      run: |
-        echo "VAULT_TOKEN=${{ steps.vault.outputs.vault_token }}"                       >> "$GITHUB_ENV"
-        echo "MIGRATION_S3_BUCKET=${{ steps.vault.outputs.MIGRATION_S3_BUCKET }}"       >> "$GITHUB_ENV"
-        echo "MIGRATION_S3_ACCESS_KEY=${{ steps.vault.outputs.MIGRATION_S3_ACCESS_KEY }}" >> "$GITHUB_ENV"
-        echo "MIGRATION_S3_SECRET_KEY=${{ steps.vault.outputs.MIGRATION_S3_SECRET_KEY }}" >> "$GITHUB_ENV"
-        echo "MIGRATION_S3_REGION=${{ steps.vault.outputs.MIGRATION_S3_REGION }}"       >> "$GITHUB_ENV"
-        echo "MIGRATION_S3_ENDPOINT=${{ steps.vault.outputs.MIGRATION_S3_ENDPOINT }}"   >> "$GITHUB_ENV"
-
-    - name: Run Toolkit Action (${{ needs.provision.outputs.toolkit_action }})
-      working-directory: platform-ops-toolkit
-      # All credentials (VAULT_TOKEN, MIGRATION_S3_*, ANSIBLE_*) from job env / GITHUB_ENV
-      run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops_data_migration_run-toolkit-action-needs-provision-outputs-toolkit-action.sh
-
   switch_dns:
     name: Switch DNS Traffic (Manual Approval)
-    needs: [provision, deploy_base, deploy_web_saas, deploy_infra_platform, deploy_agent_proxy, data_migration]
+    needs: [provision, deploy_base, deploy_web_saas, deploy_infra_platform, deploy_agent_proxy]
     if: |
       !cancelled() && !failure() &&
       needs.provision.outputs.terraform_action == 'apply' &&
