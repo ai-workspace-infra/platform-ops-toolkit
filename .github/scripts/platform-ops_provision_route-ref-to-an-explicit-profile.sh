@@ -148,8 +148,8 @@ case "${deployment_env}" in
     deploy_tag=latest
     ;;
   sit)
-    # 用户定义。pull_request 上没有 dispatch input, 退回 PR head SHA ——
-    # 它同样是显式且可复现的, 而"部署此刻的 main"不是。
+    # 用户定义。pull_request 上没有 dispatch input, 退回 PR head SHA。
+    # workflow_dispatch 上未给 deploy_tag 时自动退回 'latest'。
     deploy_tag="${INPUT_DEPLOY_TAG:-}"
     if [ -z "${deploy_tag}" ]; then
       head_sha="${GITHUB_SHA:-}"
@@ -157,8 +157,8 @@ case "${deployment_env}" in
         deploy_tag="${head_sha:0:12}"
         echo "sit: no deploy_tag input on a pull_request; pinning to head sha ${deploy_tag}"
       else
-        echo "::error::sit deploy_tag is empty. Pass an explicit deploy_tag on dispatch -- CD must not choose the version at deploy time." >&2
-        exit 1
+        deploy_tag="latest"
+        echo "sit: no deploy_tag input on workflow_dispatch; defaulting to ${deploy_tag}"
       fi
     fi
     ;;
