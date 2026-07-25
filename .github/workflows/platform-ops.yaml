@@ -1,10 +1,10 @@
-name: Deploy Environment & Migrate Data (Data Sync)
+name: Deploy Environment & Provision Infrastructure
 
 # =============================================================================
-# IaC ↔ 数据流单向迁移流水线 (Site Recovery)
+# IaC 环境交付与应用部署流水线 (Environment Provisioning & Deployment)
 # 1. 动态 Provision (基于 Terraform 创建新环境 platform-ops-toolkit)
-# 2. 部署基础服务 (Bootstrap 部署，跑空环境)
-# 3. 生产环境克隆与单向同步 (通过 site_migration Ansible 角色)
+# 2. 部署基础服务与业务服务 (Bootstrap Node 与全域业务服务部署)
+# 3. 可选 DNS 流量接管与发布 (Cloudflare DNS Cutover)
 # =============================================================================
 
 on:
