@@ -35,7 +35,7 @@ on:
       deploy_ref:
         description: "指定 tag / ref 点，workflow_dispatch 时默认同时作为 platform-ops-toolkit、iac_modules & playbooks、xworkspace-console 的统一拉取基准"
         required: false
-        default: "uat-platform-rebuild-2026.07.26"
+        default: ""
         type: string
       infra_ref:
         description: "iac_modules & playbooks 仓库的 Git Ref；留空则回退到 deploy_ref"
@@ -239,7 +239,10 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
-        ref: ${{ github.event.inputs.toolkit_ref || github.event.inputs.deploy_ref || '' }}
+        # Manual destroy must use the workflow code from the selected branch.
+        # Falling back to deploy_ref can silently load an older tag without
+        # the current destroy routing fix.
+        ref: ${{ github.event.inputs.toolkit_ref || github.ref_name }}
 
     - name: Validate cloud_provider
       # 多云选项是产品形态预留；当前环境副本链路只接了 vultr-vps。
