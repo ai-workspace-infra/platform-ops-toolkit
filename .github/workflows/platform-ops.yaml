@@ -600,7 +600,9 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
-        ref: ${{ needs.provision.outputs.toolkit_ref || needs.provision.outputs.deploy_ref || github.event.inputs.toolkit_ref || github.event.inputs.deploy_ref || '' }}
+        # The helper script is part of the workflow commit. The deployment tag
+        # may predate the helper and must not control this checkout.
+        ref: ${{ github.sha }}
 
     - name: Checkout playbooks
       uses: actions/checkout@v7
