@@ -24,6 +24,10 @@ Usage: tag-ai-workspace-mains.sh --tag TAG [--push]
 
 Without --push, print the main SHA and planned tag operation only.
 Existing tags are never moved. --push creates missing lightweight tags.
+Usage: tag-ai-workspace-mains.sh --tag TAG [--apply]
+
+Without --apply, print the main SHA and planned tag operation only.
+Existing tags are never moved. --apply creates missing lightweight tags.
 EOF
 }
 
