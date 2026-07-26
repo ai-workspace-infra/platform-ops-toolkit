@@ -99,7 +99,8 @@ write_role() {
     "repository": "${repo}",
     "job_workflow_ref": [
       "${repo}/.github/workflows/pipeline.yaml@*",
-      "${repo}/.github/workflows/pipeline.yml@*"
+      "${repo}/.github/workflows/pipeline.yml@*",
+      "${repo}/.github/workflows/ci-pipeline.yml@*"
     ],
     "ref": ${ref_claim}
   },
