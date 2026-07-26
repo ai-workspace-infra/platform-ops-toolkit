@@ -572,6 +572,78 @@ jobs:
       deploy_env: ${{ needs.provision.outputs.deployment_env }}
       deploy_tag: ${{ needs.provision.outputs.deploy_tag }}
 
+  initialize_web_saas_databases:
+    name: Initialize Web SaaS PostgreSQL Databases on ${{ matrix.host }}
+    needs: [provision, deploy_base, deploy_web_saas]
+    if: >-
+      ${{ !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.deploy_base.result == 'success' &&
+      needs.deploy_web_saas.result == 'success' &&
+      needs.provision.outputs.run_application_deploy == 'true' &&
+      needs.provision.outputs.terraform_action == 'apply' &&
+      needs.provision.outputs.count != '0' &&
+      (needs.provision.outputs.target_domains == 'all' || needs.provision.outputs.target_domains == 'web-saas') &&
+      needs.provision.outputs.hosts_web_saas != '[]' &&
+      needs.provision.outputs.hosts_web_saas != '' }}
+    runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host: ${{ fromJSON(needs.provision.outputs.hosts_web_saas) }}
+    env:
+      MATRIX_HOST: ${{ matrix.host }}
+      ANSIBLE_HOST_KEY_CHECKING: "False"
+      ANSIBLE_SSH_ARGS: "-o IdentityFile=~/.ssh/id_deploy -o StrictHostKeyChecking=no"
+      VAULT_ENV_PATH: ${{ needs.provision.outputs.vault_env_path }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ needs.provision.outputs.toolkit_ref || needs.provision.outputs.deploy_ref || github.event.inputs.toolkit_ref || github.event.inputs.deploy_ref || '' }}
+
+    - name: Checkout playbooks
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/playbooks
+        ref: ${{ needs.provision.outputs.infra_ref || github.event.inputs.infra_ref || github.event.inputs.deploy_ref || '' }}
+        path: playbooks
+
+    - name: Download CMDB
+      uses: actions/download-artifact@v8
+      with:
+        name: platform-ops-toolkit-cmdb
+        path: cmdb
+
+    - name: Load Vault secrets
+      id: vault
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        method: jwt
+        role: ${{ env.VAULT_ROLE }}
+        jwtGithubAudience: vault
+        exportToken: true
+        secrets: |
+          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
+
+    - name: Configure SSH Key
+      env:
+        VAULT_ANSIBLE_SSH_KEY_B64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+      run: ${{ github.workspace }}/.github/scripts/common_configure_ssh_key.sh
+
+    - name: Wait for host SSH
+      run: ${{ github.workspace }}/.github/scripts/common_wait_for_host_ssh.sh
+
+    - name: Install Ansible
+      run: ${{ github.workspace }}/.github/scripts/common_install_ansible.sh
+
+    - name: Create Web SaaS databases and roles
+      working-directory: playbooks
+      env:
+        VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
+      run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_web_saas_initialize-databases.sh
+
   deploy_infra_platform:
     name: Deploy Open Platform Services on ${{ matrix.host }}
     needs: [provision, deploy_base]
@@ -643,7 +715,7 @@ jobs:
 
   switch_dns:
     name: Switch DNS Traffic (Manual Approval)
-    needs: [provision, deploy_base, deploy_web_saas, deploy_infra_platform, deploy_agent_proxy]
+    needs: [provision, deploy_base, deploy_web_saas, initialize_web_saas_databases, deploy_infra_platform, deploy_agent_proxy]
     if: |
       !cancelled() && !failure() &&
       needs.provision.outputs.terraform_action == 'apply' &&
