@@ -97,11 +97,7 @@ write_role() {
   "bound_claims_type": "glob",
   "bound_claims": {
     "repository": "${repo}",
-    "job_workflow_ref": [
-      "${repo}/.github/workflows/pipeline.yaml@*",
-      "${repo}/.github/workflows/pipeline.yml@*",
-      "${repo}/.github/workflows/ci-pipeline.yml@*"
-    ],
+    "job_workflow_ref": "${repo}/.github/workflows/*pipeline.ym*@*",
     "ref": ${ref_claim}
   },
   "token_policies": ["github-actions-${service}"],
