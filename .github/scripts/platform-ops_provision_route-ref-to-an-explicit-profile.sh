@@ -167,7 +167,9 @@ else
       ;;
   esac
 fi
-: "${deploy_tag:?route: deploy_tag was never assigned on this trigger path}"
+# An empty deploy_tag is valid for infrastructure-only dispatches (including
+# destroy). Keep the guard for missing assignment without requiring a value.
+: "${deploy_tag+x}"
 
 # docker tag 里 '/' 非法, 所以 release/1.4 的镜像实际叫 release-1.4
 # (docker/metadata-action 自己就这么转)。这里不转的话, CD 会去 pull 一个
