@@ -106,9 +106,12 @@ ai-workspace-infra/
 - 当前优先仓库: `accounts`、`portal`
 - 当前优先对齐项: `gitops` 里的数据库与 stunnel 结构、UAT 交付链验证
 - 当前 compose 约定: `postgres` 仅内网 `5432`，`stunnel-server` 对外 `15433`，`stunnel-client` 对内 `15432`
+- 当前状态: `gitops` 与 `platform-ops-toolkit` 已各自形成可合并 PR，等待 review / merge
+- PR 链接: [gitops #120](https://github.com/ai-workspace-infra/gitops/pull/120)，[platform-ops-toolkit #128](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/128)
 
 ### 这条线的阶段目标
 
 - 先把 5 个仓库的 CI 结论统一成可复用的诊断格式
 - 再补齐四个业务域的部署差异表
+- 然后把 web-saas 的 compose 拓扑、billing 默认值、文档说明统一到最终端口语义
 - 最后验证 UAT 主机上的 Doco-CD 收敛和 DNS 发布

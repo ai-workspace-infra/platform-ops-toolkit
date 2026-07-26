@@ -27,7 +27,7 @@ The replacement module lives in the `iac_modules` repository at
 2. Downgrades require `confirm_resize=true`.
 3. Replacement Terraform must contain exactly one create and zero deletes.
 4. DNS is changed only after the replacement health check succeeds and
-   `switch_dns=true` is selected.
+   `confirm_dns_switch=true` is selected.
 5. The source instance is retained for the observation window by default.
 6. Production runs should use the `resize-prod` GitHub Environment with an
    approval rule before allowing the workflow to continue.

@@ -193,6 +193,13 @@
 
 当 compose 结构明确后，UAT 的部署链路才有稳定输入，否则验证会卡在“镜像对了但服务没法起”。
 
+### 当前进度
+
+- `gitops` 已补齐 web-saas 的最终端口拓扑与 billing exporter 默认值，并提交为 PR #120
+- `platform-ops-toolkit` 已同步 web-saas 文档与总进度页，并提交为 PR #128
+- UAT 节点已按最终语义收敛到 `postgres:5432`、`stunnel-server:15433`、`stunnel-client:15432`
+- `billing` 已从“缺 exporter 配置导致重启”修复为正常启动
+
 ---
 
 ## 3. 子代理分工

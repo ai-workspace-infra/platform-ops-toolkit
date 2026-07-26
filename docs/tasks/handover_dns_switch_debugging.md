@@ -58,7 +58,8 @@ UAT 主机:`console-uat.onwalk.net` / `167.179.64.91`(Vultr nrt)。
 
 - `instance_plan=4C8G` 与现有实例一致 → Terraform no-op,绕开 resize;
 - 正常路径有独立的 `switch_dns` job(挂 environment: production,需人工审批);
-- `confirm_dns_switch=true`。
+- `confirm_dns_switch=true` 是唯一触发信号。
+- `switch_dns` 不再绑定那些会被路由成 `skipped` 的无关部署 job，避免审批后还被上游条件连坐。
 
 ### 现象三:deploy_base 在 Load Vault secrets 失败(已修 #107,待合)
 
@@ -112,7 +113,8 @@ run 30063710395 的 TF 计划 `vc2-4c-8gb -> vc2-2c-4gb` 即证据。2C4G 没"�
    confirm_dns_switch=true / vault_env_path=uat)。
 2. 预期链路:provision(no-op)→ deploy_base(docker 安装 +
    web_saas_host_config + Doco-CD 轮询 gitops 60s)→ deploy_web_saas(发布
-   tag 到 gitops)→ Doco-CD 拉起套件 → switch_dns(人工审批)。
+   tag 到 gitops)→ Doco-CD 拉起套件 → switch_dns(人工审批,仅依赖
+   `confirm_dns_switch=true`)。
 3. 打通后再按用户后续要求:(a)真降配到 2C4G 走 action=resize(依赖 #106);
    (b)调整 ENV 定义 / 环境变量切换。
 

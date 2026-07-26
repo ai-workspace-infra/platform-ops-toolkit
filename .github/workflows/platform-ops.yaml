@@ -68,7 +68,7 @@ on:
         default: "onwalk.net"
         type: string
       run_full_stack:
-        description: "一键整套初始化: 申请 IaC 资源 -> 部署业务应用 -> 发布 DNS。勾选后强制打开下面两个开关与 DNS 发布, 用于从零拉起一个 sit/uat/prod 副本"
+        description: "一键整套初始化: 申请 IaC 资源 -> 部署业务应用。勾选后强制打开下面两个开关, 用于从零拉起一个 sit/uat/prod 副本"
         required: false
         default: false
         type: boolean
@@ -637,11 +637,11 @@ jobs:
 
   switch_dns:
     name: Switch DNS Traffic (Manual Approval)
-    needs: [provision, deploy_base, deploy_web_saas, deploy_infra_platform, deploy_agent_proxy]
+    needs: [provision, deploy_base, deploy_web_saas]
     if: |
-      !cancelled() && !failure() &&
-      needs.provision.outputs.terraform_action == 'apply' &&
-      (github.event.inputs.confirm_dns_switch == 'true' || github.event.inputs.confirm_dns_switch == true)
+      always() &&
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.confirm_dns_switch == 'true'
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     environment: production
     env:
@@ -690,6 +690,5 @@ jobs:
     - name: Switch Cloudflare DNS Records
       env:
         CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
-        # PROVISION_TARGET_DOMAIN_BASE / PROVISION_SOURCE_DOMAIN_BASE / INPUT_RUN_PROVISION_AND_DEPLOY from job env
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops_switch_dns_switch-cloudflare-dns-records.sh

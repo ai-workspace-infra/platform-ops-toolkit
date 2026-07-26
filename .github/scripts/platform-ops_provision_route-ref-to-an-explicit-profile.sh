@@ -39,14 +39,12 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   run_infrastructure="${INPUT_RUN_INFRASTRUCTURE:-false}"
   run_application_deploy="${INPUT_RUN_APPLICATION_DEPLOY:-false}"
 
-  # 一键整套初始化: 申请 IaC 资源 -> 部署业务应用 -> 发布 DNS。
-  # 它不是第三种模式, 只是把上面两个开关和 DNS 发布一起打开, 这样"整套拉起
+  # 一键整套初始化: 申请 IaC 资源 -> 部署业务应用。
+  # 它不是第三种模式, 只是把上面两个开关一起打开, 这样"整套拉起
   # 一个 sit/uat/prod 副本"是一次勾选, 而不是三次且必须记住顺序。
-  # 显式覆盖而非 || 兜底: 勾了它就是要整套, 不该被同时传入的 false 悄悄削弱。
   if [ "${INPUT_RUN_FULL_STACK:-false}" = "true" ]; then
     run_infrastructure=true
     run_application_deploy=true
-    confirm_dns_switch_override=true
   fi
 
   # 非法组合必须显式失败, 不能静默跳过: 部署所用的 inventory (CMDB) 是在
@@ -81,7 +79,7 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   source_host="${INPUT_SOURCE_HOST}"
   source_domain_base="${INPUT_SOURCE_DOMAIN_BASE}"
   target_domain_base="${INPUT_TARGET_DOMAIN_BASE}"
-  confirm_dns_switch="${confirm_dns_switch_override:-${INPUT_CONFIRM_DNS_SWITCH}}"
+  confirm_dns_switch="${INPUT_CONFIRM_DNS_SWITCH}"
 else
   GITHUB_EVENT_NAME="${GITHUB_EVENT_NAME:-}"
   if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
