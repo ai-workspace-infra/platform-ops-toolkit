@@ -86,8 +86,10 @@ EOF
 #   token_type=batch          CI 用不可续期 token
 # -----------------------------------------------------------------------------
 # $1=service $2=env suffix $3=ref claim JSON $4=repository
+# $5=workflow glob (optional; defaults to the service CI pipeline convention)
 write_role() {
   local service="$1" suffix="$2" ref_claim="$3" repo="$4"
+  local workflow_glob="${5:-${repo}/.github/workflows/*pipeline.ym*@*}"
   echo "  role github-actions-${service}-${suffix}  <- ${repo}"
   vault write "auth/jwt/role/github-actions-${service}-${suffix}" - <<EOF
 {
@@ -97,7 +99,7 @@ write_role() {
   "bound_claims_type": "glob",
   "bound_claims": {
     "repository": "${repo}",
-    "job_workflow_ref": "${repo}/.github/workflows/*pipeline.ym*@*",
+    "job_workflow_ref": "${workflow_glob}",
     "ref": ${ref_claim}
   },
   "token_policies": ["github-actions-${service}"],
@@ -126,15 +128,31 @@ process_repo() {
   write_role "${service}" prod '"refs/tags/v*"' "${repo}"
 }
 
+# gitops is a deployment-consumer repository rather than a service image
+# producer, but its PR guard still needs read-only GHCR credentials to verify
+# every image declared in compose. Its workflow name is intentionally explicit
+# and must be bound separately from the service CI pipeline convention.
+process_gitops_repo() {
+  local repo="ai-workspace-infra/gitops"
+  local workflow="${repo}/.github/workflows/validate-release-pr.yml@*"
+  echo "=== gitops (${repo})"
+  write_service_policy gitops
+
+  write_role gitops sit 'refs/pull/*/merge' "${repo}" "${workflow}"
+  write_role gitops uat 'refs/heads/main' "${repo}" "${workflow}"
+  write_role gitops prod '"refs/tags/v*"' "${repo}" "${workflow}"
+}
+
 process_repo accounts         ai-workspace-services/accounts
 process_repo billing-service  ai-workspace-services/billing-service
 process_repo console          ai-workspace-services/portal
 process_repo docs             ai-workspace-services/docs
 process_repo postgresql       ai-workspace-infra/postgresql.svc.plus
+process_gitops_repo
 
 cat <<'EOF'
 
-Done. 5 个服务各创建了 1 个 policy + 3 个 role。
+Done. 5 个服务与 gitops 各创建了 1 个 policy + 3 个 role。
 
 每个 role 只能读 kv/data/CICD（GHCR 凭据），读不到任何 kv/data/CICD/<env>
 下的云账号 / TF state / SSH 私钥。
