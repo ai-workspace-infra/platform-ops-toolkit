@@ -105,7 +105,7 @@ ai-workspace-infra/
 - 任务入口: [2026-07-26-ci-debugging-subagents-compose-and-uat-end-to-end.md](2026-07-26-ci-debugging-subagents-compose-and-uat-end-to-end.md)
 - 当前优先仓库: `accounts`、`portal`
 - 当前优先对齐项: `gitops` 里的数据库与 stunnel 结构、UAT 交付链验证
-- 当前 compose 约定: `compose -> postgres` 用本机 `15433`，`compose -> stunnel-client -> stunnel-server -> postgres` 用 `15432`
+- 当前 compose 约定: `postgres` 仅内网 `5432`，`stunnel-server` 对外 `15433`，`stunnel-client` 对内 `15432`
 
 ### 这条线的阶段目标
 

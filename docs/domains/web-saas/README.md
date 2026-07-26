@@ -52,6 +52,8 @@ provision 出来的主机上。
 | `ACCOUNT_DB_PASSWORD` | `account` 库 `account_user` 账号的密码，由 `create_databases_and_users.yml` 建号时使用，也是 `accounts.svc.plus` 连库用的密码。 |
 | `BILLING_DATABASE_URL` | billing-service 的完整 Postgres 连接串（`postgres://user:pass@stunnel-client:15432/db?sslmode=disable`），可以复用 `account_user`/`account`，也可以单独建一个账号。 |
 | `INTERNAL_SERVICE_TOKEN` | billing-service 内部服务间鉴权 token。 |
+| `EXPORTER_BASE_URL` | billing-service 的单源兼容入口，默认 `http://127.0.0.1:8080`。 |
+| `EXPORTER_SOURCES_JSON` | billing-service 的主路径来源列表。当前 web-saas 先写单源 `xhttp-local`，后续可平滑扩成多源。 |
 
 **公共服务**密钥放在共享的 `kv/data/CICD`（三个环境共读、只读不可改）：
 
@@ -152,10 +154,11 @@ EOF
 ## 5. `deploy_web_saas` 部署链路
 
 单机部署：5 个服务都跑在同一台 provision 出来的主机上。这个模式下，
-`postgres` 走本机直连，`stunnel-server` 只是可选的跨节点 TLS 入口；
-如果需要跨节点访问，就由 `stunnel-client -> stunnel-server -> postgres`
-这条链路对外提供服务。因此必须先补齐生产环境里各服务各自假设「已经存在」
-的共享前置条件——全新主机上这些都不存在。
+`postgres` 只提供容器内 `5432`，`stunnel-server` 对外暴露 `15433`，
+`stunnel-client` 则在应用侧提供 `15432` 的本地代理端口；如果需要跨节点访问，
+就由 `stunnel-client -> stunnel-server -> postgres` 这条链路对外提供服务。
+因此必须先补齐生产环境里各服务各自假设「已经存在」的共享前置条件——全新
+主机上这些都不存在。
 
 ### 5.1 四个前置条件的落位
 
@@ -193,9 +196,9 @@ Install Ansible
   已在目标主机本地存在。它不是公开镜像，而是 postgresql.svc.plus 仓库里编译
   pgvector/pg_jieba/pgmq 的自定义镜像，从未发布到任何 registry——全新主机上
   `compose up` 会去 Docker Hub 拉 `postgres-extensions` 从而 404/403。
-- **`postgres` 的本机端口和 `stunnel-server` 的 TLS 端口必须分开**。当前约定是：
-  `postgres` 绑定 `127.0.0.1:15433`，`stunnel-server` 绑定 `15432`。这样单节点
-  调试可以直接连本机数据库，跨节点则走 stunnel 链路，二者不会抢同一个 host 端口。
+- **端口语义必须固定**。当前约定是：`postgres` 只监听容器内 `5432`，
+  `stunnel-server` 对外占 `15433`，`stunnel-client` 对内占 `15432`。
+  这样单节点和跨节点都走同一条服务语义链，但不会把数据库端口和 TLS 入口混在一起。
 - **GHCR 登录必须早于 Postgres**。`stunnel-server` / `accounts` 等镜像是 GHCR
   私有包，全新主机没有登录态，隐式 pull 直接 unauthorized。
 - **schema 只在 `users` 表不存在时灌一次**。`schema.sql` 是 drop+recreate 的基线，
@@ -233,14 +236,16 @@ Install Ansible
 | 模式 | 连接路径 | 适用场景 | 需要的组件 |
 |---|---|---|---|
 | 单节点直连 | `compose -> postgres` | 同一台主机上的本机调试、脚本、备份验证 | `postgres` 即可 |
+| 本机代理 | `compose -> stunnel-client -> postgres` | 应用侧统一走本地 15432 入口 | `postgres + stunnel-client` |
 | 跨节点 TLS | `compose -> stunnel-client -> stunnel-server -> postgres` | 远程主机访问、跨宿主机业务服务连接 | `postgres + stunnel-server + stunnel-client` |
 
 切换原则：
 
-- `stunnel-server` 负责对外 TLS 入口，固定占用 `15432`
-- `postgres` 只提供本机直连端口，固定改用 `15433`
+- `postgres` 只承担数据库存储，不再对宿主机额外发布端口
+- `stunnel-server` 负责对外 TLS 入口，固定占用 `15433`
+- `stunnel-client` 负责应用侧本地代理，固定占用 `15432`
 - 业务容器默认继续走 `stunnel-client`，这样跨节点模式无需改业务配置
-- 如果要做纯单节点验收，可以直接用主机上的 `127.0.0.1:15433` 连库，不必额外起 stunnel-client
+- 如果要做纯单节点验收，可以直接在同网段容器里连 `postgres:5432`，不必经过 stunnel-client
 
 新增任何会改动主机的步骤时，若它使用 ansible ad-hoc（而非 `ansible-playbook`），
 必须确认失败会被传播——ad-hoc 的 0 主机命中不会返回非零退出码。
