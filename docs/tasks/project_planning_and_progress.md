@@ -92,3 +92,23 @@ ai-workspace-infra/
 ### ⏳ Phase 4: MCP Server Integration (规划中)
 - [ ] 构建 MCP Server，暴露 `environment.list`, `deployment.create`, `migration.plan` 等工具给 AI Agent。
 - [ ] 实现 Agent 操作与 Policy Engine 的安全拦截对接。
+
+---
+
+## 5. 当前推进中的交付线索
+
+### ⏳ 交付线索 A：CI 子代理调试 + 四域 compose 补全 + UAT 端到端
+
+这条线正在独立推进，目标是把“逐仓 CI 调试”、“`gitops` 四域结构差异整理”和
+“IaC → Doco-CD → DNS”串成一条可重复执行的交付链。
+
+- 任务入口: [2026-07-26-ci-debugging-subagents-compose-and-uat-end-to-end.md](2026-07-26-ci-debugging-subagents-compose-and-uat-end-to-end.md)
+- 当前优先仓库: `accounts`、`portal`
+- 当前优先对齐项: `gitops` 里的数据库与 stunnel 结构、UAT 交付链验证
+- 当前 compose 约定: `postgres` 仅内网 `5432`，`stunnel-server` 对外 `15433`，`stunnel-client` 对内 `15432`
+
+### 这条线的阶段目标
+
+- 先把 5 个仓库的 CI 结论统一成可复用的诊断格式
+- 再补齐四个业务域的部署差异表
+- 最后验证 UAT 主机上的 Doco-CD 收敛和 DNS 发布
