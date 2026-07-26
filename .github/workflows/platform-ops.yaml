@@ -239,7 +239,10 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
-        ref: ${{ github.event.inputs.toolkit_ref || github.event.inputs.deploy_ref || '' }}
+        # Manual destroy must use the workflow code from the selected branch.
+        # Falling back to deploy_ref can silently load an older tag without
+        # the current destroy routing fix.
+        ref: ${{ github.event.inputs.toolkit_ref || github.ref_name }}
 
     - name: Validate cloud_provider
       # 多云选项是产品形态预留；当前环境副本链路只接了 vultr-vps。
