@@ -103,6 +103,7 @@ ai-workspace-infra/
 “IaC → Doco-CD → DNS”串成一条可重复执行的交付链。
 
 - 任务入口: [2026-07-26-ci-debugging-subagents-compose-and-uat-end-to-end.md](2026-07-26-ci-debugging-subagents-compose-and-uat-end-to-end.md)
+- 单 tag 环境副本入口: [2026-07-26-single-tag-environment-replica.md](2026-07-26-single-tag-environment-replica.md)
 - 当前优先仓库: `accounts`、`portal`
 - 当前优先对齐项: `gitops` 里的数据库与 stunnel 结构、UAT 交付链验证
 - 当前 compose 约定: `postgres` 仅内网 `5432`，`stunnel-server` 对外 `15433`，`stunnel-client` 对内 `15432`
