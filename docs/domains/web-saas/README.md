@@ -151,8 +151,11 @@ EOF
 
 ## 5. `deploy_web_saas` 部署链路
 
-单机部署：5 个服务都跑在同一台 provision 出来的主机上。因此必须先补齐生产环境里
-各服务各自假设「已经存在」的共享前置条件——全新主机上这些都不存在。
+单机部署：5 个服务都跑在同一台 provision 出来的主机上。这个模式下，
+`postgres` 走本机直连，`stunnel-server` 只是可选的跨节点 TLS 入口；
+如果需要跨节点访问，就由 `stunnel-client -> stunnel-server -> postgres`
+这条链路对外提供服务。因此必须先补齐生产环境里各服务各自假设「已经存在」
+的共享前置条件——全新主机上这些都不存在。
 
 ### 5.1 四个前置条件的落位
 
@@ -175,7 +178,7 @@ Install Ansible
   → 构建并灌入 postgres-extensions 镜像      (runner build → docker save | ssh docker load)
   → GHCR 登录                                (目标主机 docker login，后续私有镜像才拉得动)
   → Postgres
-  → stunnel-client
+  → stunnel-client (仅跨节点模式需要)
   → 建 account 库 + 账号
   → 灌基线 schema
   → accounts → billing → console
@@ -190,6 +193,9 @@ Install Ansible
   已在目标主机本地存在。它不是公开镜像，而是 postgresql.svc.plus 仓库里编译
   pgvector/pg_jieba/pgmq 的自定义镜像，从未发布到任何 registry——全新主机上
   `compose up` 会去 Docker Hub 拉 `postgres-extensions` 从而 404/403。
+- **`postgres` 的本机端口和 `stunnel-server` 的 TLS 端口必须分开**。当前约定是：
+  `postgres` 绑定 `127.0.0.1:15433`，`stunnel-server` 绑定 `15432`。这样单节点
+  调试可以直接连本机数据库，跨节点则走 stunnel 链路，二者不会抢同一个 host 端口。
 - **GHCR 登录必须早于 Postgres**。`stunnel-server` / `accounts` 等镜像是 GHCR
   私有包，全新主机没有登录态，隐式 pull 直接 unauthorized。
 - **schema 只在 `users` 表不存在时灌一次**。`schema.sql` 是 drop+recreate 的基线，
@@ -219,8 +225,22 @@ Install Ansible
 ### 5.4 假绿防护
 
 `common_assert_ansible_host.sh` 接在首个改机步骤（步骤 12 bootstrap）头部，
-断言目标主机在 inventory 中可解析且可达，0 主机命中时**直接 fail red**。
-一道断言保护整条序列。
+  断言目标主机在 inventory 中可解析且可达，0 主机命中时**直接 fail red**。
+  一道断言保护整条序列。
+
+### 5.5 两种数据库拓扑的切换约定
+
+| 模式 | 连接路径 | 适用场景 | 需要的组件 |
+|---|---|---|---|
+| 单节点直连 | `compose -> postgres` | 同一台主机上的本机调试、脚本、备份验证 | `postgres` 即可 |
+| 跨节点 TLS | `compose -> stunnel-client -> stunnel-server -> postgres` | 远程主机访问、跨宿主机业务服务连接 | `postgres + stunnel-server + stunnel-client` |
+
+切换原则：
+
+- `stunnel-server` 负责对外 TLS 入口，固定占用 `15432`
+- `postgres` 只提供本机直连端口，固定改用 `15433`
+- 业务容器默认继续走 `stunnel-client`，这样跨节点模式无需改业务配置
+- 如果要做纯单节点验收，可以直接用主机上的 `127.0.0.1:15433` 连库，不必额外起 stunnel-client
 
 新增任何会改动主机的步骤时，若它使用 ansible ad-hoc（而非 `ansible-playbook`），
 必须确认失败会被传播——ad-hoc 的 0 主机命中不会返回非零退出码。
