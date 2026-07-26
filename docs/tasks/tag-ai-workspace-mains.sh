@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Create one immutable snapshot tag on the business application repositories.
-# Infrastructure, GitOps, playbooks, docs, and platform repositories are not
-# release inputs for this application snapshot.
+# Create one immutable snapshot tag on the platform delivery and application
+# repositories that must agree on one reproducible environment point.
+# Other infrastructure, docs, and configuration repositories are excluded.
 
 TAG=""
 APPLY=false
-BUSINESS_REPOS=(
+SNAPSHOT_REPOS=(
+  ai-workspace-infra/platform-ops-toolkit
+  ai-workspace-infra/iac_modules
+  ai-workspace-infra/playbooks
+  ai-workspace-infra/gitops
+  ai-workspace-lab/xworkspace-console
   ai-workspace-services/accounts
   ai-workspace-services/billing-service
   ai-workspace-services/portal
@@ -53,7 +58,7 @@ done
 
 gh auth status >/dev/null
 
-for repo in "${BUSINESS_REPOS[@]}"; do
+for repo in "${SNAPSHOT_REPOS[@]}"; do
   sha="$(gh api "repos/${repo}/commits/main" --jq .sha)"
   if ref_json="$(gh api "repos/${repo}/git/ref/tags/${TAG}" 2>/dev/null)"; then
     existing="$(jq -r '.object.sha // empty' <<<"${ref_json}")"
