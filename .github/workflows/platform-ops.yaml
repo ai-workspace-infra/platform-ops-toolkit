@@ -124,7 +124,7 @@ on:
         - 2C4G
         - 1C2G
       action:
-        description: "执行动作 (resize 会用替代实例完成降配，并在接管 Terraform state 后继续部署)"
+        description: "执行动作 (destroy 将自动执行 Terraform 销毁，不受 run_infrastructure 开关影响)"
         required: true
         default: "deploy"
         type: choice

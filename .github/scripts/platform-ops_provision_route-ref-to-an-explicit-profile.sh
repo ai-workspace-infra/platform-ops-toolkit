@@ -39,6 +39,14 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   run_infrastructure="${INPUT_RUN_INFRASTRUCTURE:-false}"
   run_application_deploy="${INPUT_RUN_APPLICATION_DEPLOY:-false}"
   deploy_ref="${INPUT_DEPLOY_REF}"
+  user_action="${INPUT_ACTION}"
+
+  if [ "$user_action" = "destroy" ]; then
+    # Destroy is an infrastructure-only action and must not depend on the
+    # optional run_infrastructure checkbox.
+    run_infrastructure=true
+    run_application_deploy=false
+  fi
 
   # 一键整套初始化: 申请 IaC 资源 -> 部署业务应用 -> 发布 DNS。
   # 它不是第三种模式, 只是把上面两个开关和 DNS 发布一起打开, 这样"整套拉起
@@ -67,7 +75,6 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
       ;;
   esac
   
-  user_action="${INPUT_ACTION}"
   if [ "$user_action" = "destroy" ]; then
     terraform_action="destroy"
     toolkit_action="none"
