@@ -32,19 +32,25 @@ on:
         options:
         - ubuntu-latest
         - self-hosted
-      infra_ref:
-        description: "iac_modules & playbooks 仓库共用的 Git Ref (分支名或 Tag 均可)"
+      deploy_ref:
+        description: "指定 tag / ref 点，workflow_dispatch 时默认同时作为 platform-ops-toolkit、iac_modules & playbooks、xworkspace-console 的统一拉取基准"
         required: false
-        default: "main"
+        default: "uat-platform-rebuild-2026.07.26"
+        type: string
+      infra_ref:
+        description: "iac_modules & playbooks 仓库的 Git Ref；留空则回退到 deploy_ref"
+        required: false
+        default: ""
         type: string
       toolkit_ref:
-        description: "platform-ops-toolkit 仓库的 Git Ref (例如 main, v1.0.0)。用于跨 Tag 触发时拉取指定代码"
+        description: "platform-ops-toolkit 仓库的 Git Ref；留空则回退到 deploy_ref"
         required: false
+        default: ""
         type: string
       console_ref:
-        description: "xworkspace-console 仓库的 Git Ref (例如 main, v1.1.5, v1.1.4)"
+        description: "xworkspace-console 仓库的 Git Ref；留空则回退到 deploy_ref"
         required: false
-        default: "main"
+        default: ""
         type: string
       offline_mode:
         description: "on-host 离线包模式: off=在线拉最新(默认); auto=离线加速; force=强制离线"
@@ -94,13 +100,14 @@ on:
         - infra-platform
         - agent-proxy
       deploy_tag:
-        description: "部署版本 (SIT 必填, 用户定义; UAT 恒为 latest; PROD 取触发的 v* tag, dispatch 到 prod 时必须显式给 v* 或 release/*)"
+        description: "部署版本 (留空则自动与 deploy_ref 对齐; 仅需要服务版本不同于副本基准时覆盖)"
         required: false
         default: ""
         type: string
       cloud_provider:
-        description: "云服务商 (目前仅 vultr-vps 已实现四个业务域的资源声明/凭据/Terraform 模块; 其余选项预留给未来多云支持, 选择后会在 provision 阶段直接失败, 不会被静默按 vultr 处理)"
+        description: "云服务商 (多云选项为预留; 目前这条环境副本链路实际能跑的是 vultr-vps, 选择其它云会在 provision 阶段明确失败)"
         required: true
+        default: "vultr-vps"
         type: choice
         options:
         - aws-cloud
@@ -191,6 +198,8 @@ jobs:
       INPUT_RUN_INFRASTRUCTURE:    ${{ github.event.inputs.run_infrastructure }}
       INPUT_RUN_APPLICATION_DEPLOY:     ${{ github.event.inputs.run_application_deploy }}
       INPUT_ACTION:                ${{ github.event.inputs.action }}
+      INPUT_DEPLOY_REF:            ${{ github.event.inputs.deploy_ref }}
+      INPUT_TOOLKIT_REF:           ${{ github.event.inputs.toolkit_ref }}
       INPUT_INFRA_REF:             ${{ github.event.inputs.infra_ref }}
       INPUT_CONSOLE_REF:           ${{ github.event.inputs.console_ref }}
       INPUT_OFFLINE_MODE:          ${{ github.event.inputs.offline_mode }}
@@ -210,6 +219,7 @@ jobs:
       deploy_tag:               ${{ steps.route.outputs.deploy_tag }}
       terraform_action:         ${{ steps.route.outputs.terraform_action }}
       toolkit_action:           ${{ steps.route.outputs.toolkit_action }}
+      toolkit_ref:              ${{ steps.route.outputs.toolkit_ref }}
       infra_ref:                ${{ steps.route.outputs.infra_ref }}
       console_ref:              ${{ steps.route.outputs.console_ref }}
       offline_mode:             ${{ steps.route.outputs.offline_mode }}
@@ -229,17 +239,13 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
-        ref: ${{ github.event.inputs.toolkit_ref || '' }}
+        ref: ${{ github.event.inputs.toolkit_ref || github.event.inputs.deploy_ref || '' }}
 
     - name: Validate cloud_provider
-      # 目前 config/resources/{sit,uat,prod}/*.yaml、Vault 基础凭据(VULTR_API_KEY)、
-      # VPS_ROOT/ENV_DIR 全部写死指向 vultr-vps —— 四个业务域都没有 aws-cloud /
-      # gcp-cloud / azure-cloud 的资源声明或凭据。选了别的选项如果不在这里拦截,
-      # 会静默继续用 vultr-vps 的资源/凭据部署, 而 UI 上却显示选的是别的云 ——
-      # 这正是本仓这几天一直在消灭的那类"看起来选对了、实际部署到别的目标"。
-      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cloud_provider != 'vultr-vps' }}
+      # 多云选项是产品形态预留；当前环境副本链路只接了 vultr-vps。
+      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cloud_provider != '' && github.event.inputs.cloud_provider != 'vultr-vps' }}
       run: |
-        echo "::error::cloud_provider='${{ github.event.inputs.cloud_provider }}' is not implemented. Only 'vultr-vps' has resource declarations, credentials, and a wired Terraform module." >&2
+        echo "::error::cloud_provider='${{ github.event.inputs.cloud_provider }}' is reserved but not wired for this environment-replica workflow yet. Use 'vultr-vps' for now." >&2
         exit 1
 
     - name: Route ref to an explicit profile
@@ -431,7 +437,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
-        ref: ${{ github.event.inputs.toolkit_ref || '' }}
+        ref: ${{ github.event.inputs.toolkit_ref || github.event.inputs.deploy_ref || '' }}
 
     - name: Checkout playbooks
       uses: actions/checkout@v7
@@ -641,7 +647,7 @@ jobs:
     if: |
       !cancelled() && !failure() &&
       needs.provision.outputs.terraform_action == 'apply' &&
-      (github.event.inputs.confirm_dns_switch == 'true' || github.event.inputs.confirm_dns_switch == true)
+      needs.provision.outputs.confirm_dns_switch == 'true'
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     environment: production
     env:
@@ -652,7 +658,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
-        ref: ${{ github.event.inputs.toolkit_ref || '' }}
+        ref: ${{ github.event.inputs.toolkit_ref || github.event.inputs.deploy_ref || '' }}
 
     - name: Download CMDB
       # 与上传条件保持一致: artifact 只在基础设施阶段 apply 时产生。

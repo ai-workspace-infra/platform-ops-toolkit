@@ -38,6 +38,7 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   # 两者默认都是 false, 手动触发必须显式选择要做什么。
   run_infrastructure="${INPUT_RUN_INFRASTRUCTURE:-false}"
   run_application_deploy="${INPUT_RUN_APPLICATION_DEPLOY:-false}"
+  deploy_ref="${INPUT_DEPLOY_REF}"
 
   # 一键整套初始化: 申请 IaC 资源 -> 部署业务应用 -> 发布 DNS。
   # 它不是第三种模式, 只是把上面两个开关和 DNS 发布一起打开, 这样"整套拉起
@@ -75,8 +76,9 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     toolkit_action="$user_action"
   fi
   
-  infra_ref="${INPUT_INFRA_REF}"
-  console_ref="${INPUT_CONSOLE_REF}"
+  infra_ref="${INPUT_INFRA_REF:-${deploy_ref}}"
+  console_ref="${INPUT_CONSOLE_REF:-${deploy_ref}}"
+  toolkit_ref="${INPUT_TOOLKIT_REF:-${deploy_ref}}"
   offline_mode="${INPUT_OFFLINE_MODE}"
   source_host="${INPUT_SOURCE_HOST}"
   source_domain_base="${INPUT_SOURCE_DOMAIN_BASE}"
@@ -91,7 +93,7 @@ else
     # terraform_action == 'apply', 所以 plan 会让它们全部 skip ——
     # PR 仍然校验 terraform 配置, 但不再创建真实 VPS。
     run_infrastructure=true; run_application_deploy=false
-    terraform_action=plan; toolkit_action=none; infra_ref=main; console_ref=main; offline_mode=off
+    terraform_action=plan; toolkit_action=none; infra_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
     source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-sit; confirm_dns_switch=false
   else
     case "${GITHUB_REF}" in
@@ -99,21 +101,21 @@ else
         deployment_env=uat; resource_file=uat/web-saas; terraform_workspace=web-saas-uat
         state_key=platform-ops-toolkit/uat/web-saas.tfstate; target_domains=web-saas
         run_infrastructure=true; run_application_deploy=true
-        terraform_action=apply; toolkit_action=deploy; infra_ref=main; console_ref=main; offline_mode=off
+        terraform_action=apply; toolkit_action=deploy; infra_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
         source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-uat; confirm_dns_switch=false
         ;;
       refs/tags/v*)
         deployment_env=prod; resource_file=prod/web-saas; terraform_workspace=web-saas-prod
         state_key=platform-ops-toolkit/prod/web-saas.tfstate; target_domains=web-saas
         run_infrastructure=true; run_application_deploy=true
-        terraform_action=apply; toolkit_action=deploy; infra_ref=main; console_ref=main; offline_mode=off
+        terraform_action=apply; toolkit_action=deploy; infra_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
         source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=""; confirm_dns_switch=false
         ;;
       *)
         deployment_env=sit; resource_file=sit/all-in-one; terraform_workspace=all-in-one-sit
         state_key=platform-ops-toolkit/sit/all-in-one.tfstate; target_domains=all
         run_infrastructure=true; run_application_deploy=true
-        terraform_action=apply; toolkit_action=deploy; infra_ref=main; console_ref=main; offline_mode=off
+        terraform_action=apply; toolkit_action=deploy; infra_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
         source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-sit; confirm_dns_switch=false
         ;;
     esac
@@ -124,49 +126,40 @@ fi
 : "${run_infrastructure:?route: run_infrastructure was never assigned on this trigger path}"
 : "${run_application_deploy:?route: run_application_deploy was never assigned on this trigger path}"
 
-# 部署版本。领域 CD 绝不在部署时自行决定版本 —— 没有显式 tag 就等于"部署此刻的
-# main", 那是一次无法复现、也无法回滚到确切内容的发布。约定见
-# docs/domains/DELIVERY-MANIFEST.md。
-case "${deployment_env}" in
-  prod)
-    # 触发它的 v* tag 本身就是版本。dispatch 到 prod 时没有 tag 可读, 必须显式给。
-    case "${GITHUB_REF:-}" in
-      refs/tags/v*) deploy_tag="${GITHUB_REF_NAME}" ;;
-      *)
-        deploy_tag="${INPUT_DEPLOY_TAG:-}"
-        case "${deploy_tag}" in
-          v*|release/*) ;;
-          *)
-            echo "::error::prod deploy_tag must be a v* tag or release/* ref, got '${deploy_tag}'. A prod release without an explicit version cannot be reproduced or rolled back." >&2
-            exit 1
-            ;;
-        esac
-        ;;
-    esac
-    ;;
-  uat)
-    deploy_tag=latest
-    ;;
-  sit)
-    # 用户定义。pull_request 上没有 dispatch input, 退回 PR head SHA。
-    # workflow_dispatch 上未给 deploy_tag 时自动退回 'latest'。
-    deploy_tag="${INPUT_DEPLOY_TAG:-}"
-    if [ -z "${deploy_tag}" ]; then
+# 部署版本。workflow_dispatch 用 deploy_ref 作为默认副本版本；push/PR 保持
+# 原有环境路由，避免普通 main/release 触发被手动副本语义影响。
+if [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; then
+  deploy_tag="${INPUT_DEPLOY_TAG:-${deploy_ref}}"
+else
+  case "${deployment_env}" in
+    prod)
+      case "${GITHUB_REF:-}" in
+        refs/tags/v*) deploy_tag="${GITHUB_REF_NAME}" ;;
+        *)
+          echo "::error::prod deploy_tag must come from a v* tag on non-dispatch triggers." >&2
+          exit 1
+          ;;
+      esac
+      ;;
+    uat)
+      deploy_tag=latest
+      ;;
+    sit)
       head_sha="${GITHUB_SHA:-}"
-      if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] && [ -n "${head_sha}" ]; then
+      if [ -n "${head_sha}" ]; then
         deploy_tag="${head_sha:0:12}"
         echo "sit: no deploy_tag input on a pull_request; pinning to head sha ${deploy_tag}"
       else
-        deploy_tag="latest"
-        echo "sit: no deploy_tag input on workflow_dispatch; defaulting to ${deploy_tag}"
+        echo "::error::cannot derive sit deploy_tag without GITHUB_SHA." >&2
+        exit 1
       fi
-    fi
-    ;;
-  *)
-    echo "::error::cannot derive deploy_tag for unknown deployment_env '${deployment_env}'" >&2
-    exit 1
-    ;;
-esac
+      ;;
+    *)
+      echo "::error::cannot derive deploy_tag for unknown deployment_env '${deployment_env}'" >&2
+      exit 1
+      ;;
+  esac
+fi
 : "${deploy_tag:?route: deploy_tag was never assigned on this trigger path}"
 
 # docker tag 里 '/' 非法, 所以 release/1.4 的镜像实际叫 release-1.4
@@ -174,7 +167,7 @@ esac
 # 从来没有被推送过的 tag。规则见 docs/domains/IMAGE-TAG-CONTRACT.md。
 deploy_tag="${deploy_tag//\//-}"
 
-for key in deployment_env resource_file terraform_workspace state_key run_infrastructure run_application_deploy target_domains terraform_action toolkit_action infra_ref console_ref offline_mode source_host source_domain_base target_domain_base env_suffix confirm_dns_switch deploy_tag; do
+for key in deployment_env resource_file terraform_workspace state_key run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref console_ref toolkit_ref offline_mode source_host source_domain_base target_domain_base env_suffix confirm_dns_switch deploy_tag; do
   value="${!key:-}"
   echo "$key=$value" >> "$GITHUB_OUTPUT"
 done
