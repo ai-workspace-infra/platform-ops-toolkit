@@ -35,7 +35,7 @@ on:
       deploy_ref:
         description: "指定 tag / ref 点，workflow_dispatch 时默认同时作为 platform-ops-toolkit、iac_modules & playbooks、xworkspace-console 的统一拉取基准"
         required: false
-        default: "uat-platform-rebuild-2026.07.26"
+        default: ""
         type: string
       infra_ref:
         description: "iac_modules & playbooks 仓库的 Git Ref；留空则回退到 deploy_ref"
