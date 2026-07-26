@@ -20,10 +20,10 @@ SNAPSHOT_REPOS=(
 
 usage() {
   cat <<'EOF'
-Usage: tag-ai-workspace-mains.sh --tag TAG [--apply]
+Usage: tag-ai-workspace-mains.sh --tag TAG [--push]
 
-Without --apply, print the main SHA and planned tag operation only.
-Existing tags are never moved. --apply creates missing lightweight tags.
+Without --push, print the main SHA and planned tag operation only.
+Existing tags are never moved. --push creates missing lightweight tags.
 EOF
 }
 
@@ -34,7 +34,7 @@ while [[ $# -gt 0 ]]; do
       TAG="$2"
       shift 2
       ;;
-    --apply)
+    --apply|--push)
       APPLY=true
       shift
       ;;
