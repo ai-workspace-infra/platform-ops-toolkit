@@ -46,7 +46,7 @@ When triggered, `platform-ops.yaml` automatically routes to the appropriate deli
 
 Prior to the initial UAT / Prod release, you must configure DNS for the target environment (the UAT web-saas host resolves as `console-uat.onwalk.net`) and populate the web-saas credentials in Vault. The workflow fails fast if they are missing: a dedicated validation step runs *before* any deployment action and exits non-zero on an empty value.
 
-> ⚠️ **`pull_request` provisions and deploys real infrastructure.** The `sit` route sets `terraform_action=apply` and `toolkit_action=deploy` — it is not a plan-only dry run. Keep this in mind when reviewing the blast radius of the `sit` role's Vault policy.
+> ⚠️ **`pull_request` and merge-triggered pushes are plan-only.** Both `pull_request` and the `main` / `release/*` push routes now set `terraform_action=plan` and `toolkit_action=none`, so they validate IaC without creating or mutating real infrastructure. Use `workflow_dispatch` when you want an actual apply/deploy run.
 
 #### `cloud_provider` (workflow_dispatch only, required)
 
