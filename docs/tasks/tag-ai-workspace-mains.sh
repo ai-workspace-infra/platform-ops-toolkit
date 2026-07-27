@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Create one immutable snapshot tag on repositories selected from the four
-# workspace organizations. Every selected repository must expose main.
+# workspace organizations. Repositories whose default branch is not main are skipped.
 
 TAG=""
 APPLY=false
@@ -220,8 +220,8 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
   }
   default_branch="$(gh api "repos/${repo}" --jq .default_branch)"
   [[ "${default_branch}" == "main" ]] || {
-    echo "ERROR: ${repo} default branch is ${default_branch}, not main." >&2
-    exit 1
+    printf 'SKIP\t%s\tdefault branch is %s, not main\n' "${repo}" "${default_branch}"
+    continue
   }
   sha="$(gh api "repos/${repo}/commits/main" --jq .sha)"
   if ref_json="$(gh api "repos/${repo}/git/ref/tags/${TAG}" 2>/dev/null)"; then
@@ -256,6 +256,6 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
   fi
 done
 
-if [[ "${APPLY}" == true && "${TRIGGER_BUILD}" == true ]]; then
+if [[ "${APPLY}" == true && "${TRIGGER_BUILD}" == true && "${ORG_FILTER}" == "ai-workspace-services" ]]; then
   trigger_profile_refresh
 fi
