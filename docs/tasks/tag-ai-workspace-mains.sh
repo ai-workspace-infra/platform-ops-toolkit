@@ -9,6 +9,7 @@ TAG=""
 APPLY=false
 TRIGGER_BUILD=false
 DEPLOY_ENV="uat"
+DEPLOY_ENV_SET=false
 SNAPSHOT_REPOS=(
   ai-workspace-infra/gitops
   ai-workspace-infra/playbooks
@@ -135,6 +136,7 @@ while [[ $# -gt 0 ]]; do
     --deploy-env)
       [[ $# -ge 2 ]] || { echo "--deploy-env requires a value" >&2; exit 2; }
       DEPLOY_ENV="$2"
+      DEPLOY_ENV_SET=true
       shift 2
       ;;
     --help|-h)
@@ -155,7 +157,7 @@ done
   exit 2
 }
 
-if [[ "${DEPLOY_ENV}" == "uat" ]]; then
+if [[ "${DEPLOY_ENV_SET}" == false ]]; then
   DEPLOY_ENV="$(infer_deploy_env_from_tag "${TAG}")"
 fi
 

@@ -1,0 +1,39 @@
+name: Daily Main Snapshot
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+    inputs:
+      snapshot_tag:
+        description: "自定义跨仓快照 tag；留空则使用 daily-build-YYYY.MM.DD"
+        required: false
+        type: string
+      deploy_env:
+        description: "选择镜像构建/发布环境"
+        required: true
+        default: uat
+        type: choice
+        options:
+          - sit
+          - uat
+          - prod
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  snapshot:
+    name: Tag and build main snapshot
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
+      SNAPSHOT_TAG: ${{ inputs.snapshot_tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create cross-repository main snapshot
+        run: ${{ github.workspace }}/.github/scripts/tag-daily-main-snapshot.sh
