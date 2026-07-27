@@ -1,9 +1,6 @@
 name: Daily Main Snapshot
 
 on:
-  schedule:
-    # GitHub Actions cron is UTC; 16:00 UTC is 00:00 Asia/Shanghai.
-    - cron: "0 16 * * *"
   workflow_dispatch:
     inputs:
       snapshot_tag:
@@ -19,17 +16,6 @@ on:
           - sit
           - uat
           - prod
-      organization:
-        description: "选择组织；all 表示四个 workspace 组织"
-        required: true
-        default: all
-        type: choice
-        options:
-          - all
-          - ai-workspace-infra
-          - ai-workspace-lab
-          - ai-workspace-services
-          - ai-workspace-xstream
       repositories:
         description: "可选：精确仓库列表，逗号分隔，例如 ai-workspace-services/accounts"
         required: false
@@ -38,28 +24,48 @@ on:
 permissions:
   contents: write
   actions: write
+  id-token: write
 
 jobs:
   snapshot:
     name: Tag and build main snapshot
     runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ secrets.CROSS_REPO_GH_TOKEN }}
-      DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
-      SNAPSHOT_TAG: ${{ inputs.snapshot_tag }}
-      SNAPSHOT_ORGS: ${{ inputs.organization != 'all' && inputs.organization || '' }}
-      SNAPSHOT_REPOS: ${{ inputs.repositories }}
+    strategy:
+      fail-fast: false
+      matrix:
+        organization:
+          - ai-workspace-infra
+          - ai-workspace-lab
+          - ai-workspace-services
+          - ai-workspace-xstream
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Verify cross-repository token
-        shell: bash
-        run: |
-          if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "::error::CROSS_REPO_GH_TOKEN is required for creating tags and dispatching builds in other repositories. Use a GitHub App installation token or fine-grained PAT with contents:write on the target repositories; the default GITHUB_TOKEN only has write access to this repository." >&2
-            exit 1
-          fi
+      - name: Load GitHub App private key from Vault
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-uat
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
+
+      - name: Create GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: 4405545
+          private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
+          owner: ${{ matrix.organization }}
 
       - name: Create cross-repository main snapshot
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
+          SNAPSHOT_TAG: ${{ inputs.snapshot_tag }}
+          SNAPSHOT_ORGS: ${{ matrix.organization }}
+          SNAPSHOT_REPOS: ${{ inputs.repositories }}
         run: ${{ github.workspace }}/.github/scripts/tag-daily-main-snapshot.sh
