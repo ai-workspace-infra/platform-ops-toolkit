@@ -47,7 +47,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
       SNAPSHOT_TAG: ${{ inputs.snapshot_tag }}
-      SNAPSHOT_ORGS: ${{ inputs.organization == 'all' && '' || inputs.organization }}
+      SNAPSHOT_ORGS: ${{ inputs.organization != 'all' && inputs.organization || '' }}
       SNAPSHOT_REPOS: ${{ inputs.repositories }}
     steps:
       - name: Checkout repository
