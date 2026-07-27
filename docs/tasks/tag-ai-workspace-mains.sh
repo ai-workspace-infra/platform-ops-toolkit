@@ -7,6 +7,7 @@ set -euo pipefail
 
 TAG=""
 APPLY=false
+TRIGGER_BUILD=false
 DEPLOY_ENV="uat"
 SNAPSHOT_REPOS=(
   ai-workspace-infra/gitops
@@ -14,7 +15,7 @@ SNAPSHOT_REPOS=(
   ai-workspace-infra/iac_modules
   ai-workspace-infra/platform-ops-toolkit
   ai-workspace-lab/xworkspace-console
-  ai-workspace-services/docs/
+  ai-workspace-services/docs
   ai-workspace-services/accounts
   ai-workspace-services/portal
   ai-workspace-services/billing-service
@@ -26,20 +27,19 @@ declare -A BUILD_WORKFLOWS=(
   [ai-workspace-services/billing-service]="ci-pipeline.yml"
   [ai-workspace-services/docs]="ci-pipeline.yml"
   [ai-workspace-services/portal]="ci-pipeline.yml"
-  [ai-workspace-infra/postgresql.svc.plus]="ci-pipeline.yml"
+  [ai-workspace-services/postgresql.svc.plus]="pipeline.yaml"
 )
 
 usage() {
   cat <<'EOF'
 Usage:
-  tag-ai-workspace-mains.sh --tag TAG [--apply] [--deploy-env sit|uat|prod]
-  tag-ai-workspace-mains.sh --tag TAG [--push] [--deploy-env sit|uat|prod]
+  tag-ai-workspace-mains.sh --tag TAG [--apply] [--build] [--deploy-env sit|uat|prod]
+  tag-ai-workspace-mains.sh --tag TAG [--push] [--build] [--deploy-env sit|uat|prod]
 
 Without --apply/--push, print the main SHA and planned tag operation only.
 Existing tags are never moved. --apply/--push creates missing lightweight tags.
-When --apply/--push creates a tag, the matching image build workflow is
-dispatched with the same tag so the repository tag and GHCR image tag stay
-aligned.
+When --build is present, the matching image build workflow is dispatched with
+the same tag so the repository tag and GHCR image tag stay aligned.
 
 Default environment resolution:
 
@@ -52,6 +52,12 @@ Default environment resolution:
 
 Override with `--deploy-env sit|uat|prod` when you need to force a different
 target.
+
+All snapshot tags are created from the current `main` branch SHA for each
+repository, so the tag point and the image build trigger stay aligned to the
+same mainline commit.
+
+`--build` is optional so you can still use this script as a pure tag planner.
 EOF
 }
 
@@ -87,9 +93,10 @@ dispatch_build_workflow() {
   printf 'DISPATCH\t%s\t%s\t%s\n' "${repo}" "${workflow}" "${tag}"
 
   case "${repo}" in
-    ai-workspace-infra/postgresql.svc.plus)
+    ai-workspace-services/postgresql.svc.plus)
       gh workflow run "${workflow}" --repo "${repo}" --ref "${tag}" \
         -f "image_tag=${tag}" \
+        -f "deployment_environment=${deploy_env}" \
         -f "push_latest=false" \
         >/dev/null
       ;;
@@ -115,6 +122,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --apply|--push)
       APPLY=true
+      shift
+      ;;
+    --build)
+      TRIGGER_BUILD=true
       shift
       ;;
     --deploy-env)
@@ -162,6 +173,10 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
   if [[ -n "${existing}" ]]; then
     if [[ "${existing}" == "${sha}" ]]; then
       printf 'UNCHANGED\t%s\t%s\n' "${repo}" "${sha}"
+      workflow="${BUILD_WORKFLOWS[${repo}]:-}"
+      if [[ -n "${workflow}" && "${APPLY}" == true && "${TRIGGER_BUILD}" == true ]]; then
+        dispatch_build_workflow "${repo}" "${TAG}" "${workflow}" "${DEPLOY_ENV}"
+      fi
       continue
     fi
     echo "ERROR: ${repo} already has ${TAG} at ${existing}, main is ${sha}" >&2
@@ -175,7 +190,7 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
       -f "sha=${sha}" >/dev/null
 
     workflow="${BUILD_WORKFLOWS[${repo}]:-}"
-    if [[ -n "${workflow}" ]]; then
+    if [[ -n "${workflow}" && "${TRIGGER_BUILD}" == true ]]; then
       dispatch_build_workflow "${repo}" "${TAG}" "${workflow}" "${DEPLOY_ENV}"
     fi
   fi

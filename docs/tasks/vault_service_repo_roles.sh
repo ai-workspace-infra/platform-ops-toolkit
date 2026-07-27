@@ -117,15 +117,15 @@ process_repo() {
   echo "=== ${service} (${repo})"
   write_service_policy "${service}"
 
-  # sit: PR 与任意分支。收敛来自 job_workflow_ref 白名单 + 这份 policy 本身
+  # sit: PR、任意分支和 sit-* tag。收敛来自 job_workflow_ref 白名单 + 这份 policy 本身
   # 只能读公共服务凭据 —— 换到 sit token 也拿不到任何环境的基础凭据。
-  write_role "${service}" sit '["refs/pull/*/merge", "refs/heads/*"]' "${repo}"
+  write_role "${service}" sit '["refs/pull/*/merge", "refs/heads/*", "refs/tags/sit-*"]' "${repo}"
 
-  # uat: 只认 main 与 release/*。不含 bugfix/* —— 见文件头第 3 条。
-  write_role "${service}" uat '["refs/heads/main", "refs/heads/release/*"]' "${repo}"
+  # uat: main、release/* 与显式 uat-* snapshot tag。不含 bugfix/* —— 见文件头第 3 条。
+  write_role "${service}" uat '["refs/heads/main", "refs/heads/release/*", "refs/tags/uat-*"]' "${repo}"
 
-  # prod: 只认 v* tag，与"生产部署只经 annotated tag"一致。
-  write_role "${service}" prod '"refs/tags/v*"' "${repo}"
+  # prod: release v* 与显式 prod-* tag。
+  write_role "${service}" prod '["refs/tags/v*", "refs/tags/prod-*"]' "${repo}"
 }
 
 # gitops is a deployment-consumer repository rather than a service image
@@ -138,8 +138,8 @@ process_gitops_repo() {
   echo "=== gitops (${repo})"
   write_service_policy gitops
 
-  write_role gitops sit 'refs/pull/*/merge' "${repo}" "${workflow}"
-  write_role gitops uat 'refs/heads/main' "${repo}" "${workflow}"
+  write_role gitops sit '"refs/pull/*/merge"' "${repo}" "${workflow}"
+  write_role gitops uat '"refs/heads/main"' "${repo}" "${workflow}"
   write_role gitops prod '"refs/tags/v*"' "${repo}" "${workflow}"
 }
 
@@ -147,7 +147,7 @@ process_repo accounts         ai-workspace-services/accounts
 process_repo billing-service  ai-workspace-services/billing-service
 process_repo console          ai-workspace-services/portal
 process_repo docs             ai-workspace-services/docs
-process_repo postgresql       ai-workspace-infra/postgresql.svc.plus
+process_repo postgresql       ai-workspace-services/postgresql.svc.plus
 process_gitops_repo
 
 cat <<'EOF'
