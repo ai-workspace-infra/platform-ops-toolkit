@@ -1,26 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Create one immutable snapshot tag on the platform delivery and application
-# repositories that must agree on one reproducible environment point.
-# Other infrastructure, docs, and configuration repositories are excluded.
+# Create one immutable snapshot tag on repositories selected from the four
+# workspace organizations. Every selected repository must expose main.
 
 TAG=""
 APPLY=false
 TRIGGER_BUILD=false
 DEPLOY_ENV="uat"
 DEPLOY_ENV_SET=false
-SNAPSHOT_REPOS=(
-  ai-workspace-infra/gitops
-  ai-workspace-infra/playbooks
-  ai-workspace-infra/iac_modules
-  ai-workspace-infra/platform-ops-toolkit
-  ai-workspace-lab/xworkspace-console
-  ai-workspace-services/docs
-  ai-workspace-services/accounts
-  ai-workspace-services/portal
-  ai-workspace-services/billing-service
-  ai-workspace-services/postgresql.svc.plus
+ORG_FILTER=""
+REPO_FILTER=""
+SNAPSHOT_ORGS=(
+  ai-workspace-infra
+  ai-workspace-lab
+  ai-workspace-services
+  ai-workspace-xstream
 )
 
 declare -A BUILD_WORKFLOWS=(
@@ -36,6 +31,7 @@ usage() {
 Usage:
   tag-ai-workspace-mains.sh --tag TAG [--apply] [--build] [--deploy-env sit|uat|prod]
   tag-ai-workspace-mains.sh --tag TAG [--push] [--build] [--deploy-env sit|uat|prod]
+  tag-ai-workspace-mains.sh --tag TAG --org ORG[,ORG...] [--repo ORG/REPO,...]
 
 Without --apply/--push, print the main SHA and planned tag operation only.
 Existing tags are never moved. --apply/--push creates missing lightweight tags.
@@ -59,6 +55,11 @@ repository, so the tag point and the image build trigger stay aligned to the
 same mainline commit.
 
 `--build` is optional so you can still use this script as a pure tag planner.
+
+By default all non-archived repositories in these organizations are selected:
+ai-workspace-infra ai-workspace-lab ai-workspace-services ai-workspace-xstream
+Use `--org` to select one or more organizations and `--repo` to select exact
+repositories. Exact repositories must use the `ORG/REPO` form.
 EOF
 }
 
@@ -139,6 +140,16 @@ while [[ $# -gt 0 ]]; do
       DEPLOY_ENV_SET=true
       shift 2
       ;;
+    --org|--orgs)
+      [[ $# -ge 2 ]] || { echo "$1 requires a value" >&2; exit 2; }
+      ORG_FILTER="$2"
+      shift 2
+      ;;
+    --repo|--repos)
+      [[ $# -ge 2 ]] || { echo "$1 requires a value" >&2; exit 2; }
+      REPO_FILTER="$2"
+      shift 2
+      ;;
     --help|-h)
       usage
       exit 0
@@ -168,7 +179,50 @@ fi
 
 gh auth status >/dev/null
 
+IFS=',' read -r -a selected_orgs <<< "${ORG_FILTER:-${SNAPSHOT_ORGS[*]}}"
+if [[ -z "${ORG_FILTER}" ]]; then
+  selected_orgs=("${SNAPSHOT_ORGS[@]}")
+fi
+
+for org in "${selected_orgs[@]}"; do
+  [[ " ${SNAPSHOT_ORGS[*]} " == *" ${org} "* ]] || {
+    echo "Unsupported organization: ${org}" >&2
+    exit 2
+  }
+done
+
+SNAPSHOT_REPOS=()
+if [[ -n "${REPO_FILTER}" ]]; then
+  IFS=',' read -r -a SNAPSHOT_REPOS <<< "${REPO_FILTER}"
+else
+  for org in "${selected_orgs[@]}"; do
+    while IFS= read -r repo; do
+      [[ -n "${repo}" ]] && SNAPSHOT_REPOS+=("${repo}")
+    done < <(gh api --paginate "orgs/${org}/repos?per_page=100&type=all" \
+      --jq '.[] | select(.archived == false) | .full_name')
+  done
+fi
+
+[[ "${#SNAPSHOT_REPOS[@]}" -gt 0 ]] || {
+  echo "No repositories selected." >&2
+  exit 2
+}
+
 for repo in "${SNAPSHOT_REPOS[@]}"; do
+  [[ "${repo}" == */* ]] || {
+    echo "Repository must use ORG/REPO form: ${repo}" >&2
+    exit 2
+  }
+  owner="${repo%%/*}"
+  [[ " ${selected_orgs[*]} " == *" ${owner} "* ]] || {
+    echo "Repository ${repo} is outside the selected organizations." >&2
+    exit 2
+  }
+  default_branch="$(gh api "repos/${repo}" --jq .default_branch)"
+  [[ "${default_branch}" == "main" ]] || {
+    echo "ERROR: ${repo} default branch is ${default_branch}, not main." >&2
+    exit 1
+  }
   sha="$(gh api "repos/${repo}/commits/main" --jq .sha)"
   if ref_json="$(gh api "repos/${repo}/git/ref/tags/${TAG}" 2>/dev/null)"; then
     existing="$(jq -r '.object.sha // empty' <<<"${ref_json}")"

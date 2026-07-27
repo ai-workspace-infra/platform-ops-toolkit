@@ -15,8 +15,11 @@ tag="${SNAPSHOT_TAG:-daily-build-$(date -u +%Y.%m.%d)}"
 }
 
 echo "Creating main snapshot ${tag} for ${DEPLOY_ENV}."
-bash docs/tasks/tag-ai-workspace-mains.sh \
-  --tag "${tag}" \
-  --deploy-env "${DEPLOY_ENV}" \
-  --apply \
-  --build
+args=(--tag "${tag}" --deploy-env "${DEPLOY_ENV}" --apply --build)
+if [[ -n "${SNAPSHOT_ORGS:-}" ]]; then
+  args+=(--org "${SNAPSHOT_ORGS}")
+fi
+if [[ -n "${SNAPSHOT_REPOS:-}" ]]; then
+  args+=(--repo "${SNAPSHOT_REPOS}")
+fi
+bash docs/tasks/tag-ai-workspace-mains.sh "${args[@]}"
