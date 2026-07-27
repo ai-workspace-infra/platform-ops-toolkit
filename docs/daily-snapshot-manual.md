@@ -18,7 +18,7 @@ app_private_key
 
 Vault role `github-actions-platform-ops-toolkit-uat` 需要具备该路径的只读权限。
 
-GitHub App `daily-snapshot-tag`（App ID `4405266`）需要安装到四个目标组织，并拥有目标仓库的：
+GitHub App `daily-snapshot-tag`（App ID `4405545`）需要安装到四个目标组织，并拥有目标仓库的：
 
 - `Contents: Read and write`
 - `Actions: Read and write`
