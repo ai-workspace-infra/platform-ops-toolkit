@@ -5,6 +5,7 @@ set -euo pipefail
 require_env GH_TOKEN DEPLOY_ENV
 
 tag="${SNAPSHOT_TAG:-daily-build-$(date -u +%Y.%m.%d)}"
+tag="$(printf '%s' "${tag}" | tr -d '\r\n' | xargs)"
 [[ "${tag}" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || {
   echo "::error::Invalid snapshot tag: ${tag}" >&2
   exit 2

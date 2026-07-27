@@ -44,7 +44,7 @@ jobs:
     name: Tag and build main snapshot
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.CROSS_REPO_GH_TOKEN }}
       DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
       SNAPSHOT_TAG: ${{ inputs.snapshot_tag }}
       SNAPSHOT_ORGS: ${{ inputs.organization != 'all' && inputs.organization || '' }}
@@ -52,6 +52,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Verify cross-repository token
+        shell: bash
+        run: |
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::CROSS_REPO_GH_TOKEN is required for creating tags and dispatching builds in other repositories. Use a GitHub App installation token or fine-grained PAT with contents:write on the target repositories; the default GITHUB_TOKEN only has write access to this repository." >&2
+            exit 1
+          fi
 
       - name: Create cross-repository main snapshot
         run: ${{ github.workspace }}/.github/scripts/tag-daily-main-snapshot.sh
