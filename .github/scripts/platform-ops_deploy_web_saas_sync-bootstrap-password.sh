@@ -5,8 +5,14 @@ set -euo pipefail
 require_env MATRIX_HOST ROOT_BOOTSTRAP_PASSWORD
 
 cmdb_host="${MATRIX_HOST}"
-ip="$(jq -r --arg h "${cmdb_host}" '.[$h].ip' cmdb/cmdb.json)"
-user="$(jq -r --arg h "${cmdb_host}" '.[$h].ansible_user // "root"' cmdb/cmdb.json)"
+script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cmdb_file="${GITHUB_WORKSPACE:-${script_root}}/cmdb/cmdb.json"
+[[ -f "${cmdb_file}" ]] || {
+  echo "::error::CMDB file not found: ${cmdb_file}" >&2
+  exit 1
+}
+ip="$(jq -r --arg h "${cmdb_host}" '.[$h].ip' "${cmdb_file}")"
+user="$(jq -r --arg h "${cmdb_host}" '.[$h].ansible_user // "root"' "${cmdb_file}")"
 if [[ -z "${ip}" || "${ip}" == "null" ]]; then
   echo "::error::host '${cmdb_host}' not found in cmdb/cmdb.json" >&2
   exit 1

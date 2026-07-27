@@ -5,8 +5,14 @@ set -euo pipefail
 
 # cmdb.json is keyed by host FQDN; resolve the target via --arg so the host name
 # is expanded by the shell, not treated as a literal jq key.
-ip="$(jq -r --arg h "${MATRIX_HOST}" '.[$h].ip' cmdb/cmdb.json)"
-user="$(jq -r --arg h "${MATRIX_HOST}" '.[$h].ansible_user // "root"' cmdb/cmdb.json)"
+script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cmdb_file="${GITHUB_WORKSPACE:-${script_root}}/cmdb/cmdb.json"
+[[ -f "${cmdb_file}" ]] || {
+  echo "::error::CMDB file not found: ${cmdb_file}" >&2
+  exit 1
+}
+ip="$(jq -r --arg h "${MATRIX_HOST}" '.[$h].ip' "${cmdb_file}")"
+user="$(jq -r --arg h "${MATRIX_HOST}" '.[$h].ansible_user // "root"' "${cmdb_file}")"
 if [ -z "${ip}" ] || [ "${ip}" = "null" ]; then
   echo "::error::host '${MATRIX_HOST}' not found in cmdb/cmdb.json (ip=${ip})" >&2
   exit 1
