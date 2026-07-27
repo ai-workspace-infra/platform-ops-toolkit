@@ -418,10 +418,13 @@ jobs:
   deploy_base:
     name: Bootstrap Node on ${{ matrix.host }}
     # 只初始化节点；服务安装由后续 deploy_* jobs 负责。
+    # Branch push 的 merge 路径只做 plan，所以这里再加一层显式 gate，
+    # 避免未来有人把路由改回 apply 时，push 还会继续往下跑部署。
     needs: provision
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
+      (github.event_name != 'push' || startsWith(github.ref, 'refs/tags/v')) &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -563,6 +566,7 @@ jobs:
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
+      (github.event_name != 'push' || startsWith(github.ref, 'refs/tags/v')) &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -662,6 +666,7 @@ jobs:
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
+      (github.event_name != 'push' || startsWith(github.ref, 'refs/tags/v')) &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -685,6 +690,7 @@ jobs:
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
+      (github.event_name != 'push' || startsWith(github.ref, 'refs/tags/v')) &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -708,6 +714,7 @@ jobs:
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
+      (github.event_name != 'push' || startsWith(github.ref, 'refs/tags/v')) &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -729,6 +736,7 @@ jobs:
     needs: [provision, deploy_base, deploy_web_saas, initialize_web_saas_databases, deploy_infra_platform, deploy_agent_proxy]
     if: |
       !cancelled() && !failure() &&
+      (github.event_name != 'push' || startsWith(github.ref, 'refs/tags/v')) &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.confirm_dns_switch == 'true'
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
