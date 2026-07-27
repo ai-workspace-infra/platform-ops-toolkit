@@ -27,7 +27,7 @@ declare -A BUILD_WORKFLOWS=(
   [ai-workspace-services/billing-service]="ci-pipeline.yml"
   [ai-workspace-services/docs]="ci-pipeline.yml"
   [ai-workspace-services/portal]="ci-pipeline.yml"
-  [ai-workspace-services/postgresql.svc.plus]="pipeline.yaml"
+  [ai-workspace-services/postgresql.svc.plus]="ci-pipeline.yml"
 )
 
 usage() {
@@ -113,6 +113,10 @@ dispatch_build_workflow() {
   esac
 }
 
+trigger_profile_refresh() {
+  gh workflow run "update-profile-readme.yml" --repo "ai-workspace-services/.github" >/dev/null
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tag)
@@ -195,3 +199,7 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
     fi
   fi
 done
+
+if [[ "${APPLY}" == true && "${TRIGGER_BUILD}" == true ]]; then
+  trigger_profile_refresh
+fi
