@@ -1,0 +1,57 @@
+name: Daily Main Snapshot
+
+on:
+  schedule:
+    # GitHub Actions cron is UTC; 16:00 UTC is 00:00 Asia/Shanghai.
+    - cron: "0 16 * * *"
+  workflow_dispatch:
+    inputs:
+      snapshot_tag:
+        description: "自定义跨仓快照 tag；留空则使用 daily-build-YYYY.MM.DD"
+        required: false
+        type: string
+      deploy_env:
+        description: "选择镜像构建/发布环境"
+        required: true
+        default: uat
+        type: choice
+        options:
+          - sit
+          - uat
+          - prod
+      organization:
+        description: "选择组织；all 表示四个 workspace 组织"
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - ai-workspace-infra
+          - ai-workspace-lab
+          - ai-workspace-services
+          - ai-workspace-xstream
+      repositories:
+        description: "可选：精确仓库列表，逗号分隔，例如 ai-workspace-services/accounts"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  snapshot:
+    name: Tag and build main snapshot
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
+      SNAPSHOT_TAG: ${{ inputs.snapshot_tag }}
+      SNAPSHOT_ORGS: ${{ inputs.organization == 'all' && '' || inputs.organization }}
+      SNAPSHOT_REPOS: ${{ inputs.repositories }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create cross-repository main snapshot
+        run: ${{ github.workspace }}/.github/scripts/tag-daily-main-snapshot.sh
