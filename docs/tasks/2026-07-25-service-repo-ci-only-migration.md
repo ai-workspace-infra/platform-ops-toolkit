@@ -122,6 +122,52 @@ PR: [#36](https://github.com/ai-workspace-services/accounts/pull/36)(待合)
   为什么这件事现在是阻塞项(Doco-CD 已能正确轮询部署,但业务仓库从未
   推送过镜像)
 
+## 2026-07-27 补充
+
+`platform-ops-toolkit/.github/workflows/daily-main-snapshot.yaml` 里的跨仓库快照
+需要单独的 `CROSS_REPO_GH_TOKEN`，不能再依赖本仓库的 `GITHUB_TOKEN` 去写
+`ai-workspace-infra/artifacts` 等其他仓库。否则 `gh api --method POST repos/.../git/refs`
+会在 GitHub Actions 里直接返回 `403 Resource not accessible by integration`。
+
+### 推荐配置
+
+`CROSS_REPO_GH_TOKEN` 建议直接用 **fine-grained PAT** 来配。
+
+#### 怎么创建
+
+1. 打开 GitHub 头像菜单。
+2. 进入 `Settings`。
+3. 左侧点 `Developer settings`。
+4. 进入 `Personal access tokens`。
+5. 选择 `Fine-grained tokens`。
+6. 点 `Generate new token`。
+
+#### 怎么填
+
+1. `Token name`：比如 `platform-ops-toolkit-cross-repo`
+2. `Expiration`：建议别选无限期，选一个明确到期时间
+3. `Resource owner`：选能访问目标仓库的那个组织
+4. `Repository access`：只选需要被写入的目标仓库，比如 `ai-workspace-infra/artifacts`
+5. `Permissions`：
+   - `Contents: Read and write`
+   - 如果还要跨仓库触发 workflow，再加 `Actions: Read and write`
+
+GitHub 官方说明，fine-grained PAT 可以限制到单个组织、单个或少量仓库，并赋予细粒度权限；这正适合这个场景。默认的 `GITHUB_TOKEN` 只适合当前仓库，不能拿去写别的仓库。来源：[GitHub PAT 管理文档](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) 和 [fine-grained PAT 权限说明](https://docs.github.com/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens)
+
+#### 怎么放进仓库
+
+1. 打开 `platform-ops-toolkit`
+2. 进入 `Settings -> Secrets and variables -> Actions`
+3. 新增 secret，名字填 `CROSS_REPO_GH_TOKEN`
+4. 值粘贴刚创建的 fine-grained PAT
+
+#### 注意两点
+
+1. 如果组织启用了 PAT 限制，可能需要先审批这个 token 才能访问组织仓库。
+2. 这个 token 只要能写目标仓库就够了，不要给过大的 repo 范围。
+
+这个 workflow 只读取 `CROSS_REPO_GH_TOKEN`，不会再回退到默认 `GITHUB_TOKEN`。
+
 ## 验证方式(每个仓库通用)
 
 改完后本地跑一遍(不设任何 host 相关变量),确认三条触发路径都不再要求
