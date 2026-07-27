@@ -121,8 +121,10 @@ process_repo() {
   # 只能读公共服务凭据 —— 换到 sit token 也拿不到任何环境的基础凭据。
   write_role "${service}" sit '["refs/pull/*/merge", "refs/heads/*", "refs/tags/sit-*"]' "${repo}"
 
-  # uat: main、release/* 与受限的 UAT snapshot tags。不含任意 tag —— 见文件头第 3 条。
-  write_role "${service}" uat '["refs/heads/main", "refs/heads/release/*", "refs/tags/uat-*", "refs/tags/daily-build-*"]' "${repo}"
+  # uat: main、release/*、daily-build-* 分支与受限的 UAT snapshot tags。
+  # daily-build-* 分支是 snapshot dispatch 的临时工作分支，只放行这一类命名，
+  # 不放行任意 feature/bugfix 分支。
+  write_role "${service}" uat '["refs/heads/main", "refs/heads/release/*", "refs/heads/daily-build-*", "refs/tags/uat-*", "refs/tags/daily-build-*"]' "${repo}"
 
   # prod: release v* 与显式 prod-* tag。
   write_role "${service}" prod '["refs/tags/v*", "refs/tags/prod-*"]' "${repo}"

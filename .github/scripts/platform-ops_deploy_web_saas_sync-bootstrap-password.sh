@@ -39,9 +39,14 @@ printf '%s\n' "${encoded_password}" | base64 -d | {
 chown root:root "${tmp_file}"
 mv -f "${tmp_file}" "${env_file}"
 
-project_dir="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' accounts 2>/dev/null || true)"
-config_files="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' accounts 2>/dev/null || true)"
-if [[ -n "${project_dir}" && -n "${config_files}" ]]; then
+container_id="$(
+  docker ps --filter "label=com.docker.compose.service=accounts" --format '{{.ID}}' | head -n1
+)"
+if [[ -n "${container_id}" ]]; then
+  project_dir="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' "${container_id}" 2>/dev/null || true)"
+  config_files="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' "${container_id}" 2>/dev/null || true)"
+fi
+if [[ -n "${project_dir:-}" && -n "${config_files:-}" ]]; then
   IFS=',' read -r -a compose_files <<< "${config_files}"
   compose_args=()
   for compose_file in "${compose_files[@]}"; do
@@ -49,7 +54,7 @@ if [[ -n "${project_dir}" && -n "${config_files}" ]]; then
   done
   docker compose "${compose_args[@]}" up -d --force-recreate accounts
 else
-  echo "::error::Could not resolve Compose metadata for accounts; refusing to leave the new bootstrap password unapplied." >&2
+  echo "::error::Could not resolve Compose metadata for the running accounts service; refusing to leave the new bootstrap password unapplied." >&2
   exit 1
 fi
 REMOTE
