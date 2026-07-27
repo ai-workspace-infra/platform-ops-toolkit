@@ -24,20 +24,48 @@ on:
 permissions:
   contents: write
   actions: write
+  id-token: write
 
 jobs:
   snapshot:
     name: Tag and build main snapshot
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        organization:
+          - ai-workspace-infra
+          - ai-workspace-lab
+          - ai-workspace-services
+          - ai-workspace-xstream
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Load GitHub App private key from Vault
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-uat
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
+
+      - name: Create GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: 4405266
+          private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
+          owner: ${{ matrix.organization }}
+
       - name: Create cross-repository main snapshot
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
           SNAPSHOT_TAG: ${{ inputs.snapshot_tag }}
-          SNAPSHOT_ORGS: ai-workspace-infra,ai-workspace-lab,ai-workspace-services,ai-workspace-xstream
+          SNAPSHOT_ORGS: ${{ matrix.organization }}
           SNAPSHOT_REPOS: ${{ inputs.repositories }}
         run: ${{ github.workspace }}/.github/scripts/tag-daily-main-snapshot.sh

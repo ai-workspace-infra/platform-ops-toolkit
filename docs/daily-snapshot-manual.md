@@ -1,48 +1,36 @@
 # Daily Snapshot 手动执行版
 
-不使用 GitHub App、Vault 或 `CROSS_REPO_GH_TOKEN`。直接使用本机 GitHub CLI 登录态执行现有 tag 脚本。
+`Daily Main Snapshot` 仅使用 GitHub App 认证。workflow 通过 GitHub OIDC 登录 Vault，读取 App 私钥并按目标组织生成 installation token。
+
+## 前置配置
+
+Vault KV v2 路径：
+
+```text
+kv/data/CICD/github-app/daily-snapshot
+```
+
+字段：
+
+```text
+app_private_key
+```
+
+Vault role `github-actions-platform-ops-toolkit-uat` 需要具备该路径的只读权限。
+
+GitHub App `daily-snapshot-tag`（App ID `4405266`）需要安装到四个目标组织，并拥有目标仓库的：
+
+- `Contents: Read and write`
+- `Actions: Read and write`
 
 ## 执行步骤
 
-在 `platform-ops-toolkit` 仓库目录执行：
+1. 打开 `platform-ops-toolkit` 的 `Actions`。
+2. 选择 `Daily Main Snapshot`。
+3. 点击 `Run workflow`。
+4. 选择 `deploy_env`，默认使用 `uat`。
+5. 可选填写 `snapshot_tag` 和 `repositories`。
 
-```bash
-gh auth login
-GH_TOKEN="$(gh auth token)" \
-DEPLOY_ENV=uat \
-SNAPSHOT_TAG="daily-build-$(date -u +%Y.%m.%d)" \
-SNAPSHOT_ORGS="ai-workspace-infra,ai-workspace-lab,ai-workspace-services,ai-workspace-xstream" \
-.github/scripts/tag-daily-main-snapshot.sh
-```
+workflow 会创建当天的 `daily-build-YYYY.MM.DD` tag，并继续执行目标仓库的构建触发流程。
 
-脚本会创建当天的 `daily-build-YYYY.MM.DD` tag，并继续执行目标仓库的构建触发流程。
-
-## 常用调整
-
-指定环境：
-
-```bash
-DEPLOY_ENV=uat
-```
-
-指定单个组织：
-
-```bash
-SNAPSHOT_ORGS=ai-workspace-services
-```
-
-指定仓库：
-
-```bash
-SNAPSHOT_REPOS=accounts,artifacts
-```
-
-自定义 tag：
-
-```bash
-SNAPSHOT_TAG=daily-build-2026.07.27
-```
-
-## 权限要求
-
-`gh auth login` 使用的账号必须拥有目标组织仓库的写权限，并且允许创建 tag、读取仓库内容，以及触发目标 workflow。不要把登录 token 写入仓库文件或 GitHub Actions 日志。
+不需要配置 `GH_TOKEN`、`CROSS_REPO_GH_TOKEN` 或 GitHub PAT。
