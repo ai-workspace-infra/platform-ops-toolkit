@@ -1,6 +1,9 @@
 name: Daily Main Snapshot
 
 on:
+  schedule:
+    # GitHub Actions cron uses UTC; 16:00 UTC is 00:00 Asia/Shanghai.
+    - cron: "0 16 * * *"
   workflow_dispatch:
     inputs:
       snapshot_tag:
