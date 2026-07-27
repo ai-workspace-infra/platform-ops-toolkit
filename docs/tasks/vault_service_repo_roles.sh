@@ -121,8 +121,8 @@ process_repo() {
   # 只能读公共服务凭据 —— 换到 sit token 也拿不到任何环境的基础凭据。
   write_role "${service}" sit '["refs/pull/*/merge", "refs/heads/*", "refs/tags/sit-*"]' "${repo}"
 
-  # uat: main、release/* 与显式 uat-* snapshot tag。不含 bugfix/* —— 见文件头第 3 条。
-  write_role "${service}" uat '["refs/heads/main", "refs/heads/release/*", "refs/tags/uat-*"]' "${repo}"
+  # uat: main、release/* 与受限的 UAT snapshot tags。不含任意 tag —— 见文件头第 3 条。
+  write_role "${service}" uat '["refs/heads/main", "refs/heads/release/*", "refs/tags/uat-*", "refs/tags/daily-build-*"]' "${repo}"
 
   # prod: release v* 与显式 prod-* tag。
   write_role "${service}" prod '["refs/tags/v*", "refs/tags/prod-*"]' "${repo}"
