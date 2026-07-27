@@ -68,4 +68,37 @@ jobs:
           SNAPSHOT_TAG: ${{ inputs.snapshot_tag }}
           SNAPSHOT_ORGS: ${{ matrix.organization }}
           SNAPSHOT_REPOS: ${{ inputs.repositories }}
+          SNAPSHOT_STATUS_FILE: ${{ runner.temp }}/daily-snapshot-status/${{ matrix.organization }}.jsonl
         run: ${{ github.workspace }}/.github/scripts/tag-daily-main-snapshot.sh
+
+      - name: Upload snapshot status
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-snapshot-status-${{ matrix.organization }}
+          path: ${{ runner.temp }}/daily-snapshot-status/${{ matrix.organization }}.jsonl
+          if-no-files-found: warn
+
+  snapshot-summary:
+    name: Summarize snapshot status
+    needs: snapshot
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      snapshot_status: ${{ steps.aggregate.outputs.snapshot_status }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download snapshot status artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: daily-snapshot-status-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/daily-snapshot-status
+
+      - name: Aggregate snapshot status
+        id: aggregate
+        env:
+          SNAPSHOT_STATUS_DIRECTORY: ${{ runner.temp }}/daily-snapshot-status
+        run: ${{ github.workspace }}/.github/scripts/aggregate-daily-snapshot-status.sh

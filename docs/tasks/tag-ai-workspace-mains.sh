@@ -26,6 +26,21 @@ declare -A BUILD_WORKFLOWS=(
   [ai-workspace-services/postgresql.svc.plus]="ci-pipeline.yml"
 )
 
+record_status() {
+  local status="$1" repo="$2" sha="$3" detail="$4"
+  [[ -n "${SNAPSHOT_STATUS_FILE:-}" ]] || return 0
+
+  jq -cn \
+    --arg organization "${ORG_FILTER:-all}" \
+    --arg repository "${repo}" \
+    --arg status "${status}" \
+    --arg tag "${TAG}" \
+    --arg sha "${sha}" \
+    --arg detail "${detail}" \
+    '{organization: $organization, repository: $repository, status: $status, tag: $tag, sha: $sha, detail: $detail}' \
+    >> "${SNAPSHOT_STATUS_FILE}"
+}
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -216,15 +231,18 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
   }
   if [[ "${repo}" == "${owner}/.github" ]]; then
     printf 'SKIP\t%s\tshared .github repository\n' "${repo}"
+    record_status "skipped" "${repo}" "" "shared .github repository"
     continue
   fi
   default_branch="$(gh api "repos/${repo}" --jq .default_branch)"
   [[ "${default_branch}" == "main" ]] || {
     printf 'SKIP\t%s\tdefault branch is %s, not main\n' "${repo}" "${default_branch}"
+    record_status "skipped" "${repo}" "" "default branch is ${default_branch}, not main"
     continue
   }
   if ! sha="$(gh api "repos/${repo}/commits/main" --jq .sha 2>/dev/null)" || [[ -z "${sha}" ]]; then
     printf 'SKIP\t%s\tno main commit (empty repository or missing main branch)\n' "${repo}"
+    record_status "skipped" "${repo}" "" "no main commit"
     continue
   fi
   if ref_json="$(gh api "repos/${repo}/git/ref/tags/${TAG}" 2>/dev/null)"; then
@@ -236,14 +254,17 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
   if [[ -n "${existing}" ]]; then
     if [[ "${existing}" == "${sha}" ]]; then
       printf 'UNCHANGED\t%s\t%s\n' "${repo}" "${sha}"
+      record_status "unchanged" "${repo}" "${sha}" "tag already points to main"
       workflow="${BUILD_WORKFLOWS[${repo}]:-}"
       if [[ -n "${workflow}" && "${APPLY}" == true && "${TRIGGER_BUILD}" == true ]]; then
         dispatch_build_workflow "${repo}" "${TAG}" "${workflow}" "${DEPLOY_ENV}"
+        record_status "dispatched" "${repo}" "${sha}" "workflow ${workflow} dispatched"
       fi
       continue
     fi
     printf 'SKIP\t%s\ttag %s already points to %s; main is %s\n' \
       "${repo}" "${TAG}" "${existing}" "${sha}"
+    record_status "skipped" "${repo}" "${sha}" "tag already points to a different commit"
     continue
   fi
 
@@ -253,9 +274,14 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
       -f "ref=refs/tags/${TAG}" \
       -f "sha=${sha}" >/dev/null
 
+    record_status "created" "${repo}" "${sha}" "tag created"
+
     workflow="${BUILD_WORKFLOWS[${repo}]:-}"
     if [[ -n "${workflow}" && "${TRIGGER_BUILD}" == true ]]; then
       dispatch_build_workflow "${repo}" "${TAG}" "${workflow}" "${DEPLOY_ENV}"
+      record_status "dispatched" "${repo}" "${sha}" "workflow ${workflow} dispatched"
     fi
+  else
+    record_status "planned" "${repo}" "${sha}" "tag creation planned"
   fi
 done
