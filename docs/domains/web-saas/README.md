@@ -61,6 +61,7 @@ provision 出来的主机上。
 |---|---|
 | `GHCR_USERNAME` | 拉取 `ghcr.io/x-evor/*`、`ghcr.io/ai-workspace-services/*` 私有镜像用的 GHCR 用户名。 |
 | `GHCR_TOKEN` | 对应的 GHCR token。workflow 里映射为 `GHCR_PASSWORD` 环境变量（脚本消费的是这个名字）。 |
+| `ROOT_BOOTSTRAP_PASSWORD` | `accounts` 的系统 admin 密码，仅用于首次引导/重置 root 账号。 |
 
 **基础凭据**按环境拆分在 `kv/data/CICD/<env>`（各 role 只读自己那份）：
 
@@ -77,6 +78,9 @@ workflow 里对应两个变量：`VAULT_KV`（公共服务）与 `VAULT_KV_BASE`
 > GHCR 凭据曾经放在 `kv/data/WEB_SAAS`，现已统一到 `kv/data/CICD`——镜像拉取是
 > 所有域共用的公共能力，没有按环境区分的意义。而 SSH 私钥、云账号 key 授予的是
 > 登录主机和控制基础设施的能力，是提权的实际载体，因此按环境隔离。
+>
+> `ROOT_BOOTSTRAP_PASSWORD` 也属于公共引导凭据，统一存放在 `kv/data/CICD`，不要放进
+> `WEB_SAAS` 或任何服务专属路径。
 
 这些 key 都需要提前在 Vault 里手动填好真实值。缺 web-saas 专属键时，
 `Validate environment-scoped web-saas secrets` 这一步会在任何部署动作发生**之前**
