@@ -223,7 +223,10 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
     printf 'SKIP\t%s\tdefault branch is %s, not main\n' "${repo}" "${default_branch}"
     continue
   }
-  sha="$(gh api "repos/${repo}/commits/main" --jq .sha)"
+  if ! sha="$(gh api "repos/${repo}/commits/main" --jq .sha 2>/dev/null)" || [[ -z "${sha}" ]]; then
+    printf 'SKIP\t%s\tno main commit (empty repository or missing main branch)\n' "${repo}"
+    continue
+  fi
   if ref_json="$(gh api "repos/${repo}/git/ref/tags/${TAG}" 2>/dev/null)"; then
     existing="$(jq -r '.object.sha // empty' <<<"${ref_json}")"
   else
