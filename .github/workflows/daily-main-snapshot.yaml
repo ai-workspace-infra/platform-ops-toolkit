@@ -57,7 +57,7 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: 4405545
+          client-id: Iv23liNwStpQIiXajhpb
           private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
           owner: ${{ matrix.organization }}
 
