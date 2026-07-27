@@ -115,10 +115,6 @@ dispatch_build_workflow() {
   esac
 }
 
-trigger_profile_refresh() {
-  gh workflow run "update-profile-readme.yml" --repo "ai-workspace-services/.github" >/dev/null
-}
-
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tag)
@@ -218,6 +214,10 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
     echo "Repository ${repo} is outside the selected organizations." >&2
     exit 2
   }
+  if [[ "${repo}" == "${owner}/.github" ]]; then
+    printf 'SKIP\t%s\tshared .github repository\n' "${repo}"
+    continue
+  fi
   default_branch="$(gh api "repos/${repo}" --jq .default_branch)"
   [[ "${default_branch}" == "main" ]] || {
     printf 'SKIP\t%s\tdefault branch is %s, not main\n' "${repo}" "${default_branch}"
@@ -255,7 +255,3 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
     fi
   fi
 done
-
-if [[ "${APPLY}" == true && "${TRIGGER_BUILD}" == true && "${ORG_FILTER}" == "ai-workspace-services" ]]; then
-  trigger_profile_refresh
-fi
