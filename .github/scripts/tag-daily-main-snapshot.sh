@@ -16,6 +16,11 @@ tag="$(printf '%s' "${tag}" | tr -d '\r\n' | xargs)"
 }
 
 echo "Creating main snapshot ${tag} for ${DEPLOY_ENV}."
+if [[ -n "${SNAPSHOT_STATUS_FILE:-}" ]]; then
+  mkdir -p "$(dirname "${SNAPSHOT_STATUS_FILE}")"
+  : > "${SNAPSHOT_STATUS_FILE}"
+fi
+
 args=(--tag "${tag}" --deploy-env "${DEPLOY_ENV}" --apply --build)
 if [[ -n "${SNAPSHOT_ORGS:-}" ]]; then
   args+=(--org "${SNAPSHOT_ORGS}")
