@@ -8,8 +8,9 @@ name: Deploy Environment & Provision Infrastructure
 # =============================================================================
 
 on:
-  # Branches select a complete deployment profile. main provisions and deploys
-  # an isolated UAT web-saas environment; stable refs select production.
+  # Branches select a delivery profile. pull_request and branch/tag pushes
+  # always run the provision stage, but only workflow_dispatch can request an
+  # actual apply/deploy run.
   pull_request:
     types: [opened, synchronize, reopened]
     paths-ignore:
@@ -350,7 +351,7 @@ jobs:
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops_provision_adopt-resize-replacement.sh
 
-    - name: Terraform Apply / Destroy
+    - name: Terraform Plan / Apply / Destroy
       if: steps.route.outputs.run_infrastructure == 'true'
       working-directory: ${{ env.ENV_DIR }}
       env:

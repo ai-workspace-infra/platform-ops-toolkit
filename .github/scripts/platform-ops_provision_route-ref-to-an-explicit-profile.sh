@@ -107,8 +107,9 @@ else
       refs/heads/main|refs/heads/release/*)
         deployment_env=uat; resource_file=uat/web-saas; terraform_workspace=web-saas-uat
         state_key=platform-ops-toolkit/uat/web-saas.tfstate; target_domains=web-saas
-        run_infrastructure=true; run_application_deploy=true
-        terraform_action=apply; toolkit_action=deploy; infra_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
+        # PR merge 后的 push 只做 IaC plan 校验，避免自动创建/变更真实资源。
+        run_infrastructure=true; run_application_deploy=false
+        terraform_action=plan; toolkit_action=none; infra_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
         source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-uat; confirm_dns_switch=false
         ;;
       refs/tags/v*)
