@@ -653,7 +653,9 @@ jobs:
       env:
         VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
         ROOT_BOOTSTRAP_PASSWORD: ${{ steps.vault.outputs.ROOT_BOOTSTRAP_PASSWORD }}
-      run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_web_saas_initialize-databases.sh
+      run: >-
+        ansible-playbook -i ../cmdb/inventory.ini deploy_accounts_svc_plus.yml
+        --limit "${MATRIX_HOST}"
 
   deploy_infra_platform:
     name: Deploy Open Platform Services on ${{ matrix.host }}
