@@ -242,8 +242,9 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
       fi
       continue
     fi
-    echo "ERROR: ${repo} already has ${TAG} at ${existing}, main is ${sha}" >&2
-    exit 1
+    printf 'SKIP\t%s\ttag %s already points to %s; main is %s\n' \
+      "${repo}" "${TAG}" "${existing}" "${sha}"
+    continue
   fi
 
   printf '%s\t%s\t%s\n' "$([[ "${APPLY}" == true ]] && echo CREATE || echo PLAN)" "${repo}" "${sha}"
