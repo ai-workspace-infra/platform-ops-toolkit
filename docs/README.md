@@ -62,3 +62,4 @@ KV 路径按三层隔离（公共服务共读只读 / 基础凭据按环境只�
 - [PostgreSQL 容灾实战 (PostgreSQL DR)](ZH/BackUP/postgresql_disaster_recovery.md)
 - [Vault OIDC 策略与 403 排障 (Vault OIDC DR & Troubleshooting)](ZH/BackUP/vault_oidc_policy_troubleshooting.md)
 - [迁移实施方案历史文档 (Site Migration Implementation)](ZH/BackUP/Site-Migration/implementation_plan.md)
+- [Daily Snapshot 手动执行版](daily-snapshot-manual.md)
