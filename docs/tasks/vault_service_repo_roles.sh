@@ -149,7 +149,7 @@ process_repo accounts         ai-workspace-services/accounts
 process_repo billing-service  ai-workspace-services/billing-service
 process_repo console          ai-workspace-services/portal
 process_repo docs             ai-workspace-services/docs
-process_repo postgresql       ai-workspace-services/postgresql.svc.plus
+process_repo postgresql       ai-workspace-infra/postgresql.svc.plus
 process_gitops_repo
 
 cat <<'EOF'
