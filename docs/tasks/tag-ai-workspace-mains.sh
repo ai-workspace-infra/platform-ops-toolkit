@@ -31,7 +31,7 @@ record_status() {
   [[ -n "${SNAPSHOT_STATUS_FILE:-}" ]] || return 0
 
   jq -cn \
-    --arg organization "${ORG_FILTER:-all}" \
+    --arg organization "${ORG_FILTER:-${SNAPSHOT_ORGS:-all}}" \
     --arg repository "${repo}" \
     --arg status "${status}" \
     --arg tag "${TAG}" \

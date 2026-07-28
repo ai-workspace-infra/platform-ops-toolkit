@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "repositories": [
+    {
+      "repository": "ai-workspace-services/accounts",
+      "workflow": "ci-pipeline.yml",
+      "dispatch_inputs": {"deploy_env": "${DEPLOY_ENV}"},
+      "artifacts": ["image", "binary", "zip"]
+    },
+    {
+      "repository": "ai-workspace-services/billing-service",
+      "workflow": "ci-pipeline.yml",
+      "dispatch_inputs": {"deployment_environment": "${DEPLOY_ENV}"},
+      "artifacts": ["image", "binary"]
+    },
+    {
+      "repository": "ai-workspace-services/docs",
+      "workflow": "ci-pipeline.yml",
+      "dispatch_inputs": {"deployment_environment": "${DEPLOY_ENV}"},
+      "artifacts": ["image"]
+    },
+    {
+      "repository": "ai-workspace-services/portal",
+      "workflow": "ci-pipeline.yml",
+      "dispatch_inputs": {"deployment_environment": "${DEPLOY_ENV}"},
+      "artifacts": ["image"]
+    },
+    {
+      "repository": "ai-workspace-services/postgresql.svc.plus",
+      "workflow": "ci-pipeline.yml",
+      "dispatch_inputs": {
+        "image_tag": "${SNAPSHOT_TAG}",
+        "deployment_environment": "${DEPLOY_ENV}",
+        "push_latest": "false"
+      },
+      "artifacts": ["image"]
+    }
+  ]
+}
