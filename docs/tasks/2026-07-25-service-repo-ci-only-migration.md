@@ -166,7 +166,33 @@ GitHub 官方说明，fine-grained PAT 可以限制到单个组织、单个或�
 1. 如果组织启用了 PAT 限制，可能需要先审批这个 token 才能访问组织仓库。
 2. 这个 token 只要能写目标仓库就够了，不要给过大的 repo 范围。
 
-这个 workflow 只读取 `CROSS_REPO_GH_TOKEN`，不会再回退到默认 `GITHUB_TOKEN`。
+#### GitHub App 方案
+
+GitHub App 也可以直接安装到个人账户或组织上。官方文档说明，App 可以安装在
+`personal account` 和组织上，并按仓库粒度授予权限。
+
+1. 打开 GitHub 头像菜单。
+2. 进入 `Settings`。
+3. 左侧点 `Developer settings`。
+4. 进入 `GitHub Apps`。
+5. 点 `New GitHub App`。
+6. `GitHub App name` 随便取一个能看懂的名字，比如 `platform-ops-toolkit-bot`。
+7. `Homepage URL` 可以填仓库主页。
+8. `Webhook` 如果这个 App 只用来做 CI token vending，可以先不启用 webhook。
+9. 在权限里至少给 `Repository permissions` 下的：
+   - `Contents: Read and write`
+   - 如果还要触发 workflow，再加 `Actions: Read and write`
+10. 创建完成后，记下 `Client ID`，下载并保存 `Private key`。
+11. 去 `Install App`，安装到需要写入的目标账户上。
+   - 如果是组织，选组织账号并勾选需要的仓库。
+   - 如果是个人账户，选个人账号并勾选需要的仓库。
+12. 把 `Client ID` 和 `Private key` 存进 `platform-ops-toolkit` 的 Actions 配置，
+   名字建议用 `CROSS_REPO_GH_APP_CLIENT_ID` 和 `CROSS_REPO_GH_APP_PRIVATE_KEY`。
+
+这个 workflow 现在走 GitHub App 安装令牌方案时，会按目标 owner 分组换 token，
+所以组织仓库和个人账户仓库都能单独安装、单独授权，不需要让一个 token 横跨多个 owner。
+
+这个 workflow 只读取 `CROSS_REPO_GH_TOKEN` 或 GitHub App 相关 secrets，不会再回退到默认 `GITHUB_TOKEN`。
 
 ## 验证方式(每个仓库通用)
 

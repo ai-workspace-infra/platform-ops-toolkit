@@ -51,6 +51,8 @@ jobs:
         with:
           url: https://vault.svc.plus
           method: jwt
+          # This role only tags repositories. Build workflows authenticate with
+          # their own daily-build-* roles; see docs/daily-snapshot-vault.md.
           role: github-actions-platform-ops-toolkit-uat
           jwtGithubAudience: vault
           secrets: |
@@ -83,25 +85,29 @@ jobs:
           if-no-files-found: warn
 
   snapshot-summary:
-    name: Summarize snapshot status
+    name: Summarize ${{ matrix.organization }} snapshot status
     needs: snapshot
-    if: always()
+    if: ${{ always() && needs.snapshot.result != 'skipped' }}
     runs-on: ubuntu-latest
-    outputs:
-      snapshot_status: ${{ steps.aggregate.outputs.snapshot_status }}
+    strategy:
+      fail-fast: false
+      matrix:
+        organization:
+          - ai-workspace-infra
+          - ai-workspace-lab
+          - ai-workspace-services
+          - ai-workspace-xstream
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download snapshot status artifacts
+      - name: Download organization snapshot status
         uses: actions/download-artifact@v4
         with:
-          pattern: daily-snapshot-status-*
-          merge-multiple: true
+          name: daily-snapshot-status-${{ matrix.organization }}
           path: ${{ runner.temp }}/daily-snapshot-status
 
-      - name: Aggregate snapshot status
-        id: aggregate
+      - name: Publish organization matrix summary
         env:
           SNAPSHOT_STATUS_DIRECTORY: ${{ runner.temp }}/daily-snapshot-status
         run: ${{ github.workspace }}/.github/scripts/aggregate-daily-snapshot-status.sh
