@@ -648,13 +648,36 @@ jobs:
     - name: Install Ansible
       run: ${{ github.workspace }}/.github/scripts/common_install_ansible.sh
 
+    # 0 主机命中仍 exit 0 是本仓 workplan 的陷阱 #12。守卫脚本一直躺在
+    # .github/scripts/ 里但没有任何 workflow 引用它, 于是这一步 2026-07-28
+    # 在 run 30339933681 里报绿而一个库都没建。
+    - name: Assert the Ansible target resolves to a reachable host
+      working-directory: playbooks
+      run: >-
+        ${{ github.workspace }}/.github/scripts/common_assert_ansible_host.sh
+        ../cmdb/inventory.ini "${MATRIX_HOST}"
+
+    # 这一步此前跑的是 deploy_accounts_svc_plus.yml —— 那是"部署 accounts
+    # 服务"的 playbook, 与步骤名(建库建角色)对不上, 而且容器栈本就该由
+    # Doco-CD 拉 gitops 来部署, 这里再部署一遍是重复的第二条路径。
+    #
+    # 更要命的是它的 hosts 默认值是 accounts 组, 而 CMDB 给 web-saas 主机打
+    # 的组是 web_saas/debian/database, 根本没有 accounts 组 —— --limit 与
+    # hosts 求交为空, ansible 打印 "skipping: no hosts matched" 后 exit 0。
+    # 于是 account/billing 两个库从没被创建, accounts 容器起来就报
+    # 'database "account" does not exist' 反复重启, Caddy 对外表现成 502。
+    #
+    # create_databases_and_users.yml 才是建库的那个(hosts: all, 与 --limit
+    # 求交正好命中本机), 它自己会探测 web-saas-postgresql 容器, 探测不到会
+    # 显式 fail 而不是静默跳过。
     - name: Create Web SaaS databases and roles
       working-directory: playbooks
       env:
         VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
         ROOT_BOOTSTRAP_PASSWORD: ${{ steps.vault.outputs.ROOT_BOOTSTRAP_PASSWORD }}
+        VAULT_ENV_PATH: ${{ inputs.vault_env_path }}
       run: >-
-        ansible-playbook -i ../cmdb/inventory.ini deploy_accounts_svc_plus.yml
+        ansible-playbook -i ../cmdb/inventory.ini create_databases_and_users.yml
         --limit "${MATRIX_HOST}"
 
   deploy_infra_platform:
