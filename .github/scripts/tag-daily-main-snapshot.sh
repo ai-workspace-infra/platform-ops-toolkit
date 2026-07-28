@@ -21,7 +21,7 @@ if [[ -n "${SNAPSHOT_STATUS_FILE:-}" ]]; then
   : > "${SNAPSHOT_STATUS_FILE}"
 fi
 
-args=(--tag "${tag}" --deploy-env "${DEPLOY_ENV}" --apply --build)
+args=(--tag "${tag}" --deploy-env "${DEPLOY_ENV}" --apply)
 if [[ -n "${SNAPSHOT_ORGS:-}" ]]; then
   args+=(--org "${SNAPSHOT_ORGS}")
 fi
@@ -29,3 +29,6 @@ if [[ -n "${SNAPSHOT_REPOS:-}" ]]; then
   args+=(--repo "${SNAPSHOT_REPOS}")
 fi
 bash docs/tasks/tag-ai-workspace-mains.sh "${args[@]}"
+
+build_repos="${SNAPSHOT_REPOS:-ai-workspace-services/accounts,ai-workspace-services/billing-service,ai-workspace-services/docs,ai-workspace-services/portal,ai-workspace-services/postgresql.svc.plus}"
+SNAPSHOT_REPOS="${build_repos}" .github/scripts/wait-daily-snapshot-builds.sh
