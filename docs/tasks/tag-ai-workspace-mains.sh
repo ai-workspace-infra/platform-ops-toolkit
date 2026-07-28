@@ -229,11 +229,6 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
     echo "Repository ${repo} is outside the selected organizations." >&2
     exit 2
   }
-  if [[ "${repo}" == "${owner}/.github" ]]; then
-    printf 'SKIP\t%s\tshared .github repository\n' "${repo}"
-    record_status "skipped" "${repo}" "" "shared .github repository"
-    continue
-  fi
   default_branch="$(gh api "repos/${repo}" --jq .default_branch)"
   [[ "${default_branch}" == "main" ]] || {
     printf 'SKIP\t%s\tdefault branch is %s, not main\n' "${repo}" "${default_branch}"
