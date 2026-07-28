@@ -87,7 +87,7 @@ jobs:
   snapshot-summary:
     name: Summarize ${{ matrix.organization }} snapshot status
     needs: snapshot
-    if: always()
+    if: ${{ always() && needs.snapshot.result != 'skipped' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
