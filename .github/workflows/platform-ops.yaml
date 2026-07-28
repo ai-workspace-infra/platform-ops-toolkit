@@ -556,37 +556,23 @@ jobs:
   # kv/data/CICD: GHCR_USERNAME 直接同名取, 密码键名是 GHCR_TOKEN, 映射为
   # 各脚本统一消费的 GHCR_PASSWORD。
   # ---------------------------------------------------------------------------
-  deploy_web_saas:
-    name: Deploy Web SaaS Services on ${{ matrix.host }}
+  # 2026-07-28: 这个 job 原来排在 deploy_web_saas 之后, deploy_web_saas 原来
+  # 只做 validate/confirm-pull-only, 从不真正检查容器是否起来, 所以顺序反了
+  # 也从来没人发现。playbooks#200 给 deploy_web_saas 加了 observe_urls 健康
+  # 检查后, 这个反序在任何一台*新*主机上都会死锁: accounts 容器要连
+  # account 库才能起, 库要这个 job 来建, 而这个 job 又要等 deploy_web_saas
+  # 先成功 —— deploy_web_saas 永远等不到健康的 accounts, 于是永远失败,
+  # 这个 job 也永远不会跑。#164 和 #200 各自都对, 合在一起才第一次暴露
+  # 这个耦合(见 run 30358343199, Bootstrap 成功但 Deploy Web SaaS Services
+  # 报 "no HTTP response" / "HTTP 502" 全部 fail)。
+  # 把建库挪到 observe 检查之前修复, 不是撤销任何一个 fix。
+  initialize_web_saas_databases:
+    name: Initialize Web SaaS PostgreSQL Databases on ${{ matrix.host }}
     needs: [provision, deploy_base]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
-      needs.provision.outputs.run_application_deploy == 'true' &&
-      needs.provision.outputs.terraform_action == 'apply' &&
-      needs.provision.outputs.count != '0' &&
-      (needs.provision.outputs.target_domains == 'all' || needs.provision.outputs.target_domains == 'web-saas') &&
-      needs.provision.outputs.hosts_web_saas != '[]' &&
-      needs.provision.outputs.hosts_web_saas != '' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        host: ${{ fromJSON(needs.provision.outputs.hosts_web_saas) }}
-    uses: ai-workspace-infra/playbooks/.github/workflows/web-saas-domain-cd.yaml@main
-    with:
-      target_host: ${{ matrix.host }}
-      deploy_env: ${{ needs.provision.outputs.deployment_env }}
-      deploy_tag: ${{ needs.provision.outputs.deploy_tag }}
-
-  initialize_web_saas_databases:
-    name: Initialize Web SaaS PostgreSQL Databases on ${{ matrix.host }}
-    needs: [provision, deploy_base, deploy_web_saas]
-    if: >-
-      ${{ !cancelled() &&
-      needs.provision.result == 'success' &&
-      needs.deploy_base.result == 'success' &&
-      needs.deploy_web_saas.result == 'success' &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -679,6 +665,30 @@ jobs:
       run: >-
         ansible-playbook -i ../cmdb/inventory.ini create_databases_and_users.yml
         --limit "${MATRIX_HOST}"
+
+  deploy_web_saas:
+    name: Deploy Web SaaS Services on ${{ matrix.host }}
+    needs: [provision, deploy_base, initialize_web_saas_databases]
+    if: >-
+      ${{ !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.deploy_base.result == 'success' &&
+      needs.initialize_web_saas_databases.result == 'success' &&
+      needs.provision.outputs.run_application_deploy == 'true' &&
+      needs.provision.outputs.terraform_action == 'apply' &&
+      needs.provision.outputs.count != '0' &&
+      (needs.provision.outputs.target_domains == 'all' || needs.provision.outputs.target_domains == 'web-saas') &&
+      needs.provision.outputs.hosts_web_saas != '[]' &&
+      needs.provision.outputs.hosts_web_saas != '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host: ${{ fromJSON(needs.provision.outputs.hosts_web_saas) }}
+    uses: ai-workspace-infra/playbooks/.github/workflows/web-saas-domain-cd.yaml@main
+    with:
+      target_host: ${{ matrix.host }}
+      deploy_env: ${{ needs.provision.outputs.deployment_env }}
+      deploy_tag: ${{ needs.provision.outputs.deploy_tag }}
 
   deploy_infra_platform:
     name: Deploy Open Platform Services on ${{ matrix.host }}
