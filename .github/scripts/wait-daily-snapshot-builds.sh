@@ -35,16 +35,23 @@ for repo in "${repos[@]}"; do
   [[ -n "$workflow" ]] || continue
 
   run_id=""
-  run_sha=""
+  if ! expected_sha="$(gh api "repos/${repo}/commits/${SNAPSHOT_TAG}" --jq .sha 2>/dev/null)" || [[ -z "$expected_sha" ]]; then
+    record "$repo" "build_lookup_failed" "" "cannot resolve ${SNAPSHOT_TAG} to a commit"
+    continue
+  fi
+  run_sha="$expected_sha"
   while [[ -z "$run_id" && $(date +%s) -lt $deadline ]]; do
     runs="$(gh run list -R "$repo" -w "$workflow" -L 50 --json databaseId,event,status,headBranch,headSha 2>/dev/null || printf '[]')"
-    run_id="$(jq -r --arg tag "$SNAPSHOT_TAG" '[.[] | select(.event == "push" and .headBranch == $tag)] | first | .databaseId // empty' <<< "$runs")"
-    run_sha="$(jq -r --arg tag "$SNAPSHOT_TAG" '[.[] | select(.event == "push" and .headBranch == $tag)] | first | .headSha // empty' <<< "$runs")"
+    run_id="$(jq -r \
+      --arg tag "$SNAPSHOT_TAG" \
+      --arg sha "$expected_sha" \
+      '[.[] | select(.event == "push" and .headBranch == $tag and .headSha == $sha)] | first | .databaseId // empty' \
+      <<< "$runs")"
     [[ -n "$run_id" ]] || sleep "$poll_seconds"
   done
 
   if [[ -z "$run_id" ]]; then
-    record "$repo" "build_timeout" "$run_sha" "no push-triggered CI run found for ${SNAPSHOT_TAG}"
+    record "$repo" "build_timeout" "$run_sha" "no push-triggered CI run found for ${SNAPSHOT_TAG} at ${expected_sha}"
     continue
   fi
 

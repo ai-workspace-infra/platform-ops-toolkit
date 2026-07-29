@@ -21,7 +21,8 @@ if [[ -n "${SNAPSHOT_STATUS_FILE:-}" ]]; then
   : > "${SNAPSHOT_STATUS_FILE}"
 fi
 
-args=(--tag "${tag}" --deploy-env "${DEPLOY_ENV}" --apply)
+# Make the source ref explicit; snapshot tags remain immutable.
+args=(--tag "${tag}" --ref main --deploy-env "${DEPLOY_ENV}" --apply)
 if [[ -n "${SNAPSHOT_ORGS:-}" ]]; then
   args+=(--org "${SNAPSHOT_ORGS}")
 fi

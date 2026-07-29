@@ -31,7 +31,23 @@ GitHub App `daily-snapshot-tag`（App ID `4405545`）需要安装到四个目标
 4. 选择 `deploy_env`，默认使用 `uat`。
 5. 可选填写 `snapshot_tag` 和 `repositories`。
 
-workflow 会创建当天的 `daily-build-YYYY.MM.DD` tag，并继续执行目标仓库的构建触发流程。
+workflow 会从各仓库当时的 `main` SHA 创建不可变的
+`daily-build-YYYY.MM.DD` tag，并继续执行目标仓库的构建触发流程。
+构建等待会同时按 tag 名和 SHA 匹配，避免误用同名历史运行。
+
+手工创建重试快照 tag 时可执行：
+
+```bash
+bash docs/tasks/tag-ai-workspace-mains.sh \
+  --tag daily-build-2026.07.29-r1 \
+  --apply \
+  --ref main \
+  --build
+```
+
+所有 tag 均保持不可变。当天基础 tag 已存在、对应构建失败或 `main` 已前进时，
+使用 `-r1`、`-r2` 等新 tag 重试。环境看板和后续部署应从这些不可变快照中
+选择“构建成功且创建时间最新”的 tag，而不是移动旧 tag。
 
 不需要配置 `GH_TOKEN`、`CROSS_REPO_GH_TOKEN` 或 GitHub PAT。
 
