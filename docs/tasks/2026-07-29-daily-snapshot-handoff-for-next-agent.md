@@ -74,6 +74,8 @@
 - 把“按环境自动拉取最新包版本”的 README 仪表盘做出来。
 - 让 README 顶部的卡片按 `sit` / `uat` / `prod` 展示最新发布入口。
 - 让每个环境卡片只显示真正属于该环境的最新镜像，避免三栏重复。
+- 仪表盘方案的详细设计已单独落在
+  [`2026-07-29-readme-dynamic-latest-packages-dashboard.md`](2026-07-29-readme-dynamic-latest-packages-dashboard.md)。
 
 ### 中优先级
 
@@ -93,4 +95,3 @@
 - 这条线索的核心不是“改成可变 tag”，而是“永远根据不可变 tag 选出最新成功快照”。
 - 后续所有 README 展示、环境 badge、制品列表，都应该基于这个不可变快照模型来做。
 - 如果继续碰到构建失败，优先看服务仓库里的 `chart version`、`release manifest` 和 `workflow_dispatch` 参数名是否一致。
-

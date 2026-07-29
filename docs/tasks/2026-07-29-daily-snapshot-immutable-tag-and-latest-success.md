@@ -150,7 +150,8 @@ git diff --check
 - 为当天自动重试设计统一的 `-rN` 分配方式，避免四个 organization matrix job
   各自计算出不同后缀。
 - 增加全局汇总 job，只有所有必需服务均成功时才登记该 tag 为成功快照。
-- 将最新成功快照写入组织 README 使用的数据文件或其他可审计索引。
+- 将最新成功快照写入组织 README 使用的数据文件或其他可审计索引，
+  详见 [`2026-07-29-readme-dynamic-latest-packages-dashboard.md`](2026-07-29-readme-dynamic-latest-packages-dashboard.md)。
 - 验证更新后的等待脚本不会读取旧 run，并对 `-r1` 实际跑一次端到端构建。
 - 完成验证后提交 PR，保留本文件作为后续调试和验收记录。
 
