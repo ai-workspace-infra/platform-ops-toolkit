@@ -563,6 +563,93 @@ jobs:
       run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_base_restore-caddy-certs.sh
 
 
+
+  # ---------------------------------------------------------------------------
+  # 步骤 2.5: 自动推进 GitOps 版本
+  # 如果用户在触发流程时显式指定了 deploy_tag，我们将替用户自动把新的 tag 写入
+  # ai-workspace-infra/gitops 并提交，以打通 CI 到 Pull-Only CD 的闭环。
+  # ---------------------------------------------------------------------------
+  update_gitops_tags:
+    name: Auto-update GitOps deploy tags
+    needs: [provision]
+    if: >-
+      ${{ !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.provision.outputs.run_application_deploy == 'true' &&
+      needs.provision.outputs.terraform_action == 'apply' &&
+      needs.provision.outputs.deploy_tag != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout playbook scripts
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: main
+
+      - name: Load GitHub App private key from Vault
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: ${{ env.VAULT_ROLE }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
+
+      - name: Create GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: Iv23liNwStpQIiXajhpb
+          private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
+          owner: ai-workspace-infra
+
+      - name: Checkout GitOps repository
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: main
+          token: ${{ steps.app-token.outputs.token }}
+          path: gitops
+
+      # web-saas 域更新
+      - name: Update web-saas tags
+        if: ${{ contains(needs.provision.outputs.target_domains, 'web-saas') || needs.provision.outputs.target_domains == 'all' }}
+        env:
+          DOMAIN: web-saas
+          DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
+          DEPLOY_TAG: ${{ needs.provision.outputs.deploy_tag }}
+          MANAGED_IMAGES: ACCOUNTS_IMAGE BILLING_IMAGE CONSOLE_IMAGE
+        run: .github/scripts/gitops-update-tags.sh
+
+      # open-platform 域更新 (根据需要可以补充 MANAGED_IMAGES)
+      - name: Update open-platform tags
+        if: ${{ contains(needs.provision.outputs.target_domains, 'open-platform') || needs.provision.outputs.target_domains == 'all' }}
+        env:
+          DOMAIN: open-platform
+          DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
+          DEPLOY_TAG: ${{ needs.provision.outputs.deploy_tag }}
+          # 假设 open-platform 也有管理的镜像，暂时放空或根据实际情况填写
+          MANAGED_IMAGES: ''
+        run: |
+          if [ -n "${MANAGED_IMAGES}" ]; then
+            .github/scripts/gitops-update-tags.sh
+          fi
+
+      - name: Commit and push changes
+        working-directory: gitops
+        run: |
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -am "chore(cd): auto-update tags to ${{ needs.provision.outputs.deploy_tag }} for ${{ needs.provision.outputs.deployment_env }}"
+            git push
+            echo "GitOps repository updated successfully."
+          else
+            echo "No changes to GitOps configuration."
+          fi
+
   # ---------------------------------------------------------------------------
   # 步骤 2b: Web SaaS 域服务部署 (postgresql / stunnel / accounts / billing / console)
   # 单机部署: 所有 web-saas 服务都跑在同一台 provision 出来的主机上, 所以需要先
@@ -590,11 +677,12 @@ jobs:
   # 把建库挪到 observe 检查之前修复, 不是撤销任何一个 fix。
   initialize_web_saas_databases:
     name: Initialize Web SaaS PostgreSQL Databases on ${{ matrix.host }}
-    needs: [provision, deploy_base]
+    needs: [provision, deploy_base, update_gitops_tags]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
+      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -709,11 +797,12 @@ jobs:
   # observe 在 switch_dns 之后的 deploy_web_saas 中完成(DNS 此时已就位)。
   deploy_web_saas:
     name: Deploy Web SaaS Services on ${{ matrix.host }}
-    needs: [provision, deploy_base]
+    needs: [provision, deploy_base, update_gitops_tags]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
+      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -751,6 +840,7 @@ jobs:
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
+      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.deploy_web_saas.result == 'success' &&
       needs.initialize_web_saas_databases.result == 'success' &&
       needs.provision.outputs.run_application_deploy == 'true' &&
@@ -845,6 +935,7 @@ jobs:
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
+      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.deploy_web_saas.result != 'failure' &&
       needs.initialize_web_saas_databases.result != 'failure' &&
       needs.provision.outputs.terraform_action == 'apply' &&
@@ -913,11 +1004,12 @@ jobs:
 
   deploy_infra_platform:
     name: Deploy Open Platform Services on ${{ matrix.host }}
-    needs: [provision, deploy_base]
+    needs: [provision, deploy_base, update_gitops_tags]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
+      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -936,11 +1028,12 @@ jobs:
 
   deploy_agent_proxy:
     name: Deploy Agent Proxy Services on ${{ matrix.host }}
-    needs: [provision, deploy_base]
+    needs: [provision, deploy_base, update_gitops_tags]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
+      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -959,11 +1052,12 @@ jobs:
 
   deploy_ai_workspace:
     name: Deploy AI Workspace Services on ${{ matrix.host }}
-    needs: [provision, deploy_base]
+    needs: [provision, deploy_base, update_gitops_tags]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
+      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
