@@ -39,9 +39,11 @@ versioned path below and atomically changes `current` only after validation:
   trust-bundle.pem
 ```
 
-The existing `/etc/xcontrol/web-saas/certs` directory remains reserved for the
-current stunnel bootstrap material until the GitOps stack can mount the public
-paths. It must not be overwritten with an incomplete public-certificate state.
+The existing `stunnel/certs` self-signed playbook and its
+`/etc/xcontrol/web-saas/certs` output remain in place. They are the deliberate
+bootstrap TLS path for a first DNS-01 issuance and for a missing/incomplete
+public certificate state. The public wildcard material must not overwrite that
+directory.
 
 ## Stunnel target configuration
 
@@ -73,7 +75,7 @@ There is no public certificate state on the first new deployment. The workflow
 therefore must not require the public stunnel mount before Caddy has completed
 DNS-01 issuance. The safe order is:
 
-1. Bootstrap the host with the existing internal stunnel certificate.
+1. Bootstrap the host with the existing self-signed `stunnel/certs` material.
 2. Caddy performs DNS-01 issuance for `onwalk.net` and `*.onwalk.net`.
 3. Observe verifies the public endpoints.
 4. Backup stores Caddy state and PEM material without overwriting the trust
