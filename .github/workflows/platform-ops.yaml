@@ -626,7 +626,7 @@ jobs:
           DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
           DEPLOY_TAG: ${{ needs.provision.outputs.deploy_tag }}
           MANAGED_IMAGES: ACCOUNTS_IMAGE BILLING_IMAGE CONSOLE_IMAGE
-        run: .github/scripts/gitops-update-tags.sh
+        run: bash .github/scripts/gitops-update-tags.sh
 
       # open-platform 域更新 (根据需要可以补充 MANAGED_IMAGES)
       - name: Update open-platform tags
@@ -639,7 +639,7 @@ jobs:
           MANAGED_IMAGES: ''
         run: |
           if [ -n "${MANAGED_IMAGES}" ]; then
-            .github/scripts/gitops-update-tags.sh
+            bash .github/scripts/gitops-update-tags.sh
           fi
 
       - name: Commit and push changes
@@ -840,7 +840,7 @@ jobs:
   # 一台已经销毁的老机器)时, 量到的依然是"我刚部署的这台"。
   observe_web_saas:
     name: Observe Web SaaS on ${{ matrix.host }}
-    needs: [provision, deploy_base, deploy_web_saas, initialize_web_saas_databases]
+    needs: [provision, deploy_base, deploy_web_saas, initialize_web_saas_databases, update_gitops_tags]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
@@ -916,7 +916,7 @@ jobs:
         OBSERVE_URLS: >-
           https://console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
           https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
-      run: playbooks/.github/scripts/domain-cd-observe-endpoints.sh
+      run: bash playbooks/.github/scripts/domain-cd-observe-endpoints.sh
 
     # 备份放在 observe 之后: 此刻证书要么是恢复来的、要么是本轮新签的, 而且
     # observe 刚刚用它成功握过手 —— 存进去的是一份验证过的证书。放在部署早期
@@ -935,7 +935,7 @@ jobs:
   switch_dns:
     name: Switch DNS Traffic & Observe
     # 等两个并行 job 都完成才切流量 —— 这是流量门。
-    needs: [provision, deploy_base, deploy_web_saas, initialize_web_saas_databases]
+    needs: [provision, deploy_base, deploy_web_saas, initialize_web_saas_databases, update_gitops_tags]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
@@ -1005,7 +1005,7 @@ jobs:
         OBSERVE_URLS: >-
           https://console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
           https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
-      run: playbooks/.github/scripts/domain-cd-observe-endpoints.sh
+      run: bash playbooks/.github/scripts/domain-cd-observe-endpoints.sh
 
   deploy_infra_platform:
     name: Deploy Open Platform Services on ${{ matrix.host }}
