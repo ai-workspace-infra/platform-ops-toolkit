@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# 定期生成并覆盖 Vault 中的泛域名自签证书 (包含 CA、服务端证书与私钥)。
+# 定期生成并覆盖 Vault 中的泛域名证书。
+# 默认使用 ACME DNS-01 (Let's Encrypt 90天) 获取真实受信任的证书；
+# 当缺少 Cloudflare API Token 或 ACME 失败时，回退到内部自签名证书。
 #
 # 用法:
+#   export CLOUDFLARE_DNS_API_TOKEN="cfat_xxx" (可选，用于 ACME)
 #   ./docs/tasks/2026-07-29-rotate-domain-tls-certs.sh <VAULT_TOKEN>
 #
 # 建议的 Crontab 配置 (每两个月/约60天的1号凌晨2点执行):
-#   0 2 1 */2 * /absolute/path/to/2026-07-29-rotate-domain-tls-certs.sh "hvs.xxxxxxxxx" >> /var/log/rotate-tls.log 2>&1
+#   0 2 1 */2 * CLOUDFLARE_DNS_API_TOKEN="xxx" /path/to/2026-07-29-rotate-domain-tls-certs.sh "hvs.xxxxxxxxx" >> /var/log/rotate-tls.log 2>&1
 
 set -euo pipefail
 
@@ -23,18 +26,63 @@ DOMAINS=("onwalk.net" "svc.plus" "xworkmate.com")
 workdir=$(mktemp -d)
 trap 'rm -rf "${workdir}"' EXIT
 
+has_docker() {
+  command -v docker >/dev/null 2>&1
+}
+
 for DOMAIN in "${DOMAINS[@]}"; do
   echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] 生成证书: $DOMAIN"
   
-  # 1. 创建自签 Root CA (有效期 10 年)
-  openssl genrsa -out "${workdir}/ca.key" 2048 2>/dev/null
-  openssl req -x509 -new -nodes -key "${workdir}/ca.key" -sha256 -days 3650 -out "${workdir}/ca.crt" -subj "/CN=${DOMAIN} Root CA" 2>/dev/null
+  acme_success=false
   
-  # 2. 创建泛域名 (Server) 证书 (有效期 10 年)
-  openssl genrsa -out "${workdir}/server.key" 2048 2>/dev/null
-  openssl req -new -key "${workdir}/server.key" -out "${workdir}/server.csr" -subj "/CN=*.${DOMAIN}" 2>/dev/null
+  if [ -n "${CLOUDFLARE_DNS_API_TOKEN:-}" ] && has_docker; then
+    echo "  -> 检测到 CLOUDFLARE_DNS_API_TOKEN，尝试通过 Certbot(ACME DNS-01) 申请 Let's Encrypt 证书..."
+    
+    cat > "${workdir}/cloudflare.ini" <<EOCF
+dns_cloudflare_api_token = ${CLOUDFLARE_DNS_API_TOKEN}
+EOCF
+    chmod 600 "${workdir}/cloudflare.ini"
+    
+    # 运行 Certbot
+    if docker run --rm \
+      -v "${workdir}/letsencrypt:/etc/letsencrypt" \
+      -v "${workdir}/cloudflare.ini:/cloudflare.ini:ro" \
+      certbot/dns-cloudflare certonly \
+      --dns-cloudflare \
+      --dns-cloudflare-credentials /cloudflare.ini \
+      --dns-cloudflare-propagation-seconds 20 \
+      --email "admin@${DOMAIN}" \
+      --agree-tos --no-eff-email --non-interactive \
+      -d "${DOMAIN}" -d "*.${DOMAIN}"; then
+        
+        echo "  -> ACME 证书申请成功！"
+        live_dir="${workdir}/letsencrypt/live/${DOMAIN}"
+        
+        # Certbot 文件: 
+        # cert.pem (叶子), chain.pem (CA链), fullchain.pem (叶子+CA链), privkey.pem (私钥)
+        ca_b64=$(base64 -w0 < "${live_dir}/chain.pem" || base64 < "${live_dir}/chain.pem" | tr -d '\n')
+        key_b64=$(base64 -w0 < "${live_dir}/privkey.pem" || base64 < "${live_dir}/privkey.pem" | tr -d '\n')
+        cert_b64=$(base64 -w0 < "${live_dir}/cert.pem" || base64 < "${live_dir}/cert.pem" | tr -d '\n')
+        fullchain_b64=$(base64 -w0 < "${live_dir}/fullchain.pem" || base64 < "${live_dir}/fullchain.pem" | tr -d '\n')
+        
+        # Let's Encrypt 证书有效期是 90 天
+        not_after=$(date -d "+90 days" +%s 2>/dev/null || date -v+90d +%s)
+        acme_success=true
+    else
+        echo "  -> [警告] ACME 申请失败，将回退到自签证书模式。"
+    fi
+  fi
   
-  cat > "${workdir}/ext.cnf" <<EOCNF
+  if [ "$acme_success" = false ]; then
+    echo "  -> 使用自签模式 (Fallback) 生成内部证书..."
+    
+    openssl genrsa -out "${workdir}/ca.key" 2048 2>/dev/null
+    openssl req -x509 -new -nodes -key "${workdir}/ca.key" -sha256 -days 3650 -out "${workdir}/ca.crt" -subj "/CN=${DOMAIN} Root CA" 2>/dev/null
+    
+    openssl genrsa -out "${workdir}/server.key" 2048 2>/dev/null
+    openssl req -new -key "${workdir}/server.key" -out "${workdir}/server.csr" -subj "/CN=*.${DOMAIN}" 2>/dev/null
+    
+    cat > "${workdir}/ext.cnf" <<EOCNF
 authorityKeyIdentifier=keyid,issuer
 basicConstraints=CA:FALSE
 keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
@@ -44,21 +92,25 @@ subjectAltName = @alt_names
 DNS.1 = *.${DOMAIN}
 DNS.2 = ${DOMAIN}
 EOCNF
+    
+    openssl x509 -req -in "${workdir}/server.csr" -CA "${workdir}/ca.crt" -CAkey "${workdir}/ca.key" -CAcreateserial -out "${workdir}/server.crt" -days 3650 -sha256 -extfile "${workdir}/ext.cnf" 2>/dev/null
+    
+    ca_b64=$(base64 -w0 < "${workdir}/ca.crt" || base64 < "${workdir}/ca.crt" | tr -d '\n')
+    key_b64=$(base64 -w0 < "${workdir}/server.key" || base64 < "${workdir}/server.key" | tr -d '\n')
+    cert_b64=$(base64 -w0 < "${workdir}/server.crt" || base64 < "${workdir}/server.crt" | tr -d '\n')
+    fullchain_b64=$(cat "${workdir}/server.crt" "${workdir}/ca.crt" | base64 -w0 || cat "${workdir}/server.crt" "${workdir}/ca.crt" | base64 | tr -d '\n')
+    
+    not_after=$(date -d "+3650 days" +%s 2>/dev/null || date -v+3650d +%s)
+  fi
   
-  openssl x509 -req -in "${workdir}/server.csr" -CA "${workdir}/ca.crt" -CAkey "${workdir}/ca.key" -CAcreateserial -out "${workdir}/server.crt" -days 3650 -sha256 -extfile "${workdir}/ext.cnf" 2>/dev/null
-  
-  # 3. 准备 Base64 负载
-  ca_b64=$(base64 -w0 < "${workdir}/ca.crt" || base64 < "${workdir}/ca.crt" | tr -d '\n')
-  key_b64=$(base64 -w0 < "${workdir}/server.key" || base64 < "${workdir}/server.key" | tr -d '\n')
-  cert_b64=$(base64 -w0 < "${workdir}/server.crt" || base64 < "${workdir}/server.crt" | tr -d '\n')
-  fullchain_b64=$(cat "${workdir}/server.crt" "${workdir}/ca.crt" | base64 -w0 || cat "${workdir}/server.crt" "${workdir}/ca.crt" | base64 | tr -d '\n')
-  
-  # 默认在 Vault 里记 10 年。因为证书每次重建都会复用, 我们也可以只签短一点。
-  not_after=$(date -d "+3650 days" +%s 2>/dev/null || date -v+3650d +%s)
   now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  source_host="cron_rotate_script_acme"
+  if [ "$acme_success" = false ]; then
+    source_host="cron_rotate_script_selfsigned"
+  fi
   
   # 4. 上传至 Vault KV
-  echo "==> 上传至 kv/CICD/domains/$DOMAIN"
+  echo "  -> 上传至 kv/CICD/domains/$DOMAIN"
   
   vault kv put "kv/CICD/domains/$DOMAIN" \
     caddy_data_tar_b64="" \
@@ -69,7 +121,7 @@ EOCNF
     tls_trust_bundle_pem_b64="$ca_b64" \
     domains="*.${DOMAIN} ${DOMAIN}" \
     not_after_epoch="$not_after" \
-    source_host="cron_rotate_script" \
+    source_host="$source_host" \
     backed_up_at="$now" >/dev/null
 
 done
