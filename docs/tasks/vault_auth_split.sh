@@ -324,11 +324,10 @@ echo "Creating UAT role (main + release/* + bugfix/* + daily-build/*)..."
 write_role uat github-actions-platform-ops-toolkit-uat \
   '["refs/heads/main", "refs/heads/release/*", "refs/heads/bugfix/*", "refs/heads/daily-build-*", "refs/tags/daily-build-*"]'
 
-# prod: 只认 v* tag。release/* 是任何 writer 都能建的分支, 不能作为 prod 的
-# 凭据边界; 流水线也只在 tag 时请求 prod。
-echo "Creating PROD role (v* tags only)..."
+# prod: 基础设施仓库弱化 tag 限制，允许 main 分支直接操作，同时也兼容 v* tag。
+echo "Creating PROD role (main + v* tags)..."
 write_role prod github-actions-platform-ops-toolkit-prod \
-  '"refs/tags/v*"'
+  '["refs/tags/v*", "refs/heads/main"]'
 
 echo "Creating Playbooks SIT role (PR + branch dispatch)..."
 write_playbooks_role sit github-actions-platform-ops-toolkit-sit \
@@ -338,9 +337,9 @@ echo "Creating Playbooks UAT role (main + release/* + bugfix/* + daily-build/*).
 write_playbooks_role uat github-actions-platform-ops-toolkit-uat \
   '["refs/heads/main", "refs/heads/release/*", "refs/heads/bugfix/*", "refs/heads/daily-build-*", "refs/tags/daily-build-*"]'
 
-echo "Creating Playbooks PROD role (v* tags only)..."
+echo "Creating Playbooks PROD role (main + v* tags)..."
 write_playbooks_role prod github-actions-platform-ops-toolkit-prod \
-  '"refs/tags/v*"'
+  '["refs/tags/v*", "refs/heads/main"]'
 
 # 死角色清理: -prod-tags 从来没有被任何 workflow 请求过, 其职责已并入 -prod。
 echo "Removing dead role github-actions-platform-ops-toolkit-prod-tags (if present)..."
@@ -350,8 +349,8 @@ vault delete auth/jwt/role/github-actions-platform-ops-toolkit-prod-tags 2>/dev/
 echo
 echo "Done. 3 个 policy + 3 个 role 已生效, 死角色 -prod-tags 已清理。"
 echo
-echo "注意行为变更: prod 现在只接受 v* tag。workflow_dispatch 选 prod 会认证失败,"
-echo "这与分支规范'生产部署只经 annotated tag'一致。"
+echo
+echo "注意行为变更: prod 目前已放宽限制，允许 main 分支以及 v* tag 进行部署操作。"
 echo
 echo "⚠️ 基础凭据迁移必须按序执行, 否则流水线会读到空值:"
 echo "  1. 先写数据: 为每个环境在 kv/CICD/{sit,uat,prod} 写入各自的"
