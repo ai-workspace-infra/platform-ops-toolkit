@@ -464,8 +464,6 @@ jobs:
         method: jwt
         role: ${{ env.VAULT_ROLE }}
         jwtGithubAudience: vault
-        # restore-caddy-certs.sh 要用 vault_token 读证书备份
-        exportToken: true
         ignoreNotFound: true
         secrets: |
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
@@ -556,7 +554,7 @@ jobs:
     - name: Restore domain TLS state from Vault before Caddy can issue
       if: ${{ contains(needs.provision.outputs.target_domains, 'web-saas') || needs.provision.outputs.target_domains == 'all' }}
       env:
-        VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
+        VAULT_ROLE: ${{ env.VAULT_ROLE }}
         VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
         # Public wildcard PEM is separate from web-saas/certs/, which belongs
         # to stunnel's internal CA. Non-Caddy consumers use current/{fullchain,
@@ -835,7 +833,7 @@ jobs:
 
     - name: Back up Caddy certificates to Vault
       env:
-        VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
+        VAULT_ROLE: ${{ env.VAULT_ROLE }}
         VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops_observe_backup-caddy-certs.sh
 
