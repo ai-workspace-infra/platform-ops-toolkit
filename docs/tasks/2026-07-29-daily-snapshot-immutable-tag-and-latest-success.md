@@ -169,3 +169,29 @@ git diff --check
   跨仓 workflow gating 规则问题，与本次快照脚本改动无直接关系。
 - `Deploy Environment & Provision Infrastructure`：本次验证仍在执行基础设施部署链路，
   其余依赖 job 因前置条件未满足而跳过。
+
+### Daily snapshot run 30435571485
+
+本次 workflow 已成功创建 `daily-build-2026.07.29`，并触发了服务构建。四个组织的
+汇总 job 本身可以完成，但 snapshot job 因 PostgreSQL release manifest 失败而失败。
+
+PostgreSQL CI run：`30435602579`。
+
+已成功的步骤包括：
+
+- PostgreSQL 镜像构建并推送。
+- stunnel-server 镜像构建并推送。
+- stunnel-client 镜像构建并推送。
+- Helm chart 打包并推送。
+
+唯一失败步骤是 `Publish release manifest and assets / Prepare release assets`：
+
+```text
+CHART_VERSION=0.0.0-daily-build-2026.07.29
+Error: version segment starts with 0
+```
+
+原因是 Git/image tag 使用日期点号是正确的，但直接把它拼进 Helm SemVer prerelease
+后，`07` 成为带前导零的纯数字段。修复应只规范化 chart version，例如将日期点号
+转换为连字符或给数字段增加非数字前缀；Git tag、镜像 tag、release tag 仍保持原始
+完全相同的 `daily-build-2026.07.29`。
