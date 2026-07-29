@@ -479,7 +479,8 @@ jobs:
           ${{ env.VAULT_KV_WEB_SAAS }} AUTH_TOKEN_ACCESS_SECRET | WEB_SAAS_AUTH_TOKEN_ACCESS_SECRET ;
           ${{ env.VAULT_KV_WEB_SAAS }} STUNNEL_CA_CERT_B64 | WEB_SAAS_STUNNEL_CA_CERT_B64 ;
           ${{ env.VAULT_KV_WEB_SAAS }} STUNNEL_SERVER_CERT_B64 | WEB_SAAS_STUNNEL_SERVER_CERT_B64 ;
-          ${{ env.VAULT_KV_WEB_SAAS }} STUNNEL_SERVER_KEY_B64 | WEB_SAAS_STUNNEL_SERVER_KEY_B64
+          ${{ env.VAULT_KV_WEB_SAAS }} STUNNEL_SERVER_KEY_B64 | WEB_SAAS_STUNNEL_SERVER_KEY_B64 ;
+          ${{ env.VAULT_KV }} CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN
 
     # OAUTH_* / INTERNAL_SERVICE_TOKEN 是真正可选的(不影响是否能起服务),
     # 但 vault-action 的 ignoreNotFound 只在整个 KV 路径 404 时生效 —— 路径
@@ -538,7 +539,24 @@ jobs:
         GHCR_PASSWORD:                     ${{ steps.vault.outputs.GHCR_PASSWORD }}
         WEB_SAAS_CONSOLE_DOMAIN:           console-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
         WEB_SAAS_ACCOUNTS_DOMAIN:          accounts-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
+        # 给了它 web_saas_host_config 就渲染 DNS-01 + *.<base> 泛域名 Caddyfile,
+        # 没给就退回逐域名 HTTP-01。HTTP-01 要求 A 记录已经指向本机, 而交付顺序
+        # 是"先部署新主机、最后才切 DNS" —— 切换之前签不出证书。
+        CLOUDFLARE_DNS_API_TOKEN:          ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_base_bootstrap-node.sh
+
+    # 证书持久化。主机重建会把 caddy_data 卷一起丢掉, 于是每次重建都重新签发,
+    # 撞上 Let's Encrypt "同一组域名 5 次/周" 的限流 —— 2026-07-28 console-uat
+    # 就是这么挂的(HTTP 429, retry after 20:38 UTC), 而且没有任何代码能修, 只能等。
+    #
+    # 顺序: 先恢复(bootstrap 之后、Doco-CD 把 caddy 拉起来之前), 让 caddy 一起来
+    # 就发现证书已在, 根本不调 ACME; 部署末尾再备份, 把这一轮可能新签的证书存回去。
+    - name: Restore Caddy certificates from Vault
+      if: ${{ contains(needs.provision.outputs.target_domains, 'web-saas') || needs.provision.outputs.target_domains == 'all' }}
+      env:
+        VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
+        VAULT_CADDY_PATH: ${{ env.VAULT_KV_BASE }}/caddy
+      run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_base_restore-caddy-certs.sh
 
 
   # ---------------------------------------------------------------------------
@@ -745,6 +763,13 @@ jobs:
     env:
       MATRIX_HOST: ${{ matrix.host }}
     steps:
+    # 本仓的脚本(证书备份 / SSH key)在 workspace 根, playbooks 的 observe 脚本
+    # 在 playbooks/ 子目录 —— 两个都要 checkout。
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ github.sha }}
+
     - name: Checkout playbooks
       uses: actions/checkout@v7
       with:
@@ -757,6 +782,18 @@ jobs:
       with:
         name: platform-ops-toolkit-cmdb
         path: cmdb
+
+    - name: Load Vault secrets
+      id: vault
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        method: jwt
+        role: ${{ env.VAULT_ROLE }}
+        jwtGithubAudience: vault
+        exportToken: true
+        secrets: |
+          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64
 
     # CMDB 是本次 provision 产出的, 里面的 IP 一定是这次部署的那台机器 ——
     # 比 dig 域名可靠, 因为域名可能还没切过来。
@@ -781,6 +818,20 @@ jobs:
           https://console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
           https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
       run: playbooks/.github/scripts/domain-cd-observe-endpoints.sh
+
+    # 备份放在 observe 之后: 此刻证书要么是恢复来的、要么是本轮新签的, 而且
+    # observe 刚刚用它成功握过手 —— 存进去的是一份验证过的证书。放在部署早期
+    # 备份会把还没验证、甚至半截的 /data 存进去, 下次恢复出来反而更糟。
+    - name: Configure SSH Key
+      env:
+        VAULT_ANSIBLE_SSH_KEY_B64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+      run: ${{ github.workspace }}/.github/scripts/common_configure_ssh_key.sh
+
+    - name: Back up Caddy certificates to Vault
+      env:
+        VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
+        VAULT_CADDY_PATH: ${{ env.VAULT_KV_BASE }}/caddy
+      run: ${{ github.workspace }}/.github/scripts/platform-ops_observe_backup-caddy-certs.sh
 
   switch_dns:
     name: Switch DNS Traffic & Observe
