@@ -17,8 +17,40 @@ set -euo pipefail
 
 : "${MATRIX_HOST:?MATRIX_HOST is required}"
 : "${VAULT_ADDR:?VAULT_ADDR is required}"
-: "${VAULT_TOKEN:?VAULT_TOKEN is required}"
+: "${VAULT_ROLE:?VAULT_ROLE is required}"
 : "${VAULT_CADDY_PATH:?VAULT_CADDY_PATH is required}"
+: "${ACTIONS_ID_TOKEN_REQUEST_URL:?ACTIONS_ID_TOKEN_REQUEST_URL is required (needs id-token: write)}"
+: "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:?ACTIONS_ID_TOKEN_REQUEST_TOKEN is required (needs id-token: write)}"
+
+# 1. 用 GitHub 的 OIDC id-token 换 Vault JWT 登录用的 JWT。
+oidc="$(curl -sS --retry 3 \
+  -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+  "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=vault")"
+gh_jwt="$(jq -r '.value // empty' <<<"${oidc}")"
+[[ -n "${gh_jwt}" ]] || {
+  echo "::error::Failed to obtain a GitHub OIDC token for audience=vault." >&2
+  exit 1
+}
+
+# 2. 用这个 JWT 走 role 登录 Vault, 拿一次性 client token。
+login_body="$(mktemp)"
+trap 'rm -f "${login_body}"' EXIT
+login_status="$(curl -sS -o "${login_body}" -w '%{http_code}' \
+  -X POST -H "Content-Type: application/json" \
+  -d "$(jq -n --arg role "${VAULT_ROLE}" --arg jwt "${gh_jwt}" '{role: $role, jwt: $jwt}')" \
+  "${VAULT_ADDR}/v1/auth/jwt/login")"
+[[ "${login_status}" == "200" ]] || {
+  echo "::error::Vault JWT login failed (HTTP ${login_status}) for role ${VAULT_ROLE}." >&2
+  head -c 300 "${login_body}" >&2
+  exit 1
+}
+vault_token="$(jq -r '.auth.client_token // empty' < "${login_body}")"
+[[ -n "${vault_token}" ]] || {
+  echo "::error::Vault JWT login response had no client_token." >&2
+  exit 1
+}
+rm -f "${login_body}"
+trap - EXIT
 
 ssh_opts=(-i ~/.ssh/id_deploy -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=20)
 host="root@${MATRIX_HOST}"
@@ -113,7 +145,7 @@ write_url="${VAULT_ADDR%/}/v1/${VAULT_CADDY_PATH}"
 # Caddy can export its leaf and issuer chain but not the public root trust
 # bundle used by stunnel clients. Preserve that operator-managed field on every
 # certificate backup rather than silently deleting it with the KV replacement.
-existing_record="$(curl -sS -H "X-Vault-Token: ${VAULT_TOKEN}" "${write_url}" || true)"
+existing_record="$(curl -sS -H "X-Vault-Token: ${vault_token}" "${write_url}" || true)"
 trust_bundle_b64="$(printf '%s' "${existing_record}" | jq -r '.data.data.tls_trust_bundle_pem_b64 // empty' 2>/dev/null || true)"
 # caddy_data_tar_b64 是给恢复用的(Caddy 认它自己的目录布局); 另外四个 PEM 字段
 # 是给别的消费方用的 —— 不必解 tar、不必懂 Caddy 布局就能拿到证书材料。公开
@@ -139,7 +171,7 @@ body="$(jq -n \
       source_host: $h, backed_up_at: $t, not_after_epoch: $na, domains: $dom}}')"
 
 http_code="$(printf '%s' "${body}" | curl -sS -o /dev/null -w '%{http_code}' \
-  -X POST -H "X-Vault-Token: ${VAULT_TOKEN}" --data-binary @- "${write_url}" || echo 000)"
+  -X POST -H "X-Vault-Token: ${vault_token}" --data-binary @- "${write_url}" || echo 000)"
 
 case "${http_code}" in
   200|204)

@@ -17,9 +17,11 @@ set -euo pipefail
 
 : "${MATRIX_HOST:?MATRIX_HOST is required}"
 : "${VAULT_ADDR:?VAULT_ADDR is required}"
-: "${VAULT_TOKEN:?VAULT_TOKEN is required}"
+: "${VAULT_ROLE:?VAULT_ROLE is required}"
 : "${VAULT_CADDY_PATH:?VAULT_CADDY_PATH is required}"
 : "${DOMAIN_TLS_DIR:?DOMAIN_TLS_DIR is required}"
+: "${ACTIONS_ID_TOKEN_REQUEST_URL:?ACTIONS_ID_TOKEN_REQUEST_URL is required (needs id-token: write)}"
+: "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:?ACTIONS_ID_TOKEN_REQUEST_TOKEN is required (needs id-token: write)}"
 
 # 临近到期就不恢复了, 直接让 Caddy 签新的。恢复一张还剩三天的证书, 只会让
 # Caddy 一起来立刻进入续期流程 —— 白白多一次重启窗口, 还可能在续期成功前就
@@ -30,10 +32,40 @@ renew_margin_days="${CADDY_CERT_RENEW_MARGIN_DAYS:-14}"
 ssh_opts=(-i ~/.ssh/id_deploy -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=20)
 host="root@${MATRIX_HOST}"
 
+# 1. 用 GitHub 的 OIDC id-token 换 Vault JWT 登录用的 JWT。
+oidc="$(curl -sS --retry 3 \
+  -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+  "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=vault")"
+gh_jwt="$(jq -r '.value // empty' <<<"${oidc}")"
+[[ -n "${gh_jwt}" ]] || {
+  echo "::error::Failed to obtain a GitHub OIDC token for audience=vault." >&2
+  exit 1
+}
+
+# 2. 用这个 JWT 走 role 登录 Vault, 拿一次性 client token。
+login_body="$(mktemp)"
+trap 'rm -f "${login_body}"' EXIT
+login_status="$(curl -sS -o "${login_body}" -w '%{http_code}' \
+  -X POST -H "Content-Type: application/json" \
+  -d "$(jq -n --arg role "${VAULT_ROLE}" --arg jwt "${gh_jwt}" '{role: $role, jwt: $jwt}')" \
+  "${VAULT_ADDR}/v1/auth/jwt/login")"
+[[ "${login_status}" == "200" ]] || {
+  echo "::error::Vault JWT login failed (HTTP ${login_status}) for role ${VAULT_ROLE}." >&2
+  head -c 300 "${login_body}" >&2
+  exit 1
+}
+vault_token="$(jq -r '.auth.client_token // empty' < "${login_body}")"
+[[ -n "${vault_token}" ]] || {
+  echo "::error::Vault JWT login response had no client_token." >&2
+  exit 1
+}
+rm -f "${login_body}"
+trap - EXIT
+
 read_url="${VAULT_ADDR%/}/v1/${VAULT_CADDY_PATH}"
 
 http_code="$(curl -sS -o /tmp/caddy-vault.json -w '%{http_code}' \
-  -H "X-Vault-Token: ${VAULT_TOKEN}" "${read_url}" || echo 000)"
+  -H "X-Vault-Token: ${vault_token}" "${read_url}" || echo 000)"
 
 if [ "${http_code}" = "404" ]; then
   echo "No Caddy certificate backup at ${VAULT_CADDY_PATH} — first deploy for this environment, letting Caddy issue its own."
