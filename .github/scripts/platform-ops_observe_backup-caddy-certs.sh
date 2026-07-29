@@ -110,8 +110,14 @@ leaf_b64="$(printf '%s\n' "${remote_out}" | sed -n 's/^LEAF_B64=//p' | head -1)"
 ca_b64="$(printf '%s\n' "${remote_out}" | sed -n 's/^CA_B64=//p' | head -1)"
 
 write_url="${VAULT_ADDR%/}/v1/${VAULT_CADDY_PATH}"
+# Caddy can export its leaf and issuer chain but not the public root trust
+# bundle used by stunnel clients. Preserve that operator-managed field on every
+# certificate backup rather than silently deleting it with the KV replacement.
+existing_record="$(curl -sS -H "X-Vault-Token: ${VAULT_TOKEN}" "${write_url}" || true)"
+trust_bundle_b64="$(printf '%s' "${existing_record}" | jq -r '.data.data.tls_trust_bundle_pem_b64 // empty' 2>/dev/null || true)"
 # caddy_data_tar_b64 是给恢复用的(Caddy 认它自己的目录布局); 另外四个 PEM 字段
-# 是给别的消费方用的 —— 不必解 tar、不必懂 Caddy 布局就能拿到证书材料。
+# 是给别的消费方用的 —— 不必解 tar、不必懂 Caddy 布局就能拿到证书材料。公开
+# 根信任 bundle 不是 Caddy 数据的一部分，故只保留现有 Vault 值。
 body="$(jq -n \
   --arg d "${archive_b64}" \
   --arg h "${MATRIX_HOST}" \
@@ -122,12 +128,14 @@ body="$(jq -n \
   --arg key "${key_b64}" \
   --arg leaf "${leaf_b64}" \
   --arg ca "${ca_b64}" \
+  --arg trust_bundle "${trust_bundle_b64}" \
   '{data: {
       caddy_data_tar_b64: $d,
       tls_fullchain_pem_b64: $fullchain,
       tls_cert_pem_b64:      $leaf,
       tls_key_pem_b64:       $key,
       tls_ca_pem_b64:        $ca,
+      tls_trust_bundle_pem_b64: $trust_bundle,
       source_host: $h, backed_up_at: $t, not_after_epoch: $na, domains: $dom}}')"
 
 http_code="$(printf '%s' "${body}" | curl -sS -o /dev/null -w '%{http_code}' \
