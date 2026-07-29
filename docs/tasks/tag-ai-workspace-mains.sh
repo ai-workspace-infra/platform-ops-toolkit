@@ -9,6 +9,7 @@ APPLY=false
 TRIGGER_BUILD=false
 DEPLOY_ENV="uat"
 DEPLOY_ENV_SET=false
+SNAPSHOT_REF="main"
 ORG_FILTER=""
 REPO_FILTER=""
 SNAPSHOT_ORGS=(
@@ -44,11 +45,11 @@ record_status() {
 usage() {
   cat <<'EOF'
 Usage:
-  tag-ai-workspace-mains.sh --tag TAG [--apply] [--build] [--deploy-env sit|uat|prod]
-  tag-ai-workspace-mains.sh --tag TAG [--push] [--build] [--deploy-env sit|uat|prod]
+  tag-ai-workspace-mains.sh --tag TAG [--apply] [--build] [--ref REF] [--deploy-env sit|uat|prod]
+  tag-ai-workspace-mains.sh --tag TAG [--push] [--build] [--ref REF] [--deploy-env sit|uat|prod]
   tag-ai-workspace-mains.sh --tag TAG --org ORG[,ORG...] [--repo ORG/REPO,...]
 
-Without --apply/--push, print the main SHA and planned tag operation only.
+Without --apply/--push, print the selected ref SHA and planned tag operation only.
 Existing tags are never moved. --apply/--push creates missing lightweight tags.
 When --build is present, the matching image build workflow is dispatched with
 the same tag so the repository tag and GHCR image tag stay aligned.
@@ -65,9 +66,13 @@ Default environment resolution:
 Override with `--deploy-env sit|uat|prod` when you need to force a different
 target.
 
-All snapshot tags are created from the current `main` branch SHA for each
-repository, so the tag point and the image build trigger stay aligned to the
-same mainline commit.
+Use `--ref main`, `--ref release/2026.07`, or another branch / commit ref to
+explicitly select the source commit for a new immutable tag. If the same tag
+already points elsewhere, create a new retry tag such as `TAG-r1`; `--ref`
+never moves an existing tag.
+
+All snapshot tags are created from the selected ref SHA for each repository, so
+the tag point and the image build trigger stay aligned to the same commit.
 
 `--build` is optional so you can still use this script as a pure tag planner.
 
@@ -149,6 +154,11 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "--deploy-env requires a value" >&2; exit 2; }
       DEPLOY_ENV="$2"
       DEPLOY_ENV_SET=true
+      shift 2
+      ;;
+    --ref)
+      [[ $# -ge 2 ]] || { echo "--ref requires a value" >&2; exit 2; }
+      SNAPSHOT_REF="$2"
       shift 2
       ;;
     --org|--orgs)
@@ -235,9 +245,9 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
     record_status "skipped" "${repo}" "" "default branch is ${default_branch}, not main"
     continue
   }
-  if ! sha="$(gh api "repos/${repo}/commits/main" --jq .sha 2>/dev/null)" || [[ -z "${sha}" ]]; then
-    printf 'SKIP\t%s\tno main commit (empty repository or missing main branch)\n' "${repo}"
-    record_status "skipped" "${repo}" "" "no main commit"
+  if ! sha="$(gh api "repos/${repo}/commits/${SNAPSHOT_REF}" --jq .sha 2>/dev/null)" || [[ -z "${sha}" ]]; then
+    printf 'SKIP\t%s\tno commit found for ref %s\n' "${repo}" "${SNAPSHOT_REF}"
+    record_status "skipped" "${repo}" "" "no commit for ref ${SNAPSHOT_REF}"
     continue
   fi
   if ref_json="$(gh api "repos/${repo}/git/ref/tags/${TAG}" 2>/dev/null)"; then
@@ -249,7 +259,7 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
   if [[ -n "${existing}" ]]; then
     if [[ "${existing}" == "${sha}" ]]; then
       printf 'UNCHANGED\t%s\t%s\n' "${repo}" "${sha}"
-      record_status "unchanged" "${repo}" "${sha}" "tag already points to main"
+      record_status "unchanged" "${repo}" "${sha}" "tag already points to selected ref"
       workflow="${BUILD_WORKFLOWS[${repo}]:-}"
       if [[ -n "${workflow}" && "${APPLY}" == true && "${TRIGGER_BUILD}" == true ]]; then
         dispatch_build_workflow "${repo}" "${TAG}" "${workflow}" "${DEPLOY_ENV}"
@@ -257,8 +267,8 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
       fi
       continue
     fi
-    printf 'SKIP\t%s\ttag %s already points to %s; main is %s\n' \
-      "${repo}" "${TAG}" "${existing}" "${sha}"
+    printf 'SKIP\t%s\ttag %s already points to %s; ref %s is %s (use a new immutable tag, for example %s-r1)\n' \
+      "${repo}" "${TAG}" "${existing}" "${SNAPSHOT_REF}" "${sha}" "${TAG}"
     record_status "skipped" "${repo}" "${sha}" "tag already points to a different commit"
     continue
   fi
