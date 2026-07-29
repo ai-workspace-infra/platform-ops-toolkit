@@ -87,6 +87,11 @@ EOF
 #      而 policy 里 path "kv/data/CICD" 只精确匹配根路径、不匹配子路径,
 #      所以"共读根 + 只读自己那份子路径"可以严格成立。
 #
+#   2.5 泛域名证书库 —— 跨环境共享, 可读写(第 1 层只读原则的有意破例):
+#        kv/data/CICD/domains/<domain>   *.<domain> 的证书 + 私钥 + caddy_data
+#      同一张泛域名证书三个环境共用, 按环境各存一份等于同一张证书签三次、
+#      占三份 Let's Encrypt 限流额度。详见 emit_domain_cert_paths 处的说明。
+#
 #   3. 环境专属业务密钥 —— 严格隔离, 可读写:
 #        kv/data/<env>/*       该环境自己的业务密钥
 #
@@ -123,6 +128,41 @@ path "kv/metadata/action-runner" {
 EOF
 }
 
+# 第 1.5 层: 泛域名证书库 —— 三个环境共读**且共写**。
+#
+# 这是第 1 层"公共资产只读"原则的一处**有意破例**, 单独拎出来而不是混进
+# emit_common_read_paths, 就是为了让这个破例是显式的。
+#
+# 为什么必须共享: *.onwalk.net 这张泛域名证书对 sit/uat/prod 本来就是同一张。
+# 按环境各存一份 = 同一张证书签三次、占三份 Let's Encrypt 限流额度
+# ("同一组域名 5 次/周"), 而重建正是要反复做的事。
+#
+# 为什么必须可写: 证书由部署时的 Caddy 签出, 再由流水线存回来供下次重建复用。
+# 只读就只能恢复、不能更新, 90 天到期后所有环境一起失效。
+#
+# 已知代价, 记在这里以免下次审计时被当成配置错误: 任一环境失陷都能覆写这份
+# 共享证书。但这个风险是"三环境共用一张泛域名证书"本身带来的 —— 共读就已经
+# 意味着 sit 能拿到 prod 在用的私钥, 共写并没有把边界推得更远。真要收敛,
+# 得先让各环境用各自的证书(例如 *.sit.onwalk.net), 那是另一个决定。
+#
+# 不给 delete: 与 prod 那条同理, kv/metadata 的 delete 会永久销毁全部版本,
+# 流水线异常时足以把所有环境的证书一起抹掉。
+emit_domain_cert_paths() {
+  cat <<'EOF'
+
+# 泛域名证书库(Caddy 通过 ACME DNS-01 签出的 *.<domain>)。按域名存, 不按环境
+# 存 —— 同一张证书三个环境共用。写入方是 platform-ops 的
+# platform-ops_observe_backup-caddy-certs.sh, 读取方是
+# platform-ops_deploy_base_restore-caddy-certs.sh。
+path "kv/data/CICD/domains/*" {
+  capabilities = ["create", "read", "update", "list"]
+}
+path "kv/metadata/CICD/domains/*" {
+  capabilities = ["list", "read"]
+}
+EOF
+}
+
 # 第 2 层: 基础凭据 —— 只读, 且只读自己环境那一份。
 # $1 = env name
 emit_base_credential_paths() {
@@ -146,6 +186,7 @@ emit_env_policy() {
   local env="$1"
 
   emit_common_read_paths
+  emit_domain_cert_paths
   emit_base_credential_paths "${env}"
 
   # WEB_SAAS 目前是 uat / prod 共读(内含 POSTGRES_ROOT_PASSWORD /
