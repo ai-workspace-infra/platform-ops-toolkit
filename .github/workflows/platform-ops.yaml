@@ -553,11 +553,15 @@ jobs:
     #
     # 顺序: 先恢复(bootstrap 之后、Doco-CD 把 caddy 拉起来之前), 让 caddy 一起来
     # 就发现证书已在, 根本不调 ACME; 部署末尾再备份, 把这一轮可能新签的证书存回去。
-    - name: Restore Caddy certificates from Vault
+    - name: Restore domain TLS state from Vault before Caddy can issue
       if: ${{ contains(needs.provision.outputs.target_domains, 'web-saas') || needs.provision.outputs.target_domains == 'all' }}
       env:
         VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
         VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
+        # Public wildcard PEM is separate from web-saas/certs/, which belongs
+        # to stunnel's internal CA. Non-Caddy consumers use current/{fullchain,
+        # cert,key,ca}.pem below; `current` flips atomically after validation.
+        DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_base_restore-caddy-certs.sh
 
 
