@@ -54,6 +54,22 @@ remote_out="$(ssh "${ssh_opts[@]}" "${host}" '
     done
 
     [ -z \"\$earliest\" ] && { echo NO_CERTS; exit 0; }
+
+    # 除了整包 caddy_data, 再单独导出这张泛域名证书的 PEM 材料, 让 Vault 里
+    # 这条记录能被 Caddy 之外的东西直接消费(不必解 tar、也不必懂 Caddy 的
+    # 目录布局)。取覆盖域名最多的那张 —— 泛域名证书就是它。
+    wild=\$(find caddy/certificates -name \"wildcard_*.crt\" 2>/dev/null | head -1)
+    [ -z \"\$wild\" ] && wild=\$(find caddy/certificates -name \"*.crt\" 2>/dev/null | head -1)
+    if [ -n \"\$wild\" ]; then
+      key=\"\${wild%.crt}.key\"
+      echo \"CERT_B64=\$(base64 -w0 < \"\$wild\")\"
+      [ -f \"\$key\" ] && echo \"KEY_B64=\$(base64 -w0 < \"\$key\")\"
+      # Caddy 的 .crt 是完整链: 第一段是叶证书, 其后是签发 CA。拆出来分别存,
+      # 免得消费方自己去猜哪一段是哪个。
+      awk \"/BEGIN CERT/{n++} n==1\" \"\$wild\" | base64 -w0 | sed \"s/^/LEAF_B64=/\"
+      awk \"/BEGIN CERT/{n++} n>1\" \"\$wild\"  | base64 -w0 | sed \"s/^/CA_B64=/\"
+    fi
+
     echo \"NOT_AFTER=\$earliest\"
     echo \"DOMAINS=\$(echo \$domains | tr -s \" \")\"
     echo \"TAR_B64=\$(tar -czf - caddy | base64 -w0)\"
@@ -88,14 +104,31 @@ if [ "${days_left}" -le 0 ]; then
   exit 0
 fi
 
+cert_b64="$(printf '%s\n' "${remote_out}" | sed -n 's/^CERT_B64=//p' | head -1)"
+key_b64="$(printf '%s\n' "${remote_out}" | sed -n 's/^KEY_B64=//p' | head -1)"
+leaf_b64="$(printf '%s\n' "${remote_out}" | sed -n 's/^LEAF_B64=//p' | head -1)"
+ca_b64="$(printf '%s\n' "${remote_out}" | sed -n 's/^CA_B64=//p' | head -1)"
+
 write_url="${VAULT_ADDR%/}/v1/${VAULT_CADDY_PATH}"
+# caddy_data_tar_b64 是给恢复用的(Caddy 认它自己的目录布局); 另外四个 PEM 字段
+# 是给别的消费方用的 —— 不必解 tar、不必懂 Caddy 布局就能拿到证书材料。
 body="$(jq -n \
   --arg d "${archive_b64}" \
   --arg h "${MATRIX_HOST}" \
   --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --arg na "${not_after}" \
   --arg dom "${domains}" \
-  '{data: {caddy_data_tar_b64: $d, source_host: $h, backed_up_at: $t, not_after_epoch: $na, domains: $dom}}')"
+  --arg fullchain "${cert_b64}" \
+  --arg key "${key_b64}" \
+  --arg leaf "${leaf_b64}" \
+  --arg ca "${ca_b64}" \
+  '{data: {
+      caddy_data_tar_b64: $d,
+      tls_fullchain_pem_b64: $fullchain,
+      tls_cert_pem_b64:      $leaf,
+      tls_key_pem_b64:       $key,
+      tls_ca_pem_b64:        $ca,
+      source_host: $h, backed_up_at: $t, not_after_epoch: $na, domains: $dom}}')"
 
 http_code="$(printf '%s' "${body}" | curl -sS -o /dev/null -w '%{http_code}' \
   -X POST -H "X-Vault-Token: ${VAULT_TOKEN}" --data-binary @- "${write_url}" || echo 000)"
