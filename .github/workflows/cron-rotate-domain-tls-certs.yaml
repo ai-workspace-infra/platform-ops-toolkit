@@ -24,7 +24,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Vault CLI
-        uses: hashicorp/setup-vault@v3
+        run: |
+          wget -qO vault.zip https://releases.hashicorp.com/vault/1.15.2/vault_1.15.2_linux_amd64.zip
+          unzip vault.zip
+          sudo mv vault /usr/local/bin/
+          rm vault.zip
 
       - name: Load Vault secrets
         id: vault
