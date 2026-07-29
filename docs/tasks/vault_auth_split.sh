@@ -54,7 +54,8 @@ read -r -d '' ALLOWED_WORKFLOWS <<EOF || true
     "${WF_PREFIX}/deploy-action-runner-iac.yaml@*",
     "${WF_PREFIX}/iac-pipeline-multi-cloud-account-matrix.yaml@*",
     "${WF_PREFIX}/iac-pipeline-multi-cloud-resources-matrix.yaml@*",
-    "${WF_PREFIX}/iac-pipeline-multi-cloud-landingzone-baseline.yaml@*"
+    "${WF_PREFIX}/iac-pipeline-multi-cloud-landingzone-baseline.yaml@*",
+    "${WF_PREFIX}/cron-rotate-domain-tls-certs.yaml@*"
 EOF
 
 PLAYBOOKS_WF_PREFIX="${PLAYBOOKS_REPO}/.github/workflows"
@@ -108,6 +109,9 @@ path "kv/data/CICD" {
   capabilities = ["read"]
 }
 path "kv/data/CICD/github-app/daily-snapshot" {
+  capabilities = ["read"]
+}
+path "kv/data/CICD/observability" {
   capabilities = ["read"]
 }
 path "kv/metadata/CICD" {
