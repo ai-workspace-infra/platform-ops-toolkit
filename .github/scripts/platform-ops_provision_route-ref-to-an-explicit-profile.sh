@@ -83,9 +83,9 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     toolkit_action="$user_action"
   fi
   
-  infra_ref="${INPUT_INFRA_REF:-${deploy_ref:-main}}"
+  infra_ref="${INPUT_INFRA_REF:-main}"
   console_ref="${INPUT_CONSOLE_REF:-${deploy_ref:-main}}"
-  toolkit_ref="${INPUT_TOOLKIT_REF:-${deploy_ref}}"
+  toolkit_ref="${INPUT_TOOLKIT_REF:-main}"
   offline_mode="${INPUT_OFFLINE_MODE}"
   source_host="${INPUT_SOURCE_HOST}"
   source_domain_base="${INPUT_SOURCE_DOMAIN_BASE}"
