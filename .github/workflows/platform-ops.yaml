@@ -668,11 +668,12 @@ jobs:
 
   switch_dns:
     name: Switch DNS Traffic (Manual Approval)
-    needs: [provision, deploy_base]
+    needs: [provision, deploy_base, initialize_web_saas_databases]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
+      needs.initialize_web_saas_databases.result != 'failure' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.confirm_dns_switch == 'true' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
