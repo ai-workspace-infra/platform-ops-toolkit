@@ -157,3 +157,15 @@ git diff --check
 - CI run 匹配增加目标 SHA 条件。
 - 明确失败重试使用 `-rN` 新 tag。
 - 记录“最新成功快照”仍需全局汇总索引，不能用移动 tag 替代。
+
+### PR 验证记录
+
+- PR #175：`fix(daily-snapshot): keep immutable tags and match latest build SHA`
+- commit：`7149f26`
+- `Sec QA Gate (gitleaks)`：通过。
+- `Workflow Gating Verify`：失败，报告 `platform-ops.yaml` 调用了
+  `playbooks/.github/scripts/domain-cd-observe-endpoints.sh`，但本仓检查器将其判断为
+  未在当前仓库跟踪。该脚本实际属于 `ai-workspace-infra/playbooks` 仓库，属于已有的
+  跨仓 workflow gating 规则问题，与本次快照脚本改动无直接关系。
+- `Deploy Environment & Provision Infrastructure`：本次验证仍在执行基础设施部署链路，
+  其余依赖 job 因前置条件未满足而跳过。
