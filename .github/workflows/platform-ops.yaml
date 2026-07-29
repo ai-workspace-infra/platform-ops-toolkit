@@ -666,106 +666,15 @@ jobs:
         ansible-playbook -i ../cmdb/inventory.ini create_databases_and_users.yml
         --limit "${MATRIX_HOST}"
 
-  deploy_web_saas:
-    name: Deploy Web SaaS Services on ${{ matrix.host }}
-    needs: [provision, deploy_base, initialize_web_saas_databases]
-    if: >-
-      ${{ !cancelled() &&
-      needs.provision.result == 'success' &&
-      needs.deploy_base.result == 'success' &&
-      needs.initialize_web_saas_databases.result == 'success' &&
-      needs.provision.outputs.run_application_deploy == 'true' &&
-      needs.provision.outputs.terraform_action == 'apply' &&
-      needs.provision.outputs.count != '0' &&
-      (needs.provision.outputs.target_domains == 'all' || needs.provision.outputs.target_domains == 'web-saas') &&
-      needs.provision.outputs.hosts_web_saas != '[]' &&
-      needs.provision.outputs.hosts_web_saas != '' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        host: ${{ fromJSON(needs.provision.outputs.hosts_web_saas) }}
-    uses: ai-workspace-infra/playbooks/.github/workflows/web-saas-domain-cd.yaml@main
-    with:
-      target_host: ${{ matrix.host }}
-      deploy_env: ${{ needs.provision.outputs.deployment_env }}
-      deploy_tag: ${{ needs.provision.outputs.deploy_tag }}
-
-  deploy_infra_platform:
-    name: Deploy Open Platform Services on ${{ matrix.host }}
-    needs: [provision, deploy_base]
-    if: >-
-      ${{ !cancelled() &&
-      needs.provision.result == 'success' &&
-      needs.deploy_base.result == 'success' &&
-      needs.provision.outputs.run_application_deploy == 'true' &&
-      needs.provision.outputs.terraform_action == 'apply' &&
-      needs.provision.outputs.count != '0' &&
-      contains(fromJSON('["all","infra-platform"]'), needs.provision.outputs.target_domains) &&
-      needs.provision.outputs.hosts_infra_platform != '[]' &&
-      needs.provision.outputs.hosts_infra_platform != '' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        host: ${{ fromJSON(needs.provision.outputs.hosts_infra_platform) }}
-    uses: ai-workspace-infra/playbooks/.github/workflows/open-platform-domain-cd.yaml@main
-    with:
-      target_host: ${{ matrix.host }}
-      deploy_env: ${{ needs.provision.outputs.deployment_env }}
-      deploy_tag: ${{ needs.provision.outputs.deploy_tag }}
-
-  deploy_agent_proxy:
-    name: Deploy Agent Proxy Services on ${{ matrix.host }}
-    needs: [provision, deploy_base]
-    if: >-
-      ${{ !cancelled() &&
-      needs.provision.result == 'success' &&
-      needs.deploy_base.result == 'success' &&
-      needs.provision.outputs.run_application_deploy == 'true' &&
-      needs.provision.outputs.terraform_action == 'apply' &&
-      needs.provision.outputs.count != '0' &&
-      contains(fromJSON('["all","agent-proxy"]'), needs.provision.outputs.target_domains) &&
-      needs.provision.outputs.hosts_agent_proxy != '[]' &&
-      needs.provision.outputs.hosts_agent_proxy != '' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        host: ${{ fromJSON(needs.provision.outputs.hosts_agent_proxy) }}
-    uses: ai-workspace-infra/playbooks/.github/workflows/agent-proxy-domain-cd.yaml@main
-    with:
-      target_host: ${{ matrix.host }}
-      deploy_env: ${{ needs.provision.outputs.deployment_env }}
-      deploy_tag: ${{ needs.provision.outputs.deploy_tag }}
-
-  deploy_ai_workspace:
-    name: Deploy AI Workspace Services on ${{ matrix.host }}
-    needs: [provision, deploy_base]
-    if: >-
-      ${{ !cancelled() &&
-      needs.provision.result == 'success' &&
-      needs.deploy_base.result == 'success' &&
-      needs.provision.outputs.run_application_deploy == 'true' &&
-      needs.provision.outputs.terraform_action == 'apply' &&
-      needs.provision.outputs.count != '0' &&
-      contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.target_domains) &&
-      needs.provision.outputs.hosts_ai_workspace != '[]' &&
-      needs.provision.outputs.hosts_ai_workspace != '' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        host: ${{ fromJSON(needs.provision.outputs.hosts_ai_workspace) }}
-    uses: ai-workspace-infra/playbooks/.github/workflows/ai-workspace-domain-cd.yaml@main
-    with:
-      target_host: ${{ matrix.host }}
-      deploy_env: ${{ needs.provision.outputs.deployment_env }}
-      deploy_tag: ${{ needs.provision.outputs.deploy_tag }}
-
   switch_dns:
     name: Switch DNS Traffic (Manual Approval)
-    needs: [provision, deploy_base, deploy_web_saas, initialize_web_saas_databases, deploy_infra_platform, deploy_agent_proxy]
-    if: |
-      !cancelled() && !failure() &&
+    needs: [provision, deploy_base]
+    if: >-
+      ${{ !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.deploy_base.result == 'success' &&
       needs.provision.outputs.terraform_action == 'apply' &&
-      needs.provision.outputs.confirm_dns_switch == 'true'
+      needs.provision.outputs.confirm_dns_switch == 'true' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     environment: production
     env:
@@ -817,3 +726,100 @@ jobs:
         # PROVISION_TARGET_DOMAIN_BASE / PROVISION_SOURCE_DOMAIN_BASE / INPUT_RUN_PROVISION_AND_DEPLOY from job env
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops_switch_dns_switch-cloudflare-dns-records.sh
+
+  deploy_web_saas:
+    name: Deploy Web SaaS Services on ${{ matrix.host }}
+    needs: [provision, deploy_base, initialize_web_saas_databases, switch_dns]
+    if: >-
+      ${{ !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.deploy_base.result == 'success' &&
+      needs.initialize_web_saas_databases.result == 'success' &&
+      needs.switch_dns.result != 'failure' &&
+      needs.provision.outputs.run_application_deploy == 'true' &&
+      needs.provision.outputs.terraform_action == 'apply' &&
+      needs.provision.outputs.count != '0' &&
+      (needs.provision.outputs.target_domains == 'all' || needs.provision.outputs.target_domains == 'web-saas') &&
+      needs.provision.outputs.hosts_web_saas != '[]' &&
+      needs.provision.outputs.hosts_web_saas != '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host: ${{ fromJSON(needs.provision.outputs.hosts_web_saas) }}
+    uses: ai-workspace-infra/playbooks/.github/workflows/web-saas-domain-cd.yaml@main
+    with:
+      target_host: ${{ matrix.host }}
+      deploy_env: ${{ needs.provision.outputs.deployment_env }}
+      deploy_tag: ${{ needs.provision.outputs.deploy_tag }}
+
+  deploy_infra_platform:
+    name: Deploy Open Platform Services on ${{ matrix.host }}
+    needs: [provision, deploy_base, switch_dns]
+    if: >-
+      ${{ !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.deploy_base.result == 'success' &&
+      needs.switch_dns.result != 'failure' &&
+      needs.provision.outputs.run_application_deploy == 'true' &&
+      needs.provision.outputs.terraform_action == 'apply' &&
+      needs.provision.outputs.count != '0' &&
+      contains(fromJSON('["all","infra-platform"]'), needs.provision.outputs.target_domains) &&
+      needs.provision.outputs.hosts_infra_platform != '[]' &&
+      needs.provision.outputs.hosts_infra_platform != '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host: ${{ fromJSON(needs.provision.outputs.hosts_infra_platform) }}
+    uses: ai-workspace-infra/playbooks/.github/workflows/open-platform-domain-cd.yaml@main
+    with:
+      target_host: ${{ matrix.host }}
+      deploy_env: ${{ needs.provision.outputs.deployment_env }}
+      deploy_tag: ${{ needs.provision.outputs.deploy_tag }}
+
+  deploy_agent_proxy:
+    name: Deploy Agent Proxy Services on ${{ matrix.host }}
+    needs: [provision, deploy_base, switch_dns]
+    if: >-
+      ${{ !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.deploy_base.result == 'success' &&
+      needs.switch_dns.result != 'failure' &&
+      needs.provision.outputs.run_application_deploy == 'true' &&
+      needs.provision.outputs.terraform_action == 'apply' &&
+      needs.provision.outputs.count != '0' &&
+      contains(fromJSON('["all","agent-proxy"]'), needs.provision.outputs.target_domains) &&
+      needs.provision.outputs.hosts_agent_proxy != '[]' &&
+      needs.provision.outputs.hosts_agent_proxy != '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host: ${{ fromJSON(needs.provision.outputs.hosts_agent_proxy) }}
+    uses: ai-workspace-infra/playbooks/.github/workflows/agent-proxy-domain-cd.yaml@main
+    with:
+      target_host: ${{ matrix.host }}
+      deploy_env: ${{ needs.provision.outputs.deployment_env }}
+      deploy_tag: ${{ needs.provision.outputs.deploy_tag }}
+
+  deploy_ai_workspace:
+    name: Deploy AI Workspace Services on ${{ matrix.host }}
+    needs: [provision, deploy_base, switch_dns]
+    if: >-
+      ${{ !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.deploy_base.result == 'success' &&
+      needs.switch_dns.result != 'failure' &&
+      needs.provision.outputs.run_application_deploy == 'true' &&
+      needs.provision.outputs.terraform_action == 'apply' &&
+      needs.provision.outputs.count != '0' &&
+      contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.target_domains) &&
+      needs.provision.outputs.hosts_ai_workspace != '[]' &&
+      needs.provision.outputs.hosts_ai_workspace != '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host: ${{ fromJSON(needs.provision.outputs.hosts_ai_workspace) }}
+    uses: ai-workspace-infra/playbooks/.github/workflows/ai-workspace-domain-cd.yaml@main
+    with:
+      target_host: ${{ matrix.host }}
+      deploy_env: ${{ needs.provision.outputs.deployment_env }}
+      deploy_tag: ${{ needs.provision.outputs.deploy_tag }}
