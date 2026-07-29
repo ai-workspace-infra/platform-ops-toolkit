@@ -43,5 +43,6 @@ jobs:
           CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_API_TOKEN }}
+          VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
         run: |
           bash ./docs/tasks/2026-07-29-rotate-domain-tls-certs.sh
