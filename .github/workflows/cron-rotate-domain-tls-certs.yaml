@@ -23,6 +23,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install Vault CLI
+        uses: hashicorp/setup-vault@v3
+
       - name: Load Vault secrets
         id: vault
         uses: hashicorp/vault-action@v4
