@@ -666,6 +666,21 @@ jobs:
         ansible-playbook -i ../cmdb/inventory.ini create_databases_and_users.yml
         --limit "${MATRIX_HOST}"
 
+    # 建库只建库和角色, 不建表。accounts 自己只会自动建 7 张表, users /
+    # sessions / identities / rbac_* 这套 baseline 必须外部灌入, 否则 accounts
+    # 起来就是 relation "users" does not exist 无限重启, 对外 502 ——
+    # 2026-07-28 每一台新主机都栽在这一步的缺失上。
+    # 幂等: users 表在就跳过, 所以每次部署都跑是安全的。
+    - name: Initialize Web SaaS baseline schemas
+      working-directory: playbooks
+      env:
+        # schema 跟着部署的版本走, 不跟 main 走 —— 用 main 的表结构配一个旧
+        # tag 的镜像, 是"表比代码新"的经典事故。
+        ACCOUNTS_SCHEMA_REF: ${{ needs.provision.outputs.deploy_tag || needs.provision.outputs.deploy_ref || 'main' }}
+      run: >-
+        ansible-playbook -i ../cmdb/inventory.ini initialize-web-saas-schemas.yml
+        --limit "${MATRIX_HOST}"
+
   # deploy_web_saas (stateless containers) 和 initialize_web_saas_databases (DB init)
   # 并行运行 —— 两者都只依赖 deploy_base, 互相不阻塞。
   # switch_dns 等待两者都完成才切流量(最后一步流量门)。
@@ -692,9 +707,80 @@ jobs:
       target_host: ${{ matrix.host }}
       deploy_env: ${{ needs.provision.outputs.deployment_env }}
       deploy_tag: ${{ needs.provision.outputs.deploy_tag }}
-      # observe_urls 留空: 此时 DNS 尚未切换, 新主机公网不可达; 最终 observe
-      # 由 switch_dns job 完成(DNS 就位后内联轮询)。
+      # observe_urls 留空: 此时容器可能还没被 Doco-CD 拉起, 且 DNS 未必指向
+      # 本次这台机器。真正的验收由下面的 observe_web_saas 做(把域名钉到本次
+      # 部署的 IP 上, 不依赖 DNS 是否已切)。
       observe_urls: ''
+
+  # 每次部署都必须验收, 不能只在切流量时验收。
+  #
+  # switch_dns 里那个 observe 挂在 confirm_dns_switch == 'true' 上, 而这个输入
+  # default: false 且描述写着"仅真实灾备启用" —— 也就是常规部署里 switch_dns
+  # 整个被 skip, 那个 observe 一次都不会跑。结果是 playbooks#200 想堵的假绿在
+  # 最常见的路径上又回来了: 容器没起来, 流水线照样全绿。
+  #
+  # 这个 job 不看 confirm_dns_switch, 只要部署跑了就验收; 并用
+  # OBSERVE_RESOLVE_IP 把域名钉到本次部署的主机, 这样 DNS 还没切(或者还指着
+  # 一台已经销毁的老机器)时, 量到的依然是"我刚部署的这台"。
+  observe_web_saas:
+    name: Observe Web SaaS on ${{ matrix.host }}
+    needs: [provision, deploy_base, deploy_web_saas, initialize_web_saas_databases]
+    if: >-
+      ${{ !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.deploy_base.result == 'success' &&
+      needs.deploy_web_saas.result == 'success' &&
+      needs.initialize_web_saas_databases.result == 'success' &&
+      needs.provision.outputs.run_application_deploy == 'true' &&
+      needs.provision.outputs.terraform_action == 'apply' &&
+      needs.provision.outputs.count != '0' &&
+      (needs.provision.outputs.target_domains == 'all' || needs.provision.outputs.target_domains == 'web-saas') &&
+      needs.provision.outputs.hosts_web_saas != '[]' &&
+      needs.provision.outputs.hosts_web_saas != '' }}
+    runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host: ${{ fromJSON(needs.provision.outputs.hosts_web_saas) }}
+    env:
+      MATRIX_HOST: ${{ matrix.host }}
+    steps:
+    - name: Checkout playbooks
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/playbooks
+        ref: ${{ needs.provision.outputs.infra_ref || github.event.inputs.infra_ref || github.event.inputs.deploy_ref || '' }}
+        path: playbooks
+
+    - name: Download CMDB
+      uses: actions/download-artifact@v8
+      with:
+        name: platform-ops-toolkit-cmdb
+        path: cmdb
+
+    # CMDB 是本次 provision 产出的, 里面的 IP 一定是这次部署的那台机器 ——
+    # 比 dig 域名可靠, 因为域名可能还没切过来。
+    - name: Resolve host IP from CMDB
+      id: hostip
+      run: |
+        set -euo pipefail
+        ip="$(jq -r --arg h "${MATRIX_HOST}" '.[$h].ip // empty' cmdb/cmdb.json)"
+        if [ -z "${ip}" ]; then
+          echo "::error::host '${MATRIX_HOST}' has no ip in cmdb/cmdb.json" >&2
+          exit 1
+        fi
+        echo "ip=${ip}" >> "$GITHUB_OUTPUT"
+        echo "Observing ${MATRIX_HOST} at ${ip}"
+
+    - name: Observe Web SaaS endpoints
+      env:
+        DOMAIN: web-saas
+        DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
+        OBSERVE_RESOLVE_IP: ${{ steps.hostip.outputs.ip }}
+        OBSERVE_URLS: >-
+          https://console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
+          https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
+      run: playbooks/.github/scripts/domain-cd-observe-endpoints.sh
 
   switch_dns:
     name: Switch DNS Traffic & Observe
