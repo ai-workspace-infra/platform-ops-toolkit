@@ -47,17 +47,24 @@ EOCF
     chmod 600 "${workdir}/cloudflare.ini"
     
     # 运行 Certbot
-    if docker run --rm \
+    certbot_ret=0
+    docker run --rm \
       -v "${workdir}/letsencrypt:/etc/letsencrypt" \
+      -v "${workdir}/letsencrypt-lib:/var/lib/letsencrypt" \
+      -v "${workdir}/letsencrypt-log:/var/log/letsencrypt" \
       -v "${workdir}/cloudflare.ini:/cloudflare.ini:ro" \
       certbot/dns-cloudflare certonly \
       --dns-cloudflare \
       --dns-cloudflare-credentials /cloudflare.ini \
       --dns-cloudflare-propagation-seconds 20 \
+      -d "${DOMAIN}" -d "*.${DOMAIN}" \
       --email "admin@${DOMAIN}" \
-      --agree-tos --no-eff-email --non-interactive \
-      -d "${DOMAIN}" -d "*.${DOMAIN}"; then
-        
+      --agree-tos --no-eff-email --non-interactive || certbot_ret=$?
+
+    # 恢复文件权限 (Certbot 运行在 root 用户下)
+    docker run --rm -v "${workdir}:/workdir" busybox chown -R "$(id -u):$(id -g)" /workdir
+
+    if [ $certbot_ret -eq 0 ]; then
         echo "  -> ACME 证书申请成功！"
         live_dir="${workdir}/letsencrypt/live/${DOMAIN}"
         
