@@ -29,10 +29,11 @@ GitHub App `daily-snapshot-tag`（App ID `4405545`）需要安装到四个目标
 2. 选择 `Daily Main Snapshot`。
 3. 点击 `Run workflow`。
 4. 选择 `deploy_env`，默认使用 `uat`。
-5. 可选填写 `snapshot_tag` 和 `repositories`。
+5. 可选填写 `ref`、`snapshot_tag` 和 `repositories`。
 
-workflow 会从各仓库当时的 `main` SHA 创建不可变的
+workflow 会从各仓库当时的 `ref` SHA 创建不可变的
 `daily-build-YYYY.MM.DD` tag，并继续执行目标仓库的构建触发流程。
+`ref` 只决定新 tag 的 source SHA，不会移动已有 tag。
 构建等待会同时按 tag 名和 SHA 匹配，避免误用同名历史运行。
 
 手工创建重试快照 tag 时可执行：
@@ -78,3 +79,11 @@ role 只读构建所需的 Vault 路径，并只允许 `sit` / `uat` 的 GHCR �
 
 如果服务 workflow 仍使用 `workflow_dispatch` 而不是 tag push，还必须让它显式使用
 `daily-build-*` 作为 checkout ref、镜像 tag、binary/zip 名称和 chart version。
+
+## workflow_dispatch 推荐填写
+
+| 场景 | `deploy_env` | `ref` | 说明 |
+|---|---|---|---|
+| 日常集成验证 | `sit` | `main` | 从主干拉取最新提交，验证联动是否正常。 |
+| 预发联调 | `uat` | `main` 或 release 分支 | 用于预发环境确认镜像与配置无误。 |
+| 生产发布演练 | `prod` | 对应发布分支或 tag | 只在明确发布基线时使用。 |

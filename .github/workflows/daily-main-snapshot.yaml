@@ -10,6 +10,11 @@ on:
         description: "自定义跨仓快照 tag；留空则使用 daily-build-YYYY.MM.DD"
         required: false
         type: string
+      ref:
+        description: "新快照 tag 的 source ref；默认 main"
+        required: false
+        default: main
+        type: string
       deploy_env:
         description: "选择镜像构建/发布环境"
         required: true
@@ -71,6 +76,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
           SNAPSHOT_TAG: ${{ inputs.snapshot_tag }}
+          SNAPSHOT_REF: ${{ inputs.ref || 'main' }}
           SNAPSHOT_ORGS: ${{ matrix.organization }}
           SNAPSHOT_REPOS: ${{ inputs.repositories }}
           SNAPSHOT_STATUS_FILE: ${{ runner.temp }}/daily-snapshot-status/${{ matrix.organization }}.jsonl

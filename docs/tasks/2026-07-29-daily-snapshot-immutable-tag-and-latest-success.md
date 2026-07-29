@@ -10,6 +10,7 @@
 - `--ref` 明确新 tag 从哪个 ref 获取提交 SHA，默认值仍为 `main`。
 - `--apply --ref main` 创建指向各仓库当前 `main` SHA 的新 tag，但不移动同名旧 tag。
 - 同一天需要重试时使用 `-r1`、`-r2` 等新 tag。
+- `workflow_dispatch` 也增加 `ref` 输入，并只作为新 tag 的 source SHA。
 - 构建等待同时匹配 tag 名和 SHA，不能误用同名 tag 的历史 CI run。
 - 环境看板和部署入口最终选择“整套构建成功且时间最新”的不可变快照。
 
@@ -86,9 +87,15 @@ bash docs/tasks/tag-ai-workspace-mains.sh \
 
 ### `.github/scripts/tag-daily-main-snapshot.sh`
 
-- 每日任务显式传入 `--ref main`。
+- 每日任务读取 `SNAPSHOT_REF`，默认值为 `main`。
 - tag 仍由 `daily-build-YYYY.MM.DD` 或 `SNAPSHOT_TAG` 决定。
 - 同一天基础 tag 已存在时，不自动修改它。
+
+### `.github/workflows/daily-main-snapshot.yaml`
+
+- 新增 `ref` 输入，默认值为 `main`。
+- 将 `inputs.ref` 映射到 `SNAPSHOT_REF`。
+- workflow_dispatch 只负责选择 source SHA，不负责移动已有 tag。
 
 ### `.github/scripts/wait-daily-snapshot-builds.sh`
 
@@ -153,7 +160,8 @@ git diff --check
 
 - 确认 tag 必须不可变。
 - 新增 `--ref`，仅用于选择新 tag 的 source SHA。
-- 每日任务显式使用 `--ref main`。
+- 每日任务默认从 `main` 读取 source SHA。
+- workflow_dispatch 新增 `ref` 输入，并将其传入 snapshot 脚本。
 - CI run 匹配增加目标 SHA 条件。
 - 明确失败重试使用 `-rN` 新 tag。
 - 记录“最新成功快照”仍需全局汇总索引，不能用移动 tag 替代。
