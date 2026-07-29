@@ -55,6 +55,7 @@ fullchain_b64="$(jq -r '.data.data.tls_fullchain_pem_b64 // empty' /tmp/caddy-va
 cert_b64="$(jq -r '.data.data.tls_cert_pem_b64 // empty' /tmp/caddy-vault.json)"
 key_b64="$(jq -r '.data.data.tls_key_pem_b64 // empty' /tmp/caddy-vault.json)"
 ca_b64="$(jq -r '.data.data.tls_ca_pem_b64 // empty' /tmp/caddy-vault.json)"
+trust_bundle_b64="$(jq -r '.data.data.tls_trust_bundle_pem_b64 // empty' /tmp/caddy-vault.json)"
 rm -f /tmp/caddy-vault.json
 
 if [ -z "${payload}" ]; then
@@ -90,8 +91,8 @@ fi
 # 每次先构造一个版本目录，再原子替换 current 符号链接，读者只会看到同一套
 # fullchain/cert/key/ca，不会在证书与私钥切换的中间读到不匹配的文件。
 restore_domain_pem() {
-  if [ -z "${fullchain_b64}" ] || [ -z "${cert_b64}" ] || [ -z "${key_b64}" ] || [ -z "${ca_b64}" ]; then
-    echo "::warning::Vault backup at ${VAULT_CADDY_PATH} has no complete PEM material; restored Caddy state only. A successful post-deploy backup will populate tls_fullchain/tls_cert/tls_key/tls_ca." >&2
+  if [ -z "${fullchain_b64}" ] || [ -z "${cert_b64}" ] || [ -z "${key_b64}" ] || [ -z "${ca_b64}" ] || [ -z "${trust_bundle_b64}" ]; then
+    echo "::warning::Vault backup at ${VAULT_CADDY_PATH} has no complete public TLS material and trust bundle; restored Caddy state only. Populate tls_trust_bundle_pem_b64 before switching stunnel to the public certificate." >&2
     return 0
   fi
 
@@ -103,10 +104,12 @@ restore_domain_pem() {
   printf '%s' "${cert_b64}" | base64 -d > "${pem_tmp}/cert.pem"
   printf '%s' "${key_b64}" | base64 -d > "${pem_tmp}/key.pem"
   printf '%s' "${ca_b64}" | base64 -d > "${pem_tmp}/ca.pem"
+  printf '%s' "${trust_bundle_b64}" | base64 -d > "${pem_tmp}/trust-bundle.pem"
 
   openssl x509 -in "${pem_tmp}/fullchain.pem" -noout
   openssl x509 -in "${pem_tmp}/cert.pem" -noout
   openssl x509 -in "${pem_tmp}/ca.pem" -noout
+  openssl x509 -in "${pem_tmp}/trust-bundle.pem" -noout
   openssl pkey -in "${pem_tmp}/key.pem" -noout
 
   if [ "$(openssl x509 -in "${pem_tmp}/fullchain.pem" -noout -fingerprint -sha256)" != \
@@ -143,12 +146,12 @@ rm -rf "${tmp_dir}"
 install -d -m 0700 -o root -g root "${tmp_dir}"
 tar -xzf - -C "${tmp_dir}"
 
-for file in fullchain.pem cert.pem key.pem ca.pem; do
+for file in fullchain.pem cert.pem key.pem ca.pem trust-bundle.pem; do
   test -s "${tmp_dir}/${file}"
 done
-chmod 0644 "${tmp_dir}/fullchain.pem" "${tmp_dir}/cert.pem" "${tmp_dir}/ca.pem"
+chmod 0644 "${tmp_dir}/fullchain.pem" "${tmp_dir}/cert.pem" "${tmp_dir}/ca.pem" "${tmp_dir}/trust-bundle.pem"
 chmod 0600 "${tmp_dir}/key.pem"
-chown root:root "${tmp_dir}/fullchain.pem" "${tmp_dir}/cert.pem" "${tmp_dir}/key.pem" "${tmp_dir}/ca.pem"
+chown root:root "${tmp_dir}/fullchain.pem" "${tmp_dir}/cert.pem" "${tmp_dir}/key.pem" "${tmp_dir}/ca.pem" "${tmp_dir}/trust-bundle.pem"
 
 rm -rf "${version_dir}"
 mv "${tmp_dir}" "${version_dir}"
@@ -161,7 +164,7 @@ REMOTE
   # stdin belongs to the tar stream. Pass the small remote program as an
   # encoded command argument instead of a here-document, otherwise the here-
   # document would replace the archive before ssh can forward it.
-  tar -C "${pem_tmp}" -czf - fullchain.pem cert.pem key.pem ca.pem | ssh "${ssh_opts[@]}" "${host}" \
+  tar -C "${pem_tmp}" -czf - fullchain.pem cert.pem key.pem ca.pem trust-bundle.pem | ssh "${ssh_opts[@]}" "${host}" \
     "DOMAIN_TLS_DIR=$(printf '%q' "${DOMAIN_TLS_DIR}") CERT_FINGERPRINT=$(printf '%q' "${cert_fingerprint}") bash -c \"\$(printf %s '${remote_script_b64}' | base64 -d)\""
 
   echo "Restored domain TLS material for non-Caddy consumers at ${DOMAIN_TLS_DIR}/current/."
