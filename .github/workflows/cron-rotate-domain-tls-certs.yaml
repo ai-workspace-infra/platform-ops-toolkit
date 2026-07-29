@@ -32,6 +32,7 @@ jobs:
           role: ${{ env.VAULT_ROLE }}
           jwtGithubAudience: vault
           ignoreNotFound: true
+          exportToken: true
           secrets: |
             ${{ env.VAULT_KV }} CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN ;
             ${{ env.VAULT_KV }} CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
