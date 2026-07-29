@@ -12,13 +12,16 @@
 
 set -euo pipefail
 
-if [ $# -lt 1 ]; then
-    echo "错误: 请提供 Vault 管理员 Token 作为第一个参数。"
-    echo "用法: $0 <VAULT_TOKEN>"
-    exit 1
+if [ -z "${VAULT_TOKEN:-}" ] && [ $# -ge 1 ]; then
+    export VAULT_TOKEN="$1"
 fi
 
-export VAULT_TOKEN="$1"
+if [ -z "${VAULT_TOKEN:-}" ]; then
+    echo "错误: 未在环境中找到 VAULT_TOKEN，且未作为参数传入。"
+    echo "用法 (手动执行): $0 <VAULT_TOKEN>"
+    echo "用法 (CI 执行): 依赖 vault-action 注入的 VAULT_TOKEN 环境变量即可，无需参数。"
+    exit 1
+fi
 export VAULT_ADDR="${VAULT_ADDR:-https://vault.svc.plus}"
 
 DOMAINS=("onwalk.net" "svc.plus" "xworkmate.com")

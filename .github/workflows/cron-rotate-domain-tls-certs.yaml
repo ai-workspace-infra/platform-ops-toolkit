@@ -1,0 +1,42 @@
+name: "Cron: Rotate Domain TLS Certificates"
+
+on:
+  schedule:
+    # 02:00 on the 1st of every 2nd month (approx 60 days)
+    - cron: '0 2 1 */2 *'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  VAULT_ADDR: https://vault.svc.plus
+  VAULT_ROLE: github-actions-platform-ops-toolkit-prod
+  VAULT_KV: kv/data/CICD
+
+jobs:
+  rotate_certs:
+    name: Rotate Domain TLS Certificates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Load Vault secrets
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ env.VAULT_ADDR }}
+          method: jwt
+          role: ${{ env.VAULT_ROLE }}
+          jwtGithubAudience: vault
+          ignoreNotFound: true
+          secrets: |
+            ${{ env.VAULT_KV }} CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN
+
+      - name: Execute Rotation Script
+        env:
+          CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
+        run: |
+          bash ./docs/tasks/2026-07-29-rotate-domain-tls-certs.sh
