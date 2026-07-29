@@ -96,3 +96,15 @@ certificate without an ACME request.
 - First issuance succeeds with the temporary bootstrap material, then stores a
   complete domain record.
 - A destroy/rebuild within the renewal margin makes no new ACME order.
+
+## Validation record
+
+- 2026-07-29: dispatched the complete UAT `web-saas` workflow from
+  `feature/restore-domain-tls-material` with `run_full_stack=true`.
+- Run [30428197694](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/30428197694)
+  stopped in the first `Load Vault secrets` step. Vault correctly rejected the
+  feature-branch OIDC claim for the UAT role: `claim "ref" does not match any
+  associated bound claim values`.
+- No Terraform apply, host bootstrap, Doco-CD action, DNS switch, or endpoint
+  observation ran. Do not weaken the UAT role to test a feature branch; the
+  full chain must run after the reviewed PR is merged to `main`.
