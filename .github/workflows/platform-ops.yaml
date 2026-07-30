@@ -935,7 +935,17 @@ jobs:
   switch_dns:
     name: Switch DNS Traffic & Observe
     # 等两个并行 job 都完成才切流量 —— 这是流量门。
-    needs: [provision, deploy_base, deploy_web_saas, initialize_web_saas_databases, update_gitops_tags]
+    needs: [
+      provision,
+      deploy_base,
+      deploy_web_saas,
+      initialize_web_saas_databases,
+      update_gitops_tags,
+      deploy_infra_platform,
+      deploy_agent_proxy,
+      deploy_ai_workspace,
+      deploy_monitor_agent
+    ]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
@@ -943,6 +953,10 @@ jobs:
       (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.deploy_web_saas.result != 'failure' &&
       needs.initialize_web_saas_databases.result != 'failure' &&
+      needs.deploy_infra_platform.result != 'failure' &&
+      needs.deploy_agent_proxy.result != 'failure' &&
+      needs.deploy_ai_workspace.result != 'failure' &&
+      needs.deploy_monitor_agent.result != 'failure' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.confirm_dns_switch == 'true' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
