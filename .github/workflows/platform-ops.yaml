@@ -48,6 +48,11 @@ on:
         required: false
         default: ""
         type: string
+      gitops_ref:
+        description: "gitops 仓库的 Git Ref；留空则默认使用 main 分支"
+        required: false
+        default: ""
+        type: string
       toolkit_ref:
         description: "platform-ops-toolkit 仓库的 Git Ref；留空则默认使用 main 分支"
         required: false
@@ -215,6 +220,7 @@ jobs:
       INPUT_TOOLKIT_REF:           ${{ github.event.inputs.toolkit_ref }}
       INPUT_INFRA_REF:             ${{ github.event.inputs.infra_ref }}
       INPUT_PLAYBOOKS_REF:         ${{ github.event.inputs.playbooks_ref }}
+      INPUT_GITOPS_REF:            ${{ github.event.inputs.gitops_ref }}
       INPUT_CONSOLE_REF:           ${{ github.event.inputs.console_ref }}
       INPUT_OFFLINE_MODE:          ${{ github.event.inputs.offline_mode }}
       INPUT_SOURCE_HOST:           ${{ github.event.inputs.source_host }}
@@ -236,6 +242,7 @@ jobs:
       toolkit_ref:              ${{ steps.route.outputs.toolkit_ref }}
       infra_ref:                ${{ steps.route.outputs.infra_ref }}
       playbooks_ref:            ${{ steps.route.outputs.playbooks_ref }}
+      gitops_ref:               ${{ steps.route.outputs.gitops_ref }}
       console_ref:              ${{ steps.route.outputs.console_ref }}
       offline_mode:             ${{ steps.route.outputs.offline_mode }}
       source_host:              ${{ steps.route.outputs.source_host }}
@@ -257,7 +264,7 @@ jobs:
         # Manual destroy must use the workflow code from the selected branch.
         # Falling back to deploy_ref can silently load an older tag without
         # the current destroy routing fix.
-        ref: ${{ github.event.inputs.toolkit_ref || github.ref_name }}
+        ref: ${{ github.event.inputs.toolkit_ref || 'main' }}
 
     - name: Validate cloud_provider
       # 多云选项是产品形态预留；当前环境副本链路只接了 vultr-vps。
@@ -624,7 +631,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/gitops
-          ref: main
+          ref: ${{ needs.provision.outputs.gitops_ref }}
           token: ${{ steps.app-token.outputs.token }}
           path: gitops
 
