@@ -1169,6 +1169,8 @@ jobs:
         --limit "${MATRIX_HOST}"
         -e agent_service_hosts=agent_proxy
         -e xray_exporter_hosts=agent_proxy
+        -e agent_svc_plus_manage_source_checkout=true
+        -e agent_svc_plus_build_on_target=true
 
     - name: Verify native agent-proxy services
       working-directory: playbooks
