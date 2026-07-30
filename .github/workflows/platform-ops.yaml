@@ -699,12 +699,11 @@ jobs:
   # 把建库挪到 observe 检查之前修复, 不是撤销任何一个 fix。
   initialize_web_saas_databases:
     name: Initialize Web SaaS PostgreSQL Databases on ${{ matrix.host }}
-    needs: [provision, deploy_base, update_gitops_tags]
+    needs: [provision, deploy_base]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
-      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -767,7 +766,7 @@ jobs:
       run: ${{ github.workspace }}/.github/scripts/common_install_ansible.sh
 
     # 0 主机命中仍 exit 0 是本仓 workplan 的陷阱 #12。守卫脚本一直躺在
-    # .github/scripts/ 里但没有任何 workflow 引用它, 于是这一步 2026-07-28
+    # .github/scripts/里但没有任何 workflow 引用它, 于是这一步 2026-07-28
     # 在 run 30339933681 里报绿而一个库都没建。
     - name: Assert the Ansible target resolves to a reachable host
       working-directory: playbooks
@@ -819,12 +818,11 @@ jobs:
   # observe 在 switch_dns 之后的 deploy_web_saas 中完成(DNS 此时已就位)。
   deploy_web_saas:
     name: Deploy Web SaaS Services on ${{ matrix.host }}
-    needs: [provision, deploy_base, update_gitops_tags]
+    needs: [provision, deploy_base]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
-      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -857,12 +855,11 @@ jobs:
   # 一台已经销毁的老机器)时, 量到的依然是"我刚部署的这台"。
   observe_web_saas:
     name: Observe Web SaaS on ${{ matrix.host }}
-    needs: [provision, deploy_base, deploy_web_saas, initialize_web_saas_databases, update_gitops_tags]
+    needs: [provision, deploy_base, deploy_web_saas, initialize_web_saas_databases]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
-      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.deploy_web_saas.result == 'success' &&
       needs.initialize_web_saas_databases.result == 'success' &&
       needs.provision.outputs.run_application_deploy == 'true' &&
@@ -951,7 +948,7 @@ jobs:
 
   switch_dns:
     name: Switch DNS Traffic & Observe
-    # 等两个并行 job 都完成才切流量 —— 这是流量门。
+    # 等核心业务 job 都完成才切流量 —— 这是流量门。
     needs: [
       provision,
       deploy_base,
@@ -960,8 +957,7 @@ jobs:
       update_gitops_tags,
       deploy_infra_platform,
       deploy_agent_proxy,
-      deploy_ai_workspace,
-      deploy_monitor_agent
+      deploy_ai_workspace
     ]
     if: >-
       ${{ !cancelled() &&
@@ -973,7 +969,6 @@ jobs:
       needs.deploy_infra_platform.result != 'failure' &&
       needs.deploy_agent_proxy.result != 'failure' &&
       needs.deploy_ai_workspace.result != 'failure' &&
-      needs.deploy_monitor_agent.result != 'failure' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.confirm_dns_switch == 'true' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
@@ -1040,12 +1035,11 @@ jobs:
 
   deploy_infra_platform:
     name: Deploy Open Platform Services on ${{ matrix.host }}
-    needs: [provision, deploy_base, update_gitops_tags]
+    needs: [provision, deploy_base]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
-      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -1064,12 +1058,11 @@ jobs:
 
   deploy_agent_proxy:
     name: Deploy Agent Proxy Services on ${{ matrix.host }}
-    needs: [provision, deploy_base, update_gitops_tags]
+    needs: [provision, deploy_base]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
-      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -1088,12 +1081,11 @@ jobs:
 
   deploy_ai_workspace:
     name: Deploy AI Workspace Services on ${{ matrix.host }}
-    needs: [provision, deploy_base, update_gitops_tags]
+    needs: [provision, deploy_base]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
-      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -1112,12 +1104,11 @@ jobs:
 
   deploy_monitor_agent:
     name: Deploy Monitor Agent
-    needs: [provision, deploy_base, update_gitops_tags]
+    needs: [provision, deploy_base]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
-      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
