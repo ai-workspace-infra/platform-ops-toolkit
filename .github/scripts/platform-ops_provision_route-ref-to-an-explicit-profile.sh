@@ -152,10 +152,10 @@ fi
 : "${run_infrastructure:?route: run_infrastructure was never assigned on this trigger path}"
 : "${run_application_deploy:?route: run_application_deploy was never assigned on this trigger path}"
 
-# 部署版本。workflow_dispatch 用 deploy_ref 作为默认副本版本；push/PR 保持
-# 原有环境路由，避免普通 main/release 触发被手动副本语义影响。
+# 应用交付必须使用调用方显式给出的不可变镜像 tag。deploy_ref 是源码/基础设施
+# 副本基准，不能冒充跨仓镜像版本。
 if [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; then
-  deploy_tag="${INPUT_DEPLOY_TAG:-${deploy_ref}}"
+  deploy_tag="${INPUT_DEPLOY_TAG:-}"
 else
   case "${deployment_env}" in
     prod)
@@ -168,17 +168,10 @@ else
       esac
       ;;
     uat)
-      deploy_tag=latest
+      deploy_tag=""
       ;;
     sit)
-      head_sha="${GITHUB_SHA:-}"
-      if [ -n "${head_sha}" ]; then
-        deploy_tag="${head_sha:0:12}"
-        echo "sit: no deploy_tag input on a pull_request; pinning to head sha ${deploy_tag}"
-      else
-        echo "::error::cannot derive sit deploy_tag without GITHUB_SHA." >&2
-        exit 1
-      fi
+      deploy_tag=""
       ;;
     *)
       echo "::error::cannot derive deploy_tag for unknown deployment_env '${deployment_env}'" >&2
@@ -194,6 +187,15 @@ fi
 # (docker/metadata-action 自己就这么转)。这里不转的话, CD 会去 pull 一个
 # 从来没有被推送过的 tag。规则见 docs/domains/IMAGE-TAG-CONTRACT.md。
 deploy_tag="${deploy_tag//\//-}"
+
+if [ "${run_application_deploy}" = "true" ]; then
+  case "${deploy_tag}" in
+    ""|latest|main)
+      echo "::error::application deployment requires an explicit immutable deploy_tag; deploy_ref, main, and latest are not valid image versions." >&2
+      exit 1
+      ;;
+  esac
+fi
 
 for key in deployment_env resource_file resource_files_full terraform_workspace state_key run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider source_host source_domain_base target_domain_base env_suffix confirm_dns_switch deploy_tag; do
   value="${!key:-}"

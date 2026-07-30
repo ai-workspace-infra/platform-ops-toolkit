@@ -37,7 +37,7 @@ CD **绝不在部署时决定版本**，版本必须由调用方显式传入 `de
 | 环境 | `deploy_tag` |
 |---|---|
 | SIT | 用户定义（dispatch 时显式给出） |
-| UAT | `latest` |
+| UAT | 调用方显式给出的不可变快照 tag（例如 `daily-build-2026.07.30-r2`） |
 | PROD | 触发它的 `v*` tag 或 `release/*` |
 
 > 这条约定的意义在于：**PR CI 只证明代码可交付，CD 才负责改变 SIT/UAT/Prod 环境**。

@@ -15,8 +15,8 @@
 |---|---|---|
 | push tag `v*` | PROD | `v1.2.3`（原样，不加前缀） |
 | push branch `release/*` | PROD | `release-1.4`（`/` 在 docker tag 中非法，规范化为 `-`） |
-| push branch `main` | UAT | `latest` |
-| **任意一次构建** | SIT | `sha-<40 位 full sha>` |
+| 显式日快照 | UAT | `daily-build-YYYY.MM.DD-rN`（跨仓同名快照） |
+| **任意一次构建** | SIT / 可追溯构建 | `sha-<40 位 full sha>` |
 
 最后一行是无条件的：**每一次构建都必须额外产出 `sha-<full>`**。SIT 的
 `deploy_tag` 是「用户定义」，用户能定义的前提是存在一个稳定、可寻址、
@@ -34,13 +34,12 @@
     tags: |
       type=ref,event=tag
       type=ref,event=branch,enable=${{ startsWith(github.ref, 'refs/heads/release/') }}
-      type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
       type=sha,format=long
 ```
 
 - `type=ref,event=tag` 让 `v1.2.3` 原样成为镜像 tag，与 PROD 的 `deploy_tag` 完全一致。
 - `type=ref,event=branch` 只在 `release/*` 上启用；metadata-action 会自行把 `/` 换成 `-`。
-  不加 `enable` 的话 main 上会多产出一个 `main` tag，与 `latest` 语义重复。
+  不加 `enable` 的话 main 上会多产出一个 `main` tag；`main` 不是可部署的镜像版本。
 - `type=sha,format=long` 产出 `sha-<40 位>`（`sha-` 是 metadata-action 的默认前缀）。
 
 触发范围也必须统一，否则 tag 规则写得再对也不会执行：
@@ -55,14 +54,13 @@ on:
   workflow_dispatch:
 ```
 
-**`main` 必须在 `push.branches` 里。** 缺了它，该仓库的 `latest` 永远不会刷新，
-而 UAT 的 `deploy_tag` 恒为 `latest` —— 表现是 UAT 部署「成功」，但那个服务
-一直是上一次 release 的镜像。
+**`main` 必须在 `push.branches` 里。** 缺了它，服务仓不会产出用于快照汇总的
+构建制品。UAT 只能消费显式的跨仓快照 tag，绝不能以 `latest` 或 `main` 代替。
 
 ## 不用 metadata-action 的仓库
 
 自己计算 tag 的仓库（例如用脚本推导 `IMAGE_TAG`）同样受本契约约束，
-必须产出上表中的全部四种 tag，且 sha 一律用 **40 位全长并带 `sha-` 前缀**。
+必须产出上表中的不可变 tag，且 sha 一律用 **40 位全长并带 `sha-` 前缀**。
 裸 `${GITHUB_SHA}` 与 `sha-${GITHUB_SHA}` 是两个不同的 tag。
 
 ## 校验
@@ -70,7 +68,7 @@ on:
 新增或修改任何服务仓的构建 workflow 后，按此清单自查：
 
 1. push 一个 `v*` tag，确认 GHCR 上出现同名 tag；
-2. push 到 `main`，确认 `latest` 的 digest 变了；
+2. 生成日快照时，确认每个受管服务都出现同名 `daily-build-*` tag；
 3. 任取一次构建，确认存在 `sha-<40位>`；
-4. 四个 tag 的 digest 在同一次构建里必须相同 —— 它们是同一个镜像的别名，
+4. 同一服务的所有版本别名必须指向同一个 digest —— 它们是同一个镜像的别名，
    不是四次独立构建。
