@@ -545,6 +545,7 @@ jobs:
         GHCR_PASSWORD:                     ${{ steps.vault.outputs.GHCR_PASSWORD }}
         WEB_SAAS_CONSOLE_DOMAIN:           console-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
         WEB_SAAS_ACCOUNTS_DOMAIN:          accounts-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
+        AGENT_CONTROLLER_URL:              https://accounts-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
         # 给了它 web_saas_host_config 就渲染 DNS-01 + *.<base> 泛域名 Caddyfile,
         # 没给就退回逐域名 HTTP-01。HTTP-01 要求 A 记录已经指向本机, 而交付顺序
         # 是"先部署新主机、最后才切 DNS" —— 切换之前签不出证书。
