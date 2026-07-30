@@ -17,6 +17,14 @@ for group in "${node_groups[@]}"; do
       playbook=setup-ai-workspace-rootless.yml
       break
       ;;
+    agent_proxy)
+      playbook=setup-agent-proxy-domain.yml
+      break
+      ;;
+    infra_platform|open_platform)
+      playbook=setup-open-platform-domain.yml
+      break
+      ;;
     k3s|k3s_server|k3s_agent)
       playbook=setup-k3s-node.yaml
       ;;

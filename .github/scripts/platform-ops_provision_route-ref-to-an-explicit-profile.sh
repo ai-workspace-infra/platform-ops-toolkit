@@ -29,9 +29,10 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     rf="${target_domains}"
   fi
   
+  cloud_provider="${INPUT_CLOUD_PROVIDER:-vultr-vps}"
   resource_file="${deployment_env}/${rf}"
-  terraform_workspace="${rf}-${deployment_env}"
-  state_key="platform-ops-toolkit/${deployment_env}/${rf}.tfstate"
+  terraform_workspace="${rf}-${deployment_env}-${cloud_provider}"
+  state_key="platform-ops-toolkit/${deployment_env}/${cloud_provider}/${rf}.tfstate"
   # 执行边界拆成两段独立开关, 不再由一个参数同时代表"建基础设施"和"部署业务":
   #   run_infrastructure -> Terraform render/init/apply|destroy + CMDB/matrix
   #   run_application_deploy  -> Bootstrap Node + 四个业务域部署
@@ -94,8 +95,8 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
 else
   GITHUB_EVENT_NAME="${GITHUB_EVENT_NAME:-}"
   if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-    deployment_env=sit; resource_file=sit/all-in-one; terraform_workspace=all-in-one-sit
-    state_key=platform-ops-toolkit/sit/all-in-one.tfstate; target_domains=all
+    deployment_env=sit; resource_file=sit/all-in-one; terraform_workspace=all-in-one-sit-vultr-vps
+    state_key=platform-ops-toolkit/sit/vultr-vps/all-in-one.tfstate; target_domains=all
     # PR 只做 terraform plan, 不 apply。四个 deploy job 都要求
     # terraform_action == 'apply', 所以 plan 会让它们全部 skip ——
     # PR 仍然校验 terraform 配置, 但不再创建真实 VPS。
@@ -105,23 +106,23 @@ else
   else
     case "${GITHUB_REF}" in
       refs/heads/main|refs/heads/release/*)
-        deployment_env=uat; resource_file=uat/web-saas; terraform_workspace=web-saas-uat
-        state_key=platform-ops-toolkit/uat/web-saas.tfstate; target_domains=web-saas
+        deployment_env=uat; resource_file=uat/web-saas; terraform_workspace=web-saas-uat-vultr-vps
+        state_key=platform-ops-toolkit/uat/vultr-vps/web-saas.tfstate; target_domains=web-saas
         # PR merge 后的 push 只做 IaC plan 校验，避免自动创建/变更真实资源。
         run_infrastructure=true; run_application_deploy=false
         terraform_action=plan; toolkit_action=none; infra_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
         source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-uat; confirm_dns_switch=false
         ;;
       refs/tags/v*)
-        deployment_env=prod; resource_file=prod/web-saas; terraform_workspace=web-saas-prod
-        state_key=platform-ops-toolkit/prod/web-saas.tfstate; target_domains=web-saas
+        deployment_env=prod; resource_file=prod/web-saas; terraform_workspace=web-saas-prod-vultr-vps
+        state_key=platform-ops-toolkit/prod/vultr-vps/web-saas.tfstate; target_domains=web-saas
         run_infrastructure=true; run_application_deploy=true
         terraform_action=apply; toolkit_action=deploy; infra_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
         source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=""; confirm_dns_switch=false
         ;;
       *)
-        deployment_env=sit; resource_file=sit/all-in-one; terraform_workspace=all-in-one-sit
-        state_key=platform-ops-toolkit/sit/all-in-one.tfstate; target_domains=all
+        deployment_env=sit; resource_file=sit/all-in-one; terraform_workspace=all-in-one-sit-vultr-vps
+        state_key=platform-ops-toolkit/sit/vultr-vps/all-in-one.tfstate; target_domains=all
         run_infrastructure=true; run_application_deploy=true
         terraform_action=apply; toolkit_action=deploy; infra_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
         source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-sit; confirm_dns_switch=false

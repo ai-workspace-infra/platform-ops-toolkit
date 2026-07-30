@@ -198,6 +198,7 @@ jobs:
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     # Static job-level env: inputs known at job start (no step output refs allowed here)
     env:
+      INPUT_CLOUD_PROVIDER:        ${{ github.event.inputs.cloud_provider }}
       INPUT_VAULT_ENV_PATH:        ${{ github.event.inputs.vault_env_path }}
       INPUT_TARGET_DOMAINS:        ${{ github.event.inputs.target_domains }}
       INPUT_RUN_FULL_STACK:        ${{ github.event.inputs.run_full_stack }}
