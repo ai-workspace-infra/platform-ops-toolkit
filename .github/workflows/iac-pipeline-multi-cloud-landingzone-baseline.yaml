@@ -150,7 +150,7 @@ jobs:
           -backend-config="skip_metadata_api_check=true"
           -backend-config="skip_region_validation=true"
           -backend-config="use_path_style=true"
-      run: .github/scripts/common_terraform_init.sh
+      run: .github/scripts/common_terraform.sh init
 
     - name: Terraform Plan (LandingZone)
       id: tfplan
@@ -167,7 +167,7 @@ jobs:
     - name: Terraform Apply (LandingZone)
       if: env.DEPLOY_ACTION == 'apply'
       working-directory: ${{ env.TF_WORKDIR }}
-      run: .github/scripts/common_terraform_apply.sh
+      run: .github/scripts/common_terraform.sh apply
 
     - name: Run Validation Checks
       if: env.DEPLOY_ACTION == 'apply'

@@ -39,7 +39,17 @@ on:
         default: ""
         type: string
       infra_ref:
-        description: "iac_modules & playbooks 仓库的 Git Ref；留空则默认使用 main 分支"
+        description: "iac_modules 仓库的 Git Ref；留空则默认使用 main 分支"
+        required: false
+        default: ""
+        type: string
+      playbooks_ref:
+        description: "playbooks 仓库的 Git Ref；留空则默认使用 main 分支"
+        required: false
+        default: ""
+        type: string
+      gitops_ref:
+        description: "gitops 仓库的 Git Ref；留空则默认使用 main 分支"
         required: false
         default: ""
         type: string
@@ -105,6 +115,7 @@ on:
         - web-saas
         - infra-platform
         - agent-proxy
+        - web-saas + agent-proxy
       deploy_tag:
         description: "部署版本 (留空则自动与 deploy_ref 对齐; 仅需要服务版本不同于副本基准时覆盖)"
         required: false
@@ -208,6 +219,8 @@ jobs:
       INPUT_DEPLOY_REF:            ${{ github.event.inputs.deploy_ref }}
       INPUT_TOOLKIT_REF:           ${{ github.event.inputs.toolkit_ref }}
       INPUT_INFRA_REF:             ${{ github.event.inputs.infra_ref }}
+      INPUT_PLAYBOOKS_REF:         ${{ github.event.inputs.playbooks_ref }}
+      INPUT_GITOPS_REF:            ${{ github.event.inputs.gitops_ref }}
       INPUT_CONSOLE_REF:           ${{ github.event.inputs.console_ref }}
       INPUT_OFFLINE_MODE:          ${{ github.event.inputs.offline_mode }}
       INPUT_SOURCE_HOST:           ${{ github.event.inputs.source_host }}
@@ -228,6 +241,8 @@ jobs:
       toolkit_action:           ${{ steps.route.outputs.toolkit_action }}
       toolkit_ref:              ${{ steps.route.outputs.toolkit_ref }}
       infra_ref:                ${{ steps.route.outputs.infra_ref }}
+      playbooks_ref:            ${{ steps.route.outputs.playbooks_ref }}
+      gitops_ref:               ${{ steps.route.outputs.gitops_ref }}
       console_ref:              ${{ steps.route.outputs.console_ref }}
       offline_mode:             ${{ steps.route.outputs.offline_mode }}
       source_host:              ${{ steps.route.outputs.source_host }}
@@ -250,7 +265,7 @@ jobs:
         # Manual destroy must use the workflow code from the selected branch.
         # Falling back to deploy_ref can silently load an older tag without
         # the current destroy routing fix.
-        ref: ${{ github.event.inputs.toolkit_ref || github.ref_name }}
+        ref: ${{ github.event.inputs.toolkit_ref || 'main' }}
 
     - name: Validate cloud_provider
       # 仅支持已接线的云厂商
@@ -361,7 +376,7 @@ jobs:
         TF_WORKSPACE_PREFIX: env
         TARGET_DOMAIN_BASE: ${{ steps.route.outputs.target_domain_base }}
         # TF_STATE_* and AWS_* already in env via "Export Terraform credentials"
-      run: python3 scripts/generate.py render --resources config/resources/${{ steps.route.outputs.resource_file }}.yaml --workdir envs/platform-ops-toolkit
+      run: python3 scripts/generate.py render --resources ${{ steps.route.outputs.resource_files_full }} --workdir envs/platform-ops-toolkit
 
     - name: Terraform init
       if: steps.route.outputs.run_infrastructure == 'true'
@@ -399,7 +414,7 @@ jobs:
       env:
         TARGET_DOMAIN_BASE: ${{ steps.route.outputs.target_domain_base }}
         # AWS_* from GITHUB_ENV
-      run: python3 scripts/generate.py inventory --resources config/resources/${{ steps.route.outputs.resource_file }}.yaml --workdir envs/platform-ops-toolkit
+      run: python3 scripts/generate.py inventory --resources ${{ steps.route.outputs.resource_files_full }} --workdir envs/platform-ops-toolkit
 
     - name: Build deploy matrix
       id: matrix
@@ -426,7 +441,7 @@ jobs:
       if: >-
         ${{ steps.route.outputs.run_application_deploy == 'true' &&
         steps.route.outputs.terraform_action == 'apply' &&
-        contains(fromJSON('["all","agent-proxy"]'), steps.route.outputs.target_domains) }}
+        contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), steps.route.outputs.target_domains) }}
       env:
         VAULT_ENV_PATH: ${{ steps.route.outputs.vault_env_path }}
       run: |-
@@ -479,7 +494,7 @@ jobs:
       uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/playbooks
-        ref: ${{ needs.provision.outputs.infra_ref }}
+        ref: ${{ needs.provision.outputs.playbooks_ref }}
         path: playbooks
 
     - name: Download CMDB
@@ -571,6 +586,7 @@ jobs:
         GHCR_PASSWORD:                     ${{ steps.vault.outputs.GHCR_PASSWORD }}
         WEB_SAAS_CONSOLE_DOMAIN:           console-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
         WEB_SAAS_ACCOUNTS_DOMAIN:          accounts-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
+        AGENT_CONTROLLER_URL:              https://accounts-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
         # 给了它 web_saas_host_config 就渲染 DNS-01 + *.<base> 泛域名 Caddyfile,
         # 没给就退回逐域名 HTTP-01。HTTP-01 要求 A 记录已经指向本机, 而交付顺序
         # 是"先部署新主机、最后才切 DNS" —— 切换之前签不出证书。
@@ -641,7 +657,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/gitops
-          ref: main
+          ref: ${{ needs.provision.outputs.gitops_ref }}
           token: ${{ steps.app-token.outputs.token }}
           path: gitops
 
@@ -709,16 +725,15 @@ jobs:
   # 把建库挪到 observe 检查之前修复, 不是撤销任何一个 fix。
   initialize_web_saas_databases:
     name: Initialize Web SaaS PostgreSQL Databases on ${{ matrix.host }}
-    needs: [provision, deploy_base, update_gitops_tags]
+    needs: [provision, deploy_base]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
-      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
-      (needs.provision.outputs.target_domains == 'all' || needs.provision.outputs.target_domains == 'web-saas') &&
+      contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
       needs.provision.outputs.hosts_web_saas != '[]' &&
       needs.provision.outputs.hosts_web_saas != '' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
@@ -743,7 +758,7 @@ jobs:
       uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/playbooks
-        ref: ${{ needs.provision.outputs.infra_ref }}
+        ref: ${{ needs.provision.outputs.playbooks_ref }}
         path: playbooks
 
     - name: Download CMDB
@@ -777,7 +792,7 @@ jobs:
       run: ${{ github.workspace }}/.github/scripts/common_install_ansible.sh
 
     # 0 主机命中仍 exit 0 是本仓 workplan 的陷阱 #12。守卫脚本一直躺在
-    # .github/scripts/ 里但没有任何 workflow 引用它, 于是这一步 2026-07-28
+    # .github/scripts/里但没有任何 workflow 引用它, 于是这一步 2026-07-28
     # 在 run 30339933681 里报绿而一个库都没建。
     - name: Assert the Ansible target resolves to a reachable host
       working-directory: playbooks
@@ -829,16 +844,15 @@ jobs:
   # observe 在 switch_dns 之后的 deploy_web_saas 中完成(DNS 此时已就位)。
   deploy_web_saas:
     name: Deploy Web SaaS Services on ${{ matrix.host }}
-    needs: [provision, deploy_base, update_gitops_tags]
+    needs: [provision, deploy_base]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
-      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
-      (needs.provision.outputs.target_domains == 'all' || needs.provision.outputs.target_domains == 'web-saas') &&
+      contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
       needs.provision.outputs.hosts_web_saas != '[]' &&
       needs.provision.outputs.hosts_web_saas != '' }}
     strategy:
@@ -867,18 +881,17 @@ jobs:
   # 一台已经销毁的老机器)时, 量到的依然是"我刚部署的这台"。
   observe_web_saas:
     name: Observe Web SaaS on ${{ matrix.host }}
-    needs: [provision, deploy_base, deploy_web_saas, initialize_web_saas_databases, update_gitops_tags]
+    needs: [provision, deploy_base, deploy_web_saas, initialize_web_saas_databases]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
-      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.deploy_web_saas.result == 'success' &&
       needs.initialize_web_saas_databases.result == 'success' &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
-      (needs.provision.outputs.target_domains == 'all' || needs.provision.outputs.target_domains == 'web-saas') &&
+      contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
       needs.provision.outputs.hosts_web_saas != '[]' &&
       needs.provision.outputs.hosts_web_saas != '' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
@@ -900,7 +913,7 @@ jobs:
       uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/playbooks
-        ref: ${{ needs.provision.outputs.infra_ref }}
+        ref: ${{ needs.provision.outputs.playbooks_ref }}
         path: playbooks
 
     - name: Download CMDB
@@ -961,7 +974,7 @@ jobs:
 
   switch_dns:
     name: Switch DNS Traffic & Observe
-    # 等两个并行 job 都完成才切流量 —— 这是流量门。
+    # 等核心业务 job 都完成才切流量 —— 这是流量门。
     needs: [
       provision,
       deploy_base,
@@ -970,8 +983,7 @@ jobs:
       update_gitops_tags,
       deploy_infra_platform,
       deploy_agent_proxy,
-      deploy_ai_workspace,
-      deploy_monitor_agent
+      deploy_ai_workspace
     ]
     if: >-
       ${{ !cancelled() &&
@@ -983,7 +995,6 @@ jobs:
       needs.deploy_infra_platform.result != 'failure' &&
       needs.deploy_agent_proxy.result != 'failure' &&
       needs.deploy_ai_workspace.result != 'failure' &&
-      needs.deploy_monitor_agent.result != 'failure' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.confirm_dns_switch == 'true' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
@@ -1013,7 +1024,7 @@ jobs:
       uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/playbooks
-        ref: ${{ needs.provision.outputs.infra_ref }}
+        ref: ${{ needs.provision.outputs.playbooks_ref }}
         path: playbooks
 
     - name: Install Ansible
@@ -1050,12 +1061,11 @@ jobs:
 
   deploy_infra_platform:
     name: Deploy Open Platform Services on ${{ matrix.host }}
-    needs: [provision, deploy_base, update_gitops_tags]
+    needs: [provision, deploy_base]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
-      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -1074,16 +1084,15 @@ jobs:
 
   deploy_agent_proxy:
     name: Deploy Agent Proxy Services on ${{ matrix.host }}
-    needs: [provision, deploy_base, update_gitops_tags]
+    needs: [provision, deploy_base]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
-      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
-      contains(fromJSON('["all","agent-proxy"]'), needs.provision.outputs.target_domains) &&
+      contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
       needs.provision.outputs.hosts_agent_proxy != '[]' &&
       needs.provision.outputs.hosts_agent_proxy != '' }}
     strategy:
@@ -1098,12 +1107,11 @@ jobs:
 
   deploy_ai_workspace:
     name: Deploy AI Workspace Services on ${{ matrix.host }}
-    needs: [provision, deploy_base, update_gitops_tags]
+    needs: [provision, deploy_base]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
-      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -1122,12 +1130,11 @@ jobs:
 
   deploy_monitor_agent:
     name: Deploy Monitor Agent
-    needs: [provision, deploy_base, update_gitops_tags]
+    needs: [provision, deploy_base]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
-      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -1152,7 +1159,7 @@ jobs:
       uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/playbooks
-        ref: ${{ needs.provision.outputs.infra_ref }}
+        ref: ${{ needs.provision.outputs.playbooks_ref }}
         path: playbooks
 
     - name: Download CMDB
