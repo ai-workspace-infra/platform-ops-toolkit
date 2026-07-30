@@ -18,8 +18,8 @@ TARGET_DOMAIN_BASE_DEFAULT="onwalk.net"
 # variable. Terraform creates the host and its CMDB is the only deploy
 # inventory for that run.
 if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-  deployment_env="${INPUT_VAULT_ENV_PATH}"
-  target_domains="${INPUT_TARGET_DOMAINS}"
+  deployment_env="${INPUT_VAULT_ENV_PATH:-uat}"
+  target_domains="${INPUT_TARGET_DOMAINS:-all}"
   
   if [ "${deployment_env}" = "sit" ]; then
     rf="all-in-one"
