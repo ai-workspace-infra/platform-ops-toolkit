@@ -961,7 +961,17 @@ jobs:
   switch_dns:
     name: Switch DNS Traffic & Observe
     # 等两个并行 job 都完成才切流量 —— 这是流量门。
-    needs: [provision, deploy_base, deploy_web_saas, initialize_web_saas_databases, deploy_infra_platform, deploy_agent_proxy, deploy_ai_workspace, deploy_monitor_agent, update_gitops_tags]
+    needs: [
+      provision,
+      deploy_base,
+      deploy_web_saas,
+      initialize_web_saas_databases,
+      update_gitops_tags,
+      deploy_infra_platform,
+      deploy_agent_proxy,
+      deploy_ai_workspace,
+      deploy_monitor_agent
+    ]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
