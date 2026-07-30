@@ -40,4 +40,17 @@ if [[ -z "${playbook}" ]]; then
 fi
 
 echo "Bootstrapping ${MATRIX_HOST} with ${playbook}"
-ansible-playbook -i ../cmdb/inventory.ini -l "${MATRIX_HOST}" "${playbook}"
+extra_args=()
+if [[ "${playbook}" == "setup-agent-proxy-domain.yml" ]]; then
+  # The agent-proxy domain is native systemd, and its generated CMDB group is
+  # agent_proxy. Build the exact requested repository tag on the host; a
+  # daily-build tag is not a GitHub Release v* tag and cannot use the release
+  # binary download path.
+  extra_args+=(
+    -e agent_service_hosts=agent_proxy
+    -e xray_exporter_hosts=agent_proxy
+    -e agent_svc_plus_manage_source_checkout=true
+    -e agent_svc_plus_build_on_target=true
+  )
+fi
+ansible-playbook -i ../cmdb/inventory.ini -l "${MATRIX_HOST}" "${playbook}" "${extra_args[@]}"
