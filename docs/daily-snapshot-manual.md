@@ -45,6 +45,20 @@ bash docs/tasks/tag-ai-workspace-mains.sh \
   --build
 ```
 
+### 强行清理历史快照残留
+
+如果因为特殊原因手动删除了快照 Tag，但没有清理关联的 GitHub Release，在重新触发工作流时会导致构建报错（如 `manifest_missing`）。此时可用清理脚本强行清理目标快照的所有残留记录：
+
+```bash
+# 清理四大组织内所有相关仓库的某个 Tag 及关联 Release
+bash docs/tasks/clean-snapshot-tag-and-release.sh --tag daily-build-2026.07.29
+
+# 或者仅针对构建报错的特定仓库清理
+bash docs/tasks/clean-snapshot-tag-and-release.sh \
+  --tag daily-build-2026.07.29 \
+  --repo ai-workspace-services/accounts,ai-workspace-services/billing-service
+```
+
 所有 tag 均保持不可变。当天基础 tag 已存在、对应构建失败或 `main` 已前进时，
 使用 `-r1`、`-r2` 等新 tag 重试。环境看板和后续部署应从这些不可变快照中
 选择“构建成功且创建时间最新”的 tag，而不是移动旧 tag。

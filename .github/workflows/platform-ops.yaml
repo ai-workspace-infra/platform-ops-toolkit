@@ -105,6 +105,7 @@ on:
         - web-saas
         - infra-platform
         - agent-proxy
+        - web-saas + agent-proxy
       deploy_tag:
         description: "部署版本 (留空则自动与 deploy_ref 对齐; 仅需要服务版本不同于副本基准时覆盖)"
         required: false
@@ -335,7 +336,7 @@ jobs:
         TF_WORKSPACE_PREFIX: env
         TARGET_DOMAIN_BASE: ${{ steps.route.outputs.target_domain_base }}
         # TF_STATE_* and AWS_* already in env via "Export Terraform credentials"
-      run: python3 scripts/generate.py render --resources config/resources/${{ steps.route.outputs.resource_file }}.yaml --workdir envs/platform-ops-toolkit
+      run: python3 scripts/generate.py render --resources ${{ steps.route.outputs.resource_files_full }} --workdir envs/platform-ops-toolkit
 
     - name: Terraform init
       if: steps.route.outputs.run_infrastructure == 'true'
@@ -373,7 +374,7 @@ jobs:
       env:
         TARGET_DOMAIN_BASE: ${{ steps.route.outputs.target_domain_base }}
         # AWS_* from GITHUB_ENV
-      run: python3 scripts/generate.py inventory --resources config/resources/${{ steps.route.outputs.resource_file }}.yaml --workdir envs/platform-ops-toolkit
+      run: python3 scripts/generate.py inventory --resources ${{ steps.route.outputs.resource_files_full }} --workdir envs/platform-ops-toolkit
 
     - name: Build deploy matrix
       id: matrix
@@ -400,7 +401,7 @@ jobs:
       if: >-
         ${{ steps.route.outputs.run_application_deploy == 'true' &&
         steps.route.outputs.terraform_action == 'apply' &&
-        contains(fromJSON('["all","agent-proxy"]'), steps.route.outputs.target_domains) }}
+        contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), steps.route.outputs.target_domains) }}
       env:
         VAULT_ENV_PATH: ${{ steps.route.outputs.vault_env_path }}
       run: |-
@@ -693,7 +694,7 @@ jobs:
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
-      (needs.provision.outputs.target_domains == 'all' || needs.provision.outputs.target_domains == 'web-saas') &&
+      contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
       needs.provision.outputs.hosts_web_saas != '[]' &&
       needs.provision.outputs.hosts_web_saas != '' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
@@ -813,7 +814,7 @@ jobs:
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
-      (needs.provision.outputs.target_domains == 'all' || needs.provision.outputs.target_domains == 'web-saas') &&
+      contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
       needs.provision.outputs.hosts_web_saas != '[]' &&
       needs.provision.outputs.hosts_web_saas != '' }}
     strategy:
@@ -853,7 +854,7 @@ jobs:
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
-      (needs.provision.outputs.target_domains == 'all' || needs.provision.outputs.target_domains == 'web-saas') &&
+      contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
       needs.provision.outputs.hosts_web_saas != '[]' &&
       needs.provision.outputs.hosts_web_saas != '' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
@@ -1058,7 +1059,7 @@ jobs:
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
-      contains(fromJSON('["all","agent-proxy"]'), needs.provision.outputs.target_domains) &&
+      contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
       needs.provision.outputs.hosts_agent_proxy != '[]' &&
       needs.provision.outputs.hosts_agent_proxy != '' }}
     strategy:
