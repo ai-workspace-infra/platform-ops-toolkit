@@ -39,7 +39,12 @@ on:
         default: ""
         type: string
       infra_ref:
-        description: "iac_modules & playbooks 仓库的 Git Ref；留空则默认使用 main 分支"
+        description: "iac_modules 仓库的 Git Ref；留空则默认使用 main 分支"
+        required: false
+        default: ""
+        type: string
+      playbooks_ref:
+        description: "playbooks 仓库的 Git Ref；留空则默认使用 main 分支"
         required: false
         default: ""
         type: string
@@ -209,6 +214,7 @@ jobs:
       INPUT_DEPLOY_REF:            ${{ github.event.inputs.deploy_ref }}
       INPUT_TOOLKIT_REF:           ${{ github.event.inputs.toolkit_ref }}
       INPUT_INFRA_REF:             ${{ github.event.inputs.infra_ref }}
+      INPUT_PLAYBOOKS_REF:         ${{ github.event.inputs.playbooks_ref }}
       INPUT_CONSOLE_REF:           ${{ github.event.inputs.console_ref }}
       INPUT_OFFLINE_MODE:          ${{ github.event.inputs.offline_mode }}
       INPUT_SOURCE_HOST:           ${{ github.event.inputs.source_host }}
@@ -229,6 +235,7 @@ jobs:
       toolkit_action:           ${{ steps.route.outputs.toolkit_action }}
       toolkit_ref:              ${{ steps.route.outputs.toolkit_ref }}
       infra_ref:                ${{ steps.route.outputs.infra_ref }}
+      playbooks_ref:            ${{ steps.route.outputs.playbooks_ref }}
       console_ref:              ${{ steps.route.outputs.console_ref }}
       offline_mode:             ${{ steps.route.outputs.offline_mode }}
       source_host:              ${{ steps.route.outputs.source_host }}
@@ -454,7 +461,7 @@ jobs:
       uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/playbooks
-        ref: ${{ needs.provision.outputs.infra_ref }}
+        ref: ${{ needs.provision.outputs.playbooks_ref }}
         path: playbooks
 
     - name: Download CMDB
@@ -719,7 +726,7 @@ jobs:
       uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/playbooks
-        ref: ${{ needs.provision.outputs.infra_ref }}
+        ref: ${{ needs.provision.outputs.playbooks_ref }}
         path: playbooks
 
     - name: Download CMDB
@@ -876,7 +883,7 @@ jobs:
       uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/playbooks
-        ref: ${{ needs.provision.outputs.infra_ref }}
+        ref: ${{ needs.provision.outputs.playbooks_ref }}
         path: playbooks
 
     - name: Download CMDB
@@ -989,7 +996,7 @@ jobs:
       uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/playbooks
-        ref: ${{ needs.provision.outputs.infra_ref }}
+        ref: ${{ needs.provision.outputs.playbooks_ref }}
         path: playbooks
 
     - name: Install Ansible
@@ -1128,7 +1135,7 @@ jobs:
       uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/playbooks
-        ref: ${{ needs.provision.outputs.infra_ref }}
+        ref: ${{ needs.provision.outputs.playbooks_ref }}
         path: playbooks
 
     - name: Download CMDB
