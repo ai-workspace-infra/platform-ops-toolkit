@@ -2,6 +2,9 @@ name: Multi Cloud LandingZone Baseline
 
 on:
   push:
+    branches:
+      - main
+      - 'release/**'
     paths:
     - 'terraform-hcl-standard/**'
     - '.github/workflows/iac-pipeline-multi-cloud-landingzone-baseline.yaml'

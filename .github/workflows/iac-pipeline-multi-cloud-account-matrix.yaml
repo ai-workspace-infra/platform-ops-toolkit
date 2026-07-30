@@ -2,6 +2,9 @@ name: Multi Cloud IAC Pipeline (Account/VPC Matrix)
 
 on:
   push:
+    branches:
+      - main
+      - 'release/**'
     paths:
     - 'terraform-hcl-standard/**'
     - '.github/workflows/iac-pipeline-multi-cloud-account-matrix.yaml'

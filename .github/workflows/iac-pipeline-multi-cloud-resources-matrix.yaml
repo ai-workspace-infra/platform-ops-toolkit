@@ -2,6 +2,9 @@ name: Multi Cloud IAC Pipeline (Resources Matrix)
 
 on:
   push:
+    branches:
+      - main
+      - 'release/**'
     paths:
     - '.github/workflows/iac-pipeline-multi-cloud-resources-matrix.yaml'
     - 'terraform-hcl-standard/**'
