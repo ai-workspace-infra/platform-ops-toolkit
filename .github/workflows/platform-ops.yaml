@@ -187,9 +187,9 @@ env:
   VAULT_KV_WEB_SAAS: kv/data/WEB_SAAS
   VAULT_KV_DATABASES: kv/data/${{ github.event_name == 'pull_request' && 'sit' || startsWith(github.ref, 'refs/tags/v') && 'prod' || github.event.inputs.vault_env_path || 'uat' }}/databases
   VAULT_KV_AGENT_PROXY: kv/data/${{ github.event_name == 'pull_request' && 'sit' || startsWith(github.ref, 'refs/tags/v') && 'prod' || github.event.inputs.vault_env_path || 'uat' }}/agent-proxy
-  VPS_ROOT: infra/iac_modules/terraform-hcl-standard/vultr-vps
+  VPS_ROOT: infra/iac_modules/terraform-hcl-standard/${{ github.event.inputs.cloud_provider || 'vultr-vps' }}
   # 指向 platform-ops-toolkit 的 Terraform 目录
-  ENV_DIR: infra/iac_modules/terraform-hcl-standard/vultr-vps/envs/platform-ops-toolkit
+  ENV_DIR: infra/iac_modules/terraform-hcl-standard/${{ github.event.inputs.cloud_provider || 'vultr-vps' }}/envs/platform-ops-toolkit
   PLAYBOOKS_DIR: infra/playbooks
 
 jobs:
@@ -235,6 +235,7 @@ jobs:
       env_suffix:               ${{ steps.route.outputs.env_suffix }}
       confirm_dns_switch:       ${{ steps.route.outputs.confirm_dns_switch }}
       vault_env_path:           ${{ steps.route.outputs.vault_env_path }}
+      cloud_provider:           ${{ steps.route.outputs.cloud_provider }}
       hosts:              ${{ steps.matrix.outputs.hosts         || '[]' }}
       hosts_web_saas:     ${{ steps.matrix.outputs.hosts_web_saas     || '[]' }}
       hosts_ai_workspace: ${{ steps.matrix.outputs.hosts_ai_workspace || '[]' }}
@@ -251,10 +252,10 @@ jobs:
         ref: ${{ github.event.inputs.toolkit_ref || github.ref_name }}
 
     - name: Validate cloud_provider
-      # 多云选项是产品形态预留；当前环境副本链路只接了 vultr-vps。
-      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cloud_provider != '' && github.event.inputs.cloud_provider != 'vultr-vps' }}
+      # 仅支持已接线的云厂商
+      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cloud_provider != '' && github.event.inputs.cloud_provider != 'vultr-vps' && github.event.inputs.cloud_provider != 'aws-cloud' }}
       run: |
-        echo "::error::cloud_provider='${{ github.event.inputs.cloud_provider }}' is reserved but not wired for this environment-replica workflow yet. Use 'vultr-vps' for now." >&2
+        echo "::error::cloud_provider='${{ github.event.inputs.cloud_provider }}' is reserved but not wired for this environment-replica workflow yet. Use 'vultr-vps' or 'aws-cloud' for now." >&2
         exit 1
 
     - name: Route ref to an explicit profile
@@ -282,14 +283,38 @@ jobs:
           ${{ env.VAULT_KV_BASE }} TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
           ${{ env.VAULT_KV_BASE }} TF_STATE_REGION   | TF_STATE_REGION
 
+    - name: Configure AWS Credentials (OIDC)
+      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'aws-cloud'
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-region: ap-northeast-1
+        role-to-assume: arn:aws:iam::950604983695:role/GithubAction_IAC_Deploy_Role
+
+    - name: Configure GCP Credentials (OIDC)
+      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'gcp-cloud'
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: 'projects/123456789/locations/global/workloadIdentityPools/my-pool/providers/my-provider'
+        service_account: 'my-service-account@my-project.iam.gserviceaccount.com'
+
+    - name: Configure Azure Credentials (OIDC)
+      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'azure-cloud'
+      uses: azure/login@v2
+      with:
+        client-id: '00000000-0000-0000-0000-000000000000'
+        tenant-id: '00000000-0000-0000-0000-000000000000'
+        subscription-id: '00000000-0000-0000-0000-000000000000'
+
     # Export Vault-sourced credentials into GITHUB_ENV so all subsequent steps
     # inherit them automatically — eliminates per-step env repetition.
     - name: Export Terraform credentials
       if: steps.route.outputs.run_infrastructure == 'true'
       run: |
-        echo "AWS_ACCESS_KEY_ID=${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}"   >> "$GITHUB_ENV"
-        echo "AWS_SECRET_ACCESS_KEY=${{ steps.vault.outputs.TF_STATE_SECRET_KEY }}" >> "$GITHUB_ENV"
-        echo "TF_VAR_vultr_api_key=${{ steps.vault.outputs.VULTR_API_KEY }}"      >> "$GITHUB_ENV"
+        if [ "${{ steps.route.outputs.cloud_provider }}" == "vultr-vps" ]; then
+          echo "AWS_ACCESS_KEY_ID=${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}"   >> "$GITHUB_ENV"
+          echo "AWS_SECRET_ACCESS_KEY=${{ steps.vault.outputs.TF_STATE_SECRET_KEY }}" >> "$GITHUB_ENV"
+          echo "TF_VAR_vultr_api_key=${{ steps.vault.outputs.VULTR_API_KEY }}"      >> "$GITHUB_ENV"
+        fi
         echo "TF_STATE_ENDPOINT=${{ steps.vault.outputs.TF_STATE_ENDPOINT }}"     >> "$GITHUB_ENV"
         echo "TF_STATE_BUCKET=${{ steps.vault.outputs.TF_STATE_BUCKET }}"         >> "$GITHUB_ENV"
         echo "TF_STATE_REGION=${{ steps.vault.outputs.TF_STATE_REGION }}"         >> "$GITHUB_ENV"
@@ -322,6 +347,7 @@ jobs:
       env:
         INPUT_DOMAIN_____ALL_:         ${{ github.event.inputs.target_domains || 'all' }}
         INPUT_INSTANCE_PLAN_____4C8G_: ${{ github.event.inputs.instance_plan  || '4C8G' }}
+        INPUT_CLOUD_PROVIDER:          ${{ steps.route.outputs.cloud_provider }}
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops_provision_map-instance-plan.sh
 
