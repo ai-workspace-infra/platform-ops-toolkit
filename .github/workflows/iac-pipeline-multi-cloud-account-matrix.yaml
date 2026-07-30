@@ -155,21 +155,21 @@ jobs:
 
     - name: Init
       working-directory: ${{ env.BASE_DIR }}/${{ matrix.component }}
-      run: .github/scripts/common_terraform_init.sh
+      run: .github/scripts/common_terraform.sh init
 
     - name: Plan
       working-directory: ${{ env.BASE_DIR }}/${{ matrix.component }}
-      run: .github/scripts/common_terraform_plan.sh
+      run: .github/scripts/common_terraform.sh plan
 
     - name: Apply
       working-directory: ${{ env.BASE_DIR }}/${{ matrix.component }}
       if: ${{ env.DEPLOY_ACTION == 'apply' }}
-      run: .github/scripts/common_terraform_apply.sh
+      run: .github/scripts/common_terraform.sh apply
 
     - name: Destroy
       working-directory: ${{ env.BASE_DIR }}/${{ matrix.component }}
       if: ${{ env.DEPLOY_ACTION == 'destroy' }}
-      run: .github/scripts/common_terraform_destroy.sh
+      run: .github/scripts/common_terraform.sh destroy
 
     - name: Skip Apply/Destroy
       if: ${{ env.DEPLOY_ACTION != 'apply' && env.DEPLOY_ACTION != 'destroy' }}
@@ -178,4 +178,4 @@ jobs:
     - name: Output
       working-directory: ${{ env.BASE_DIR }}/${{ matrix.component }}
       if: ${{ env.DEPLOY_ACTION == 'apply' }}
-      run: .github/scripts/common_terraform_output.sh
+      run: .github/scripts/common_terraform.sh output
