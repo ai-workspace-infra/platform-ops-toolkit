@@ -182,9 +182,9 @@ env:
   VAULT_KV_WEB_SAAS: kv/data/WEB_SAAS
   VAULT_KV_DATABASES: kv/data/${{ github.event_name == 'pull_request' && 'sit' || startsWith(github.ref, 'refs/tags/v') && 'prod' || github.event.inputs.vault_env_path || 'uat' }}/databases
   VAULT_KV_AGENT_PROXY: kv/data/${{ github.event_name == 'pull_request' && 'sit' || startsWith(github.ref, 'refs/tags/v') && 'prod' || github.event.inputs.vault_env_path || 'uat' }}/agent-proxy
-  VPS_ROOT: infra/iac_modules/terraform-hcl-standard/vultr-vps
+  VPS_ROOT: infra/iac_modules/terraform-hcl-standard/${{ github.event.inputs.cloud_provider || 'vultr-vps' }}
   # 指向 platform-ops-toolkit 的 Terraform 目录
-  ENV_DIR: infra/iac_modules/terraform-hcl-standard/vultr-vps/envs/platform-ops-toolkit
+  ENV_DIR: infra/iac_modules/terraform-hcl-standard/${{ github.event.inputs.cloud_provider || 'vultr-vps' }}/envs/platform-ops-toolkit
   PLAYBOOKS_DIR: infra/playbooks
 
 jobs:
@@ -230,6 +230,7 @@ jobs:
       env_suffix:               ${{ steps.route.outputs.env_suffix }}
       confirm_dns_switch:       ${{ steps.route.outputs.confirm_dns_switch }}
       vault_env_path:           ${{ steps.route.outputs.vault_env_path }}
+      cloud_provider:           ${{ steps.route.outputs.cloud_provider }}
       hosts:              ${{ steps.matrix.outputs.hosts         || '[]' }}
       hosts_web_saas:     ${{ steps.matrix.outputs.hosts_web_saas     || '[]' }}
       hosts_ai_workspace: ${{ steps.matrix.outputs.hosts_ai_workspace || '[]' }}
@@ -246,10 +247,10 @@ jobs:
         ref: ${{ github.event.inputs.toolkit_ref || github.ref_name }}
 
     - name: Validate cloud_provider
-      # 多云选项是产品形态预留；当前环境副本链路只接了 vultr-vps。
-      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cloud_provider != '' && github.event.inputs.cloud_provider != 'vultr-vps' }}
+      # 仅支持已接线的云厂商
+      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cloud_provider != '' && github.event.inputs.cloud_provider != 'vultr-vps' && github.event.inputs.cloud_provider != 'aws-cloud' }}
       run: |
-        echo "::error::cloud_provider='${{ github.event.inputs.cloud_provider }}' is reserved but not wired for this environment-replica workflow yet. Use 'vultr-vps' for now." >&2
+        echo "::error::cloud_provider='${{ github.event.inputs.cloud_provider }}' is reserved but not wired for this environment-replica workflow yet. Use 'vultr-vps' or 'aws-cloud' for now." >&2
         exit 1
 
     - name: Route ref to an explicit profile
@@ -317,6 +318,7 @@ jobs:
       env:
         INPUT_DOMAIN_____ALL_:         ${{ github.event.inputs.target_domains || 'all' }}
         INPUT_INSTANCE_PLAN_____4C8G_: ${{ github.event.inputs.instance_plan  || '4C8G' }}
+        INPUT_CLOUD_PROVIDER:          ${{ steps.route.outputs.cloud_provider }}
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops_provision_map-instance-plan.sh
 

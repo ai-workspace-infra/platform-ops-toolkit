@@ -90,6 +90,7 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   source_host="${INPUT_SOURCE_HOST}"
   source_domain_base="${INPUT_SOURCE_DOMAIN_BASE}"
   target_domain_base="${INPUT_TARGET_DOMAIN_BASE}"
+  cloud_provider="${INPUT_CLOUD_PROVIDER:-vultr-vps}"
   confirm_dns_switch="${confirm_dns_switch_override:-${INPUT_CONFIRM_DNS_SWITCH}}"
 else
   GITHUB_EVENT_NAME="${GITHUB_EVENT_NAME:-}"
@@ -101,6 +102,7 @@ else
     # PR 仍然校验 terraform 配置, 但不再创建真实 VPS。
     run_infrastructure=true; run_application_deploy=false
     terraform_action=plan; toolkit_action=none; infra_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
+    cloud_provider="vultr-vps"
     source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-sit; confirm_dns_switch=false
   else
     case "${GITHUB_REF}" in
@@ -110,6 +112,7 @@ else
         # PR merge 后的 push 只做 IaC plan 校验，避免自动创建/变更真实资源。
         run_infrastructure=true; run_application_deploy=false
         terraform_action=plan; toolkit_action=none; infra_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
+        cloud_provider="vultr-vps"
         source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-uat; confirm_dns_switch=false
         ;;
       refs/tags/v*)
@@ -117,6 +120,7 @@ else
         state_key=platform-ops-toolkit/prod/web-saas.tfstate; target_domains=web-saas
         run_infrastructure=true; run_application_deploy=true
         terraform_action=apply; toolkit_action=deploy; infra_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
+        cloud_provider="vultr-vps"
         source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=""; confirm_dns_switch=false
         ;;
       *)
@@ -124,6 +128,7 @@ else
         state_key=platform-ops-toolkit/sit/all-in-one.tfstate; target_domains=all
         run_infrastructure=true; run_application_deploy=true
         terraform_action=apply; toolkit_action=deploy; infra_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
+        cloud_provider="vultr-vps"
         source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-sit; confirm_dns_switch=false
         ;;
     esac
@@ -177,7 +182,7 @@ fi
 # 从来没有被推送过的 tag。规则见 docs/domains/IMAGE-TAG-CONTRACT.md。
 deploy_tag="${deploy_tag//\//-}"
 
-for key in deployment_env resource_file terraform_workspace state_key run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref console_ref toolkit_ref offline_mode source_host source_domain_base target_domain_base env_suffix confirm_dns_switch deploy_tag; do
+for key in deployment_env resource_file terraform_workspace state_key run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref console_ref toolkit_ref offline_mode cloud_provider source_host source_domain_base target_domain_base env_suffix confirm_dns_switch deploy_tag; do
   value="${!key:-}"
   echo "$key=$value" >> "$GITHUB_OUTPUT"
 done
