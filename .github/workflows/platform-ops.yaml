@@ -283,14 +283,38 @@ jobs:
           ${{ env.VAULT_KV_BASE }} TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
           ${{ env.VAULT_KV_BASE }} TF_STATE_REGION   | TF_STATE_REGION
 
+    - name: Configure AWS Credentials (OIDC)
+      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'aws-cloud'
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-region: ap-northeast-1
+        role-to-assume: arn:aws:iam::950604983695:role/GithubAction_IAC_Deploy_Role
+
+    - name: Configure GCP Credentials (OIDC)
+      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'gcp-cloud'
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: 'projects/123456789/locations/global/workloadIdentityPools/my-pool/providers/my-provider'
+        service_account: 'my-service-account@my-project.iam.gserviceaccount.com'
+
+    - name: Configure Azure Credentials (OIDC)
+      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'azure-cloud'
+      uses: azure/login@v2
+      with:
+        client-id: '00000000-0000-0000-0000-000000000000'
+        tenant-id: '00000000-0000-0000-0000-000000000000'
+        subscription-id: '00000000-0000-0000-0000-000000000000'
+
     # Export Vault-sourced credentials into GITHUB_ENV so all subsequent steps
     # inherit them automatically — eliminates per-step env repetition.
     - name: Export Terraform credentials
       if: steps.route.outputs.run_infrastructure == 'true'
       run: |
-        echo "AWS_ACCESS_KEY_ID=${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}"   >> "$GITHUB_ENV"
-        echo "AWS_SECRET_ACCESS_KEY=${{ steps.vault.outputs.TF_STATE_SECRET_KEY }}" >> "$GITHUB_ENV"
-        echo "TF_VAR_vultr_api_key=${{ steps.vault.outputs.VULTR_API_KEY }}"      >> "$GITHUB_ENV"
+        if [ "${{ steps.route.outputs.cloud_provider }}" == "vultr-vps" ]; then
+          echo "AWS_ACCESS_KEY_ID=${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}"   >> "$GITHUB_ENV"
+          echo "AWS_SECRET_ACCESS_KEY=${{ steps.vault.outputs.TF_STATE_SECRET_KEY }}" >> "$GITHUB_ENV"
+          echo "TF_VAR_vultr_api_key=${{ steps.vault.outputs.VULTR_API_KEY }}"      >> "$GITHUB_ENV"
+        fi
         echo "TF_STATE_ENDPOINT=${{ steps.vault.outputs.TF_STATE_ENDPOINT }}"     >> "$GITHUB_ENV"
         echo "TF_STATE_BUCKET=${{ steps.vault.outputs.TF_STATE_BUCKET }}"         >> "$GITHUB_ENV"
         echo "TF_STATE_REGION=${{ steps.vault.outputs.TF_STATE_REGION }}"         >> "$GITHUB_ENV"
@@ -937,7 +961,7 @@ jobs:
   switch_dns:
     name: Switch DNS Traffic & Observe
     # 等两个并行 job 都完成才切流量 —— 这是流量门。
-    needs: [provision, deploy_base, deploy_web_saas, initialize_web_saas_databases, update_gitops_tags]
+    needs: [provision, deploy_base, deploy_web_saas, initialize_web_saas_databases, deploy_infra_platform, deploy_agent_proxy, deploy_ai_workspace, deploy_monitor_agent, update_gitops_tags]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
@@ -945,6 +969,10 @@ jobs:
       (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.deploy_web_saas.result != 'failure' &&
       needs.initialize_web_saas_databases.result != 'failure' &&
+      needs.deploy_infra_platform.result != 'failure' &&
+      needs.deploy_agent_proxy.result != 'failure' &&
+      needs.deploy_ai_workspace.result != 'failure' &&
+      needs.deploy_monitor_agent.result != 'failure' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.confirm_dns_switch == 'true' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
