@@ -156,7 +156,7 @@ fi
 # 现已将 UI 统一收敛为 deploy_tag 作为主入口，
 # 此处直接读取即可，后续会强制拦截 main/latest 等动态 ref，确保镜像不可变性。
 if [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; then
-  deploy_tag="${INPUT_DEPLOY_TAG:-}"
+  deploy_tag="${INPUT_DEPLOY_TAG:-${deploy_ref}}"
 else
   case "${deployment_env}" in
     prod)
