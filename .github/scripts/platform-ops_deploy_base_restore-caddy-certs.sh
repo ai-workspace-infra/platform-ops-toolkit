@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 把上一次部署备份在 Vault 里的 caddy_data 恢复到主机, 让重建后的 caddy 一起来
-# 就发现证书已在, 根本不去调 ACME。同时把同一条 Vault 记录中的完整 PEM
-# 材料恢复给非 Caddy 消费者。
+# 把 Vault 里保存的泛域名证书恢复到主机, 让 Caddy 直接从磁盘提供 TLS,
+# 完全不走 ACME。同一份材料也给 stunnel 等非 Caddy 消费者使用。
+#
+# 记录格式只用通用 PEM(fullchain / cert / key / ca / trust-bundle), 不再保存
+# Caddy 的内部目录打包 —— 那样等于把一个私有实现细节冻进跨环境共享的记录里。
 #
 # 这就是"泛域名证书在有效期内可以无限次重复使用"的那一半: 只要备份里的证书还
 # 没到期, 无论重建多少次都恢复同一张, 一次 ACME 都不会发生。到期(或临近到期)
@@ -79,7 +81,6 @@ if [ "${http_code}" != "200" ]; then
   exit 1
 fi
 
-payload="$(jq -r '.data.data.caddy_data_tar_b64 // empty' /tmp/caddy-vault.json)"
 not_after="$(jq -r '.data.data.not_after_epoch // empty' /tmp/caddy-vault.json)"
 domains="$(jq -r '.data.data.domains // empty' /tmp/caddy-vault.json)"
 backed_up_at="$(jq -r '.data.data.backed_up_at // empty' /tmp/caddy-vault.json)"
@@ -90,8 +91,18 @@ ca_b64="$(jq -r '.data.data.tls_ca_pem_b64 // empty' /tmp/caddy-vault.json)"
 trust_bundle_b64="$(jq -r '.data.data.tls_trust_bundle_pem_b64 // empty' /tmp/caddy-vault.json)"
 rm -f /tmp/caddy-vault.json
 
-if [ -z "${payload}" ]; then
-  echo "Backup entry exists but carries no caddy_data_tar_b64 — treating as no backup."
+# 判据是"有没有可用的 PEM 材料", 不是"有没有 caddy_data 打包"。
+#
+# 这里原来卡的是 caddy_data_tar_b64, 结果 2026-07-31 出现了这样一条记录:
+# PEM 五个字段全都有值、证书是 Let's Encrypt 生产签发的 *.onwalk.net、还有 88 天
+# 有效期, 唯独 caddy_data_tar_b64 是空的 —— 脚本于是打印 "treating as no backup"
+# 掉头就走, 让 Caddy 去 ACME 重签, 撞上 429 之后整个环境起不来。
+# 明明手里有一张能用的证书, 却因为它不是以某种特定打包形式存的而拒绝使用。
+#
+# caddy_data 那条路已经废弃(它把 Caddy 的内部目录布局变成了 Vault 记录格式的
+# 一部分, 换个 Caddy 版本就可能对不上)。PEM 是通用格式, 谁都能消费。
+if [ -z "${fullchain_b64}" ] || [ -z "${key_b64}" ]; then
+  echo "No usable TLS material at ${VAULT_CADDY_PATH} (need tls_fullchain_pem_b64 + tls_key_pem_b64) — letting Caddy issue its own."
   exit 0
 fi
 
@@ -202,34 +213,16 @@ REMOTE
   echo "Restored domain TLS material for non-Caddy consumers at ${DOMAIN_TLS_DIR}/current/."
 }
 
-# 直接往 docker volume 里灌。用一个临时 alpine 容器挂载该卷解包 —— 此时
-# caddy 容器可能还不存在(Doco-CD 还没 reconcile), 所以不能用 docker cp 到
-# 容器里。volume 不存在时 docker run -v 会自动创建, 正是我们要的。
-printf '%s' "${payload}" | base64 -d | ssh "${ssh_opts[@]}" "${host}" '
-  set -euo pipefail
-  vol="web-saas_caddy_data"
-  tmp="$(mktemp /tmp/caddy-data.XXXXXX.tar.gz)"
-  cat > "${tmp}"
-  if ! tar -tzf "${tmp}" >/dev/null 2>&1; then
-    echo "restored archive is not a readable tar.gz" >&2
-    rm -f "${tmp}"
-    exit 1
-  fi
-  docker run --rm -v "${vol}":/data -v "${tmp}":/restore.tar.gz:ro alpine:3.21 \
-    sh -c "tar -xzf /restore.tar.gz -C /data"
-  rm -f "${tmp}"
-
-  # 解包成功不等于证书真的落到位(tar 内容不对时 tar 本身仍会成功)。这里确认
-  # 至少存在一个 .crt, 否则 caddy 起来还是会去签, 而我们会误以为复用成功了。
-  found="$(docker run --rm -v "${vol}":/data alpine:3.21 \
-    sh -c "find /data/caddy/certificates -name \"*.crt\" 2>/dev/null | wc -l")"
-  if [ "${found}" -eq 0 ]; then
-    echo "no .crt found under /data/caddy/certificates after restore" >&2
-    exit 1
-  fi
-  echo "caddy_data restored into ${vol} (${found} certificate file(s))"
-'
-
+# 只落 PEM。不再往 caddy_data 卷里灌 tar ——
+#
+# 那条路要求 Vault 记录里保存 Caddy 的内部目录布局(certificates/<issuer>/<name>/
+# 三件套 + certmagic 的 .json 元数据), 等于把一个私有实现细节冻进了跨环境共享的
+# 记录格式里: Caddy 换个版本、换个 issuer 目录名, 恢复出来的东西就不被识别,
+# 而表现是"恢复成功但 Caddy 还是去签了", 极难查。
+#
+# 改成: 证书以 PEM 落到 DOMAIN_TLS_DIR, Caddyfile 用 `tls <fullchain> <key>`
+# 直接指过去(见 playbooks 的 web_saas_host_config)。那是 Caddy 的公开接口,
+# 而且完全不走 ACME —— 不是"让 Caddy 发现证书已在", 而是根本不给它签发的机会。
 restore_domain_pem
 
-echo "Caddy certificates restored; Caddy should start serving TLS without contacting ACME."
+echo "Restored the wildcard certificate from Vault; Caddy serves it from disk and will not contact ACME."

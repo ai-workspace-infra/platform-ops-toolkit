@@ -113,7 +113,6 @@ remote_out="$(ssh "${ssh_opts[@]}" "${host}" '
 
     echo \"NOT_AFTER=\$earliest\"
     echo \"DOMAINS=\$(echo \$domains | tr -s \" \")\"
-    echo \"TAR_B64=\$(tar -czf - caddy | base64 -w0)\"
   "
 ' || true)"
 
@@ -131,9 +130,8 @@ esac
 
 not_after="$(printf '%s\n' "${remote_out}" | sed -n 's/^NOT_AFTER=//p' | head -1)"
 domains="$(printf '%s\n' "${remote_out}" | sed -n 's/^DOMAINS=//p' | head -1)"
-archive_b64="$(printf '%s\n' "${remote_out}" | sed -n 's/^TAR_B64=//p' | head -1)"
 
-if [ -z "${archive_b64}" ] || [ -z "${not_after}" ]; then
+if [ -z "${cert_b64}" ] || [ -z "${not_after}" ]; then
   echo "::warning::Could not read a complete certificate bundle from ${MATRIX_HOST}; skipping backup rather than storing a partial one." >&2
   exit 0
 fi
@@ -159,11 +157,12 @@ write_url="${VAULT_ADDR%/}/v1/${VAULT_CADDY_PATH}"
 # certificate backup rather than silently deleting it with the KV replacement.
 existing_record="$(curl -sS -H "X-Vault-Token: ${vault_token}" "${write_url}" || true)"
 trust_bundle_b64="$(printf '%s' "${existing_record}" | jq -r '.data.data.tls_trust_bundle_pem_b64 // empty' 2>/dev/null || true)"
-# caddy_data_tar_b64 是给恢复用的(Caddy 认它自己的目录布局); 另外四个 PEM 字段
-# 是给别的消费方用的 —— 不必解 tar、不必懂 Caddy 布局就能拿到证书材料。公开
+# 只写通用 PEM。曾经还写过一个 caddy_data_tar_b64(Caddy 内部目录打包), 已废弃:
+# 它把 Caddy 的私有布局变成了记录格式的一部分, 而且恢复侧一旦拿它当"有没有备份"
+# 的判据, 就会在 PEM 齐全、证书完全可用的情况下判定成"没有备份"(2026-07-31 就是
+# 这么让一张还有 88 天有效期的证书被跳过、去重签然后撞 429 的)。公开
 # 根信任 bundle 不是 Caddy 数据的一部分，故只保留现有 Vault 值。
 body="$(jq -n \
-  --arg d "${archive_b64}" \
   --arg h "${MATRIX_HOST}" \
   --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --arg na "${not_after}" \
@@ -174,7 +173,6 @@ body="$(jq -n \
   --arg ca "${ca_b64}" \
   --arg trust_bundle "${trust_bundle_b64}" \
   '{data: {
-      caddy_data_tar_b64: $d,
       tls_fullchain_pem_b64: $fullchain,
       tls_cert_pem_b64:      $leaf,
       tls_key_pem_b64:       $key,
