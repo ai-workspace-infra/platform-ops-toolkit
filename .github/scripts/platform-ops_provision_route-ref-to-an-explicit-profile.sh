@@ -45,7 +45,7 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   # 两者默认都是 false, 手动触发必须显式选择要做什么。
   run_infrastructure="${INPUT_RUN_INFRASTRUCTURE:-false}"
   run_application_deploy="${INPUT_RUN_APPLICATION_DEPLOY:-false}"
-  deploy_ref="${INPUT_DEPLOY_REF}"
+  deploy_ref="${INPUT_DEPLOY_REF:-${INPUT_DEPLOY_TAG:-}}"
   user_action="${INPUT_ACTION}"
 
   if [ "$user_action" = "destroy" ]; then
@@ -153,8 +153,8 @@ fi
 : "${run_application_deploy:?route: run_application_deploy was never assigned on this trigger path}"
 
 # 应用交付必须使用明确的不可变镜像 tag。
-# 当留空时，默认 fallback 到 deploy_ref 以免去用户在 UI 里输入两遍相同 tag 的麻烦，
-# 但后续会强制拦截 main/latest 等动态 ref，确保镜像不可变性。
+# 现已将 UI 统一收敛为 deploy_tag 作为主入口，
+# 此处直接读取即可，后续会强制拦截 main/latest 等动态 ref，确保镜像不可变性。
 if [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; then
   deploy_tag="${INPUT_DEPLOY_TAG:-${deploy_ref}}"
 else

@@ -33,10 +33,9 @@ on:
         options:
         - ubuntu-latest
         - self-hosted
-      deploy_ref:
-        description: "指定 tag / ref 点，workflow_dispatch 时默认作为 xworkspace-console (及其他业务代码仓库) 的统一拉取基准。不影响基础设施代码基准。"
-        required: false
-        default: ""
+      deploy_tag:
+        description: "应用部署的不可变镜像版本 (例如 daily-build-2026.07.30-r1)，作为源码拉取与部署的统一基准。必填，拦截 main/latest。"
+        required: true
         type: string
       infra_ref:
         description: "iac_modules 仓库的 Git Ref；留空则默认使用 main 分支"
@@ -59,7 +58,7 @@ on:
         default: ""
         type: string
       console_ref:
-        description: "xworkspace-console 仓库的 Git Ref；留空则回退到 deploy_ref"
+        description: "xworkspace-console 仓库的 Git Ref；留空则回退到 deploy_tag"
         required: false
         default: ""
         type: string
@@ -116,11 +115,6 @@ on:
         - infra-platform
         - agent-proxy
         - web-saas + agent-proxy
-      deploy_tag:
-        description: "应用部署的不可变镜像版本 (例如 daily-build-2026.07.30-r1)。启用部署时必填；留空则回退到 deploy_ref，但仍会拦截 main/latest。"
-        required: false
-        default: ""
-        type: string
       cloud_provider:
         description: "云服务商 (多云选项为预留; 目前这条环境副本链路实际能跑的是 vultr-vps, 选择其它云会在 provision 阶段明确失败)"
         required: true
@@ -216,7 +210,7 @@ jobs:
       INPUT_RUN_INFRASTRUCTURE:    ${{ github.event.inputs.run_infrastructure }}
       INPUT_RUN_APPLICATION_DEPLOY:     ${{ github.event.inputs.run_application_deploy }}
       INPUT_ACTION:                ${{ github.event.inputs.action }}
-      INPUT_DEPLOY_REF:            ${{ github.event.inputs.deploy_ref }}
+      INPUT_DEPLOY_REF:            
       INPUT_TOOLKIT_REF:           ${{ github.event.inputs.toolkit_ref }}
       INPUT_INFRA_REF:             ${{ github.event.inputs.infra_ref }}
       INPUT_PLAYBOOKS_REF:         ${{ github.event.inputs.playbooks_ref }}
@@ -822,6 +816,7 @@ jobs:
         VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
         ROOT_BOOTSTRAP_PASSWORD: ${{ steps.vault.outputs.ROOT_BOOTSTRAP_PASSWORD }}
         VAULT_ENV_PATH: ${{ inputs.vault_env_path }}
+        POSTGRESQL_DEPLOY_MODE: compose
       run: >-
         ansible-playbook -i ../cmdb/inventory.ini create_databases_and_users.yml
         --limit "${MATRIX_HOST}"
