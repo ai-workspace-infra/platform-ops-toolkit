@@ -117,7 +117,7 @@ on:
         - agent-proxy
         - web-saas + agent-proxy
       deploy_tag:
-        description: "应用部署的不可变镜像版本 (例如 daily-build-2026.07.30-r1)。启用 run_full_stack 或 run_application_deploy 时必填；不会从 deploy_ref 推导。"
+        description: "应用部署的不可变镜像版本 (例如 daily-build-2026.07.30-r1)。启用部署时必填；留空则回退到 deploy_ref，但仍会拦截 main/latest。"
         required: false
         default: ""
         type: string

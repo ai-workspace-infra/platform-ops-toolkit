@@ -152,10 +152,11 @@ fi
 : "${run_infrastructure:?route: run_infrastructure was never assigned on this trigger path}"
 : "${run_application_deploy:?route: run_application_deploy was never assigned on this trigger path}"
 
-# 应用交付必须使用调用方显式给出的不可变镜像 tag。deploy_ref 是源码/基础设施
-# 副本基准，不能冒充跨仓镜像版本。
+# 应用交付必须使用明确的不可变镜像 tag。
+# 当留空时，默认 fallback 到 deploy_ref 以免去用户在 UI 里输入两遍相同 tag 的麻烦，
+# 但后续会强制拦截 main/latest 等动态 ref，确保镜像不可变性。
 if [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; then
-  deploy_tag="${INPUT_DEPLOY_TAG:-}"
+  deploy_tag="${INPUT_DEPLOY_TAG:-${deploy_ref}}"
 else
   case "${deployment_env}" in
     prod)
