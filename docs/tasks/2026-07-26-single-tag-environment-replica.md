@@ -35,7 +35,7 @@ workflow_dispatch
 | `toolkit_ref` | 空 | 留空时回退到 `deploy_ref` |
 | `infra_ref` | 空 | 留空时 `iac_modules` 与 `playbooks` 回退到 `deploy_ref` |
 | `console_ref` | 空 | 留空时 `xworkspace-console` 回退到 `deploy_ref` |
-| `deploy_tag` | 空 | 业务服务部署版本；留空时自动与 `deploy_ref` 对齐 |
+| `deploy_tag` | `daily-build-YYYY.MM.DD-rN` | 业务服务的不可变镜像版本；启用应用部署时必须显式填写，绝不从 `deploy_ref` 推导 |
 | `vault_env_path` | `sit` / `uat` / `prod` | 决定环境、Vault 路径、Terraform workspace 与 state key |
 | `target_domains` | `web-saas` 或 `all` | 当前 UAT 复建优先验证 `web-saas` |
 | `run_full_stack` | `true` | 一键打开 IaC、服务部署和 DNS 发布开关 |
@@ -54,7 +54,7 @@ workflow_dispatch
 ```text
 vault_env_path=sit
 deploy_ref=uat-platform-rebuild-2026.07.26
-deploy_tag=
+deploy_tag=sha-<40 位完整 commit SHA>
 run_full_stack=true
 target_domains=web-saas
 cloud_provider=vultr-vps
@@ -67,20 +67,20 @@ SIT 会使用 `sit` Vault role 和 `sit` Terraform state。默认资源文件为
 ```text
 vault_env_path=uat
 deploy_ref=uat-platform-rebuild-2026.07.26
-deploy_tag=
+deploy_tag=daily-build-2026.07.26-r1
 run_full_stack=true
 target_domains=web-saas
 cloud_provider=vultr-vps
 ```
 
-UAT 会使用 `uat` Vault role 和 `uat/web-saas` Terraform state。手动副本模式下，`deploy_tag` 不再强制改成 `latest`，而是默认跟随 `deploy_ref`。
+UAT 会使用 `uat` Vault role 和 `uat/web-saas` Terraform state。手动副本模式下，`deploy_tag` 必须是调用方提供的不可变镜像版本；`deploy_ref` 仅控制源码或基础设施 checkout，不能作为镜像版本的回退值。
 
 ### PROD 副本
 
 ```text
 vault_env_path=prod
 deploy_ref=uat-platform-rebuild-2026.07.26
-deploy_tag=
+deploy_tag=v1.2.3
 run_full_stack=true
 target_domains=web-saas
 cloud_provider=vultr-vps
@@ -112,5 +112,6 @@ PROD 副本会使用 `prod` Vault role 和 `prod/web-saas` Terraform state。`wo
 
 - `cloud_provider` 仍展示多云选项，因为这是平台产品形态预留；当前环境副本链路只对 `vultr-vps` 接线完成。
 - `deploy_ref` 是副本基准，不代表产品 release。
+- 应用部署必须显式填写 `deploy_tag`；`main`、`latest` 和空值均会被拒绝。
 - 如果需要对某个仓库临时验证不同 ref，可以只覆盖 `toolkit_ref`、`infra_ref` 或 `console_ref`，其余继续跟随 `deploy_ref`。
 - `run_application_deploy=true` 必须和 `run_infrastructure=true` 一起使用，因为部署 inventory 由 provision 阶段生成。
