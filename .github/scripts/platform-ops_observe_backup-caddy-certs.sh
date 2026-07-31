@@ -74,9 +74,18 @@ remote_out="$(ssh "${ssh_opts[@]}" "${host}" '
     cd /data
     [ -d caddy ] || { echo NO_CADDY_DIR; exit 0; }
 
+    # 只认生产 CA 签出来的证书。Caddy 把证书按签发方分目录存
+    # (certificates/<issuer>/...), 其中可能同时存在 staging 的那份 ——
+    # LE 生产限流时 Caddy 会从 staging 拿到一张能用的证书, 而它由
+    # 一个浏览器不信任的根签发。把它备份进 Vault 的后果比不备份更糟:
+    # 之后每次重建都会"成功恢复"一张没人信任的证书, 而且看起来像复用生效了。
+    # 2026-07-31 主机上就正好只有 staging 那份。
+    prod_certs=\$(find caddy/certificates -name \"*.crt\" 2>/dev/null | grep -v staging || true)
+    [ -z \"\$prod_certs\" ] && { echo NO_PROD_CERTS; exit 0; }
+
     earliest=\"\"
     domains=\"\"
-    for crt in \$(find caddy/certificates -name \"*.crt\" 2>/dev/null); do
+    for crt in \$prod_certs; do
       nd=\$(openssl x509 -in \"\$crt\" -noout -enddate 2>/dev/null | cut -d= -f2) || continue
       ts=\$(date -u -d \"\$nd\" +%s 2>/dev/null) || continue
       [ -z \"\$earliest\" ] && earliest=\$ts
@@ -90,8 +99,8 @@ remote_out="$(ssh "${ssh_opts[@]}" "${host}" '
     # 除了整包 caddy_data, 再单独导出这张泛域名证书的 PEM 材料, 让 Vault 里
     # 这条记录能被 Caddy 之外的东西直接消费(不必解 tar、也不必懂 Caddy 的
     # 目录布局)。取覆盖域名最多的那张 —— 泛域名证书就是它。
-    wild=\$(find caddy/certificates -name \"wildcard_*.crt\" 2>/dev/null | head -1)
-    [ -z \"\$wild\" ] && wild=\$(find caddy/certificates -name \"*.crt\" 2>/dev/null | head -1)
+    wild=\$(printf '%s\n' \"\$prod_certs\" | grep \"wildcard_\" | head -1)
+    [ -z \"\$wild\" ] && wild=\$(printf '%s\n' \"\$prod_certs\" | head -1)
     if [ -n \"\$wild\" ]; then
       key=\"\${wild%.crt}.key\"
       echo \"CERT_B64=\$(base64 -w0 < \"\$wild\")\"
@@ -111,6 +120,9 @@ remote_out="$(ssh "${ssh_opts[@]}" "${host}" '
 case "${remote_out}" in
   *NO_VOLUME*)
     echo "::warning::No caddy_data volume on ${MATRIX_HOST}; nothing to back up. The next rebuild will have to issue new certificates."
+    exit 0 ;;
+  *NO_PROD_CERTS*)
+    echo "::warning::${MATRIX_HOST} only has staging/untrusted certificates (production ACME is likely rate limited). Not backing them up — restoring a staging certificate later would look like reuse while serving a certificate no browser trusts."
     exit 0 ;;
   *NO_CADDY_DIR*|*NO_CERTS*)
     echo "::warning::caddy_data on ${MATRIX_HOST} holds no certificates yet (Caddy may still be issuing). Nothing backed up."

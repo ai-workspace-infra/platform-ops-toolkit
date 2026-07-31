@@ -956,15 +956,26 @@ jobs:
           https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
       run: bash playbooks/.github/scripts/domain-cd-observe-endpoints.sh
 
-    # 备份放在 observe 之后: 此刻证书要么是恢复来的、要么是本轮新签的, 而且
-    # observe 刚刚用它成功握过手 —— 存进去的是一份验证过的证书。放在部署早期
-    # 备份会把还没验证、甚至半截的 /data 存进去, 下次恢复出来反而更糟。
+    # 备份排在 observe 之后, 因为此刻证书要么是恢复来的、要么是本轮新签的,
+    # observe 刚刚用它握过手 —— 优先存一份验证过的。
+    #
+    # 但**不能**只在 observe 成功时才备份, 否则这套持久化永远启动不了:
+    #   证书不在 Vault -> Caddy 只能找 ACME 签 -> 撞 429 拿不到证书
+    #   -> observe 因为没有 TLS 而失败 -> 备份被 skip -> 证书还是不在 Vault
+    # 这是个自锁的环, 2026-07-31 run 30617227887 就卡在这里: Caddy 明明已经
+    # 从 staging 拿到过证书, 却因为 observe 红了而一次都没存进 Vault。
+    #
+    # 所以只要主机上有证书就存, 与站点是否已经健康无关 —— 那是两件事:
+    # "证书能不能复用" 和 "服务起没起来"。备份脚本自己会判断有没有东西可存、
+    # 以及是不是已经过期, 失败也只 warning, 不会把 job 拖红。
     - name: Configure SSH Key
+      if: ${{ !cancelled() }}
       env:
         VAULT_ANSIBLE_SSH_KEY_B64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
       run: ${{ github.workspace }}/.github/scripts/common_configure_ssh_key.sh
 
     - name: Back up Caddy certificates to Vault
+      if: ${{ !cancelled() }}
       env:
         VAULT_ROLE: ${{ env.VAULT_ROLE }}
         VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
