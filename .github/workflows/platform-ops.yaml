@@ -816,6 +816,7 @@ jobs:
         VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
         ROOT_BOOTSTRAP_PASSWORD: ${{ steps.vault.outputs.ROOT_BOOTSTRAP_PASSWORD }}
         VAULT_ENV_PATH: ${{ inputs.vault_env_path }}
+        POSTGRESQL_DEPLOY_MODE: compose
       run: >-
         ansible-playbook -i ../cmdb/inventory.ini create_databases_and_users.yml
         --limit "${MATRIX_HOST}"
