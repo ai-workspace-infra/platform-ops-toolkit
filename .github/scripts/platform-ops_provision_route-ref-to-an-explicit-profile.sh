@@ -191,7 +191,7 @@ deploy_tag="${deploy_tag//\//-}"
 if [ "${run_application_deploy}" = "true" ]; then
   case "${deploy_tag}" in
     ""|latest|main)
-      echo "::error::application deployment requires an explicit immutable deploy_tag; deploy_ref, main, and latest are not valid image versions." >&2
+      echo "::error::application deployment requires an explicit immutable deploy_tag (for example, daily-build-2026.07.30-r1). Set workflow_dispatch input deploy_tag; deploy_ref is only a source checkout ref, and main/latest are not valid image versions." >&2
       exit 1
       ;;
   esac
