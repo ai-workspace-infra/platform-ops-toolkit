@@ -225,4 +225,17 @@ REMOTE
 # 而且完全不走 ACME —— 不是"让 Caddy 发现证书已在", 而是根本不给它签发的机会。
 restore_domain_pem
 
-echo "Restored the wildcard certificate from Vault; Caddy serves it from disk and will not contact ACME."
+# 只陈述这一步真正做到的事: 证书写到磁盘了。
+#
+# 这里原来写的是 "Caddy serves it from disk and will not contact ACME" ——
+# 那是一句谎话。本脚本只负责把 PEM 落盘, Caddy 用不用它取决于 Caddyfile 里
+# 是不是 `tls <fullchain> <key>`, 而那是 playbooks 的 web_saas_host_config
+# 渲染的、完全在本脚本控制之外。2026-07-31 run 30623661870 就是反例: 这行日志
+# 照常打印, 而 Caddyfile 仍是 ACME 模式、caddy_data 里一张证书都没有,
+# 证书躺在磁盘上没人读。
+#
+# 日志断言了一件自己没有验证过的事, 就是在制造假绿: 后面的人看到这行会以为
+# 复用已经生效, 从而把排查方向引到别处去。真正的验证在下面那个断言步骤,
+# 它检查渲染出来的 Caddyfile 是否确实引用了这些文件。
+echo "Wrote the wildcard certificate from Vault to ${DOMAIN_TLS_DIR}/current/."
+echo "Whether Caddy actually serves it depends on the Caddyfile rendered by the next step; that is asserted separately."
