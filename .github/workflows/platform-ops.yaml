@@ -547,6 +547,23 @@ jobs:
     - name: Install Ansible
       run: ${{ github.workspace }}/.github/scripts/common_install_ansible.sh
 
+    # 证书持久化。主机重建会把 caddy_data 卷一起丢掉, 于是每次重建都重新签发,
+    # 撞上 Let's Encrypt "同一组域名 5 次/周" 的限流 —— 2026-07-28 console-uat
+    # 就是这么挂的(HTTP 429, retry after 20:38 UTC), 而且没有任何代码能修, 只能等。
+    #
+    # 顺序: 先恢复(bootstrap 之后、Doco-CD 把 caddy 拉起来之前), 让 caddy 一起来
+    # 就发现证书已在, 根本不调 ACME; 部署末尾再备份, 把这一轮可能新签的证书存回去。
+    - name: Restore domain TLS state from Vault before Caddy can issue
+      if: ${{ contains(needs.provision.outputs.target_domains, 'web-saas') || needs.provision.outputs.target_domains == 'all' }}
+      env:
+        VAULT_ROLE: ${{ env.VAULT_ROLE }}
+        VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
+        # Public wildcard PEM is separate from web-saas/certs/, which belongs
+        # to stunnel's internal CA. Non-Caddy consumers use current/{fullchain,
+        # cert,key,ca}.pem below; `current` flips atomically after validation.
+        DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
+      run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_base_restore-caddy-certs.sh
+
     - name: Bootstrap node according to CMDB role
       working-directory: playbooks
       env:
@@ -590,24 +607,16 @@ jobs:
         CLOUDFLARE_DNS_API_TOKEN:          ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_base_bootstrap-node.sh
 
-    # 证书持久化。主机重建会把 caddy_data 卷一起丢掉, 于是每次重建都重新签发,
-    # 撞上 Let's Encrypt "同一组域名 5 次/周" 的限流 —— 2026-07-28 console-uat
-    # 就是这么挂的(HTTP 429, retry after 20:38 UTC), 而且没有任何代码能修, 只能等。
-    #
-    # 顺序: 先恢复(bootstrap 之后、Doco-CD 把 caddy 拉起来之前), 让 caddy 一起来
-    # 就发现证书已在, 根本不调 ACME; 部署末尾再备份, 把这一轮可能新签的证书存回去。
-    - name: Restore domain TLS state from Vault before Caddy can issue
+    # 恢复步骤只能保证"证书写到磁盘了", 用不用它取决于上一步渲染出来的
+    # Caddyfile。两者之间没有强制关系, 于是出现过"每一步都成功、合起来什么也
+    # 没做成"的情况(run 30623661870)。这里在渲染之后做一次真正会失败的检查:
+    # 有证书却没被引用就是配置错了, 必须当场红, 而不是等到 observe 那里以
+    # "TLS handshake failed" 这种毫无指向性的形式暴露。
+    - name: Assert Caddy actually serves the restored certificate
       if: ${{ contains(needs.provision.outputs.target_domains, 'web-saas') || needs.provision.outputs.target_domains == 'all' }}
       env:
-        VAULT_ROLE: ${{ env.VAULT_ROLE }}
-        VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
-        # Public wildcard PEM is separate from web-saas/certs/, which belongs
-        # to stunnel's internal CA. Non-Caddy consumers use current/{fullchain,
-        # cert,key,ca}.pem below; `current` flips atomically after validation.
         DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
-      run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_base_restore-caddy-certs.sh
-
-
+      run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_base_assert-caddy-uses-restored-cert.sh
 
   # ---------------------------------------------------------------------------
   # 步骤 2.5: 自动推进 GitOps 版本
