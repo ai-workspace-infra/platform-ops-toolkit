@@ -53,7 +53,15 @@ rm -f "${login_body}"
 trap - EXIT
 
 ssh_opts=(-i ~/.ssh/id_deploy -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=20)
-host="root@${MATRIX_HOST}"
+# Observe runs before DNS cutover.  Resolve the current run's host from CMDB;
+# MATRIX_HOST can still resolve to the deleted previous replica.
+cmdb_file="${CMDB_FILE:-cmdb/cmdb.json}"
+matrix_ip="$(jq -r --arg host "${MATRIX_HOST}" '.[$host].ip // empty' "${cmdb_file}")"
+if [[ -z "${matrix_ip}" ]]; then
+  echo "::warning::No CMDB IP found for ${MATRIX_HOST}; skipping certificate backup." >&2
+  exit 0
+fi
+host="root@${matrix_ip}"
 
 # 一次 ssh 里做完三件事: 打包、取最早到期时间、取覆盖的域名。分三次 ssh 会
 # 在两次调用之间出现证书被续期的窗口, 存下来的到期时间就跟内容对不上了。
@@ -116,6 +124,11 @@ remote_out="$(ssh "${ssh_opts[@]}" "${host}" '
   "
 ' || true)"
 
+cert_b64="$(printf '%s\n' "${remote_out}" | sed -n 's/^CERT_B64=//p' | head -1)"
+key_b64="$(printf '%s\n' "${remote_out}" | sed -n 's/^KEY_B64=//p' | head -1)"
+leaf_b64="$(printf '%s\n' "${remote_out}" | sed -n 's/^LEAF_B64=//p' | head -1)"
+ca_b64="$(printf '%s\n' "${remote_out}" | sed -n 's/^CA_B64=//p' | head -1)"
+
 case "${remote_out}" in
   *NO_VOLUME*)
     echo "::warning::No caddy_data volume on ${MATRIX_HOST}; nothing to back up. The next rebuild will have to issue new certificates."
@@ -145,11 +158,6 @@ if [ "${days_left}" -le 0 ]; then
   echo "::warning::Certificates on ${MATRIX_HOST} already expired ($(date -u -r "${not_after}" 2>/dev/null || echo "${not_after}")); not backing them up."
   exit 0
 fi
-
-cert_b64="$(printf '%s\n' "${remote_out}" | sed -n 's/^CERT_B64=//p' | head -1)"
-key_b64="$(printf '%s\n' "${remote_out}" | sed -n 's/^KEY_B64=//p' | head -1)"
-leaf_b64="$(printf '%s\n' "${remote_out}" | sed -n 's/^LEAF_B64=//p' | head -1)"
-ca_b64="$(printf '%s\n' "${remote_out}" | sed -n 's/^CA_B64=//p' | head -1)"
 
 write_url="${VAULT_ADDR%/}/v1/${VAULT_CADDY_PATH}"
 # Caddy can export its leaf and issuer chain but not the public root trust

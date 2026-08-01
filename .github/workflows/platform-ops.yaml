@@ -987,9 +987,11 @@ jobs:
 
     - name: Back up Caddy certificates to Vault
       if: ${{ !cancelled() }}
+      continue-on-error: true
       env:
         VAULT_ROLE: ${{ env.VAULT_ROLE }}
         VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
+        CMDB_FILE: cmdb/cmdb.json
       run: ${{ github.workspace }}/.github/scripts/platform-ops_observe_backup-caddy-certs.sh
 
   switch_dns:
@@ -1000,20 +1002,22 @@ jobs:
       deploy_base,
       deploy_web_saas,
       initialize_web_saas_databases,
+      observe_web_saas,
       update_gitops_tags,
       deploy_infra_platform,
       deploy_agent_proxy,
       deploy_ai_workspace
     ]
     if: >-
-      ${{ !cancelled() &&
+      ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
       (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
-      needs.deploy_web_saas.result != 'failure' &&
-      needs.initialize_web_saas_databases.result != 'failure' &&
+      (needs.deploy_web_saas.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
+      (needs.initialize_web_saas_databases.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
+      (needs.observe_web_saas.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       needs.deploy_infra_platform.result != 'failure' &&
-      needs.deploy_agent_proxy.result != 'failure' &&
+      (needs.deploy_agent_proxy.result == 'success' || !contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       needs.deploy_ai_workspace.result != 'failure' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.confirm_dns_switch == 'true' }}
@@ -1060,8 +1064,14 @@ jobs:
         jwtGithubAudience: vault
         ignoreNotFound: true
         secrets: |
+          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
           ${{ env.VAULT_KV }} CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN ;
           ${{ env.VAULT_KV_AGENT_PROXY }} xray_uuid | XRAY_UUID
+
+    - name: Configure SSH Key for post-DNS cleanup
+      env:
+        VAULT_ANSIBLE_SSH_KEY_B64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+      run: ${{ github.workspace }}/.github/scripts/common_configure_ssh_key.sh
 
     - name: Switch Cloudflare DNS Records
       env:
