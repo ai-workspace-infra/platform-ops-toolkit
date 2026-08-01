@@ -1180,6 +1180,7 @@ jobs:
         AGENT_CONTROLLER_URL: https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
         AGENT_REPO_VERSION: ${{ needs.provision.outputs.deploy_tag }}
         AGENT_ID: ${{ matrix.host }}
+        AGENT_PROXY_DOMAIN: ${{ matrix.host }}
         AGENT_TLS_CERT_NAME: ${{ matrix.host }}
         AGENT_XRAY_ENABLED: "true"
       run: >-
