@@ -9,10 +9,27 @@ When triggered, `platform-ops.yaml` automatically routes to the appropriate deli
 
 | Trigger Event / Source | Target Environment | Resource Declaration | State Key / Workspace |
 |---|---|---|---|
-| `pull_request` | `sit` | `sit/all-in-one.yaml` | `platform-ops-toolkit/sit/all-in-one.tfstate` |
-| `main` / `release/*` push | `uat` | `uat/web-saas-uat.yaml` | `platform-ops-toolkit/uat/web-saas-uat.tfstate` |
-| `vMAJOR.MINOR.PATCH` tag | `prod` | `prod/web-saas-prod.yaml` | `platform-ops-toolkit/prod/web-saas-prod.tfstate` |
+| `pull_request` | `sit` | `sit/all-in-one.yaml` | `sit/vultr-vps/platform-ops-toolkit/all-in-one.tfstate` |
+| `main` / `release/*` push | `uat` | `uat/web-saas-uat.yaml` | `uat/vultr-vps/platform-ops-toolkit/web-saas.tfstate` |
+| `vMAJOR.MINOR.PATCH` tag | `prod` | `prod/web-saas-prod.yaml` | `prod/vultr-vps/platform-ops-toolkit/web-saas.tfstate` |
 | `workflow_dispatch` | User selected | `[env]/web-saas-[env].yaml` | Environment specific |
+
+State keys MUST follow `<env>/<cloud>/<project>/<resource-set>.tfstate`.
+The Terraform workspace uses the same dimensions as `<env>-<cloud>-<project>-<resource-set>`.
+Apply and destroy MUST resolve both values through the same routing script.
+
+### State 演进与迁移治理
+
+状态 key 是资源生命周期的唯一索引，不得在普通 deploy 中自动尝试旧 key。平台切换层级、项目名、云厂商或资源集合时，必须走一次显式迁移：
+
+1. 冻结旧 key 的 apply/destroy，并记录旧 key、旧 workspace、资源清单和云厂商实例 ID。
+2. 备份并校验旧 state，确认所有实例均属于目标环境和资源集合。
+3. 在受控迁移任务中复制 state 到新 key，或使用 Terraform state migration/adopt 流程更新资源地址。
+4. 使用新 key/workspace 执行 `terraform plan`，必须是预期的 `0 to add`、`0 to destroy`。
+5. 完成一次 apply、destroy 演练和 CMDB 对账后，才允许恢复常规部署。
+6. 旧 key 保留审计记录，但常规流水线不得回退读取。
+
+这样可以支持后续从单项目、单云扩展到多项目、多云，而不把旧 state 漂移隐藏在“自动兼容”逻辑中。
 
 > [!IMPORTANT]
 > Prior to the initial UAT / Prod release, you must configure DNS for the target environment (e.g., `console.uat.svc.plus` or the production domains) and inject the corresponding `kv/data/[env]/web-saas` credentials into Vault. The workflow will fail if these credentials are missing. Environments are strictly isolated, and pipelines will never read secrets across environments.

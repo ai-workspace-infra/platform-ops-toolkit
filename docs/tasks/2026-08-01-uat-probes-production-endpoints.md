@@ -21,6 +21,24 @@
 
 ## 用例清单
 
+### TC-00：Terraform state 路由与复用
+
+**目标**：确认 apply/destroy 使用规范化 state，避免 key 或 workspace 漂移导致重复创建资源。
+
+**断言**：本次 UAT 业务域的最终值必须是：
+
+```text
+state_key = uat/vultr-vps/platform-ops-toolkit/web-saas-agent-proxy.tfstate
+workspace = uat-vultr-vps-platform-ops-toolkit-web-saas-agent-proxy
+```
+
+对相同参数重新执行时，Terraform 必须先 `init` 并选择上述 workspace；已存在资源时
+plan 不得重新创建，destroy 必须针对同一个 state 生成销毁计划。
+
+**演进约束**：旧 state key 不在常规流水线中自动兼容。未来发生 state 层级迁移时，必须先
+冻结旧流水线、备份 state、核对实例 ID，再通过独立迁移任务完成新 key 导入，并用
+`terraform plan` 验证 `0 to add / 0 to destroy` 后恢复部署。
+
 ### TC-01：路由参数与资源规格
 
 检查 workflow 的 `Resolve Profile` 输出：
