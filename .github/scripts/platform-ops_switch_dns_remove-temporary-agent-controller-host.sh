@@ -12,9 +12,11 @@ cd playbooks
 # DNS now points accounts-<env> at the current Web SaaS host.  Remove the
 # bootstrap-only /etc/hosts override so a future console replacement is not
 # shadowed by a stale IP on a long-lived agent-proxy host.
-ansible agent_proxy -i "${inventory_path}" \
+# Keep SSH host-key handling in Ansible's environment instead of passing a
+# value beginning with `-o` through argparse; older runner Ansible versions
+# interpret that CLI value as a missing option argument.
+ANSIBLE_HOST_KEY_CHECKING=False ansible agent_proxy -i "${inventory_path}" \
   -m ansible.builtin.lineinfile \
   -a "path=/etc/hosts regexp='^[[:space:]]*[^#[:space:]]+[[:space:]]+[^#[:space:]]+[[:space:]]+# platform-ops temporary agent controller$' state=absent" \
   --private-key ~/.ssh/id_deploy \
-  --ssh-common-args=-o\ StrictHostKeyChecking=no \
   --become
