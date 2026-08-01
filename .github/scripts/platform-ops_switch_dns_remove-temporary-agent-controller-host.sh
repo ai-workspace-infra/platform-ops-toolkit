@@ -16,5 +16,5 @@ ansible agent_proxy -i "${inventory_path}" \
   -m ansible.builtin.lineinfile \
   -a "path=/etc/hosts regexp='^[[:space:]]*[^#[:space:]]+[[:space:]]+[^#[:space:]]+[[:space:]]+# platform-ops temporary agent controller$' state=absent" \
   --private-key ~/.ssh/id_deploy \
-  --ssh-common-args "-o StrictHostKeyChecking=no" \
+  --ssh-common-args=-o\ StrictHostKeyChecking=no \
   --become
