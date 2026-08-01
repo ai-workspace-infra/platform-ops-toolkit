@@ -5,7 +5,7 @@ set -euo pipefail
 # 域名基准集中定义, 各分支不要再各写各的字面量。
 #
 # 主机名由 TARGET_DOMAIN_BASE 拼接 (见 config/resources/*/*.yaml 里的
-# console-nat.{{ TARGET_DOMAIN_BASE }}), 而 uat 的多条触发路径共用同一个
+# console-uat.{{ TARGET_DOMAIN_BASE }}), 而 uat 的多条触发路径共用同一个
 # terraform workspace 与 state。一旦取值不一致, 同一份 state 就会被要求
 # 提供名字不同的资源, terraform 会销毁一台再建一台。
 #
