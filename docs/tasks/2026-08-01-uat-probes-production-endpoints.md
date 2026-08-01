@@ -64,25 +64,25 @@ confirm_dns_switch=true
 ```text
 web-saas/agent-proxy IaC
         ↓
-web-saas 主机 bootstrap + Accounts/Console 健康
+Vault 恢复 `*.<target_domain>` 公网证书到 web-saas 与 agent-proxy 主机
         ↓
-agent-proxy A 记录前置发布 + 公网 DNS 传播确认
+web-saas 主机 bootstrap + Accounts/Console 健康
         ↓
 agent-proxy native bootstrap
         ↓
- Caddy ACME 证书 + agent 首次注册/同步并生成 Xray 配置
+ agent-proxy Caddy 使用 Vault 恢复证书 + agent 首次注册/同步并生成 Xray 配置
         ↓
-web-saas/Accounts/DNS 最终发布与公网观测
+web-saas/Accounts/agent-proxy DNS 最终发布与公网观测
 ```
 
-agent-proxy 不能在 Accounts 尚未可达时等待，也不能在 Caddy 证书尚未生成时校验
+agent-proxy 不能在 Accounts 尚未可达时等待，也不能绕过 Vault 恢复逻辑重新申请
 `/usr/local/etc/xray/config.json`；部署 agent 时流水线会从本次 CMDB 读取
 web-saas IP，临时把 `accounts-<env>.<target_domain>` 解析到该 IP，保留 HTTPS
-主机名/SNI。同时只把 `agent-proxy.<target_domain>` 的 A 记录前置指向本次
-agent-proxy IP，让 Caddy 能为 Xray 所引用的域名完成公网 ACME；Xray 校验前必须
-等待 `/var/lib/caddy/.local/share/caddy/certificates/.../<agent>.crt` 出现。DNS
-最终发布步骤会再次幂等对账全部记录，并删除 agent 主机上的 `/etc/hosts` 临时覆盖，
-避免下次主机替换继续使用旧 IP。
+主机名/SNI。agent-proxy Caddy 从 `/etc/xcontrol/tls/<target_domain>/current/`
+读取 Vault 恢复的证书，先复制到 Caddy 可读路径；Xray 使用同一份已恢复材料，
+不依赖 Caddy 内部 ACME 存储，也不触发重复签发。若 Vault 没有完整证书，部署必须
+明确失败，不能静默回退到 ACME。DNS 最终发布步骤会幂等对账全部记录，并删除
+agent 主机上的 `/etc/hosts` 临时覆盖，避免下次主机替换继续使用旧 IP。
 
 在 workflow 中确认以下 job 全部成功：
 
@@ -204,7 +204,7 @@ systemctl reboot
 | `203/EXEC` | `/usr/local/bin/xray` 是否由 playbook 安装，版本/架构是否正确 |
 | 配置测试缺 `geoip.dat` | `/usr/local/share/xray` 与 `XRAY_LOCATION_ASSET` |
 | 443 未监听 | Caddy import 扩展名、域名模板、ACME 证书和 Caddy reload |
-| Xray 配置测试找不到 agent-proxy 证书 | agent-proxy A 记录前置发布、`@1.1.1.1` 传播结果、Caddy ACME 日志和证书路径；不得跳过等待直接启动 Xray |
+| Xray 配置测试找不到 agent-proxy 证书 | 检查 `/etc/xcontrol/tls/<target_domain>/current/{fullchain,key}.pem`、Vault 恢复日志和 Caddy staging 文件；不得绕过 Vault 恢复改走 ACME |
 | Agent 无心跳或 Xray 配置未生成 | `AGENT_CONTROLLER_URL`、本次 CMDB controller IP 临时解析、UAT Accounts DNS、token、Accounts 204 日志 |
 | 二维码混入生产域 | `AGENT_PROXY_DOMAIN`、Caddy domains、Accounts 返回的 URI scheme |
 | 重启后服务消失 | unit 是否 `enabled`，是否依赖手工启动或临时文件 |

@@ -1182,8 +1182,7 @@ jobs:
         exportToken: true
         secrets: |
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
-          ${{ env.VAULT_KV_WEB_SAAS }} INTERNAL_SERVICE_TOKEN | INTERNAL_SERVICE_TOKEN ;
-          ${{ env.VAULT_KV }} CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN
+          ${{ env.VAULT_KV_WEB_SAAS }} INTERNAL_SERVICE_TOKEN | INTERNAL_SERVICE_TOKEN
 
     - name: Configure SSH Key
       env:
@@ -1195,14 +1194,6 @@ jobs:
 
     - name: Install Ansible
       run: ${{ github.workspace }}/.github/scripts/common_install_ansible.sh
-
-    - name: Prepare agent-proxy DNS for Caddy ACME issuance
-      env:
-        CMDB_FILE: cmdb/cmdb.json
-        MATRIX_HOST: ${{ matrix.host }}
-        TARGET_DOMAIN_BASE: ${{ needs.provision.outputs.target_domain_base }}
-        CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
-      run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_agent_proxy_prepare-dns.sh
 
     - name: Assert the Ansible target resolves to a reachable host
       working-directory: playbooks
@@ -1220,7 +1211,7 @@ jobs:
         AGENT_REPO_VERSION: ${{ needs.provision.outputs.deploy_tag }}
         AGENT_ID: ${{ matrix.host }}
         AGENT_PROXY_DOMAIN: ${{ matrix.host }}
-        AGENT_TLS_CERT_NAME: ${{ matrix.host }}
+        AGENT_DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
         AGENT_XRAY_ENABLED: "true"
       run: >-
         ansible-playbook -i ../cmdb/inventory.ini setup-agent-proxy-domain.yml
