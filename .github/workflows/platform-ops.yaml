@@ -209,6 +209,7 @@ jobs:
       INPUT_RUN_FULL_STACK:        ${{ github.event.inputs.run_full_stack }}
       INPUT_RUN_INFRASTRUCTURE:    ${{ github.event.inputs.run_infrastructure }}
       INPUT_RUN_APPLICATION_DEPLOY:     ${{ github.event.inputs.run_application_deploy }}
+      INPUT_INSTANCE_PLAN:          ${{ inputs.instance_plan || github.event.inputs.instance_plan || '4C8G' }}
       INPUT_ACTION:                ${{ github.event.inputs.action }}
       INPUT_DEPLOY_REF:            
       INPUT_TOOLKIT_REF:           ${{ github.event.inputs.toolkit_ref }}
@@ -356,7 +357,7 @@ jobs:
       id: plan
       env:
         INPUT_DOMAIN_____ALL_:         ${{ github.event.inputs.target_domains || 'all' }}
-        INPUT_INSTANCE_PLAN_____4C8G_: ${{ inputs.instance_plan || github.event.inputs.instance_plan || '4C8G' }}
+        INPUT_INSTANCE_PLAN:             ${{ env.INPUT_INSTANCE_PLAN }}
         INPUT_CLOUD_PROVIDER:          ${{ steps.route.outputs.cloud_provider }}
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops_provision_map-instance-plan.sh

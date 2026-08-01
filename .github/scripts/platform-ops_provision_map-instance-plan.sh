@@ -1,7 +1,15 @@
 #!/bin/bash
-PLAN="${INPUT_INSTANCE_PLAN_____4C8G_}"
+PLAN="${INPUT_INSTANCE_PLAN:-${INPUT_INSTANCE_PLAN_____4C8G_:-}}"
 DOMAIN="${INPUT_DOMAIN_____ALL_}"
 PROVIDER="${INPUT_CLOUD_PROVIDER:-vultr-vps}"
+
+case "${PLAN}" in
+  1C2G|2C4G|4C8G) ;;
+  *)
+    echo "::error::Unsupported instance_plan='${PLAN}'. Expected 1C2G, 2C4G, or 4C8G." >&2
+    exit 1
+    ;;
+esac
 
 # agent-proxy 默认使用 1C2G
 if [ "$DOMAIN" == "agent-proxy" ] && [ "$PLAN" == "4C8G" ]; then
