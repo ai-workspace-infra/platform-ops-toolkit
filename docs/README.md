@@ -4,6 +4,36 @@
 
 在跨云、跨主机迁移这类高风险重载场景下，它以 **S3 对象存储作为流式传输中转**，避免在源端本地打包落盘；凭证经 **HashiCorp Vault OIDC JWT** 在运行时动态获取，不使用持久化的 GitHub Actions Secrets。支持的数据类型包括 Gitea 源码库、PostgreSQL 业务库、Docker 镜像集，以及 AI 应用的持久化工作区数据。
 
+## 文档目录约定
+
+`docs/` 按“领域边界、规范、方案、任务、验证材料”分层。新增文档应优先放入对应目录，避免把部署步骤、长期规范和一次性排障记录混在一起。
+
+```text
+docs/
+├── README.md                         # 文档入口与导航
+├── domains/                          # 业务域边界、组件清单、镜像/tag 约定
+├── standards/                        # 跨环境交付、分支、发布等强制规范
+├── plans/                            # 架构方案、迁移方案和长期设计
+├── tasks/                            # 按日期记录的实施任务、排障与 E2E 用例
+├── cases/                            # 可重复执行的运行手册和操作案例
+├── vault/                            # Vault KV、OIDC、策略和迁移说明
+├── assets/                           # 文档截图、流程图和指标图
+├── EN/                               # 英文文档
+├── ZH/                               # 中文专题/历史文档
+├── daily-snapshot-manual.md          # Daily Snapshot 手动操作入口
+└── resize-instance.md                # 实例规格调整操作入口
+```
+
+当前 UAT 探针与生产端点验证入口：[2026-08-01 UAT E2E 用例](tasks/2026-08-01-uat-probes-production-endpoints.md)。该文档可由其他 Codex Agent 按 TC-01～TC-09 独立执行，并将命令输出、运行链接和结论回填到执行记录中。
+
+核心入口：
+
+- [业务域交付清单](domains/DELIVERY-MANIFEST.md)
+- [业务域目录说明](domains/README.md)
+- [多环境交付与发布规范](standards/multi-environment-delivery-and-release-standard.md)
+- [Daily Snapshot 手册](daily-snapshot-manual.md)
+- [实例规格调整](resize-instance.md)
+
 ## 🌟 核心理念与特性 (Core Features)
 
 - 🤖 **AI 辅助的配置生成**：借助大模型生成迁移策略、渲染复杂配置文件（如跨域 Caddy Domain 级联重写）。
