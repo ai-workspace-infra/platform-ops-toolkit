@@ -408,6 +408,7 @@ jobs:
       working-directory: ${{ env.VPS_ROOT }}
       env:
         TARGET_DOMAIN_BASE: ${{ steps.route.outputs.target_domain_base }}
+        INSTANCE_PLAN_API: ${{ steps.plan.outputs.api }}
         # AWS_* from GITHUB_ENV
       run: python3 scripts/generate.py inventory --resources ${{ steps.route.outputs.resource_files_full }} --workdir envs/platform-ops-toolkit
 
