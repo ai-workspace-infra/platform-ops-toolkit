@@ -39,6 +39,15 @@ if [[ -z "${playbook}" ]]; then
   exit 1
 fi
 
+if [[ "${playbook}" == "setup-agent-proxy-domain.yml" ]]; then
+  # Native agent-proxy delivery must happen after Web SaaS is healthy.  The
+  # agent generates its Xray configs only after it can register with Accounts;
+  # running the full playbook in this generic bootstrap fan-out would race the
+  # controller (and public DNS still points at the previous replica).
+  echo "Deferring native agent-proxy bootstrap for ${MATRIX_HOST} until deploy_agent_proxy after Web SaaS observation."
+  exit 0
+fi
+
 echo "Bootstrapping ${MATRIX_HOST} with ${playbook}"
 extra_args=()
 if [[ "${playbook}" == "setup-agent-proxy-domain.yml" ]]; then

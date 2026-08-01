@@ -1069,6 +1069,12 @@ jobs:
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops_switch_dns_switch-cloudflare-dns-records.sh
 
+    - name: Remove temporary agent controller host pin
+      if: >-
+        ${{ contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
+        needs.provision.outputs.target_domains) }}
+      run: ${{ github.workspace }}/.github/scripts/platform-ops_switch_dns_remove-temporary-agent-controller-host.sh
+
     - name: Observe Web SaaS endpoints (post-DNS)
       # DNS 已切换, 现在轮询公网 URL 验证服务真正可达。
       env:
@@ -1104,11 +1110,16 @@ jobs:
 
   deploy_agent_proxy:
     name: Deploy Agent Proxy Services on ${{ matrix.host }}
-    needs: [provision, deploy_base]
+    # A fresh agent needs Accounts to be serving before its first sync can
+    # generate the Xray runtime configs.  For an agent-only delivery there is
+    # no local Web SaaS observe job, so a skipped observe is still valid; for
+    # web-saas + agent-proxy this makes the dependency explicit.
+    needs: [provision, deploy_base, observe_web_saas]
     if: >-
-      ${{ !cancelled() &&
+      ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
+      (needs.observe_web_saas.result == 'success' || needs.observe_web_saas.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -1143,6 +1154,12 @@ jobs:
       with:
         name: platform-ops-toolkit-cmdb
         path: cmdb
+
+    - name: Resolve current Web SaaS controller IP
+      id: controller
+      env:
+        CMDB_FILE: cmdb/cmdb.json
+      run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_agent_proxy_resolve-controller-ip.sh
 
     - name: Load agent-proxy secrets
       id: vault
@@ -1180,6 +1197,7 @@ jobs:
         VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
         INTERNAL_SERVICE_TOKEN: ${{ steps.vault.outputs.INTERNAL_SERVICE_TOKEN }}
         AGENT_CONTROLLER_URL: https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
+        AGENT_CONTROLLER_IP: ${{ steps.controller.outputs.ip }}
         AGENT_REPO_VERSION: ${{ needs.provision.outputs.deploy_tag }}
         AGENT_ID: ${{ matrix.host }}
         AGENT_PROXY_DOMAIN: ${{ matrix.host }}
