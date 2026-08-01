@@ -25,11 +25,19 @@ set -euo pipefail
 
 : "${MATRIX_HOST:?MATRIX_HOST is required}"
 : "${DOMAIN_TLS_DIR:?DOMAIN_TLS_DIR is required}"
+# This job also runs before DNS cutover, so use the current run's CMDB IP for
+# SSH. MATRIX_HOST can still point at a deleted previous instance.
+cmdb_file="${CMDB_FILE:-cmdb/cmdb.json}"
+matrix_ip="$(jq -r --arg host "${MATRIX_HOST}" '.[$host].ip // empty' "${cmdb_file}")"
+[[ -n "${matrix_ip}" ]] || {
+  echo "::error::No CMDB IP found for ${MATRIX_HOST}; refusing to inspect a host through stale DNS." >&2
+  exit 1
+}
 # 握手时要带的 SNI。泛域名证书对任何子域都一样, 这里用 MATRIX_HOST 即可。
 sni_host="${SNI_HOST:-${MATRIX_HOST}}"
 
 ssh_opts=(-i ~/.ssh/id_deploy -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=20)
-host="root@${MATRIX_HOST}"
+host="root@${matrix_ip}"
 caddyfile="/etc/xcontrol/web-saas/Caddyfile"
 
 result="$(ssh "${ssh_opts[@]}" "${host}" \

@@ -25,6 +25,15 @@ set -euo pipefail
 : "${ACTIONS_ID_TOKEN_REQUEST_URL:?ACTIONS_ID_TOKEN_REQUEST_URL is required (needs id-token: write)}"
 : "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:?ACTIONS_ID_TOKEN_REQUEST_TOKEN is required (needs id-token: write)}"
 
+# Bootstrap runs before DNS cutover. Always connect to the IP created by this
+# run's CMDB; MATRIX_HOST may still resolve to a deleted previous instance.
+cmdb_file="${CMDB_FILE:-cmdb/cmdb.json}"
+matrix_ip="$(jq -r --arg host "${MATRIX_HOST}" '.[$host].ip // empty' "${cmdb_file}")"
+[[ -n "${matrix_ip}" ]] || {
+  echo "::error::No CMDB IP found for ${MATRIX_HOST}; refusing to bootstrap through stale DNS." >&2
+  exit 1
+}
+
 # 临近到期就不恢复了, 直接让 Caddy 签新的。恢复一张还剩三天的证书, 只会让
 # Caddy 一起来立刻进入续期流程 —— 白白多一次重启窗口, 还可能在续期成功前就
 # 被 observe 判活。Caddy 自己的续期阈值是剩余寿命的 1/3(90 天证书约 30 天),
@@ -32,7 +41,7 @@ set -euo pipefail
 renew_margin_days="${CADDY_CERT_RENEW_MARGIN_DAYS:-14}"
 
 ssh_opts=(-i ~/.ssh/id_deploy -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=20)
-host="root@${MATRIX_HOST}"
+host="root@${matrix_ip}"
 
 # 1. 用 GitHub 的 OIDC id-token 换 Vault JWT 登录用的 JWT。
 oidc="$(curl -sS --retry 3 \
