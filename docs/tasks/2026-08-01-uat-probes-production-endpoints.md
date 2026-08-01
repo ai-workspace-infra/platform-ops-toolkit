@@ -66,18 +66,23 @@ web-saas/agent-proxy IaC
         ↓
 web-saas 主机 bootstrap + Accounts/Console 健康
         ↓
+agent-proxy A 记录前置发布 + 公网 DNS 传播确认
+        ↓
 agent-proxy native bootstrap
         ↓
-agent 首次注册/同步并生成 Xray 配置
+ Caddy ACME 证书 + agent 首次注册/同步并生成 Xray 配置
         ↓
-DNS 发布
+web-saas/Accounts/DNS 最终发布与公网观测
 ```
 
-agent-proxy 不能在 Accounts 尚未可达时等待
+agent-proxy 不能在 Accounts 尚未可达时等待，也不能在 Caddy 证书尚未生成时校验
 `/usr/local/etc/xray/config.json`；部署 agent 时流水线会从本次 CMDB 读取
 web-saas IP，临时把 `accounts-<env>.<target_domain>` 解析到该 IP，保留 HTTPS
-主机名/SNI。DNS 发布成功后必须删除这条 `/etc/hosts` 临时覆盖，避免下次主机替换
-继续使用旧 IP。
+主机名/SNI。同时只把 `agent-proxy.<target_domain>` 的 A 记录前置指向本次
+agent-proxy IP，让 Caddy 能为 Xray 所引用的域名完成公网 ACME；Xray 校验前必须
+等待 `/var/lib/caddy/.local/share/caddy/certificates/.../<agent>.crt` 出现。DNS
+最终发布步骤会再次幂等对账全部记录，并删除 agent 主机上的 `/etc/hosts` 临时覆盖，
+避免下次主机替换继续使用旧 IP。
 
 在 workflow 中确认以下 job 全部成功：
 
@@ -199,6 +204,7 @@ systemctl reboot
 | `203/EXEC` | `/usr/local/bin/xray` 是否由 playbook 安装，版本/架构是否正确 |
 | 配置测试缺 `geoip.dat` | `/usr/local/share/xray` 与 `XRAY_LOCATION_ASSET` |
 | 443 未监听 | Caddy import 扩展名、域名模板、ACME 证书和 Caddy reload |
+| Xray 配置测试找不到 agent-proxy 证书 | agent-proxy A 记录前置发布、`@1.1.1.1` 传播结果、Caddy ACME 日志和证书路径；不得跳过等待直接启动 Xray |
 | Agent 无心跳或 Xray 配置未生成 | `AGENT_CONTROLLER_URL`、本次 CMDB controller IP 临时解析、UAT Accounts DNS、token、Accounts 204 日志 |
 | 二维码混入生产域 | `AGENT_PROXY_DOMAIN`、Caddy domains、Accounts 返回的 URI scheme |
 | 重启后服务消失 | unit 是否 `enabled`，是否依赖手工启动或临时文件 |
