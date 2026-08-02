@@ -1059,6 +1059,7 @@ jobs:
       PROVISION_SOURCE_DOMAIN_BASE:  ${{ needs.provision.outputs.source_domain_base }}
       INPUT_RUN_INFRASTRUCTURE:      ${{ needs.provision.outputs.run_infrastructure }}
       DEPLOY_ENV:                    ${{ needs.provision.outputs.deployment_env }}
+      DNS_SERVICE_NAMES:             console accounts billing
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
