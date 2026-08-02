@@ -534,6 +534,8 @@ jobs:
         secrets: |
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
           ${{ env.VAULT_KV }} ROOT_BOOTSTRAP_PASSWORD | ROOT_BOOTSTRAP_PASSWORD ;
+          ${{ env.VAULT_KV_DATABASES }} account_pg_password | ACCOUNT_PG_PASSWORD ;
+          ${{ env.VAULT_KV_DATABASES }} billing_pg_password | BILLING_PG_PASSWORD ;
           ${{ env.VAULT_KV }} AI_WORKSPACE_AUTH_TOKEN | AI_WORKSPACE_AUTH_TOKEN ;
           ${{ env.VAULT_KV }} GHCR_USERNAME | GHCR_USERNAME ;
           ${{ env.VAULT_KV }} GHCR_TOKEN | GHCR_PASSWORD ;
@@ -856,7 +858,12 @@ jobs:
       env:
         VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
         ROOT_BOOTSTRAP_PASSWORD: ${{ steps.vault.outputs.ROOT_BOOTSTRAP_PASSWORD }}
-        VAULT_ENV_PATH: ${{ inputs.vault_env_path }}
+        # Pass the exact credentials used by the application deployment into
+        # the idempotent role reconciliation. This removes the implicit
+        # database-Vault fallback and makes the DB-init/app contract explicit.
+        ACCOUNT_PG_PASSWORD: ${{ steps.vault.outputs.ACCOUNT_PG_PASSWORD }}
+        BILLING_PG_PASSWORD: ${{ steps.vault.outputs.BILLING_PG_PASSWORD }}
+        VAULT_ENV_PATH: ${{ needs.provision.outputs.vault_env_path }}
         POSTGRESQL_DEPLOY_MODE: compose
       run: >-
         ansible-playbook -i ../cmdb/inventory.ini create_databases_and_users.yml
