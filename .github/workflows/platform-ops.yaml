@@ -1332,6 +1332,10 @@ jobs:
         AGENT_DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
         BILLING_SERVICE_BASE_URL: ${{ needs.provision.outputs.deployment_env == 'uat' && format('https://billing-uat.{0}', needs.provision.outputs.target_domain_base) || 'http://127.0.0.1:8081' }}
         AGENT_XRAY_ENABLED: "true"
+        # UAT billing is fed by Exporter -> Vector -> Billing. Keep the
+        # legacy agent-side collect/reconcile trigger enabled only outside
+        # UAT so this deployment cannot reintroduce Billing direct-pull.
+        AGENT_BILLING_ENABLED: ${{ needs.provision.outputs.deployment_env != 'uat' && 'true' || 'false' }}
         EXPORTER_ENV: ${{ needs.provision.outputs.deployment_env }}
         ACCOUNTS_BASE_URL: https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
         XRAY_EXPORTER_RELEASE_REPOSITORY: ${{ github.event.inputs.xray_exporter_release_repository || 'compassvpn/xray-exporter' }}
@@ -1349,6 +1353,7 @@ jobs:
         -e xray_exporter_hosts=agent_proxy
         -e agent_svc_plus_manage_source_checkout=true
         -e agent_svc_plus_build_on_target=true
+        -e agent_billing_enabled="${AGENT_BILLING_ENABLED}"
 
     - name: Verify native agent-proxy services
       working-directory: playbooks
