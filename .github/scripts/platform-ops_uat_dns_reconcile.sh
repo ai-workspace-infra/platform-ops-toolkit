@@ -2,21 +2,25 @@
 set -euo pipefail
 
 # This is intentionally a separate reconciler from the disaster-recovery DNS
-# cutover. Do not add a configurable zone or record list here: the hard-coded
-# UAT scope is the safety boundary against publishing production traffic.
+# cutover. It remains UAT-only, while the zone and record names are rendered
+# from the resolved deployment parameters.
 readonly CLOUDFLARE_API_BASE="${CLOUDFLARE_API_BASE_OVERRIDE:-https://api.cloudflare.com/client/v4}"
-readonly UAT_ZONE="onwalk.net"
-readonly UAT_RECORDS=(
-  "billing-uat.onwalk.net"
-  "console-uat.onwalk.net"
-  "accounts-uat.onwalk.net"
-)
 
 : "${CLOUDFLARE_DNS_API_TOKEN:?CLOUDFLARE_DNS_API_TOKEN is required}"
-if [[ "${DEPLOY_ENV:-}" != "uat" || "${TARGET_DOMAIN_BASE:-}" != "onwalk.net" ]]; then
-  echo "::error::UAT DNS reconciler requires DEPLOY_ENV=uat and TARGET_DOMAIN_BASE=onwalk.net." >&2
+if [[ "${DEPLOY_ENV:-}" != "uat" ]]; then
+  echo "::error::UAT DNS reconciler requires DEPLOY_ENV=uat." >&2
   exit 1
 fi
+if [[ -z "${TARGET_DOMAIN_BASE:-}" || "${TARGET_DOMAIN_BASE}" == "${SOURCE_DOMAIN_BASE:-}" || "${TARGET_DOMAIN_BASE}" == *[!a-zA-Z0-9.-]* ]]; then
+  echo "::error::UAT DNS reconciler requires a valid target zone distinct from the source zone." >&2
+  exit 1
+fi
+readonly UAT_ZONE="${TARGET_DOMAIN_BASE}"
+readonly UAT_RECORDS=(
+  "billing-${DEPLOY_ENV}.${TARGET_DOMAIN_BASE}"
+  "console-${DEPLOY_ENV}.${TARGET_DOMAIN_BASE}"
+  "accounts-${DEPLOY_ENV}.${TARGET_DOMAIN_BASE}"
+)
 cmdb_file="${CMDB_FILE:-cmdb/cmdb.json}"
 
 command -v curl >/dev/null || { echo "::error::curl is required" >&2; exit 1; }
@@ -130,4 +134,4 @@ for record_name in "${UAT_RECORDS[@]}"; do
   done < <(jq -r --arg primary_id "${primary_id}" '.result[] | select(.id != $primary_id) | .id' <<<"${records_response}")
 done
 
-echo "UAT DNS reconciliation completed for ${#UAT_RECORDS[@]} fixed records in ${UAT_ZONE}; source host ${web_saas_hosts[0]} (${web_saas_ip})."
+echo "UAT DNS reconciliation completed for ${#UAT_RECORDS[@]} rendered records in ${UAT_ZONE}; source host ${web_saas_hosts[0]} (${web_saas_ip})."

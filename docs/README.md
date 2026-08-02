@@ -35,6 +35,7 @@ docs/
 - [实例规格调整](resize-instance.md)
 - [UAT r2：Xray → Exporter → Billing → PostgreSQL → Accounts → Portal 变更记录](tasks/2026-08-02-uat-r2-xray-billing-observability-change-log.md)
 - [UAT r5：Xray → Exporter → Vector → Billing 闭环重跑](tasks/2026-08-02-uat-xray-billing-fanout-r5-rerun.md)
+- [UAT 两条 Xray 链路分段审计与验收清单](tasks/2026-08-02-uat-xray-billing-observability-chain-audit.md)
 
 ## 🌟 核心理念与特性 (Core Features)
 

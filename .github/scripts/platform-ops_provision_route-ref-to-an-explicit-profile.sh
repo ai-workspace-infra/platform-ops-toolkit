@@ -171,8 +171,8 @@ if [ "${uat_dns_update}" = "true" ]; then
     echo "::error::uat_dns_update is UAT-only; vault_env_path must be uat." >&2
     exit 1
   fi
-  if [ "${target_domain_base}" != "onwalk.net" ]; then
-    echo "::error::uat_dns_update is pinned to the onwalk.net UAT zone." >&2
+  if [ -z "${target_domain_base}" ] || [ "${target_domain_base}" = "${source_domain_base}" ]; then
+    echo "::error::uat_dns_update requires a non-empty target zone distinct from the source zone." >&2
     exit 1
   fi
   case "${target_domains}" in
