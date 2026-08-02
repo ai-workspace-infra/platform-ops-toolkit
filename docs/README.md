@@ -34,6 +34,7 @@ docs/
 - [Daily Snapshot 手册](daily-snapshot-manual.md)
 - [实例规格调整](resize-instance.md)
 - [UAT r2：Xray → Exporter → Billing → PostgreSQL → Accounts → Portal 变更记录](tasks/2026-08-02-uat-r2-xray-billing-observability-change-log.md)
+- [UAT r5：Xray → Exporter → Vector → Billing 闭环重跑](tasks/2026-08-02-uat-xray-billing-fanout-r5-rerun.md)
 
 ## 🌟 核心理念与特性 (Core Features)
 
