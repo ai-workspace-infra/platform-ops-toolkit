@@ -1154,17 +1154,17 @@ jobs:
       (needs.deploy_agent_proxy.result == 'success' || !contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       needs.deploy_ai_workspace.result != 'failure' &&
       needs.provision.outputs.deployment_env == 'uat' &&
-      needs.provision.outputs.target_domain_base == 'onwalk.net' &&
       needs.provision.outputs.terraform_action == 'apply' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     env:
-      # Job-level env cannot reference the workflow-level env context. Keep
-      # the DNS reconciler explicitly scoped to the UAT Vault role/path.
+      # Keep the DNS reconciler UAT-only, but render the zone and names from
+      # the resolved deployment parameters instead of pinning onwalk.net.
       VAULT_ADDR: https://vault.svc.plus
       VAULT_ROLE: github-actions-platform-ops-toolkit-uat
       VAULT_KV: kv/data/CICD
-      DEPLOY_ENV: uat
-      TARGET_DOMAIN_BASE: onwalk.net
+      DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
+      SOURCE_DOMAIN_BASE: ${{ needs.provision.outputs.source_domain_base }}
+      TARGET_DOMAIN_BASE: ${{ needs.provision.outputs.target_domain_base }}
       CMDB_FILE: cmdb/cmdb.json
     steps:
     - name: Checkout repository
@@ -1197,7 +1197,7 @@ jobs:
         secrets: |
           ${{ env.VAULT_KV }} CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN ;
 
-    - name: Reconcile fixed UAT DNS records
+    - name: Reconcile parameterized UAT DNS records
       env:
         CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops_uat_dns_reconcile.sh
@@ -1205,11 +1205,11 @@ jobs:
     - name: Observe UAT Web SaaS endpoints
       env:
         DOMAIN: web-saas
-        DEPLOY_ENV: uat
+        DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
         OBSERVE_URLS: >-
-          https://billing-uat.onwalk.net/
-          https://console-uat.onwalk.net/
-          https://accounts-uat.onwalk.net/
+          https://billing-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
+          https://console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
+          https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
       run: bash playbooks/.github/scripts/domain-cd-observe-endpoints.sh
 
   deploy_infra_platform:
