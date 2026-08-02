@@ -72,6 +72,12 @@ jobs:
           owner: ${{ matrix.organization }}
 
       - name: Create cross-repository main snapshot
+        # The matrix owns one GitHub App token per organization. When an
+        # explicit repository list is supplied, only the matrix entry that
+        # owns at least one selected repository should invoke the snapshot
+        # script; passing the full cross-organization list to every matrix
+        # entry makes the script reject repositories owned by another org.
+        if: ${{ inputs.repositories == '' || contains(inputs.repositories, matrix.organization) }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
