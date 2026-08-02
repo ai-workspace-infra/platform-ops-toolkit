@@ -102,6 +102,14 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   target_domain_base="${INPUT_TARGET_DOMAIN_BASE}"
   cloud_provider="${INPUT_CLOUD_PROVIDER:-vultr-vps}"
   confirm_dns_switch="${confirm_dns_switch_override:-${INPUT_CONFIRM_DNS_SWITCH}}"
+  uat_dns_update="${INPUT_UAT_DNS_UPDATE:-false}"
+
+  # UAT full-stack runs use the dedicated, fixed-record DNS reconciler. Keep
+  # the legacy confirm_dns_switch path for intentional disaster-recovery work,
+  # but never let it publish generic inventory-derived UAT records.
+  if [ "${INPUT_RUN_FULL_STACK:-false}" = "true" ] && [ "${deployment_env}" = "uat" ]; then
+    uat_dns_update=true
+  fi
 else
   GITHUB_EVENT_NAME="${GITHUB_EVENT_NAME:-}"
   if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
@@ -148,6 +156,42 @@ else
     esac
   fi
 fi
+
+uat_dns_update="${uat_dns_update:-false}"
+case "${uat_dns_update}" in
+  true|false) ;;
+  *)
+    echo "::error::uat_dns_update must be true or false." >&2
+    exit 1
+    ;;
+esac
+
+if [ "${uat_dns_update}" = "true" ]; then
+  if [ "${deployment_env}" != "uat" ]; then
+    echo "::error::uat_dns_update is UAT-only; vault_env_path must be uat." >&2
+    exit 1
+  fi
+  if [ "${target_domain_base}" != "onwalk.net" ]; then
+    echo "::error::uat_dns_update is pinned to the onwalk.net UAT zone." >&2
+    exit 1
+  fi
+  case "${target_domains}" in
+    all|web-saas|"web-saas + agent-proxy") ;;
+    *)
+      echo "::error::uat_dns_update requires a target containing the web-saas domain." >&2
+      exit 1
+      ;;
+  esac
+  if [ "${run_infrastructure}" != "true" ] || [ "${run_application_deploy}" != "true" ] || [ "${terraform_action}" != "apply" ]; then
+    echo "::error::uat_dns_update requires an apply plus application deployment so the run CMDB identifies the UAT web-saas host." >&2
+    exit 1
+  fi
+  confirm_dns_switch=false
+elif [ "${deployment_env}" = "uat" ] && [ "${confirm_dns_switch:-false}" = "true" ]; then
+  echo "::error::UAT DNS updates must use uat_dns_update=true; the generic confirm_dns_switch path is disabled for UAT." >&2
+  exit 1
+fi
+
 # 所有触发路径都必须给这两个开关显式赋值 —— 空串会让下游 == 'true' 比较
 # 静默为假, 表现成"没被请求", 与"结构上跑不起来"无法区分。
 : "${run_infrastructure:?route: run_infrastructure was never assigned on this trigger path}"
@@ -199,7 +243,7 @@ if [ "${run_application_deploy}" = "true" ]; then
   esac
 fi
 
-for key in deployment_env resource_file resource_files_full terraform_workspace state_key run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider source_host source_domain_base target_domain_base env_suffix confirm_dns_switch deploy_tag; do
+for key in deployment_env resource_file resource_files_full terraform_workspace state_key run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider source_host source_domain_base target_domain_base env_suffix confirm_dns_switch uat_dns_update deploy_tag; do
   value="${!key:-}"
   echo "$key=$value" >> "$GITHUB_OUTPUT"
 done
