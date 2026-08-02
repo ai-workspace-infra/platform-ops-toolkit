@@ -98,16 +98,6 @@ on:
         required: false
         default: "v0.6.0"
         type: string
-      xray_exporter_listen_addr:
-        description: "UAT exporter XHTTP 监听地址；生产保持默认 loopback"
-        required: false
-        default: "127.0.0.1:8080"
-        type: string
-      xray_exporter_tcp_listen_addr:
-        description: "UAT exporter TCP 监听地址；生产保持默认 loopback"
-        required: false
-        default: "127.0.0.1:8081"
-        type: string
       run_full_stack:
         description: "一键整套初始化: 申请 IaC 资源 -> 部署业务应用 -> 发布 DNS。勾选后强制打开下面两个开关与 DNS 发布, 用于从零拉起一个 sit/uat/prod 副本"
         required: false
@@ -1242,8 +1232,8 @@ jobs:
         ACCOUNTS_BASE_URL: https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
         XRAY_EXPORTER_RELEASE_REPOSITORY: ${{ github.event.inputs.xray_exporter_release_repository || 'compassvpn/xray-exporter' }}
         XRAY_EXPORTER_VERSION: ${{ github.event.inputs.xray_exporter_version || 'v0.6.0' }}
-        XRAY_EXPORTER_LISTEN_ADDR: ${{ github.event.inputs.xray_exporter_listen_addr || '127.0.0.1:8080' }}
-        XRAY_EXPORTER_TCP_LISTEN_ADDR: ${{ github.event.inputs.xray_exporter_tcp_listen_addr || '127.0.0.1:8081' }}
+        XRAY_EXPORTER_LISTEN_ADDR: ${{ needs.provision.outputs.deployment_env == 'uat' && '0.0.0.0:8080' || '127.0.0.1:8080' }}
+        XRAY_EXPORTER_TCP_LISTEN_ADDR: ${{ needs.provision.outputs.deployment_env == 'uat' && '0.0.0.0:8081' || '127.0.0.1:8081' }}
       run: >-
         ansible-playbook -i ../cmdb/inventory.ini setup-agent-proxy-domain.yml
         --limit "${MATRIX_HOST}"
