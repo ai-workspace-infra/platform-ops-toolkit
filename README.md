@@ -46,6 +46,10 @@ When triggered, `platform-ops.yaml` automatically routes to the appropriate deli
 
 Prior to the initial UAT / Prod release, you must configure DNS for the target environment (the UAT web-saas host resolves as `console-uat.onwalk.net`) and populate the web-saas credentials in Vault. The workflow fails fast if they are missing: a dedicated validation step runs *before* any deployment action and exits non-zero on an empty value.
 
+#### Recent UAT release records
+
+The cross-repository Xray billing and observability delivery is tracked in the [UAT r2 change log](docs/tasks/2026-08-02-uat-r2-xray-billing-observability-change-log.md). It records the `uat-daily-build-2026.08.02-r2` snapshot, the merged PRs across Exporter, Billing, Accounts, Portal, GitOps, Playbooks and Platform Ops, plus the remaining UAT acceptance checks.
+
 > ⚠️ **`pull_request` and merge-triggered pushes are plan-only.** Both `pull_request` and the `main` / `release/*` push routes now set `terraform_action=plan` and `toolkit_action=none`, so they validate IaC without creating or mutating real infrastructure. Use `workflow_dispatch` when you want an actual apply/deploy run.
 
 #### `cloud_provider` (workflow_dispatch only, required)
