@@ -88,6 +88,26 @@ on:
         required: false
         default: "https://observability.svc.plus"
         type: string
+      xray_exporter_release_repository:
+        description: "xray-exporter 发布仓库；默认使用线上兼容基线 compassvpn/xray-exporter，UAT 可覆盖为验证仓库"
+        required: false
+        default: "compassvpn/xray-exporter"
+        type: string
+      xray_exporter_version:
+        description: "xray-exporter 发布 tag；默认 v0.6.0"
+        required: false
+        default: "v0.6.0"
+        type: string
+      xray_exporter_listen_addr:
+        description: "UAT exporter XHTTP 监听地址；生产保持默认 loopback"
+        required: false
+        default: "127.0.0.1:8080"
+        type: string
+      xray_exporter_tcp_listen_addr:
+        description: "UAT exporter TCP 监听地址；生产保持默认 loopback"
+        required: false
+        default: "127.0.0.1:8081"
+        type: string
       run_full_stack:
         description: "一键整套初始化: 申请 IaC 资源 -> 部署业务应用 -> 发布 DNS。勾选后强制打开下面两个开关与 DNS 发布, 用于从零拉起一个 sit/uat/prod 副本"
         required: false
@@ -523,6 +543,7 @@ jobs:
           ${{ env.VAULT_KV_WEB_SAAS }} STUNNEL_CA_CERT_B64 | WEB_SAAS_STUNNEL_CA_CERT_B64 ;
           ${{ env.VAULT_KV_WEB_SAAS }} STUNNEL_SERVER_CERT_B64 | WEB_SAAS_STUNNEL_SERVER_CERT_B64 ;
           ${{ env.VAULT_KV_WEB_SAAS }} STUNNEL_SERVER_KEY_B64 | WEB_SAAS_STUNNEL_SERVER_KEY_B64 ;
+          ${{ env.VAULT_KV_WEB_SAAS }} EXPORTER_SOURCES_JSON | WEB_SAAS_EXPORTER_SOURCES_JSON ;
           ${{ env.VAULT_KV }} CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN
 
     # OAUTH_* / INTERNAL_SERVICE_TOKEN 是真正可选的(不影响是否能起服务),
@@ -584,6 +605,10 @@ jobs:
         AUTH_TOKEN_PUBLIC_TOKEN:           ${{ steps.vault.outputs.WEB_SAAS_AUTH_TOKEN_PUBLIC_TOKEN }}
         AUTH_TOKEN_REFRESH_SECRET:         ${{ steps.vault.outputs.WEB_SAAS_AUTH_TOKEN_REFRESH_SECRET }}
         AUTH_TOKEN_ACCESS_SECRET:          ${{ steps.vault.outputs.WEB_SAAS_AUTH_TOKEN_ACCESS_SECRET }}
+        # Billing consumes the explicit multi-source exporter contract from
+        # Vault. It must be reachable from web-saas; never use a loopback URL
+        # for an exporter running on agent-proxy.
+        EXPORTER_SOURCES_JSON:             ${{ steps.vault.outputs.WEB_SAAS_EXPORTER_SOURCES_JSON }}
         # OAUTH_GITHUB_CLIENT_ID / OAUTH_GITHUB_CLIENT_SECRET / OAUTH_GOOGLE_CLIENT_ID /
         # OAUTH_GOOGLE_CLIENT_SECRET / INTERNAL_SERVICE_TOKEN 由上面 "Load optional
         # web-saas secrets" 写进 GITHUB_ENV, 此处不再重复声明 —— 它们已经是这个
@@ -1213,6 +1238,12 @@ jobs:
         AGENT_PROXY_DOMAIN: ${{ matrix.host }}
         AGENT_DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
         AGENT_XRAY_ENABLED: "true"
+        EXPORTER_ENV: ${{ needs.provision.outputs.deployment_env }}
+        ACCOUNTS_BASE_URL: https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
+        XRAY_EXPORTER_RELEASE_REPOSITORY: ${{ github.event.inputs.xray_exporter_release_repository || 'compassvpn/xray-exporter' }}
+        XRAY_EXPORTER_VERSION: ${{ github.event.inputs.xray_exporter_version || 'v0.6.0' }}
+        XRAY_EXPORTER_LISTEN_ADDR: ${{ github.event.inputs.xray_exporter_listen_addr || '127.0.0.1:8080' }}
+        XRAY_EXPORTER_TCP_LISTEN_ADDR: ${{ github.event.inputs.xray_exporter_tcp_listen_addr || '127.0.0.1:8081' }}
       run: >-
         ansible-playbook -i ../cmdb/inventory.ini setup-agent-proxy-domain.yml
         --limit "${MATRIX_HOST}"
