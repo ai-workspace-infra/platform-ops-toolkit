@@ -50,6 +50,8 @@ Prior to the initial UAT / Prod release, you must configure DNS for the target e
 
 The cross-repository Xray billing and observability delivery is tracked in the [UAT r2 change log](docs/tasks/2026-08-02-uat-r2-xray-billing-observability-change-log.md). It records the `uat-daily-build-2026.08.02-r2` snapshot, the merged PRs across Exporter, Billing, Accounts, Portal, GitOps, Playbooks and Platform Ops, plus the remaining UAT acceptance checks.
 
+The cross-node Billing trigger ingress is tracked in [the Billing Caddy task](docs/tasks/2026-08-02-billing-caddy-cross-node-ingress.md). It keeps Billing as the PostgreSQL writer, exposes its job trigger through a CIDR-restricted Caddy hostname, and keeps Exporter/observability separate from the billing source of truth.
+
 > ⚠️ **`pull_request` and merge-triggered pushes are plan-only.** Both `pull_request` and the `main` / `release/*` push routes now set `terraform_action=plan` and `toolkit_action=none`, so they validate IaC without creating or mutating real infrastructure. Use `workflow_dispatch` when you want an actual apply/deploy run.
 
 #### `cloud_provider` (workflow_dispatch only, required)

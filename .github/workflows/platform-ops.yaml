@@ -490,6 +490,7 @@ jobs:
       ANSIBLE_HOST_KEY_CHECKING: "False"
       ANSIBLE_SSH_ARGS:         "-o IdentityFile=~/.ssh/id_deploy -o StrictHostKeyChecking=no"
       TARGET_DOMAIN_BASE:       ${{ needs.provision.outputs.target_domain_base }}
+      TARGET_DOMAINS:            ${{ needs.provision.outputs.target_domains }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
@@ -508,6 +509,11 @@ jobs:
       with:
         name: platform-ops-toolkit-cmdb
         path: cmdb
+
+    - name: Resolve agent-proxy source CIDRs for Billing Caddy
+      env:
+        CMDB_FILE: cmdb/cmdb.json
+      run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_base_resolve-billing-agent-cidrs.sh
 
     - name: Load Vault secrets
       id: vault
@@ -615,6 +621,7 @@ jobs:
         GHCR_PASSWORD:                     ${{ steps.vault.outputs.GHCR_PASSWORD }}
         WEB_SAAS_CONSOLE_DOMAIN:           console-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
         WEB_SAAS_ACCOUNTS_DOMAIN:          accounts-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
+        WEB_SAAS_BILLING_DOMAIN:            ${{ needs.provision.outputs.deployment_env == 'uat' && format('billing-uat.{0}', needs.provision.outputs.target_domain_base) || '' }}
         AGENT_CONTROLLER_URL:              https://accounts-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
         AGENT_REPO_VERSION:                ${{ needs.provision.outputs.deploy_tag }}
         AGENT_SVC_PLUS_MANAGE_SOURCE_CHECKOUT: "true"
@@ -1228,6 +1235,7 @@ jobs:
         AGENT_ID: ${{ matrix.host }}
         AGENT_PROXY_DOMAIN: ${{ matrix.host }}
         AGENT_DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
+        BILLING_SERVICE_BASE_URL: ${{ needs.provision.outputs.deployment_env == 'uat' && format('https://billing-uat.{0}', needs.provision.outputs.target_domain_base) || 'http://127.0.0.1:8081' }}
         AGENT_XRAY_ENABLED: "true"
         EXPORTER_ENV: ${{ needs.provision.outputs.deployment_env }}
         ACCOUNTS_BASE_URL: https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
