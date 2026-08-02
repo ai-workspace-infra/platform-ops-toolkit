@@ -236,6 +236,11 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
   }
   owner="${repo%%/*}"
   [[ " ${selected_orgs[*]} " == *" ${owner} "* ]] || {
+    if [[ "${SNAPSHOT_FILTER_BY_ORG:-false}" == "true" ]]; then
+      printf 'SKIP\t%s\tnot owned by selected matrix organization\n' "${repo}"
+      record_status "skipped" "${repo}" "" "not owned by selected matrix organization"
+      continue
+    fi
     echo "Repository ${repo} is outside the selected organizations." >&2
     exit 2
   }

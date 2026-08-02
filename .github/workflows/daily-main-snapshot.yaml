@@ -84,6 +84,7 @@ jobs:
           SNAPSHOT_TAG: ${{ inputs.snapshot_tag }}
           SNAPSHOT_ORGS: ${{ matrix.organization }}
           SNAPSHOT_REPOS: ${{ inputs.repositories }}
+          SNAPSHOT_FILTER_BY_ORG: ${{ inputs.repositories != '' && 'true' || 'false' }}
           SNAPSHOT_REF: ${{ inputs.snapshot_source_ref || 'main' }}
           SNAPSHOT_STATUS_FILE: ${{ runner.temp }}/daily-snapshot-status/${{ matrix.organization }}.jsonl
         run: ${{ github.workspace }}/.github/scripts/tag-daily-main-snapshot.sh
