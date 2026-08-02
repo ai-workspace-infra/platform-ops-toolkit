@@ -26,6 +26,7 @@ OPTIONAL_KEYS=(
   OAUTH_GOOGLE_CLIENT_ID
   OAUTH_GOOGLE_CLIENT_SECRET
   INTERNAL_SERVICE_TOKEN
+  EXPORTER_SOURCES_JSON
 )
 
 # 1. 用 GitHub 的 OIDC id-token 换 Vault JWT 登录用的 JWT。
@@ -75,6 +76,14 @@ for key in "${OPTIONAL_KEYS[@]}"; do
     val="$(jq -r --arg k "${key}" '.data.data[$k] // ""' < "${body}")"
   else
     val=""
+  fi
+  if [[ "${key}" == "EXPORTER_SOURCES_JSON" && -z "${val}" && "${DEPLOY_ENV:-}" == "uat" ]]; then
+    exporter_host="agent-proxy.${TARGET_DOMAIN_BASE:-onwalk.net}"
+    val="$(jq -cn --arg host "${exporter_host}" '[
+      {source_id: "xhttp-uat", base_url: ("http://" + $host + ":8080")},
+      {source_id: "tcp-uat", base_url: ("http://" + $host + ":8081")}
+    ]')"
+    echo "Using the UAT default exporter source list because WEB_SAAS/EXPORTER_SOURCES_JSON is not initialized yet."
   fi
   # 非空即 mask, 避免落进日志; 空值不必 mask(mask 空串会把后续所有输出
   # 里的空匹配都打码, 反而制造噪音)。

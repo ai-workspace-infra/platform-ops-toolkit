@@ -533,7 +533,6 @@ jobs:
           ${{ env.VAULT_KV_WEB_SAAS }} STUNNEL_CA_CERT_B64 | WEB_SAAS_STUNNEL_CA_CERT_B64 ;
           ${{ env.VAULT_KV_WEB_SAAS }} STUNNEL_SERVER_CERT_B64 | WEB_SAAS_STUNNEL_SERVER_CERT_B64 ;
           ${{ env.VAULT_KV_WEB_SAAS }} STUNNEL_SERVER_KEY_B64 | WEB_SAAS_STUNNEL_SERVER_KEY_B64 ;
-          ${{ env.VAULT_KV_WEB_SAAS }} EXPORTER_SOURCES_JSON | WEB_SAAS_EXPORTER_SOURCES_JSON ;
           ${{ env.VAULT_KV }} CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN
 
     # OAUTH_* / INTERNAL_SERVICE_TOKEN 是真正可选的(不影响是否能起服务),
@@ -598,7 +597,9 @@ jobs:
         # Billing consumes the explicit multi-source exporter contract from
         # Vault. It must be reachable from web-saas; never use a loopback URL
         # for an exporter running on agent-proxy.
-        EXPORTER_SOURCES_JSON:             ${{ steps.vault.outputs.WEB_SAAS_EXPORTER_SOURCES_JSON }}
+        # The optional-web-saas loader exports EXPORTER_SOURCES_JSON through
+        # GITHUB_ENV. It uses Vault when present and a UAT-only default when
+        # the non-secret source routing key has not been initialized yet.
         # OAUTH_GITHUB_CLIENT_ID / OAUTH_GITHUB_CLIENT_SECRET / OAUTH_GOOGLE_CLIENT_ID /
         # OAUTH_GOOGLE_CLIENT_SECRET / INTERNAL_SERVICE_TOKEN 由上面 "Load optional
         # web-saas secrets" 写进 GITHUB_ENV, 此处不再重复声明 —— 它们已经是这个
