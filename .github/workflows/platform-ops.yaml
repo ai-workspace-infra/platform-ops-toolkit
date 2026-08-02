@@ -1337,6 +1337,10 @@ jobs:
         XRAY_EXPORTER_VERSION: ${{ github.event.inputs.xray_exporter_version || 'v0.6.0' }}
         XRAY_EXPORTER_LISTEN_ADDR: ${{ needs.provision.outputs.deployment_env == 'uat' && '0.0.0.0:8080' || '127.0.0.1:8080' }}
         XRAY_EXPORTER_TCP_LISTEN_ADDR: ${{ needs.provision.outputs.deployment_env == 'uat' && '0.0.0.0:8081' || '127.0.0.1:8081' }}
+        # UAT keeps the exporter -> local Vector hand-off on the agent host.
+        # Production remains on the upstream-compatible default unless a
+        # production delivery explicitly opts into a separate contract.
+        VECTOR_SNAPSHOT_URL: ${{ needs.provision.outputs.deployment_env == 'uat' && 'http://127.0.0.1:8686' || '' }}
       run: >-
         ansible-playbook -i ../cmdb/inventory.ini setup-agent-proxy-domain.yml
         --limit "${MATRIX_HOST}"
@@ -1427,6 +1431,7 @@ jobs:
         ignoreNotFound: true
         secrets: |
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
+          ${{ env.VAULT_KV_WEB_SAAS }} INTERNAL_SERVICE_TOKEN | INTERNAL_SERVICE_TOKEN ;
           kv/data/CICD/observability user | VECTOR_AUTH_USER ;
           kv/data/CICD/observability password | VECTOR_AUTH_PASSWORD
 
@@ -1448,4 +1453,12 @@ jobs:
       env:
         VECTOR_AUTH_USER: ${{ steps.vault.outputs.VECTOR_AUTH_USER }}
         VECTOR_AUTH_PASSWORD: ${{ steps.vault.outputs.VECTOR_AUTH_PASSWORD }}
+        INTERNAL_SERVICE_TOKEN: ${{ steps.vault.outputs.INTERNAL_SERVICE_TOKEN }}
+        # The billing fan-out is deliberately UAT-only and is enabled only
+        # when this delivery includes agent-proxy. Vector keeps the local
+        # HTTP source and pushes to the authenticated Billing ingress.
+        VECTOR_BILLING_INGEST_ENABLED: ${{ needs.provision.outputs.deployment_env == 'uat' && contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && 'true' || 'false' }}
+        VECTOR_BILLING_INGEST_ADDRESS: 127.0.0.1:8686
+        VECTOR_BILLING_INGEST_URL: https://billing-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/v1/ingest/snapshots
+        VECTOR_SNAPSHOT_URL: ${{ needs.provision.outputs.deployment_env == 'uat' && contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && 'http://127.0.0.1:8686' || '' }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_monitor_agent.sh
