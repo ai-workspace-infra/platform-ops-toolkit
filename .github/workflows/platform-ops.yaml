@@ -1158,9 +1158,11 @@ jobs:
       needs.provision.outputs.terraform_action == 'apply' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     env:
-      VAULT_ADDR: ${{ env.VAULT_ADDR }}
-      VAULT_ROLE: ${{ env.VAULT_ROLE }}
-      VAULT_KV: ${{ env.VAULT_KV }}
+      # Job-level env cannot reference the workflow-level env context. Keep
+      # the DNS reconciler explicitly scoped to the UAT Vault role/path.
+      VAULT_ADDR: https://vault.svc.plus
+      VAULT_ROLE: github-actions-platform-ops-toolkit-uat
+      VAULT_KV: kv/data/CICD
       DEPLOY_ENV: uat
       TARGET_DOMAIN_BASE: onwalk.net
       CMDB_FILE: cmdb/cmdb.json
