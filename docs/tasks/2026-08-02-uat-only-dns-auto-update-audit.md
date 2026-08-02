@@ -30,7 +30,7 @@
 - [x] 审计现有 workflow、路由、Cloudflare 脚本与 playbook role
 - [x] 选定 UAT-only 独立 job + 幂等 upsert 方案
 - [x] 实现与本地测试
-- [ ] 提交并创建 PR
+- [x] 提交并创建 PR（draft PR #242）
 
 ## 验证记录
 
@@ -42,3 +42,10 @@
 - 第二次 mock 执行：三条记录均 unchanged，零 POST/PUT/DELETE。
 
 所有验证均使用本地 mock 或静态检查，未提供或调用真实 Cloudflare DNS 凭据。
+
+## 交付
+
+- 分支：`feature/uat-only-dns-auto-update`
+- 提交：`feat(uat): add fixed-record DNS reconciliation`
+- PR：`https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/242`
+- 状态：等待 review/merge；本任务未执行 Cloudflare DNS 变更。
