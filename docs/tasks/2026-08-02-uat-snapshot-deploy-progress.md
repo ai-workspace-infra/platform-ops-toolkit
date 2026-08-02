@@ -63,6 +63,17 @@ Unable to retrieve result for kv/data/CICD/observability because it was not foun
 
 这只影响 Vector/Observability agent 的配置，不应阻断 Xray → Exporter → Billing → PostgreSQL → Accounts → Portal 计费链路。需要在 UAT Vault 初始化 observability 配置，或在部署编排中为 UAT 增加明确的非生产默认配置；不应把生产 secret 写入 Git。
 
+### 新增观测日志：本地 exporter 未就绪
+
+UAT `agent-proxy.onwalk.net` 的 Vector 日志还出现：
+
+```text
+node_metrics: http://127.0.0.1:9100/metrics → HTTP 503
+process_metrics: http://127.0.0.1:9256/metrics → timeout > 5s
+```
+
+这说明 Vector 已按配置工作，但 node-exporter/process-exporter 尚未就绪、异常或受资源压力影响；它不是 Billing 写入失败。Playbooks 当前 Vector 模板固定采集这两个本地 endpoint，同时把 Xray `/scrape` 作为独立 source。应先检查 `node-exporter.service`、`process-exporter.service` 的 active 状态和本地响应，再判断是否需要调低采集频率或修复 exporter 服务；不要通过关闭 Xray 采集来规避。
+
 ### 待验证：服务部署与页面数据
 
 当前第一轮 workflow 仍有 agent-proxy 原生服务 job 在收尾，结束后才能通过并发保护重新 dispatch 新 tag。下一轮需要验证：
