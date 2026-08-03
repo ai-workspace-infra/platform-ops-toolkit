@@ -595,7 +595,8 @@ jobs:
     - name: Bootstrap node according to CMDB role
       working-directory: playbooks
       env:
-        VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
+        # vault-action exportToken: true writes VAULT_TOKEN to GITHUB_ENV.
+        # Do not overwrite it with the non-existent vault_token output.
         # MATRIX_HOST / ANSIBLE_HOST_KEY_CHECKING / ANSIBLE_SSH_ARGS / TARGET_DOMAIN_BASE from job env
         #
         # web_saas_host_config 角色读这些环境变量渲染主机侧配置(见
@@ -860,7 +861,6 @@ jobs:
     - name: Create Web SaaS databases and roles
       working-directory: playbooks
       env:
-        VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
         ROOT_BOOTSTRAP_PASSWORD: ${{ steps.vault.outputs.ROOT_BOOTSTRAP_PASSWORD }}
         # Pass the exact credentials used by the application deployment into
         # the idempotent role reconciliation. This removes the implicit
@@ -1332,7 +1332,6 @@ jobs:
     - name: Deploy native agent-proxy services
       working-directory: playbooks
       env:
-        VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
         INTERNAL_SERVICE_TOKEN: ${{ steps.vault.outputs.INTERNAL_SERVICE_TOKEN }}
         AGENT_CONTROLLER_URL: https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
         AGENT_CONTROLLER_IP: ${{ steps.controller.outputs.ip }}
