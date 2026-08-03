@@ -52,6 +52,10 @@ The cross-repository Xray billing and observability delivery is tracked in the [
 
 The cross-node Billing trigger ingress is tracked in [the Billing Caddy task](docs/tasks/2026-08-02-billing-caddy-cross-node-ingress.md). It keeps Billing as the PostgreSQL writer, exposes its job trigger through a CIDR-restricted Caddy hostname, and keeps Exporter/observability separate from the billing source of truth.
 
+The complete `uat-daily-build-2026.08.03-r6` deployment, repository/environment
+map, CI root-cause record, runtime evidence and remaining Xray data-plane gaps
+are tracked in the [UAT r6 final handoff](docs/tasks/2026-08-03-uat-r6-final-handoff.md).
+
 > ⚠️ **`pull_request` and merge-triggered pushes are plan-only.** Both `pull_request` and the `main` / `release/*` push routes now set `terraform_action=plan` and `toolkit_action=none`, so they validate IaC without creating or mutating real infrastructure. Use `workflow_dispatch` when you want an actual apply/deploy run.
 
 #### `cloud_provider` (workflow_dispatch only, required)

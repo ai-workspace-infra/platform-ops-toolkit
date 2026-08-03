@@ -21,6 +21,153 @@ default branches and verified against the current UAT resources:
 Production hosts and `svc.plus` DNS were not modified. Production was used only
 as read-only reference material during earlier analysis.
 
+## Scope and target architecture
+
+This delivery has two independent consumers of the same Xray Exporter. Vector
+is the fan-out boundary; Observability is not allowed to become a hard
+dependency of billing.
+
+Billing and quota path:
+
+```text
+Xray
+  -> ai-workspace-xstream/xray-exporter
+  -> Vector HTTP source / fan-out
+  -> Billing POST /v1/ingest/snapshots
+  -> shared PostgreSQL account database
+  -> Accounts GET /api/account/usage/summary
+  -> Portal /panel/account
+```
+
+Realtime monitoring path:
+
+```text
+Xray
+  -> ai-workspace-xstream/xray-exporter
+  -> Vector Prometheus scrape
+  -> Observability VictoriaMetrics remote-write
+  -> Grafana Xray Dashboard
+```
+
+The retained control path is separate:
+
+```text
+Accounts
+  -> agent-svc-plus
+  -> generated Xray client configuration
+  -> Xray reload
+```
+
+## Repository map
+
+| Repository | Responsibility in this delivery | Current `main` evidence at handoff | Key changes |
+| --- | --- | --- | --- |
+| [`ai-workspace-xstream/xray-exporter`](https://github.com/ai-workspace-xstream/xray-exporter) | Fork of upstream `compassvpn/xray-exporter` v0.6.0; exposes Xray metrics, builds replayable snapshots and POSTs snapshots to Vector | `9c544eb57d82`; r6 release published | [#6](https://github.com/ai-workspace-xstream/xray-exporter/pull/6), [#12](https://github.com/ai-workspace-xstream/xray-exporter/pull/12), [#15](https://github.com/ai-workspace-xstream/xray-exporter/pull/15) |
+| [`ai-workspace-services/billing-service`](https://github.com/ai-workspace-services/billing-service) | Authenticated snapshot ingest, UUID aggregation, rating, ledger/quota mutation | `e522bcc31e62` | [#24](https://github.com/ai-workspace-services/billing-service/pull/24), [#27](https://github.com/ai-workspace-services/billing-service/pull/27) |
+| [`ai-workspace-services/accounts`](https://github.com/ai-workspace-services/accounts) | Shared accounting schema, quota period, account summary API and canonical account/proxy UUID | `fc65cc5d7001` | [#45](https://github.com/ai-workspace-services/accounts/pull/45), [#46](https://github.com/ai-workspace-services/accounts/pull/46), [#48](https://github.com/ai-workspace-services/accounts/pull/48) |
+| [`ai-workspace-services/portal`](https://github.com/ai-workspace-services/portal) | `/panel/account` usage/quota presentation while retaining existing account functions | `5cc541b2ad34` | [#130](https://github.com/ai-workspace-services/portal/pull/130), [#131](https://github.com/ai-workspace-services/portal/pull/131), [#132](https://github.com/ai-workspace-services/portal/pull/132), [#133](https://github.com/ai-workspace-services/portal/pull/133) |
+| [`x-evor/agent.svc.plus`](https://github.com/x-evor/agent.svc.plus) | Agent Proxy registration, Accounts sync and generated Xray configuration | Built on the Agent Proxy host from the requested repository ref | Existing Agent Proxy role contract |
+| [`ai-workspace-infra/gitops`](https://github.com/ai-workspace-infra/gitops) | Pull-only Web SaaS compose declarations and immutable image pins | `a6b544c2f932`; UAT images pin r6 | [#131](https://github.com/ai-workspace-infra/gitops/pull/131), [#134](https://github.com/ai-workspace-infra/gitops/pull/134) |
+| [`ai-workspace-infra/playbooks`](https://github.com/ai-workspace-infra/playbooks) | Native Agent Proxy, Vector, Xray, exporter, Caddy, PostgreSQL and domain-CD roles | `1773f931bd05` | [#223](https://github.com/ai-workspace-infra/playbooks/pull/223), [#224](https://github.com/ai-workspace-infra/playbooks/pull/224), [#225](https://github.com/ai-workspace-infra/playbooks/pull/225), [#231](https://github.com/ai-workspace-infra/playbooks/pull/231), [#232](https://github.com/ai-workspace-infra/playbooks/pull/232), [#233](https://github.com/ai-workspace-infra/playbooks/pull/233), [#235](https://github.com/ai-workspace-infra/playbooks/pull/235), [#245](https://github.com/ai-workspace-infra/playbooks/pull/245) |
+| [`ai-workspace-infra/platform-ops-toolkit`](https://github.com/ai-workspace-infra/platform-ops-toolkit) | Terraform/CMDB orchestration, four-stage workflow, cross-repository refs, UAT DNS and verification gates | `599d0b093b47` | [#244](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/244), [#247](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/247), [#255](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/255), [#256](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/256) |
+
+The authoritative domain ownership is
+[`docs/domains/DELIVERY-MANIFEST.md`](../domains/DELIVERY-MANIFEST.md):
+`web-saas` owns Console, Accounts, Billing, Caddy and PostgreSQL;
+`agent-proxy` owns Caddy, Xray, Exporter, Vector and agent-svc-plus.
+
+## Version and artifact contract
+
+| Component | UAT version |
+| --- | --- |
+| Cross-repository snapshot | `uat-daily-build-2026.08.03-r6` |
+| Accounts image | `ghcr.io/ai-workspace-services/accounts:uat-daily-build-2026.08.03-r6` |
+| Billing image | `ghcr.io/ai-workspace-services/billing-service:uat-daily-build-2026.08.03-r6` |
+| Console image | `ghcr.io/ai-workspace-services/console:uat-daily-build-2026.08.03-r6` |
+| Xray Exporter release | [`uat-daily-build-2026.08.03-r6`](https://github.com/ai-workspace-xstream/xray-exporter/releases/tag/uat-daily-build-2026.08.03-r6) |
+| Xray Exporter binary commit | `9c544eb57d82c89017827b90222161552bd90f7e` |
+
+The exporter release contains Linux amd64/arm/arm64, Darwin amd64/arm64 and
+Windows amd64/arm64 assets. UAT must not fall back to a same-named release in
+`compassvpn/xray-exporter`; that upstream repository does not publish internal
+UAT snapshot tags.
+
+## Environment map
+
+| Item | UAT value / contract |
+| --- | --- |
+| Environment | `uat` |
+| Source/reference domain | `svc.plus` (read-only comparison only) |
+| Target base domain | `onwalk.net` |
+| Delivery domains | `web-saas + agent-proxy` |
+| Cloud/provider | Vultr VPS, Tokyo (`nrt`) |
+| Web SaaS plan | `2C4G` / `vc2-2c-4gb` |
+| Agent Proxy plan | matrix default `1C2G` / `vc2-1c-2gb` |
+| CD model | GitOps pull-only for Web SaaS; native Ansible for Agent Proxy |
+| Production DNS cutover | disabled (`confirm_dns_switch=false`) |
+| UAT DNS reconciliation | enabled (`uat_dns_update=true`) |
+| TLS | shared wildcard material restored from Vault before Caddy validation |
+
+Rendered UAT endpoints:
+
+| Endpoint | Role | Expected current IP |
+| --- | --- | --- |
+| `console-uat.onwalk.net` | Portal / Console | `167.179.110.129` |
+| `accounts-uat.onwalk.net` | Accounts API | `167.179.110.129` |
+| `billing-uat.onwalk.net` | Billing ingest / service ingress | `167.179.110.129` |
+| `postgresql-saas-uat.onwalk.net` | PostgreSQL tunnel/service alias | `167.179.110.129` |
+| `agent-proxy.onwalk.net` | Xray / Agent Proxy | `45.32.19.172` |
+
+Workflow refs used for the final verification run:
+
+| Input | Value |
+| --- | --- |
+| `deploy_tag` | `uat-daily-build-2026.08.03-r6` |
+| `toolkit_ref` | `main` |
+| `playbooks_ref` | `main` |
+| `gitops_ref` | `main` |
+| `infra_ref` | `main` |
+| `console_ref` | `uat-daily-build-2026.08.03-r6` |
+| `run_infrastructure` | `true` |
+| `run_application_deploy` | `true` |
+| `action` | `deploy` |
+| `offline_mode` | `off` |
+
+## Secrets, database and identity boundaries
+
+Only secret locations and key contracts are recorded here; values must never be
+copied into this document, GitHub Actions inputs or repository files.
+
+| Vault path | Purpose |
+| --- | --- |
+| `kv/data/CICD` | Shared pull credentials and common CI values |
+| `kv/data/CICD/uat` | UAT SSH, Vultr and Terraform backend credentials |
+| `kv/data/uat/databases` | UAT PostgreSQL service-role passwords, including `account_pg_password`, `billing_pg_password` and `postgres_root_password` |
+| `kv/data/uat/agent-proxy` | Agent Proxy UUID/runtime values |
+| `kv/data/WEB_SAAS` | Existing Web SaaS runtime values still consumed by the current deployment contract |
+
+Database invariants:
+
+- Accounts and Billing share the `account` PostgreSQL database; do not create a
+  second Billing database for this feature.
+- `account_pg_password` is the canonical shared runtime credential where the
+  shared-database path requires one credential.
+- `account_quota_states` owns remaining quota and period boundaries.
+- `traffic_minute_buckets` owns minute usage aggregation.
+- `billing_ledger` owns rated accounting entries.
+- `account_policy_snapshots` and `node_health_snapshots` remain part of the
+  shared accounting schema bootstrap.
+- Exporter fan-out must aggregate multiple nodes/inbounds by canonical user UUID
+  before rating; inbound tag is not a billing identity.
+
+Identity invariants:
+
+- `proxy_uuid == users.uuid`.
+- Portal QR UUID, Accounts UUID and Xray client UUID must remain identical.
+- Email is a human-readable correlation attribute; UUID is the accounting key.
+- UUID renewal/sandbox rotation must update the canonical UUID path instead of
+  generating an independent proxy identity.
+
 ## Runs
 
 | Run | Commit / purpose | Result |
@@ -144,6 +291,23 @@ The remote-write sink receives only those three inputs. There are no Vector
 Prometheus scrape sources for Xray Exporter ports `8080` and `8081`, so exporter
 series and their `instance`/node labels never reach Observability/Grafana.
 
+This is an ordering race, not missing implementation on `playbooks/main`:
+
+- `[2] Monitor Agent` depends only on the generic bootstrap stage and can run
+  before `[3] Agent Proxy` installs native Xray services.
+- `deploy_observability_agent.yml` currently derives
+  `vector_xray_exporter_enabled` from `pgrep -x xray`.
+- In this run Vector was rendered and started around 18:09, while native Xray
+  and exporter services started around 18:30.
+- The process check was therefore false when the template rendered. Both Xray
+  Prometheus sources were omitted and the later Agent Proxy job did not rerun
+  the Vector role.
+
+The generated CMDB `agent_proxy` group is the deployment intent and must be the
+authoritative render-time signal. A transient process check is suitable for
+deciding whether to touch an already-running legacy host, but not for deciding
+the desired configuration of a newly provisioned Agent Proxy.
+
 ### Billing snapshot gap
 
 Both exporter services logged once per minute:
@@ -156,6 +320,12 @@ Vector is active, but its current configuration does not listen for exporter
 snapshot POSTs on `127.0.0.1:8686`. Therefore no snapshot can fan out to
 Billing, no traffic/ledger/quota row can change, and Accounts correctly returns
 zero usage to Portal.
+
+The same ordering race suppresses the Billing HTTP source. The workflow passed
+`VECTOR_BILLING_INGEST_ENABLED=true`, the `127.0.0.1:8686` address, Billing URL
+and internal token, but the Vector template also gates `xray_snapshot_input` on
+`vector_xray_exporter_enabled`. Because Xray was not running yet, the otherwise
+valid Billing fan-out configuration was omitted.
 
 The current workflow verifier proves only that systemd services are active. It
 does not yet prove either data plane. The next chain fix must add both Vector
@@ -189,10 +359,12 @@ workflow alone.
 
 1. Finish run 30806223467 and record the DNS Gate duration.
 2. Add Vector Prometheus scrape sources for Xray Exporter ports `8080` and
-   `8081`, label them with the UAT node and transport, and retain the existing
-   remote-write sink.
-3. Add or enable the Vector HTTP source expected at `127.0.0.1:8686`; preserve
-   the existing observability sinks and fan out snapshots to Billing.
+   `8081` by treating membership in the generated `agent_proxy` group as the
+   desired-state signal; label them with the UAT node and transport and retain
+   the existing remote-write sink.
+3. Render the Vector HTTP source expected at `127.0.0.1:8686` from the same
+   desired-state signal; preserve the existing observability sinks and fan out
+   snapshots to Billing. Do not rely on `pgrep` during first bootstrap.
 4. Verify Grafana registration and Billing ingest, then shared PostgreSQL row
    changes, Accounts summary and Portal UI.
 5. Keep all mutations UAT-only. Treat `console.svc.plus` and
