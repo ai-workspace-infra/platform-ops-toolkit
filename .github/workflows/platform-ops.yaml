@@ -1209,6 +1209,7 @@ jobs:
           ${{ env.VAULT_KV }} CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN ;
 
     - name: Reconcile parameterized UAT DNS records
+      id: uat_dns
       env:
         CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops_uat_dns_reconcile.sh
@@ -1217,6 +1218,7 @@ jobs:
       env:
         DOMAIN: web-saas
         DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
+        OBSERVE_RESOLVE_IP: ${{ steps.uat_dns.outputs.web_saas_ip }}
         OBSERVE_URLS: >-
           https://billing-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
           https://console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/

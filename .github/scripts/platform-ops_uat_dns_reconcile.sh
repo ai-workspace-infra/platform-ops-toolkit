@@ -167,3 +167,11 @@ if [[ -n "${agent_proxy_ip}" ]]; then
   record_count=4
 fi
 echo "UAT DNS reconciliation completed for ${record_count} rendered records in ${UAT_ZONE}; web-saas ${web_saas_hosts[0]} (${web_saas_ip})${agent_proxy_ip:+, agent-proxy ${agent_proxy_hosts[0]} (${agent_proxy_ip})}."
+
+# The resolver used by the runner may retain the previous A record until its
+# recursive cache expires. Export the CMDB-authoritative target only after the
+# Cloudflare reconciliation succeeds so the following observation probes the
+# host deployed by this run instead of waiting on DNS propagation.
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  printf 'web_saas_ip=%s\n' "${web_saas_ip}" >> "${GITHUB_OUTPUT}"
+fi
