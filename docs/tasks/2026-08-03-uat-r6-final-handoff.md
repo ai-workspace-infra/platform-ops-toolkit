@@ -68,7 +68,7 @@ Accounts
 | [`ai-workspace-services/portal`](https://github.com/ai-workspace-services/portal) | `/panel/account` usage/quota presentation while retaining existing account functions | `5cc541b2ad34` | [#130](https://github.com/ai-workspace-services/portal/pull/130), [#131](https://github.com/ai-workspace-services/portal/pull/131), [#132](https://github.com/ai-workspace-services/portal/pull/132), [#133](https://github.com/ai-workspace-services/portal/pull/133) |
 | [`x-evor/agent.svc.plus`](https://github.com/x-evor/agent.svc.plus) | Agent Proxy registration, Accounts sync and generated Xray configuration | Built on the Agent Proxy host from the requested repository ref | Existing Agent Proxy role contract |
 | [`ai-workspace-infra/gitops`](https://github.com/ai-workspace-infra/gitops) | Pull-only Web SaaS compose declarations and immutable image pins | `a6b544c2f932`; UAT images pin r6 | [#131](https://github.com/ai-workspace-infra/gitops/pull/131), [#134](https://github.com/ai-workspace-infra/gitops/pull/134) |
-| [`ai-workspace-infra/playbooks`](https://github.com/ai-workspace-infra/playbooks) | Native Agent Proxy, Vector, Xray, exporter, Caddy, PostgreSQL and domain-CD roles | `1773f931bd05` | [#223](https://github.com/ai-workspace-infra/playbooks/pull/223), [#224](https://github.com/ai-workspace-infra/playbooks/pull/224), [#225](https://github.com/ai-workspace-infra/playbooks/pull/225), [#231](https://github.com/ai-workspace-infra/playbooks/pull/231), [#232](https://github.com/ai-workspace-infra/playbooks/pull/232), [#233](https://github.com/ai-workspace-infra/playbooks/pull/233), [#235](https://github.com/ai-workspace-infra/playbooks/pull/235), [#245](https://github.com/ai-workspace-infra/playbooks/pull/245) |
+| [`ai-workspace-infra/playbooks`](https://github.com/ai-workspace-infra/playbooks) | Native Agent Proxy, Vector, Xray, exporter, Caddy, PostgreSQL and domain-CD roles | `19112d62b9e4` after the final telemetry desired-state fix | [#223](https://github.com/ai-workspace-infra/playbooks/pull/223), [#224](https://github.com/ai-workspace-infra/playbooks/pull/224), [#225](https://github.com/ai-workspace-infra/playbooks/pull/225), [#231](https://github.com/ai-workspace-infra/playbooks/pull/231), [#232](https://github.com/ai-workspace-infra/playbooks/pull/232), [#233](https://github.com/ai-workspace-infra/playbooks/pull/233), [#235](https://github.com/ai-workspace-infra/playbooks/pull/235), [#245](https://github.com/ai-workspace-infra/playbooks/pull/245), [#246](https://github.com/ai-workspace-infra/playbooks/pull/246) |
 | [`ai-workspace-infra/platform-ops-toolkit`](https://github.com/ai-workspace-infra/platform-ops-toolkit) | Terraform/CMDB orchestration, four-stage workflow, cross-repository refs, UAT DNS and verification gates | `599d0b093b47` | [#244](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/244), [#247](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/247), [#255](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/255), [#256](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/256) |
 
 The authoritative domain ownership is
@@ -308,6 +308,13 @@ authoritative render-time signal. A transient process check is suitable for
 deciding whether to touch an already-running legacy host, but not for deciding
 the desired configuration of a newly provisioned Agent Proxy.
 
+Permanent fix: [ai-workspace-infra/playbooks#246](https://github.com/ai-workspace-infra/playbooks/pull/246),
+merged as `19112d62b9e49a93a6dd0e3e9cfb4b0d9e411d44`. It derives Vector's
+desired Xray telemetry state from membership in the generated `agent_proxy`
+group and retains the process check only as a compatibility fallback. The PR is
+merged but was not present when run 30806223467 checked out playbooks; a later
+UAT run must provide runtime evidence for it.
+
 ### Billing snapshot gap
 
 Both exporter services logged once per minute:
@@ -342,6 +349,93 @@ Exporter accepted by Vector
 Do not declare the Xray billing chain complete from a green infrastructure
 workflow alone.
 
+## Decisions that must survive handoff
+
+- Billing and Accounts remain in one PostgreSQL database.
+- Vector is the fan-out boundary. Billing does not directly poll Exporter by
+  default, and Observability is not a required hop for billing correctness.
+- Existing Accounts/Xray/Portal control functions remain in place; this feature
+  is additive.
+- Multiple Xray nodes and multiple inbounds aggregate by canonical UUID before
+  rating. Email is retained for operator correlation.
+- UAT uses `onwalk.net`; production `svc.plus` hosts and DNS are outside the
+  mutation scope.
+- UAT TLS is restored from Vault wildcard material before Caddy verification.
+- Web SaaS CD remains pull-only: GitHub Actions updates GitOps refs where
+  authorized, while Doco-CD performs the actual compose reconciliation.
+- Every deployable repository must publish the same immutable snapshot tag.
+  Exporter is included in that contract and must not use an unrelated fixed tag.
+
+## Read-only verification runbook
+
+Workflow state:
+
+```bash
+gh run view 30806223467 \
+  --repo ai-workspace-infra/platform-ops-toolkit \
+  --json status,conclusion,jobs
+```
+
+Public DNS, avoiding the workstation's potentially stale resolver cache:
+
+```bash
+for host in \
+  console-uat.onwalk.net \
+  accounts-uat.onwalk.net \
+  billing-uat.onwalk.net \
+  agent-proxy.onwalk.net
+do
+  dig +short @1.1.1.1 A "$host"
+done
+```
+
+Agent Proxy service and generated Vector configuration:
+
+```bash
+ssh root@45.32.19.172 \
+  'systemctl is-active vector xray xray-tcp xray-exporter-xhttp xray-exporter-tcp agent-svc-plus'
+
+ssh root@45.32.19.172 \
+  'ss -lntp | grep -E ":(8080|8081|8686)\\b"'
+
+ssh root@45.32.19.172 \
+  'grep -nE "xray_xhttp_metrics|xray_tcp_metrics|xray_snapshot_input|billing_snapshot_ingest" /etc/vector/vector.toml'
+```
+
+Data-plane logs:
+
+```bash
+ssh root@45.32.19.172 \
+  'journalctl -u vector -u xray-exporter-xhttp -u xray-exporter-tcp --since "10 minutes ago" --no-pager'
+```
+
+Shared accounting rows on the UAT Web SaaS host:
+
+```bash
+ssh root@167.179.110.129 \
+  'docker exec web-saas-postgresql psql -U postgres -d account -c \
+  "select count(*) from traffic_minute_buckets; \
+   select count(*) from billing_ledger; \
+   select count(*) from account_quota_states;"'
+```
+
+Do not print environment files, database URLs, Vault responses, internal tokens
+or user UUID lists into CI logs or handoff documents.
+
+## Rollback and recovery boundaries
+
+- Application rollback: pin all Web SaaS images and the exporter release to one
+  earlier complete cross-repository snapshot; do not mix tags per service.
+- Playbook rollback: revert through a PR and rerun UAT with an explicit
+  `playbooks_ref`; do not edit the host as the lasting source of truth.
+- DNS rollback: reconcile parameterized UAT records from the CMDB of the chosen
+  UAT run. Never use the production DNS switch for a UAT correction.
+- Database rollback: schema changes are additive and idempotent. Do not drop the
+  shared account database or rerun destructive baseline SQL against existing
+  data.
+- Host debugging may temporarily inspect or restart UAT services, but every
+  durable correction must return to Git, PR review and a reproducible run.
+
 ## Final evidence checklist
 
 - [x] PostgreSQL dedicated-role TCP authentication passes.
@@ -351,6 +445,7 @@ workflow alone.
 - [x] Current UAT Web SaaS endpoints complete TLS and return HTTP responses.
 - [ ] Run 30806223467 completes successfully from the #256 merge commit.
 - [ ] DNS Gate duration confirms the resolver-cache wait is removed.
+- [x] CMDB-based Vector desired-state fix merged in playbooks #246.
 - [ ] Vector scrapes exporter ports 8080/8081 and Grafana lists the UAT node.
 - [ ] Exporter-to-Vector snapshot listener and Billing fan-out are verified.
 - [ ] PostgreSQL, Accounts summary and Portal show non-zero UAT usage.
