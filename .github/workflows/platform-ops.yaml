@@ -213,8 +213,11 @@ env:
   PLAYBOOKS_DIR: infra/playbooks
 
 jobs:
+  # GitHub Actions renders jobs as a dependency graph.  Keep every job and
+  # dependency intact, but use four stable visual stages in job names so the
+  # matrix fan-out remains readable: Prepare, Bootstrap, Workloads, Gate.
   provision:
-    name: Resolve Profile, Provision Environment & Init Secrets
+    name: "[0] Prepare | profile + infra"
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     # Static job-level env: inputs known at job start (no step output refs allowed here)
     env:
@@ -476,7 +479,7 @@ jobs:
   # 步骤 2: 基础环境安装 (Bootstrap Deploy)
   # ---------------------------------------------------------------------------
   deploy_base:
-    name: Bootstrap Node on ${{ matrix.host }}
+    name: "[1] Bootstrap | ${{ matrix.host }}"
     # 只初始化节点；服务安装由后续 deploy_* jobs 负责。
     needs: provision
     if: >-
@@ -659,7 +662,7 @@ jobs:
   # ai-workspace-infra/gitops 并提交，以打通 CI 到 Pull-Only CD 的闭环。
   # ---------------------------------------------------------------------------
   update_gitops_tags:
-    name: Auto-update GitOps deploy tags
+    name: "[1] GitOps | deploy tags"
     needs: [provision]
     if: >-
       ${{ !cancelled() &&
@@ -765,7 +768,7 @@ jobs:
   # 报 "no HTTP response" / "HTTP 502" 全部 fail)。
   # 把建库挪到 observe 检查之前修复, 不是撤销任何一个 fix。
   initialize_web_saas_databases:
-    name: Initialize Web SaaS PostgreSQL Databases on ${{ matrix.host }}
+    name: "[2] DB Init | ${{ matrix.host }}"
     needs: [provision, deploy_base]
     if: >-
       ${{ !cancelled() &&
@@ -889,7 +892,7 @@ jobs:
   # switch_dns 等待两者都完成才切流量(最后一步流量门)。
   # observe 在 switch_dns 之后的 deploy_web_saas 中完成(DNS 此时已就位)。
   deploy_web_saas:
-    name: Deploy Web SaaS Services on ${{ matrix.host }}
+    name: "[2] Web SaaS | ${{ matrix.host }}"
     needs: [provision, deploy_base]
     if: >-
       ${{ !cancelled() &&
@@ -926,7 +929,7 @@ jobs:
   # OBSERVE_RESOLVE_IP 把域名钉到本次部署的主机, 这样 DNS 还没切(或者还指着
   # 一台已经销毁的老机器)时, 量到的依然是"我刚部署的这台"。
   observe_web_saas:
-    name: Observe Web SaaS on ${{ matrix.host }}
+    name: "[3] Observe | ${{ matrix.host }}"
     needs: [provision, deploy_base, deploy_web_saas, initialize_web_saas_databases]
     if: >-
       ${{ !cancelled() &&
@@ -1032,7 +1035,7 @@ jobs:
       run: ${{ github.workspace }}/.github/scripts/platform-ops_observe_backup-caddy-certs.sh
 
   switch_dns:
-    name: Switch DNS Traffic & Observe
+    name: "[3] DNS Gate | switch + observe"
     # 等核心业务 job 都完成才切流量 —— 这是流量门。
     needs: [
       provision,
@@ -1221,7 +1224,7 @@ jobs:
       run: bash playbooks/.github/scripts/domain-cd-observe-endpoints.sh
 
   deploy_infra_platform:
-    name: Deploy Open Platform Services on ${{ matrix.host }}
+    name: "[2] Infra | ${{ matrix.host }}"
     needs: [provision, deploy_base]
     if: >-
       ${{ !cancelled() &&
@@ -1244,7 +1247,7 @@ jobs:
       deploy_tag: ${{ needs.provision.outputs.deploy_tag }}
 
   deploy_agent_proxy:
-    name: Deploy Agent Proxy Services on ${{ matrix.host }}
+    name: "[3] Agent Proxy | ${{ matrix.host }}"
     # A fresh agent needs Accounts to be serving before its first sync can
     # generate the Xray runtime configs.  For an agent-only delivery there is
     # no local Web SaaS observe job, so a skipped observe is still valid; for
@@ -1371,7 +1374,7 @@ jobs:
         --become
 
   deploy_ai_workspace:
-    name: Deploy AI Workspace Services on ${{ matrix.host }}
+    name: "[2] AI Workspace | ${{ matrix.host }}"
     needs: [provision, deploy_base]
     if: >-
       ${{ !cancelled() &&
@@ -1394,7 +1397,7 @@ jobs:
       deploy_tag: ${{ needs.provision.outputs.deploy_tag }}
 
   deploy_monitor_agent:
-    name: Deploy Monitor Agent
+    name: "[2] Monitor Agent"
     needs: [provision, deploy_base]
     if: >-
       ${{ !cancelled() &&
