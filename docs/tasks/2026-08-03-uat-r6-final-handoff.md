@@ -123,15 +123,43 @@ completed TLS handshake and a live HTTP application response.
 ## Open chain-level item
 
 Pipeline success is not yet equivalent to end-to-end billing telemetry success.
-During online verification, both exporter services logged:
+At approximately 18:42 CST, the user-visible UAT state was:
+
+- Grafana `Xray Dashboard` did not list `agent-proxy.onwalk.net` in its Node
+  variable; only existing production/reference nodes were visible.
+- `https://console-uat.onwalk.net/panel/account` still displayed authoritative
+  usage `0 B`, quota `0 B`, no period boundary, and no policy/sync data.
+
+Online inspection explains both symptoms.
+
+### Realtime monitoring gap
+
+`/etc/vector/vector.toml` on Agent Proxy currently defines only:
+
+- `internal_metrics`
+- `node_metrics` from `127.0.0.1:9100`
+- `process_metrics` from `127.0.0.1:9256`
+
+The remote-write sink receives only those three inputs. There are no Vector
+Prometheus scrape sources for Xray Exporter ports `8080` and `8081`, so exporter
+series and their `instance`/node labels never reach Observability/Grafana.
+
+### Billing snapshot gap
+
+Both exporter services logged once per minute:
 
 ```text
 Vector snapshot push failed: Post "http://127.0.0.1:8686": connect: connection refused
 ```
 
 Vector is active, but its current configuration does not listen for exporter
-snapshot POSTs on `127.0.0.1:8686`. This must be handled as a separate chain
-fix and verified in order:
+snapshot POSTs on `127.0.0.1:8686`. Therefore no snapshot can fan out to
+Billing, no traffic/ledger/quota row can change, and Accounts correctly returns
+zero usage to Portal.
+
+The current workflow verifier proves only that systemd services are active. It
+does not yet prove either data plane. The next chain fix must add both Vector
+paths and then verify in order:
 
 ```text
 Exporter accepted by Vector
@@ -153,14 +181,19 @@ workflow alone.
 - [x] Current UAT Web SaaS endpoints complete TLS and return HTTP responses.
 - [ ] Run 30806223467 completes successfully from the #256 merge commit.
 - [ ] DNS Gate duration confirms the resolver-cache wait is removed.
-- [ ] Exporter-to-Vector snapshot listener and billing fan-out are verified.
+- [ ] Vector scrapes exporter ports 8080/8081 and Grafana lists the UAT node.
+- [ ] Exporter-to-Vector snapshot listener and Billing fan-out are verified.
+- [ ] PostgreSQL, Accounts summary and Portal show non-zero UAT usage.
 
 ## Safe continuation
 
 1. Finish run 30806223467 and record the DNS Gate duration.
-2. Add or enable the Vector HTTP source expected at `127.0.0.1:8686`; preserve
+2. Add Vector Prometheus scrape sources for Xray Exporter ports `8080` and
+   `8081`, label them with the UAT node and transport, and retain the existing
+   remote-write sink.
+3. Add or enable the Vector HTTP source expected at `127.0.0.1:8686`; preserve
    the existing observability sinks and fan out snapshots to Billing.
-3. Verify Billing ingest and shared PostgreSQL row changes before checking the
-   Accounts API and Portal UI.
-4. Keep all mutations UAT-only. Treat `console.svc.plus` and
+4. Verify Grafana registration and Billing ingest, then shared PostgreSQL row
+   changes, Accounts summary and Portal UI.
+5. Keep all mutations UAT-only. Treat `console.svc.plus` and
    `tky-proxy.svc.plus` as read-only references.
