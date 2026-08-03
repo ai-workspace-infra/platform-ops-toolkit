@@ -535,13 +535,11 @@ jobs:
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
           ${{ env.VAULT_KV }} ROOT_BOOTSTRAP_PASSWORD | ROOT_BOOTSTRAP_PASSWORD ;
           ${{ env.VAULT_KV_DATABASES }} account_pg_password | ACCOUNT_PG_PASSWORD ;
-          ${{ env.VAULT_KV_DATABASES }} billing_pg_password | BILLING_PG_PASSWORD ;
           ${{ env.VAULT_KV }} AI_WORKSPACE_AUTH_TOKEN | AI_WORKSPACE_AUTH_TOKEN ;
           ${{ env.VAULT_KV }} GHCR_USERNAME | GHCR_USERNAME ;
           ${{ env.VAULT_KV }} GHCR_TOKEN | GHCR_PASSWORD ;
           ${{ env.VAULT_KV_DATABASES }} postgres_root_password | WEB_SAAS_POSTGRES_PASSWORD ;
           ${{ env.VAULT_KV_DATABASES }} account_pg_password | WEB_SAAS_ACCOUNT_PG_PASSWORD ;
-          ${{ env.VAULT_KV_DATABASES }} billing_pg_password | WEB_SAAS_BILLING_DB_PASSWORD ;
           ${{ env.VAULT_KV_WEB_SAAS }} AUTH_TOKEN_PUBLIC_TOKEN | WEB_SAAS_AUTH_TOKEN_PUBLIC_TOKEN ;
           ${{ env.VAULT_KV_WEB_SAAS }} AUTH_TOKEN_REFRESH_SECRET | WEB_SAAS_AUTH_TOKEN_REFRESH_SECRET ;
           ${{ env.VAULT_KV_WEB_SAAS }} AUTH_TOKEN_ACCESS_SECRET | WEB_SAAS_AUTH_TOKEN_ACCESS_SECRET ;
@@ -604,7 +602,10 @@ jobs:
         # 静默渲染出一个能起来但连不上的服务。
         WEB_SAAS_POSTGRES_PASSWORD:        ${{ steps.vault.outputs.WEB_SAAS_POSTGRES_PASSWORD }}
         ACCOUNT_PG_PASSWORD:               ${{ steps.vault.outputs.WEB_SAAS_ACCOUNT_PG_PASSWORD }}
-        BILLING_DB_PASSWORD:               ${{ steps.vault.outputs.WEB_SAAS_BILLING_DB_PASSWORD }}
+        # Billing and Accounts share account/account_user. Keep the compose
+        # compatibility variable, but source it from the canonical account
+        # credential rather than a separate billing secret.
+        BILLING_DB_PASSWORD:               ${{ steps.vault.outputs.WEB_SAAS_ACCOUNT_PG_PASSWORD }}
         ROOT_BOOTSTRAP_PASSWORD:           ${{ steps.vault.outputs.ROOT_BOOTSTRAP_PASSWORD }}
         AUTH_TOKEN_PUBLIC_TOKEN:           ${{ steps.vault.outputs.WEB_SAAS_AUTH_TOKEN_PUBLIC_TOKEN }}
         AUTH_TOKEN_REFRESH_SECRET:         ${{ steps.vault.outputs.WEB_SAAS_AUTH_TOKEN_REFRESH_SECRET }}
@@ -862,7 +863,6 @@ jobs:
         # the idempotent role reconciliation. This removes the implicit
         # database-Vault fallback and makes the DB-init/app contract explicit.
         ACCOUNT_PG_PASSWORD: ${{ steps.vault.outputs.ACCOUNT_PG_PASSWORD }}
-        BILLING_PG_PASSWORD: ${{ steps.vault.outputs.BILLING_PG_PASSWORD }}
         VAULT_ENV_PATH: ${{ needs.provision.outputs.vault_env_path }}
         POSTGRESQL_DEPLOY_MODE: compose
       run: >-
