@@ -89,14 +89,14 @@ on:
         default: "https://observability.svc.plus"
         type: string
       xray_exporter_release_repository:
-        description: "xray-exporter 发布仓库；默认使用线上兼容基线 compassvpn/xray-exporter，UAT 可覆盖为验证仓库"
+        description: "xray-exporter 发布仓库；留空时 UAT 自动使用 ai-workspace-xstream/xray-exporter，生产使用 compassvpn/xray-exporter"
         required: false
-        default: "compassvpn/xray-exporter"
+        default: ""
         type: string
       xray_exporter_version:
-        description: "xray-exporter 发布 tag；默认 v0.6.0"
+        description: "xray-exporter 发布 tag；留空时 UAT 跟随 deploy_tag，生产使用 v0.6.0"
         required: false
-        default: "v0.6.0"
+        default: ""
         type: string
       run_full_stack:
         description: "一键整套初始化: 申请 IaC 资源 -> 部署业务应用 -> 发布 DNS。勾选后强制打开下面两个开关与 DNS 发布, 用于从零拉起一个 sit/uat/prod 副本"
@@ -156,7 +156,7 @@ on:
         default: false
         type: boolean
       uat_dns_update:
-        description: "仅 UAT: 幂等更新 billing/console/accounts 的 onwalk.net A 记录；不会触碰 svc.plus"
+        description: "仅 UAT: 幂等更新 billing/console/accounts/agent-proxy 的目标域 A 记录；不会触碰 svc.plus"
         required: false
         default: false
         type: boolean
@@ -1347,8 +1347,11 @@ jobs:
         AGENT_BILLING_ENABLED: ${{ needs.provision.outputs.deployment_env != 'uat' && 'true' || 'false' }}
         EXPORTER_ENV: ${{ needs.provision.outputs.deployment_env }}
         ACCOUNTS_BASE_URL: https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
-        XRAY_EXPORTER_RELEASE_REPOSITORY: ${{ github.event.inputs.xray_exporter_release_repository || 'compassvpn/xray-exporter' }}
-        XRAY_EXPORTER_VERSION: ${{ github.event.inputs.xray_exporter_version || 'v0.6.0' }}
+        # A UAT snapshot tag is published by the fork, not by the upstream
+        # compatibility repository. Derive both values from the resolved
+        # deployment unless the operator explicitly overrides them.
+        XRAY_EXPORTER_RELEASE_REPOSITORY: ${{ github.event.inputs.xray_exporter_release_repository || (needs.provision.outputs.deployment_env == 'uat' && 'ai-workspace-xstream/xray-exporter' || 'compassvpn/xray-exporter') }}
+        XRAY_EXPORTER_VERSION: ${{ github.event.inputs.xray_exporter_version || (needs.provision.outputs.deployment_env == 'uat' && needs.provision.outputs.deploy_tag || 'v0.6.0') }}
         XRAY_EXPORTER_LISTEN_ADDR: ${{ needs.provision.outputs.deployment_env == 'uat' && '0.0.0.0:8080' || '127.0.0.1:8080' }}
         XRAY_EXPORTER_TCP_LISTEN_ADDR: ${{ needs.provision.outputs.deployment_env == 'uat' && '0.0.0.0:8081' || '127.0.0.1:8081' }}
         # UAT keeps the exporter -> local Vector hand-off on the agent host.
