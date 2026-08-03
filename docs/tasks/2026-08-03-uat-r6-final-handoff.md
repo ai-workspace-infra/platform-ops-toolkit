@@ -68,7 +68,7 @@ Accounts
 | [`ai-workspace-services/portal`](https://github.com/ai-workspace-services/portal) | `/panel/account` usage/quota presentation while retaining existing account functions | `5cc541b2ad34` | [#130](https://github.com/ai-workspace-services/portal/pull/130), [#131](https://github.com/ai-workspace-services/portal/pull/131), [#132](https://github.com/ai-workspace-services/portal/pull/132), [#133](https://github.com/ai-workspace-services/portal/pull/133) |
 | [`x-evor/agent.svc.plus`](https://github.com/x-evor/agent.svc.plus) | Agent Proxy registration, Accounts sync and generated Xray configuration | Built on the Agent Proxy host from the requested repository ref | Existing Agent Proxy role contract |
 | [`ai-workspace-infra/gitops`](https://github.com/ai-workspace-infra/gitops) | Pull-only Web SaaS compose declarations and immutable image pins | `a6b544c2f932`; UAT images pin r6 | [#131](https://github.com/ai-workspace-infra/gitops/pull/131), [#134](https://github.com/ai-workspace-infra/gitops/pull/134) |
-| [`ai-workspace-infra/playbooks`](https://github.com/ai-workspace-infra/playbooks) | Native Agent Proxy, Vector, Xray, exporter, Caddy, PostgreSQL and domain-CD roles | `19112d62b9e4`; exporter ownership follow-up is PR #247 | [#223](https://github.com/ai-workspace-infra/playbooks/pull/223), [#224](https://github.com/ai-workspace-infra/playbooks/pull/224), [#225](https://github.com/ai-workspace-infra/playbooks/pull/225), [#231](https://github.com/ai-workspace-infra/playbooks/pull/231), [#232](https://github.com/ai-workspace-infra/playbooks/pull/232), [#233](https://github.com/ai-workspace-infra/playbooks/pull/233), [#235](https://github.com/ai-workspace-infra/playbooks/pull/235), [#245](https://github.com/ai-workspace-infra/playbooks/pull/245), [#246](https://github.com/ai-workspace-infra/playbooks/pull/246), [#247](https://github.com/ai-workspace-infra/playbooks/pull/247) |
+| [`ai-workspace-infra/playbooks`](https://github.com/ai-workspace-infra/playbooks) | Native Agent Proxy, Vector, Xray, exporter, Caddy, PostgreSQL and domain-CD roles | `5b09ded648fd` after telemetry desired-state and exporter ownership fixes | [#223](https://github.com/ai-workspace-infra/playbooks/pull/223), [#224](https://github.com/ai-workspace-infra/playbooks/pull/224), [#225](https://github.com/ai-workspace-infra/playbooks/pull/225), [#231](https://github.com/ai-workspace-infra/playbooks/pull/231), [#232](https://github.com/ai-workspace-infra/playbooks/pull/232), [#233](https://github.com/ai-workspace-infra/playbooks/pull/233), [#235](https://github.com/ai-workspace-infra/playbooks/pull/235), [#245](https://github.com/ai-workspace-infra/playbooks/pull/245), [#246](https://github.com/ai-workspace-infra/playbooks/pull/246), [#247](https://github.com/ai-workspace-infra/playbooks/pull/247) |
 | [`ai-workspace-infra/platform-ops-toolkit`](https://github.com/ai-workspace-infra/platform-ops-toolkit) | Terraform/CMDB orchestration, four-stage workflow, cross-repository refs, UAT DNS and verification gates | `599d0b093b47` | [#244](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/244), [#247](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/247), [#255](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/255), [#256](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/256) |
 
 The authoritative domain ownership is
@@ -319,9 +319,10 @@ The same verification run exposed a second ownership race. The generic Monitor
 Agent job included `vhosts/xray-exporter` after Xray became visible and rewrote
 the Agent Proxy domain's transport-specific API endpoints from `28080/28181`
 to legacy defaults `18080/18081`. This leaves services active while every
-exporter scrape fails. [ai-workspace-infra/playbooks#247](https://github.com/ai-workspace-infra/playbooks/pull/247)
-makes the Agent Proxy deployment the sole owner of its exporter units; Monitor
-Agent continues to own Vector and generic host telemetry.
+exporter scrape fails. [ai-workspace-infra/playbooks#247](https://github.com/ai-workspace-infra/playbooks/pull/247),
+merged as `5b09ded648fde791f32786547cd6bf993cacf236`, makes the Agent Proxy
+deployment the sole owner of its exporter units; Monitor Agent continues to own
+Vector and generic host telemetry.
 
 ### Billing snapshot gap
 
@@ -454,7 +455,8 @@ or user UUID lists into CI logs or handoff documents.
 - [x] Run 30806223467 completes successfully from the #256 merge commit.
 - [x] DNS Gate completes in about 12 seconds; the resolver-cache wait is removed.
 - [x] CMDB-based Vector desired-state fix merged in playbooks #246.
-- [ ] Agent Proxy exporter ownership fix in playbooks #247 is merged and deployed.
+- [x] Agent Proxy exporter ownership fix is merged in playbooks #247.
+- [ ] Playbooks #246 and #247 are deployed together and verified on UAT.
 - [ ] Vector scrapes exporter ports 8080/8081 and Grafana lists the UAT node.
 - [ ] Exporter-to-Vector snapshot listener and Billing fan-out are verified.
 - [ ] PostgreSQL, Accounts summary and Portal show non-zero UAT usage.
