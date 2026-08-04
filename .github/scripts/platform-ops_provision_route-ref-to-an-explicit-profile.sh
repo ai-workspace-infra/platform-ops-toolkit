@@ -139,8 +139,18 @@ else
         deployment_env=prod; resource_file=prod/web-saas; terraform_workspace=prod-vultr-vps-platform-ops-toolkit-web-saas
         resource_files_full="config/resources/prod/web-saas.yaml"
         state_key=prod/vultr-vps/platform-ops-toolkit/web-saas.tfstate; target_domains=web-saas
-        run_infrastructure=true; run_application_deploy=true
-        terraform_action=apply; toolkit_action=deploy; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
+        # 与 main/release push 一样只做 plan 校验, 不自动 apply/部署 —— 这才是
+        # 文件顶部注释说的设计: "pull_request 和 branch/tag push 都只跑
+        # provision 阶段, 只有 workflow_dispatch 能真正 apply/deploy"。这里此前
+        # 是这条设计唯一的例外(run_application_deploy=true、terraform_action=
+        # apply), 2026-08-04 因此被撞了两次: 一次是跨仓快照脚本意外用
+        # v2026.8.4 打了 tag, 直接把这个仓库拉进一次真实 prod apply+deploy
+        # (只因 gitops/compose/web-saas/.env.prod 缺失才没跑完); 另一次是有意
+        # 打一个真正的发布快照点, 但同样不希望它在没人盯着的情况下自动落地。
+        # 打 release tag 现在只做 plan 校验, 真正的 prod 部署必须走
+        # workflow_dispatch 显式触发, 由人选择 action=deploy 并确认输入。
+        run_infrastructure=true; run_application_deploy=false
+        terraform_action=plan; toolkit_action=none; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
         cloud_provider="vultr-vps"
         source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=""; confirm_dns_switch=false
         ;;
