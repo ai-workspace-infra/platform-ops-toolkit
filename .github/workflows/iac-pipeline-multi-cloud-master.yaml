@@ -81,7 +81,11 @@ jobs:
     if: ${{ inputs.run_landingzone != false }}
     uses: ./.github/workflows/iac-pipeline-multi-cloud-landingzone-baseline.yaml
     with:
-      deploy_action: ${{ inputs.deploy_action || 'apply' }}
+      # push (this file's own change) 走的是空 inputs 上下文, || 'apply' 会让
+      # 那条路径悄悄用 apply 建资源。三个子 workflow 自己对 push/PR 的默认值
+      # 都是 'plan' (workflow_dispatch 的 deploy_action 选项 default 也是
+      # plan), 这里跟它们保持一致, 也保持这个文件自身声明的默认值一致。
+      deploy_action: ${{ inputs.deploy_action || 'plan' }}
       project: ${{ inputs.project || 'svc.plus' }}
       vault_env_path: ${{ inputs.vault_env_path || 'sit' }}
       cloud_provider: ${{ inputs.cloud_provider }}
@@ -98,7 +102,7 @@ jobs:
       (needs.landingzone.result == 'success' || needs.landingzone.result == 'skipped')
     uses: ./.github/workflows/iac-pipeline-multi-cloud-account-matrix.yaml
     with:
-      deploy_action: ${{ inputs.deploy_action || 'apply' }}
+      deploy_action: ${{ inputs.deploy_action || 'plan' }}
       project: ${{ inputs.project || 'svc.plus' }}
       vault_env_path: ${{ inputs.vault_env_path || 'sit' }}
       cloud_provider: ${{ inputs.cloud_provider }}
@@ -116,7 +120,7 @@ jobs:
       (needs.account.result == 'success' || needs.account.result == 'skipped')
     uses: ./.github/workflows/iac-pipeline-multi-cloud-resources-matrix.yaml
     with:
-      deploy_action: ${{ inputs.deploy_action || 'apply' }}
+      deploy_action: ${{ inputs.deploy_action || 'plan' }}
       project: ${{ inputs.project || 'svc.plus' }}
       vault_env_path: ${{ inputs.vault_env_path || 'sit' }}
       cloud_provider: ${{ inputs.cloud_provider }}
