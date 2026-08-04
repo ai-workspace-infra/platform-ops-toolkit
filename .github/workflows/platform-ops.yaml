@@ -572,6 +572,17 @@ jobs:
       run: |-
         ${{ github.workspace }}/.github/scripts/common_wait_for_host_ssh.sh
 
+
+    # SSH 可达不等于机器可用。新 VPS 此时通常还在跑 cloud-init 与
+    # unattended-upgrades, 它们持有 dpkg 前端锁 —— 后续任何 apt 任务撞上
+    # 就会中止整个部署(r8 即因此在 vector 安装处断掉, 结果 agent-proxy 上
+    # xray / exporter / vector 一个都没装上)。
+    #
+    # 在 bootstrap 阶段等一次, 就是 deploy_base "把基础条件准备就绪" 的含义:
+    # 后面每个 job 面对的都是首次启动已收敛的机器, 而不是靠每个 apt 任务
+    # 各自挂一个长超时去兜底。
+    - name: Wait for host first-boot package work
+      run: ${{ github.workspace }}/.github/scripts/common_wait_for_host_init.sh
     - name: Install Ansible
       run: ${{ github.workspace }}/.github/scripts/common_install_ansible.sh
 
