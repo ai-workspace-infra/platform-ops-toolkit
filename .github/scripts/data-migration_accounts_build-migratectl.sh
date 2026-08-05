@@ -16,8 +16,22 @@ if [ ! -d "${ACCOUNTS_DIR}/cmd/migratectl" ]; then
   exit 1
 fi
 
+# Pinned to a static linux/amd64 binary rather than the runner's native target:
+# the ssh transport copies this same file to the PROD and UAT hosts (both
+# x86_64) and runs it there inside a minimal container, so it must not depend on
+# the runner's architecture or on glibc being present in that image.
+export CGO_ENABLED=0
+export GOOS="${GOOS:-linux}"
+export GOARCH="${GOARCH:-amd64}"
+
 mkdir -p "$(dirname "${OUTPUT}")"
 (cd "${ACCOUNTS_DIR}" && go build -o "${OUTPUT}" ./cmd/migratectl)
 
-"${OUTPUT}" --help >/dev/null
-echo "migratectl built at ${OUTPUT}"
+# Only meaningful when building for the host we are on; skip it when cross
+# compiling so the check never becomes a false gate.
+if [ "$(go env GOOS)/$(go env GOARCH)" = "${GOOS}/${GOARCH}" ]; then
+  "${OUTPUT}" --help >/dev/null
+fi
+
+file "${OUTPUT}" 2>/dev/null || true
+echo "migratectl built at ${OUTPUT} (${GOOS}/${GOARCH}, static)"
