@@ -43,6 +43,26 @@ on:
         required: false
         default: "main"
         type: string
+      accounts_transport:
+        description: "ssh = run migratectl on each host (fallback); direct = runner connects to both databases"
+        required: false
+        default: "ssh"
+        type: string
+      accounts_source_host:
+        description: "ssh transport: PROD source host"
+        required: false
+        default: "console.svc.plus"
+        type: string
+      accounts_target_host:
+        description: "ssh transport: UAT target host"
+        required: false
+        default: "console-uat.onwalk.net"
+        type: string
+      accounts_email_filter:
+        description: "ssh transport: only migrate accounts whose email matches this keyword (empty = all)"
+        required: false
+        default: ""
+        type: string
   workflow_dispatch:
     inputs:
       vault_env_path:
@@ -94,6 +114,27 @@ on:
         required: false
         default: "main"
         type: string
+      accounts_transport:
+        description: "ssh = 在两端主机各自本机跑 migratectl（fallback，无需数据库对外暴露）；direct = runner 直连数据库（需 runner 能到达两端 PostgreSQL）"
+        required: false
+        default: "ssh"
+        type: choice
+        options: [ssh, direct]
+      accounts_source_host:
+        description: "ssh 传输：PROD 源主机"
+        required: false
+        default: "console.svc.plus"
+        type: string
+      accounts_target_host:
+        description: "ssh 传输：UAT 目标主机"
+        required: false
+        default: "console-uat.onwalk.net"
+        type: string
+      accounts_email_filter:
+        description: "ssh 传输：只迁移邮箱匹配该关键字的账号（留空=全量）。首次演练建议填一个测试账号"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -111,11 +152,16 @@ jobs:
   # accounts scope: the migratectl one-way incremental migration described in
   # docs/data_migration/accounts_prod_to_uat_migration_guide.md
   #
-  # Both DSNs live under the *target* environment's KV path. The PROD-side
-  # credential stored there is the SELECT-only `readonly` role, never the
-  # write-capable admin -- that is safeguard layer 4, and it is what lets a
-  # single env-scoped Vault role serve this job without reaching into
-  # kv/data/prod/*.
+  # Two transports, because neither database is reachable as a PostgreSQL
+  # endpoint from a hosted runner -- the only public ports (PROD 5433 / UAT
+  # 15433) are stunnel TLS listeners that a libpq client cannot speak to:
+  #
+  #   ssh     migratectl runs on each host, inside the PostgreSQL container's
+  #           netns. Needs no database password (pg_hba grants `trust` on the
+  #           container loopback) but does need root SSH on both hosts.
+  #   direct  migratectl runs on the runner against two DSNs from Vault. Needs a
+  #           runner that can reach both databases, and keeps the pipeline's only
+  #           PROD credential a SELECT-only one.
   # ---------------------------------------------------------------------------
   accounts_data_migration:
     name: Migrate Accounts Data (PROD -> UAT)
@@ -131,9 +177,13 @@ jobs:
         ref: ${{ inputs.toolkit_ref || 'main' }}
 
     # Cheap, database-free gate: if the anti-foolishness assertions themselves
-    # are broken there is no point reaching for credentials.
+    # are broken there is no point reaching for credentials. Both transports are
+    # checked regardless of which one runs -- they cost seconds.
     - name: Verify safeguard assertions
       run: .github/scripts/tests/accounts_data_migration_safeguard_test.sh
+
+    - name: Verify SSH transport safeguard assertions
+      run: .github/scripts/tests/accounts_data_migration_ssh_safeguard_test.sh
 
     - name: Checkout accounts service
       uses: actions/checkout@v7
@@ -154,8 +204,39 @@ jobs:
     - name: Build migratectl
       run: .github/scripts/data-migration_accounts_build-migratectl.sh
 
+    # ---- ssh transport -------------------------------------------------------
+    - name: Load SSH key from Vault
+      id: vault_ssh
+      if: ${{ (inputs.accounts_transport || 'ssh') == 'ssh' }}
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        role: ${{ env.VAULT_ROLE }}
+        method: jwt
+        jwtGithubAudience: vault
+        secrets: |
+          kv/data/CICD/${{ inputs.vault_env_path || 'sit' }} SSH_PRIVATE_DEPLOY_KEY_B64 | VAULT_ANSIBLE_SSH_KEY_B64 ;
+
+    - name: Configure SSH Key
+      if: ${{ (inputs.accounts_transport || 'ssh') == 'ssh' }}
+      env:
+        VAULT_ANSIBLE_SSH_KEY_B64: ${{ steps.vault_ssh.outputs.VAULT_ANSIBLE_SSH_KEY_B64 }}
+      run: .github/scripts/platform-ops_data_migration_configure-ssh-key.sh
+
+    - name: Run accounts migration over SSH (dry_run=${{ inputs.accounts_dry_run }})
+      if: ${{ (inputs.accounts_transport || 'ssh') == 'ssh' }}
+      env:
+        MIGRATION_SOURCE_HOST: ${{ inputs.accounts_source_host || 'console.svc.plus' }}
+        MIGRATION_TARGET_HOST: ${{ inputs.accounts_target_host || 'console-uat.onwalk.net' }}
+        MIGRATION_EMAIL_FILTER: ${{ inputs.accounts_email_filter }}
+        MIGRATECTL_BIN: ${{ github.workspace }}/bin/migratectl
+        DRY_RUN: ${{ inputs.accounts_dry_run && 'true' || 'false' }}
+      run: .github/scripts/accounts_data_migration_ssh.sh
+
+    # ---- direct transport ----------------------------------------------------
     - name: Load migration DSNs from Vault
       id: vault
+      if: ${{ (inputs.accounts_transport || 'ssh') == 'direct' }}
       uses: hashicorp/vault-action@v4
       with:
         url: ${{ env.VAULT_ADDR }}
@@ -167,12 +248,14 @@ jobs:
           ${{ env.VAULT_KV_ENV }} MIGRATION_TARGET_DSN | MIGRATION_TARGET_DSN ;
 
     - name: Assert migration credentials are present
+      if: ${{ (inputs.accounts_transport || 'ssh') == 'direct' }}
       env:
         MIGRATION_SOURCE_DSN: ${{ steps.vault.outputs.MIGRATION_SOURCE_DSN }}
         MIGRATION_TARGET_DSN: ${{ steps.vault.outputs.MIGRATION_TARGET_DSN }}
       run: .github/scripts/data-migration_accounts_assert-credentials.sh
 
     - name: Run accounts migration (dry_run=${{ inputs.accounts_dry_run }})
+      if: ${{ (inputs.accounts_transport || 'ssh') == 'direct' }}
       env:
         MIGRATION_SOURCE_DSN: ${{ steps.vault.outputs.MIGRATION_SOURCE_DSN }}
         MIGRATION_TARGET_DSN: ${{ steps.vault.outputs.MIGRATION_TARGET_DSN }}
