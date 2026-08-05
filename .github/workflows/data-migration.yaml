@@ -28,6 +28,21 @@ on:
         required: false
         default: "migrate"
         type: string
+      migration_scope:
+        description: "accounts = migratectl accounts data, site = domain-driven site migration"
+        required: false
+        default: "accounts"
+        type: string
+      accounts_dry_run:
+        description: "accounts scope: preview only, never write to the target DB"
+        required: false
+        default: true
+        type: boolean
+      accounts_ref:
+        description: "accounts repository Git Ref used to build migratectl"
+        required: false
+        default: "main"
+        type: string
   workflow_dispatch:
     inputs:
       vault_env_path:
@@ -58,11 +73,27 @@ on:
         default: "main"
         type: string
       toolkit_action:
-        description: "执行动作 (migrate, backup, restore)"
+        description: "执行动作 (migrate, backup, restore)，仅 migration_scope=site 时生效"
         required: true
         default: "migrate"
         type: choice
         options: [migrate, backup, restore]
+      migration_scope:
+        description: "迁移范围：accounts = migratectl 账号数据迁移；site = 按站点域名驱动的整站迁移"
+        required: true
+        default: "accounts"
+        type: choice
+        options: [accounts, site]
+      accounts_dry_run:
+        description: "accounts 范围：只做 dry-run 预览，绝不写入目标库"
+        required: false
+        default: true
+        type: boolean
+      accounts_ref:
+        description: "构建 migratectl 所用的 accounts 仓库 Git Ref"
+        required: false
+        default: "main"
+        type: string
 
 permissions:
   contents: read
@@ -76,8 +107,83 @@ env:
   VAULT_ADDR: https://vault.svc.plus
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # accounts scope: the migratectl one-way incremental migration described in
+  # docs/data_migration/accounts_prod_to_uat_migration_guide.md
+  #
+  # Both DSNs live under the *target* environment's KV path. The PROD-side
+  # credential stored there is the SELECT-only `readonly` role, never the
+  # write-capable admin -- that is safeguard layer 4, and it is what lets a
+  # single env-scoped Vault role serve this job without reaching into
+  # kv/data/prod/*.
+  # ---------------------------------------------------------------------------
+  accounts_data_migration:
+    name: Migrate Accounts Data (PROD -> UAT)
+    if: ${{ (inputs.migration_scope || 'accounts') == 'accounts' }}
+    runs-on: ${{ inputs.runner_type || 'ubuntu-latest' }}
+    env:
+      VAULT_ROLE: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'sit' }}
+      VAULT_KV_ENV: kv/data/${{ inputs.vault_env_path || 'sit' }}/accounts-migration
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.toolkit_ref || 'main' }}
+
+    # Cheap, database-free gate: if the anti-foolishness assertions themselves
+    # are broken there is no point reaching for credentials.
+    - name: Verify safeguard assertions
+      run: .github/scripts/tests/accounts_data_migration_safeguard_test.sh
+
+    - name: Checkout accounts service
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-services/accounts
+        ref: ${{ inputs.accounts_ref || 'main' }}
+        path: accounts
+
+    - name: Setup Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: accounts/go.mod
+        cache-dependency-path: accounts/go.sum
+
+    # One binary drives both ends on purpose: the snapshot carries a schemaHash
+    # taken from the binary's embedded schema.sql, and import rejects a snapshot
+    # whose hash differs. Building once is what keeps export and import agreeing.
+    - name: Build migratectl
+      run: .github/scripts/data-migration_accounts_build-migratectl.sh
+
+    - name: Load migration DSNs from Vault
+      id: vault
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        role: ${{ env.VAULT_ROLE }}
+        method: jwt
+        jwtGithubAudience: vault
+        secrets: |
+          ${{ env.VAULT_KV_ENV }} MIGRATION_SOURCE_DSN | MIGRATION_SOURCE_DSN ;
+          ${{ env.VAULT_KV_ENV }} MIGRATION_TARGET_DSN | MIGRATION_TARGET_DSN ;
+
+    - name: Assert migration credentials are present
+      env:
+        MIGRATION_SOURCE_DSN: ${{ steps.vault.outputs.MIGRATION_SOURCE_DSN }}
+        MIGRATION_TARGET_DSN: ${{ steps.vault.outputs.MIGRATION_TARGET_DSN }}
+      run: .github/scripts/data-migration_accounts_assert-credentials.sh
+
+    - name: Run accounts migration (dry_run=${{ inputs.accounts_dry_run }})
+      env:
+        MIGRATION_SOURCE_DSN: ${{ steps.vault.outputs.MIGRATION_SOURCE_DSN }}
+        MIGRATION_TARGET_DSN: ${{ steps.vault.outputs.MIGRATION_TARGET_DSN }}
+        MIGRATECTL_BIN: ${{ github.workspace }}/bin/migratectl
+        SNAPSHOT_FILE: ${{ runner.temp }}/account-prod-snapshot.yaml
+        DRY_RUN: ${{ inputs.accounts_dry_run && 'true' || 'false' }}
+      run: .github/scripts/accounts_data_migration.sh
+
   data_migration:
     name: Migrate Site Data (Source -> Target)
+    if: ${{ (inputs.migration_scope || 'accounts') == 'site' }}
     runs-on: ${{ inputs.runner_type || 'ubuntu-latest' }}
     env:
       ANSIBLE_HOST_KEY_CHECKING: "False"
