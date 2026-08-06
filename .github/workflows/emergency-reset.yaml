@@ -1,0 +1,20 @@
+name: Emergency Reset UAT Admin
+on:
+  workflow_dispatch:
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_PRIVATE_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+      - name: Run SQL Command
+        run: |
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/id_deploy ubuntu@console-uat.onwalk.net << 'EOF'
+            echo "Running SQL to restore UAT root user and disable MFA..."
+            docker exec accounts-db psql -U postgres -d accounts -c "BEGIN; DELETE FROM users WHERE role = 'root'; UPDATE users SET username = 'admin', email = 'admin@svc.plus', role = 'root', mfa_enabled = false WHERE username LIKE 'admin-conflict-%'; COMMIT;"
+            echo "Done!"
+          EOF
