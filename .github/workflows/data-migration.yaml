@@ -62,6 +62,7 @@ on:
         description: "ssh transport: only migrate accounts whose email matches this keyword (empty = all)"
         required: false
         default: ""
+        type: string
       site_target_domains:
         description: "site scope: 目标域名列表 (逗号分隔)"
         required: false
@@ -157,6 +158,8 @@ on:
       accounts_email_filter:
         description: "ssh 传输：只迁移邮箱匹配该关键字的账号（留空=全量）。首次演练建议填一个测试账号"
         required: false
+        default: ""
+        type: string
       site_target_domains:
         description: "site scope: 目标域名列表 (逗号分隔)"
         required: false
