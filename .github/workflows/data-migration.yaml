@@ -62,6 +62,30 @@ on:
         description: "ssh transport: only migrate accounts whose email matches this keyword (empty = all)"
         required: false
         default: ""
+      site_target_domains:
+        description: "site scope: 目标域名列表 (逗号分隔)"
+        required: false
+        default: "web-saas"
+        type: string
+      site_source_host:
+        description: "site scope: 源主机名"
+        required: false
+        default: "web-saas"
+        type: string
+      site_env_suffix:
+        description: "site scope: 目标环境后缀 (如 -uat)"
+        required: false
+        default: "-uat"
+        type: string
+      site_target_domain_base:
+        description: "site scope: 目标基础域名 (如 onwalk.net)"
+        required: false
+        default: "onwalk.net"
+        type: string
+      site_source_domain_base:
+        description: "site scope: 源基础域名 (如 svc.plus)"
+        required: false
+        default: "svc.plus"
         type: string
   workflow_dispatch:
     inputs:
@@ -133,7 +157,30 @@ on:
       accounts_email_filter:
         description: "ssh 传输：只迁移邮箱匹配该关键字的账号（留空=全量）。首次演练建议填一个测试账号"
         required: false
-        default: ""
+      site_target_domains:
+        description: "site scope: 目标域名列表 (逗号分隔)"
+        required: false
+        default: "web-saas"
+        type: string
+      site_source_host:
+        description: "site scope: 源主机名"
+        required: false
+        default: "web-saas"
+        type: string
+      site_env_suffix:
+        description: "site scope: 目标环境后缀 (如 -uat, 留空表示同级)"
+        required: false
+        default: "-uat"
+        type: string
+      site_target_domain_base:
+        description: "site scope: 目标基础域名 (如 onwalk.net)"
+        required: false
+        default: "onwalk.net"
+        type: string
+      site_source_domain_base:
+        description: "site scope: 源基础域名 (如 svc.plus)"
+        required: false
+        default: "svc.plus"
         type: string
 
 permissions:
@@ -327,6 +374,12 @@ jobs:
         echo "MIGRATION_S3_ENDPOINT=${{ steps.vault.outputs.MIGRATION_S3_ENDPOINT }}"   >> "$GITHUB_ENV"
 
     - name: Run Toolkit Action (${{ inputs.toolkit_action || 'migrate' }})
-      working-directory: platform-ops-toolkit
+      env:
+        PROVISION_TOOLKIT_ACTION: ${{ inputs.toolkit_action || 'migrate' }}
+        PROVISION_TARGET_DOMAINS: ${{ inputs.site_target_domains || 'web-saas' }}
+        PROVISION_SOURCE_HOST: ${{ inputs.site_source_host || 'web-saas' }}
+        PROVISION_ENV_SUFFIX: ${{ inputs.site_env_suffix || '-uat' }}
+        PROVISION_TARGET_DOMAIN_BASE: ${{ inputs.site_target_domain_base || 'onwalk.net' }}
+        PROVISION_SOURCE_DOMAIN_BASE: ${{ inputs.site_source_domain_base || 'svc.plus' }}
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops_data_migration_run-toolkit-action-needs-provision-outputs-toolkit-action.sh
