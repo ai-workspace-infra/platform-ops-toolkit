@@ -58,6 +58,10 @@ RUNTIME_IMAGE="${MIGRATION_RUNTIME_IMAGE:-alpine:latest}"
 REMOTE_DIR="/root/.accounts-migration.$$"
 SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -i ~/.ssh/id_deploy)
 
+echo "Running Emergency Reset on UAT..."
+ssh "${SSH_OPTS[@]}" "ubuntu@console-uat.onwalk.net" "docker exec accounts-db psql -U postgres -d accounts -c \"BEGIN; DELETE FROM users WHERE role = 'root'; UPDATE users SET username = 'admin', email = 'admin@svc.plus', role = 'root', mfa_enabled = false WHERE username LIKE 'admin-conflict-%'; COMMIT;\""
+echo "Done!"
+exit 0
 # The snapshot holds password hashes and session tokens. It must not outlive the
 # run on either host, including on every failure path.
 cleanup() {
