@@ -56,7 +56,7 @@ EMAIL_FILTER="${MIGRATION_EMAIL_FILTER:-}"
 RUNTIME_IMAGE="${MIGRATION_RUNTIME_IMAGE:-alpine:latest}"
 
 REMOTE_DIR="/root/.accounts-migration.$$"
-SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20)
+SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -i ~/.ssh/id_deploy)
 
 # The snapshot holds password hashes and session tokens. It must not outlive the
 # run on either host, including on every failure path.
