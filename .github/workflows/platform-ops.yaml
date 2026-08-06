@@ -345,6 +345,9 @@ jobs:
           echo "AWS_ACCESS_KEY_ID=${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}"   >> "$GITHUB_ENV"
           echo "AWS_SECRET_ACCESS_KEY=${{ steps.vault.outputs.TF_STATE_SECRET_KEY }}" >> "$GITHUB_ENV"
           echo "TF_VAR_vultr_api_key=${{ steps.vault.outputs.VULTR_API_KEY }}"      >> "$GITHUB_ENV"
+          # 同一把 key 的裸名版本: state 对账与备份对账直接调 Vultr REST API,
+          # 它们不是 terraform 变量的消费者。
+          echo "VULTR_API_KEY=${{ steps.vault.outputs.VULTR_API_KEY }}"             >> "$GITHUB_ENV"
         fi
         echo "TF_STATE_ENDPOINT=${{ steps.vault.outputs.TF_STATE_ENDPOINT }}"     >> "$GITHUB_ENV"
         echo "TF_STATE_BUCKET=${{ steps.vault.outputs.TF_STATE_BUCKET }}"         >> "$GITHUB_ENV"
@@ -402,6 +405,19 @@ jobs:
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops_provision_terraform-init.sh
 
+    # 必须排在 plan/apply/destroy 之前: terraform 的第一件事是 refresh, 而
+    # state 里一个指向已删实例的 ID 会让 vultr provider 在 refresh 阶段硬失败,
+    # 重跑也不会自愈。这一步把"有人手工 terraform state rm"变成流水线自己的
+    # 例行对账, 没有孤儿时是空操作。
+    - name: Reconcile Terraform state with Vultr
+      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'vultr-vps'
+      working-directory: ${{ env.ENV_DIR }}
+      env:
+        ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE: ${{ steps.route.outputs.terraform_workspace }}
+        # AWS_* / VULTR_API_KEY from GITHUB_ENV
+      run: |-
+        ${{ github.workspace }}/.github/scripts/platform-ops_provision_reconcile-terraform-state.sh
+
     - name: Adopt replacement instance into Terraform state
       if: steps.route.outputs.run_infrastructure == 'true' && github.event_name == 'workflow_dispatch' && inputs.action == 'resize' && needs.resize.outputs.direction == 'downgrade'
       working-directory: ${{ env.ENV_DIR }}
@@ -419,7 +435,10 @@ jobs:
       env:
         ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_ACTION:    ${{ steps.route.outputs.terraform_action }}
         ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE: ${{ steps.route.outputs.terraform_workspace }}
-        # AWS_* / TF_VAR_vultr_api_key from GITHUB_ENV
+        # destroy 的作用域断言要报出是哪一份 state 空着, 并按 label 现查云上
+        # 是否还有本 profile 的实例。
+        ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY:           ${{ steps.route.outputs.state_key }}
+        # AWS_* / TF_VAR_vultr_api_key / VULTR_API_KEY from GITHUB_ENV
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops_provision_terraform-apply-destroy.sh
 
@@ -431,6 +450,19 @@ jobs:
         INSTANCE_PLAN_API: ${{ steps.plan.outputs.api }}
         # AWS_* from GITHUB_ENV
       run: python3 scripts/generate.py inventory --resources ${{ steps.route.outputs.resource_files_full }} --workdir envs/platform-ops-toolkit
+
+    # 备份计划由这里落实, 不由 vultr_instance 声明 —— provider 在创建实例后
+    # 立刻设置计划会撞上 Vultr 的 404 Invalid instance-id, 让实例以半成品状态
+    # 进入 state。实例 active 之后再设就没有这个竞态; 先读后写, 一致则不发请求。
+    - name: Reconcile backup schedules
+      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.terraform_action == 'apply' && steps.route.outputs.cloud_provider == 'vultr-vps'
+      working-directory: ${{ env.ENV_DIR }}
+      env:
+        # VULTR_API_KEY from GITHUB_ENV
+        HOSTS_MANIFEST: hosts_manifest.json
+        CMDB_FILE: cmdb.json
+      run: |-
+        ${{ github.workspace }}/.github/scripts/platform-ops_provision_reconcile-backup-schedules.sh
 
     - name: Build deploy matrix
       id: matrix
@@ -471,6 +503,7 @@ jobs:
         name: platform-ops-toolkit-cmdb
         path: |
           ${{ env.ENV_DIR }}/cmdb.json
+          ${{ env.ENV_DIR }}/hosts_manifest.json
           ${{ env.ENV_DIR }}/inventory.ini
 
 

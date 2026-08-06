@@ -39,6 +39,9 @@ case "${ACTION}" in
     terraform apply -input=false -auto-approve "${plan_file}"
     ;;
   destroy)
+    # 空 workspace 上的 destroy 会输出 "0 destroyed" 并成功退出。断言这不是
+    # 选错 profile 造成的假绿 —— 机器还在跑、还在计费, 流水线却是绿的。
+    "${GITHUB_WORKSPACE:-.}/.github/scripts/platform-ops_provision_assert-destroy-scope.sh"
     terraform destroy -auto-approve -input=false
     ;;
   *)
