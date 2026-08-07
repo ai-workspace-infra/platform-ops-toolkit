@@ -5,6 +5,10 @@ set -eo pipefail
 require_env MATRIX_HOST
 
 # observability_endpoint is provided by workflow input, Vault config provides VECTOR_AUTH_USER and VECTOR_AUTH_PASSWORD.
+# Fall back to standard defaults if Vault path kv/data/CICD/observability is missing or not configured.
+VECTOR_AUTH_USER="${VECTOR_AUTH_USER:-observability}"
+VECTOR_AUTH_PASSWORD="${VECTOR_AUTH_PASSWORD:-vector-auth-default-token}"
+
 ansible-playbook -i ../cmdb/inventory.ini deploy_observability_agent.yml \
   --limit "${MATRIX_HOST}" \
   -e "vector_observability_endpoint=${OBSERVABILITY_ENDPOINT}" \
