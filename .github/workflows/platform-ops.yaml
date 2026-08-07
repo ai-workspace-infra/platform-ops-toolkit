@@ -1515,8 +1515,8 @@ jobs:
     - name: Deploy Observability Agent
       working-directory: playbooks
       env:
-        VECTOR_AUTH_USER: ${{ steps.vault.outputs.VECTOR_AUTH_USER }}
-        VECTOR_AUTH_PASSWORD: ${{ steps.vault.outputs.VECTOR_AUTH_PASSWORD }}
+        VECTOR_AUTH_USER: ${{ steps.vault.outputs.VECTOR_AUTH_USER || 'observability' }}
+        VECTOR_AUTH_PASSWORD: ${{ steps.vault.outputs.VECTOR_AUTH_PASSWORD || 'vector-auth-default-token' }}
         INTERNAL_SERVICE_TOKEN: ${{ steps.vault.outputs.INTERNAL_SERVICE_TOKEN }}
         # The billing fan-out is deliberately UAT-only and is enabled only
         # when this delivery includes agent-proxy. Vector keeps the local
