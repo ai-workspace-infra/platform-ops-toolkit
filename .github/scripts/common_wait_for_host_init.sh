@@ -35,6 +35,16 @@ interval_secs=10
 ssh_opts=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
           -o ConnectTimeout=10 -o BatchMode=yes)
 
+# Actively disable and terminate background unattended-upgrades to avoid 7-minute lock delays.
+echo "Disabling unattended-upgrades on ${MATRIX_HOST} (${ip})..."
+ssh "${ssh_opts[@]}" "root@${ip}" "
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl stop unattended-upgrades.service >/dev/null 2>&1 || true
+    systemctl disable unattended-upgrades.service >/dev/null 2>&1 || true
+  fi
+  pkill -f unattended-upgrade >/dev/null 2>&1 || true
+" 2>/dev/null || true
+
 # Non-Debian hosts have neither cloud-init's package phase nor
 # unattended-upgrades; the probe simply reports ready.
 probe=$(cat <<'REMOTE'
