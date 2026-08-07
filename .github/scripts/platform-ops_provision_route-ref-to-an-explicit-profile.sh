@@ -54,6 +54,9 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     # optional run_infrastructure checkbox.
     run_infrastructure=true
     run_application_deploy=false
+  elif [ "$user_action" = "deploy+migrate" ]; then
+    run_infrastructure=true
+    run_application_deploy=true
   fi
 
   # 一键整套初始化: 申请 IaC 资源 -> 部署业务应用 -> 发布 DNS。
@@ -86,6 +89,9 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   if [ "$user_action" = "destroy" ]; then
     terraform_action="destroy"
     toolkit_action="none"
+  elif [ "$user_action" = "deploy+migrate" ]; then
+    terraform_action="apply"
+    toolkit_action="deploy+migrate"
   else
     terraform_action="apply"
     toolkit_action="$user_action"

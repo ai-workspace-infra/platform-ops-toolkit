@@ -149,7 +149,7 @@ on:
         required: true
         default: "deploy"
         type: choice
-        options: [deploy, resize, destroy, migrate, backup, restore]
+        options: [deploy, deploy+migrate, resize, destroy, migrate, backup, restore]
       confirm_dns_switch:
         description: "危险: 勾选此项将在最后一步接管原域名的生产流量 (仅真实灾备启用)"
         required: false
@@ -1526,3 +1526,26 @@ jobs:
         VECTOR_BILLING_INGEST_URL: https://billing-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/v1/ingest/snapshots
         VECTOR_SNAPSHOT_URL: ${{ needs.provision.outputs.deployment_env == 'uat' && contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && 'http://127.0.0.1:8686' || '' }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_monitor_agent.sh
+
+  trigger_data_migration:
+    name: "[3] Post-deploy | Data Migration"
+    needs: [provision, deploy_base, deploy_web_saas, deploy_infra_platform, deploy_agent_proxy, deploy_ai_workspace, deploy_monitor_agent]
+    if: >-
+      ${{ !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.deploy_base.result == 'success' &&
+      needs.provision.outputs.toolkit_action == 'deploy+migrate' }}
+    uses: ./.github/workflows/data-migration.yaml
+    with:
+      vault_env_path: ${{ needs.provision.outputs.vault_env_path }}
+      runner_type: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
+      toolkit_ref: ${{ needs.provision.outputs.toolkit_ref }}
+      infra_ref: ${{ needs.provision.outputs.playbooks_ref }}
+      toolkit_action: "migrate"
+      migration_scope: "accounts"
+      accounts_dry_run: false
+      accounts_ref: ${{ needs.provision.outputs.deploy_tag }}
+      accounts_transport: "ssh"
+      accounts_source_host: ${{ needs.provision.outputs.source_host }}
+      accounts_target_host: "console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}"
+
