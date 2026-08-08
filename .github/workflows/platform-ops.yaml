@@ -205,6 +205,9 @@ env:
   VAULT_KV_BASE: kv/data/CICD/${{ github.event_name == 'pull_request' && 'sit' || startsWith(github.ref, 'refs/tags/v') && 'prod' || github.event.inputs.vault_env_path || 'uat' }}
   VAULT_KV_OPENCLAW: kv/data/openclaw
   VAULT_KV_WEB_SAAS: kv/data/WEB_SAAS
+  # 计费域专属 KV, 不按环境分路径 —— 同一个 secret 内用 SANDBOX_/PROD_ 前缀
+  # 区分两套 Stripe 密钥, 由下面 Load Vault secrets 步骤按 DEPLOY_ENV 选前缀。
+  VAULT_KV_BILLING: kv/data/billing-service
   VAULT_KV_DATABASES: kv/data/${{ github.event_name == 'pull_request' && 'sit' || startsWith(github.ref, 'refs/tags/v') && 'prod' || github.event.inputs.vault_env_path || 'uat' }}/databases
   VAULT_KV_AGENT_PROXY: kv/data/${{ github.event_name == 'pull_request' && 'sit' || startsWith(github.ref, 'refs/tags/v') && 'prod' || github.event.inputs.vault_env_path || 'uat' }}/agent-proxy
   VPS_ROOT: infra/iac_modules/terraform-hcl-standard/${{ github.event.inputs.cloud_provider || 'vultr-vps' }}
@@ -677,6 +680,10 @@ jobs:
         # "failed to pull images: unauthorized" 结束, 从容器状态上看不出来。
         GHCR_USERNAME:                     ${{ steps.vault.outputs.GHCR_USERNAME }}
         GHCR_PASSWORD:                     ${{ steps.vault.outputs.GHCR_PASSWORD }}
+        # 计费域密钥, 见上面 Load Vault secrets 里 VAULT_KV_BILLING 那两行。
+        # 缺失时 accounts 自己的 stripe 客户端软性 disabled, 不阻塞部署。
+        STRIPE_SECRET_KEY:                 ${{ steps.vault.outputs.STRIPE_SECRET_KEY }}
+        STRIPE_WEBHOOK_SECRET:             ${{ steps.vault.outputs.STRIPE_WEBHOOK_SECRET }}
         WEB_SAAS_CONSOLE_DOMAIN:           console-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
         WEB_SAAS_ACCOUNTS_DOMAIN:          accounts-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
         WEB_SAAS_BILLING_DOMAIN:            ${{ needs.provision.outputs.deployment_env == 'uat' && format('billing-uat.{0}', needs.provision.outputs.target_domain_base) || '' }}

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 读取 web-saas 的**可选**密钥, 缺失即视为空, 导出到 GITHUB_ENV。
+# 读取 web-saas 与计费域的**可选**密钥, 缺失即视为空, 导出到 GITHUB_ENV。
 #
 # 为什么不放进 vault-action 那步一起读: hashicorp/vault-action@v4 的
 # ignoreNotFound 只在整个 KV 路径 404 时生效; 路径存在而某个 selector(键)
@@ -93,3 +93,50 @@ done
 rm -f "${body}"
 
 echo "Loaded ${#OPTIONAL_KEYS[@]} optional web-saas key(s) from ${VAULT_KV_WEB_SAAS} (missing -> empty)."
+
+# 4. 计费域密钥, 独立的 KV 路径(kv/data/billing-service), 与上面 WEB_SAAS
+#    无关。这条路径是否已经对 ${VAULT_ROLE} 授权读取, 在写这段代码时还没有
+#    确认过 —— 所以这里必须连 403 也当"拿不到"处理, 不能只容忍 404。
+#    accounts 自己的 stripe 客户端在密钥为空时软性 disabled(见
+#    accounts api/stripe.go enabled()), 拿不到密钥不该拖垮整个部署;
+#    等策略授权补上之后, 这里自动开始生效, 不需要再改一次代码。
+#
+#    Stripe 密钥按 SANDBOX_/PROD_ 前缀存在同一份 secret 里, 用 DEPLOY_ENV
+#    选前缀 —— prod 用 PROD_*, 其余(uat/sit)用 SANDBOX_*。
+if [[ -n "${VAULT_KV_BILLING:-}" ]]; then
+  if [[ "${DEPLOY_ENV:-}" == "prod" ]]; then
+    stripe_prefix="PROD"
+  else
+    stripe_prefix="SANDBOX"
+  fi
+
+  billing_body="$(mktemp)"
+  billing_status="$(curl -sS -o "${billing_body}" -w '%{http_code}' \
+    -H "X-Vault-Token: ${vault_token}" "${VAULT_ADDR}/v1/${VAULT_KV_BILLING}")"
+
+  if [[ "${billing_status}" != "200" && "${billing_status}" != "403" && "${billing_status}" != "404" ]]; then
+    echo "::error::Reading ${VAULT_KV_BILLING} returned HTTP ${billing_status}." >&2
+    head -c 300 "${billing_body}" >&2
+    rm -f "${billing_body}"
+    exit 1
+  fi
+
+  for pair in "STRIPE_SECRET_KEY:${stripe_prefix}_STRIPE_SECRET_KEY" "STRIPE_WEBHOOK_SECRET:${stripe_prefix}_STRIPE_WEBHOOK_SECRET"; do
+    out_key="${pair%%:*}"
+    src_key="${pair#*:}"
+    if [[ "${billing_status}" == "200" ]]; then
+      val="$(jq -r --arg k "${src_key}" '.data.data[$k] // ""' < "${billing_body}")"
+    else
+      val=""
+    fi
+    [[ -n "${val}" ]] && echo "::add-mask::${val}"
+    echo "${out_key}=${val}" >> "${GITHUB_ENV}"
+  done
+  rm -f "${billing_body}"
+
+  if [[ "${billing_status}" == "200" ]]; then
+    echo "Loaded Stripe ${stripe_prefix} keys from ${VAULT_KV_BILLING}."
+  else
+    echo "::warning::${VAULT_KV_BILLING} returned HTTP ${billing_status}; Stripe keys left empty, billing stays disabled for this deploy."
+  fi
+fi
