@@ -94,22 +94,18 @@ rm -f "${body}"
 
 echo "Loaded ${#OPTIONAL_KEYS[@]} optional web-saas key(s) from ${VAULT_KV_WEB_SAAS} (missing -> empty)."
 
-# 4. 计费域密钥, 独立的 KV 路径(kv/data/billing-service), 与上面 WEB_SAAS
-#    无关。这条路径是否已经对 ${VAULT_ROLE} 授权读取, 在写这段代码时还没有
-#    确认过 —— 所以这里必须连 403 也当"拿不到"处理, 不能只容忍 404。
-#    accounts 自己的 stripe 客户端在密钥为空时软性 disabled(见
-#    accounts api/stripe.go enabled()), 拿不到密钥不该拖垮整个部署;
-#    等策略授权补上之后, 这里自动开始生效, 不需要再改一次代码。
+# 4. 计费域密钥, 环境专属路径 kv/data/<env>/billing-service。
 #
-#    Stripe 密钥按 SANDBOX_/PROD_ 前缀存在同一份 secret 里, 用 DEPLOY_ENV
-#    选前缀 —— prod 用 PROD_*, 其余(uat/sit)用 SANDBOX_*。
+#    此前是共享的 kv/data/billing-service, 靠 SANDBOX_/PROD_ 键前缀区分两套
+#    密钥。但 KV v2 的读权限是整份 secret 粒度, policy 无法只授其中几个键 ——
+#    给 uat 角色开读权限就等于让它也能读到生产 Stripe 密钥, 而那把密钥能对
+#    真实客户扣款和退款。拆成 kv/data/<env>/billing-service 之后, 既有的
+#    kv/data/<env>/* 规则天然完成隔离, 键名也回归朴素(不再带环境前缀)。
+#
+#    仍然容忍 403/404: 目标环境的 secret 可能尚未创建。accounts 的 stripe
+#    客户端在密钥为空时软性 disabled(见 accounts api/stripe.go enabled()),
+#    拿不到密钥不该拖垮整个部署; secret 写入后自动生效, 无需改代码。
 if [[ -n "${VAULT_KV_BILLING:-}" ]]; then
-  if [[ "${DEPLOY_ENV:-}" == "prod" ]]; then
-    stripe_prefix="PROD"
-  else
-    stripe_prefix="SANDBOX"
-  fi
-
   billing_body="$(mktemp)"
   billing_status="$(curl -sS -o "${billing_body}" -w '%{http_code}' \
     -H "X-Vault-Token: ${vault_token}" "${VAULT_ADDR}/v1/${VAULT_KV_BILLING}")"
@@ -121,21 +117,19 @@ if [[ -n "${VAULT_KV_BILLING:-}" ]]; then
     exit 1
   fi
 
-  for pair in "STRIPE_SECRET_KEY:${stripe_prefix}_STRIPE_SECRET_KEY" "STRIPE_WEBHOOK_SECRET:${stripe_prefix}_STRIPE_WEBHOOK_SECRET"; do
-    out_key="${pair%%:*}"
-    src_key="${pair#*:}"
+  for key in STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET; do
     if [[ "${billing_status}" == "200" ]]; then
-      val="$(jq -r --arg k "${src_key}" '.data.data[$k] // ""' < "${billing_body}")"
+      val="$(jq -r --arg k "${key}" '.data.data[$k] // ""' < "${billing_body}")"
     else
       val=""
     fi
     [[ -n "${val}" ]] && echo "::add-mask::${val}"
-    echo "${out_key}=${val}" >> "${GITHUB_ENV}"
+    echo "${key}=${val}" >> "${GITHUB_ENV}"
   done
   rm -f "${billing_body}"
 
   if [[ "${billing_status}" == "200" ]]; then
-    echo "Loaded Stripe ${stripe_prefix} keys from ${VAULT_KV_BILLING}."
+    echo "Loaded Stripe keys from ${VAULT_KV_BILLING}."
   else
     echo "::warning::${VAULT_KV_BILLING} returned HTTP ${billing_status}; Stripe keys left empty, billing stays disabled for this deploy."
   fi
