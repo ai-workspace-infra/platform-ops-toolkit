@@ -208,24 +208,15 @@ path "kv/metadata/WEB_SAAS" {
 }
 EOF
 
-    # 计费域密钥(Stripe)。与 WEB_SAAS 同形: 不按环境分路径, 而是在同一份
-    # secret 里用 SANDBOX_ / PROD_ 前缀区分两套密钥, 由 deploy_base 的
-    # optional-secrets 脚本按 DEPLOY_ENV 选前缀读取。
-    #
-    # ⚠️ 与 WEB_SAAS 同样的问题, 但后果更重: uat 角色能读到这份 secret, 就
-    # 同时读得到 PROD_STRIPE_SECRET_KEY —— 那把密钥能对真实客户扣款和退款。
-    # 正确的收敛方向是把 PROD_* 拆到 kv/data/prod/billing-service, 让
-    # kv/data/${env}/* 的既有规则自然隔离; 在那之前这里是有意为之的放宽,
-    # 不是疏忽。KV v2 的读权限是整份 secret 粒度, policy 无法只授某几个键。
-    cat <<'EOF'
-path "kv/data/billing-service" {
-  capabilities = ["read"]
-}
-path "kv/metadata/billing-service" {
-  capabilities = ["list", "read"]
-}
-EOF
   fi
+
+  # 计费域密钥(Stripe)不在这里授权 —— 它已拆成
+  # kv/data/<env>/billing-service, 由下面 kv/data/${env}/* 的既有规则覆盖。
+  #
+  # 曾短暂授予过共享路径 kv/data/billing-service(靠 SANDBOX_/PROD_ 键前缀
+  # 区分两套密钥), 但 KV v2 的读权限是整份 secret 粒度, policy 无法只授某
+  # 几个键 —— 那等于让 uat 角色也能读到生产 Stripe 密钥, 而那把密钥能对真实
+  # 客户扣款和退款。拆分之后这条授权既多余也有害, 故移除。
 
   if [ "${env}" = "prod" ]; then
     # prod 不给 delete: kv/data 的 delete 是软删, kv/metadata 的 delete 会
