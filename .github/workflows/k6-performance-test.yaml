@@ -66,8 +66,8 @@ jobs:
     env:
       TARGET_ENV: ${{ inputs.target_env }}
       K6_TEST_PROFILE: ${{ inputs.test_profile }}
-      K6_DURATION: ${{ inputs.duration }}
-      K6_MAX_VUS: ${{ inputs.max_vus }}
+      LOAD_DURATION: ${{ inputs.duration }}
+      LOAD_MAX_VUS: ${{ inputs.max_vus }}
       TARGET_BASE_URL: ${{ inputs.target_base_url }}
       VAULT_ROLE: github-actions-platform-ops-toolkit-${{ inputs.target_env }}
     steps:
