@@ -20,6 +20,29 @@ on:
           - smoke
           - capacity
         default: smoke
+      duration:
+        description: Total duration; profile keeps the selected profile stages
+        required: true
+        type: choice
+        options:
+          - profile
+          - 60s
+          - 5m
+          - 10m
+          - 30m
+        default: profile
+      max_vus:
+        description: Peak concurrent VUs; profile keeps the selected profile stages
+        required: true
+        type: choice
+        options:
+          - profile
+          - '1'
+          - '5'
+          - '20'
+          - '100'
+          - '500'
+        default: profile
       target_base_url:
         description: Optional URL override for a controlled test target
         required: false
@@ -37,12 +60,14 @@ env:
 
 jobs:
   k6:
-    name: k6 ${{ inputs.test_profile }} / ${{ inputs.target_env }}
+    name: k6 ${{ inputs.test_profile }} / ${{ inputs.target_env }} / ${{ inputs.max_vus }} VUs / ${{ inputs.duration }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.target_env }}
     env:
       TARGET_ENV: ${{ inputs.target_env }}
       K6_TEST_PROFILE: ${{ inputs.test_profile }}
+      K6_DURATION: ${{ inputs.duration }}
+      K6_MAX_VUS: ${{ inputs.max_vus }}
       TARGET_BASE_URL: ${{ inputs.target_base_url }}
       VAULT_ROLE: github-actions-platform-ops-toolkit-${{ inputs.target_env }}
     steps:
