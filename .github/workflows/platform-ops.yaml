@@ -1506,6 +1506,7 @@ jobs:
         secrets: |
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
           ${{ env.VAULT_KV_WEB_SAAS }} INTERNAL_SERVICE_TOKEN | INTERNAL_SERVICE_TOKEN ;
+          ${{ env.VAULT_KV_DATABASES }} postgres_root_password | POSTGRESQL_ADMIN_PASSWORD ;
           kv/data/CICD/observability user | VECTOR_AUTH_USER ;
           kv/data/CICD/observability password | VECTOR_AUTH_PASSWORD
 
@@ -1527,6 +1528,11 @@ jobs:
       env:
         VECTOR_AUTH_USER: ${{ steps.vault.outputs.VECTOR_AUTH_USER || 'observability' }}
         VECTOR_AUTH_PASSWORD: ${{ steps.vault.outputs.VECTOR_AUTH_PASSWORD || 'vector-auth-default-token' }}
+        # Used only when a PostgreSQL listener is detected without a local
+        # postgres process/container. The value comes from Vault via OIDC and
+        # is consumed by Ansible's environment lookup; it is never committed
+        # or passed as a command-line argument.
+        POSTGRESQL_ADMIN_PASSWORD: ${{ steps.vault.outputs.POSTGRESQL_ADMIN_PASSWORD }}
         INTERNAL_SERVICE_TOKEN: ${{ steps.vault.outputs.INTERNAL_SERVICE_TOKEN }}
         # The billing fan-out is deliberately UAT-only and is enabled only
         # when this delivery includes agent-proxy. Vector keeps the local
@@ -1558,4 +1564,3 @@ jobs:
       accounts_transport: "ssh"
       accounts_source_host: ${{ needs.provision.outputs.source_host }}
       accounts_target_host: "console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}"
-
