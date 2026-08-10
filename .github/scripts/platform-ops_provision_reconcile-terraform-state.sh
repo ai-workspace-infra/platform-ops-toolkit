@@ -52,8 +52,18 @@ fi
 # 建一台重复的, 所以除 200/404 之外一律硬失败。
 vultr_probe() {
   local url="$1" body="$2"
-  curl -sS --retry 3 --retry-connrefused -o "${body}" -w '%{http_code}' \
-    -H "Authorization: Bearer ${VULTR_API_KEY}" "${url}"
+  local attempts=0 code=""
+  while [[ ${attempts} -lt 5 ]]; do
+    code="$(curl -sS --retry 3 --retry-delay 2 --retry-connrefused -o "${body}" -w '%{http_code}' \
+      -H "Authorization: Bearer ${VULTR_API_KEY}" "${url}")"
+    if [[ "${code}" =~ ^5[0-9]{2}$ ]]; then
+      attempts=$((attempts + 1))
+      sleep 2
+      continue
+    fi
+    break
+  done
+  echo "${code}"
 }
 
 body="$(mktemp)"
