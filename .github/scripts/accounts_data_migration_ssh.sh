@@ -60,9 +60,13 @@ SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout
 
 # The snapshot holds password hashes and session tokens. It must not outlive the
 # run on either host, including on every failure path.
+# SOURCE_ADDR/TARGET_ADDR are set after the safeguard block; until then they are
+# unset and the fallback keeps cleanup working for early failures. Removing the
+# snapshot has to target the same machine it was written to, so this uses the
+# resolved address for exactly the same reason the transfer steps do.
 cleanup() {
   local rc=$?
-  for h in "${SOURCE_HOST}" "${TARGET_HOST}"; do
+  for h in "${SOURCE_ADDR:-${SOURCE_HOST}}" "${TARGET_ADDR:-${TARGET_HOST}}"; do
     [ -n "${h}" ] || continue
     ssh "${SSH_OPTS[@]}" "${SSH_USER}@${h}" "rm -rf ${REMOTE_DIR}" >/dev/null 2>&1 || true
   done
@@ -119,10 +123,60 @@ fi
 echo "[SAFEGUARD-CHECK] Direction verified: PROD source -> UAT target."
 
 # ------------------------------------------------------------------------------
+# Connection addressing -- resolve through CMDB, never through DNS
+#
+# The safeguard block above deliberately keeps working on the *logical* host
+# names: the whole direction check is "does this name say svc.plus / onwalk.net",
+# so it must run before any name is replaced by an address.
+#
+# Connecting by those same names is what broke run 31348437225: this job and
+# `update_uat_dns` have no dependency between them and started in the same
+# second, so console-uat.onwalk.net still pointed at the previous host when
+# STEP 0 opened its SSH session. Staging and the snapshot transfer succeeded
+# anyway (mkdir, scp and cat exist everywhere), and the run only fell over at
+# STEP 3 with `docker: command not found` -- ten seconds before DNS was
+# repointed at the real web-saas host.
+#
+# Every other host-facing step in this pipeline already takes its address from
+# cmdb/cmdb.json (see common_wait_for_host_ssh.sh); this script was the one
+# exception. Reading the same source makes it immune to DNS state, so job
+# ordering can no longer produce a wrong-host connection.
+#
+# CMDB_FILE is optional: a manual workflow_dispatch run has no CMDB artifact,
+# and falling back to the name preserves that path unchanged.
+resolve_host_address() { # <logical-host>
+  local name="$1"
+  if [ -z "${CMDB_FILE:-}" ] || [ ! -f "${CMDB_FILE}" ]; then
+    echo "${name}"
+    return
+  fi
+  local ip
+  ip="$(jq -r --arg h "${name}" '.[$h].ip // empty' "${CMDB_FILE}" 2>/dev/null)"
+  if [ -z "${ip}" ] || [ "${ip}" = "null" ]; then
+    echo "${name}"
+    return
+  fi
+  echo "${ip}"
+}
+
+SOURCE_ADDR="$(resolve_host_address "${SOURCE_HOST}")"
+TARGET_ADDR="$(resolve_host_address "${TARGET_HOST}")"
+
+for pair in "source:${SOURCE_HOST}:${SOURCE_ADDR}" "target:${TARGET_HOST}:${TARGET_ADDR}"; do
+  role="${pair%%:*}"; rest="${pair#*:}"
+  name="${rest%%:*}"; addr="${rest#*:}"
+  if [ "${name}" = "${addr}" ]; then
+    echo "[ADDRESS] ${role} ${name} -> resolving via DNS (no CMDB entry)"
+  else
+    echo "[ADDRESS] ${role} ${name} -> ${addr} (from CMDB)"
+  fi
+done
+
+# ------------------------------------------------------------------------------
 # Step 0: stage migratectl on both hosts
 # ------------------------------------------------------------------------------
 echo "[STEP 0/5] Staging migratectl on both hosts..."
-for h in "${SOURCE_HOST}" "${TARGET_HOST}"; do
+for h in "${SOURCE_ADDR}" "${TARGET_ADDR}"; do
   ssh "${SSH_OPTS[@]}" "${SSH_USER}@${h}" "mkdir -p ${REMOTE_DIR} && chmod 700 ${REMOTE_DIR}"
   scp "${SSH_OPTS[@]}" -q "${MIGRATECTL_BIN}" "${SSH_USER}@${h}:${REMOTE_DIR}/migratectl"
   ssh "${SSH_OPTS[@]}" "${SSH_USER}@${h}" \
@@ -146,17 +200,17 @@ remote_migratectl() { # <host> <container> <args...>
 echo "[STEP 1/5] Exporting snapshot on ${SOURCE_HOST}..."
 EXPORT_ARGS="export --dsn postgres://${SOURCE_DB_USER}@127.0.0.1:5432/${DB_NAME}?sslmode=disable --output /work/snapshot.yaml"
 [ -n "${EMAIL_FILTER}" ] && EXPORT_ARGS="${EXPORT_ARGS} --email ${EMAIL_FILTER}"
-remote_migratectl "${SOURCE_HOST}" "${SOURCE_CONTAINER}" ${EXPORT_ARGS}
+remote_migratectl "${SOURCE_ADDR}" "${SOURCE_CONTAINER}" ${EXPORT_ARGS}
 
 # ------------------------------------------------------------------------------
 # Step 2: move the snapshot host-to-host, never staging it on the runner
 # ------------------------------------------------------------------------------
 echo "[STEP 2/5] Transferring snapshot ${SOURCE_HOST} -> ${TARGET_HOST}..."
-ssh "${SSH_OPTS[@]}" "${SSH_USER}@${SOURCE_HOST}" "cat ${REMOTE_DIR}/snapshot.yaml" \
-  | ssh "${SSH_OPTS[@]}" "${SSH_USER}@${TARGET_HOST}" \
+ssh "${SSH_OPTS[@]}" "${SSH_USER}@${SOURCE_ADDR}" "cat ${REMOTE_DIR}/snapshot.yaml" \
+  | ssh "${SSH_OPTS[@]}" "${SSH_USER}@${TARGET_ADDR}" \
       "cat > ${REMOTE_DIR}/snapshot.yaml && chmod 600 ${REMOTE_DIR}/snapshot.yaml"
 
-TRANSFERRED_BYTES="$(ssh "${SSH_OPTS[@]}" "${SSH_USER}@${TARGET_HOST}" "stat -c %s ${REMOTE_DIR}/snapshot.yaml")"
+TRANSFERRED_BYTES="$(ssh "${SSH_OPTS[@]}" "${SSH_USER}@${TARGET_ADDR}" "stat -c %s ${REMOTE_DIR}/snapshot.yaml")"
 if [ "${TRANSFERRED_BYTES}" -le 0 ]; then
   echo "[ERROR] Transferred snapshot is empty." >&2
   exit 1
@@ -169,7 +223,7 @@ IMPORT_BASE="import --dsn postgres://${TARGET_DB_USER}@127.0.0.1:5432/${DB_NAME}
 # Step 3: dry-run preview on UAT
 # ------------------------------------------------------------------------------
 echo "[STEP 3/5] Dry-run import preview on ${TARGET_HOST}..."
-remote_migratectl "${TARGET_HOST}" "${TARGET_CONTAINER}" ${IMPORT_BASE} --dry-run
+remote_migratectl "${TARGET_ADDR}" "${TARGET_CONTAINER}" ${IMPORT_BASE} --dry-run
 
 if [ "${DRY_RUN}" = "true" ]; then
   echo "[STEP 4/5] DRY_RUN=true. Skipping the write."
@@ -184,7 +238,7 @@ fi
 # Step 4: apply merge
 # ------------------------------------------------------------------------------
 echo "[STEP 4/5] Applying merge on ${TARGET_HOST}..."
-remote_migratectl "${TARGET_HOST}" "${TARGET_CONTAINER}" ${IMPORT_BASE}
+remote_migratectl "${TARGET_ADDR}" "${TARGET_CONTAINER}" ${IMPORT_BASE}
 
 # ------------------------------------------------------------------------------
 # Step 5: convergence verification -- replaying the snapshot must be a no-op
@@ -193,7 +247,7 @@ if [ "${SKIP_VERIFY}" = "true" ]; then
   echo "[STEP 5/5] SKIP_VERIFY=true. Skipping post-import verification."
 else
   echo "[STEP 5/5] Verifying convergence..."
-  VERIFY_OUTPUT="$(remote_migratectl "${TARGET_HOST}" "${TARGET_CONTAINER}" ${IMPORT_BASE} --dry-run 2>&1)"
+  VERIFY_OUTPUT="$(remote_migratectl "${TARGET_ADDR}" "${TARGET_CONTAINER}" ${IMPORT_BASE} --dry-run 2>&1)"
   echo "${VERIFY_OUTPUT}"
   if ! grep -qE 'users inserted=0'      <<<"${VERIFY_OUTPUT}" ||
      ! grep -qE 'Identities inserted=0' <<<"${VERIFY_OUTPUT}" ||
