@@ -273,6 +273,22 @@ jobs:
         VAULT_ANSIBLE_SSH_KEY_B64: ${{ steps.vault_ssh.outputs.VAULT_ANSIBLE_SSH_KEY_B64 }}
       run: .github/scripts/platform-ops_data_migration_configure-ssh-key.sh
 
+    # CMDB carries the authoritative host -> IP mapping produced by this run's
+    # provision stage. The migration script uses it to connect by address
+    # instead of by DNS name; without it the script falls back to the name,
+    # which is what let run 31348437225 land on the wrong host while
+    # update_uat_dns was still repointing the record.
+    #
+    # continue-on-error: a manual workflow_dispatch run has no artifact from a
+    # provision job, and that path must keep working via DNS as before.
+    - name: Download CMDB
+      if: ${{ (inputs.accounts_transport || 'ssh') == 'ssh' }}
+      continue-on-error: true
+      uses: actions/download-artifact@v8
+      with:
+        name: platform-ops-toolkit-cmdb
+        path: cmdb
+
     - name: Run accounts migration over SSH (dry_run=${{ inputs.accounts_dry_run }})
       if: ${{ (inputs.accounts_transport || 'ssh') == 'ssh' }}
       env:
@@ -280,6 +296,7 @@ jobs:
         MIGRATION_TARGET_HOST: ${{ inputs.accounts_target_host || 'console-uat.onwalk.net' }}
         MIGRATION_EMAIL_FILTER: ${{ inputs.accounts_email_filter }}
         MIGRATECTL_BIN: ${{ github.workspace }}/bin/migratectl
+        CMDB_FILE: ${{ github.workspace }}/cmdb/cmdb.json
         DRY_RUN: ${{ inputs.accounts_dry_run && 'true' || 'false' }}
       run: .github/scripts/accounts_data_migration_ssh.sh
 
