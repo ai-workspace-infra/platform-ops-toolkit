@@ -1,0 +1,75 @@
+name: k6 Performance Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - sit
+          - uat
+          - prod
+        default: uat
+      test_profile:
+        description: Smoke is safe; capacity ramps to 500 VUs
+        required: true
+        type: choice
+        options:
+          - smoke
+          - capacity
+        default: smoke
+      target_base_url:
+        description: Optional URL override for a controlled test target
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  VAULT_ADDR: https://vault.svc.plus
+  K6_PROMETHEUS_RW_SERVER_URL: https://observability.svc.plus/ingest/metrics/api/v1/write
+  K6_PROMETHEUS_RW_TREND_STATS: p(50),p(90),p(95),p(99),avg,max
+
+jobs:
+  k6:
+    name: k6 ${{ inputs.test_profile }} / ${{ inputs.target_env }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target_env }}
+    env:
+      TARGET_ENV: ${{ inputs.target_env }}
+      K6_TEST_PROFILE: ${{ inputs.test_profile }}
+      TARGET_BASE_URL: ${{ inputs.target_base_url }}
+      VAULT_ROLE: github-actions-platform-ops-toolkit-${{ inputs.target_env }}
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Checkout observability test assets
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: main
+          path: playbooks
+
+      - name: Load observability remote-write credentials
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ env.VAULT_ADDR }}
+          method: jwt
+          role: ${{ env.VAULT_ROLE }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD/observability user | K6_PROMETHEUS_RW_USERNAME ;
+            kv/data/CICD/observability password | K6_PROMETHEUS_RW_PASSWORD
+
+      - name: Run k6 end-to-end test
+        env:
+          K6_PROMETHEUS_RW_USERNAME: ${{ steps.vault.outputs.K6_PROMETHEUS_RW_USERNAME }}
+          K6_PROMETHEUS_RW_PASSWORD: ${{ steps.vault.outputs.K6_PROMETHEUS_RW_PASSWORD }}
+        run: .github/scripts/run_k6_performance_test.sh
