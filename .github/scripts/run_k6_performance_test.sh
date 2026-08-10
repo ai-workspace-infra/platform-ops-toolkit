@@ -3,6 +3,8 @@ set -euo pipefail
 
 : "${TARGET_ENV:?TARGET_ENV is required}"
 : "${K6_TEST_PROFILE:?K6_TEST_PROFILE is required}"
+: "${K6_DURATION:?K6_DURATION is required}"
+: "${K6_MAX_VUS:?K6_MAX_VUS is required}"
 : "${K6_PROMETHEUS_RW_SERVER_URL:?K6_PROMETHEUS_RW_SERVER_URL is required}"
 : "${K6_PROMETHEUS_RW_USERNAME:?K6_PROMETHEUS_RW_USERNAME is required}"
 : "${K6_PROMETHEUS_RW_PASSWORD:?K6_PROMETHEUS_RW_PASSWORD is required}"
@@ -24,12 +26,15 @@ K6_TEST_ID="${K6_TEST_ID:-k6-${TARGET_ENV}-$(date -u +%Y%m%dT%H%M%SZ)-${GITHUB_R
 export K6_TEST_ID
 
 echo "Running k6 profile=${K6_TEST_PROFILE} environment=${TARGET_ENV} testid=${K6_TEST_ID}"
+echo "Load selection duration=${K6_DURATION} max_vus=${K6_MAX_VUS}"
 
 docker run --rm \
   --volume "${test_script}:/test/k6-load-test.js:ro" \
   --env TARGET_ENV \
   --env TARGET_BASE_URL \
   --env K6_TEST_PROFILE \
+  --env K6_DURATION \
+  --env K6_MAX_VUS \
   --env K6_TEST_ID \
   --env K6_PROMETHEUS_RW_SERVER_URL \
   --env K6_PROMETHEUS_RW_USERNAME \
