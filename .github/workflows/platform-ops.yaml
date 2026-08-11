@@ -689,6 +689,10 @@ jobs:
         STRIPE_WEBHOOK_SECRET:             ${{ steps.vault.outputs.STRIPE_WEBHOOK_SECRET }}
         WEB_SAAS_CONSOLE_DOMAIN:           console-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
         WEB_SAAS_ACCOUNTS_DOMAIN:          accounts-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
+        # Accounts resolves the shared XWorkmate tenant from the canonical
+        # source-domain host. Forward that identity explicitly; the public
+        # UAT/prod accounts hostname is an environment-specific alias.
+        WEB_SAAS_ACCOUNTS_FORWARDED_HOST:  ${{ needs.provision.outputs.source_domain_base }}
         WEB_SAAS_BILLING_DOMAIN:            ${{ needs.provision.outputs.deployment_env == 'uat' && format('billing-uat.{0}', needs.provision.outputs.target_domain_base) || '' }}
         AGENT_CONTROLLER_URL:              https://accounts-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
         AGENT_REPO_VERSION:                ${{ needs.provision.outputs.deploy_tag }}
