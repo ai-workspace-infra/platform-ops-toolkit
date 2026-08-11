@@ -60,6 +60,8 @@
 
 流水线不会把敏感值存进 GitHub Actions Secrets。所有凭证都是运行时经 **GitHub OIDC → Vault JWT** 登录后，从 Vault KV 路径动态下发。
 
+GitHub Actions OIDC → Vault JWT 的详细接入步骤，包括 JWT auth 配置、Role/Policy 绑定、workflow claim、KV 隔离和故障排查，请阅读 [Vault 鉴权与策略隔离手册](docs/vault/vault_authentication_and_policy_isolation.md)。本 README 只保留新人向导和操作入口。
+
 #### 1. 初始化隔离的 Role 与 Policy（一次性操作）
 
 已废弃全局大一统的 Vault Policy，改为按环境独立授权。只需用 Vault 管理员 Token 执行内置的初始化脚本：
@@ -76,13 +78,45 @@ chmod +x docs/tasks/vault_auth_split.sh
 该脚本会自动创建：
 - 三套环境专属 policy：`github-actions-platform-ops-toolkit-sit`、`-uat`、`-prod`
 - 三套 OIDC JWT 鉴权 role：`github-actions-platform-ops-toolkit-sit`、`-uat`、`-prod`
-- 安全约束：`prod` role 只接受 `v*` tag 触发；每个 role 还额外把 `job_workflow_ref` 钉死到本仓库使用 Vault 的 workflow 白名单，仓库里新增一个 workflow 换不到任何 role。
+- 安全约束：`prod` role 当前接受 `main` 和 `v*` tag 触发；每个 role 还额外把 `job_workflow_ref` 钉死到本仓库使用 Vault 的 workflow 白名单，仓库里新增一个 workflow 换不到任何 role。
 
 跑完之后校验结果 —— 分层不变式是可执行断言，不是约定：
 
 ```bash
 ./scripts/vault/vault_layout_verify.py   # exit 0 = 全部通过, 可做 CI 门禁
 ```
+
+#### 1.1 脚本创建的 Role 与权限矩阵
+
+`vault_auth_split.sh` 会创建 3 个环境 policy，以及 6 个 JWT role。两组 role 使用相同的环境 policy，但分别限制在 platform toolkit 自身的 workflow 和 Playbooks reusable workflow：
+
+| Role | 绑定的 Policy | 允许的 workflow 来源 | 分支 / tag 边界 | Token 约束 |
+| --- | --- | --- | --- | --- |
+| `github-actions-platform-ops-toolkit-sit` | `github-actions-platform-ops-toolkit-sit` | platform toolkit allowlist | PR merge ref、任意分支 | batch token，TTL 1h，无 default policy |
+| `github-actions-platform-ops-toolkit-uat` | `github-actions-platform-ops-toolkit-uat` | platform toolkit allowlist | `main`、`release/*`、`bugfix/*`、`daily-build-*` 分支和 tag | 同上 |
+| `github-actions-platform-ops-toolkit-prod` | `github-actions-platform-ops-toolkit-prod` | platform toolkit allowlist | `main` 和 `v*` tag | 同上 |
+| `github-actions-playbooks-sit` | `github-actions-platform-ops-toolkit-sit` | Playbooks domain-CD allowlist | PR merge ref、任意分支 | 同上 |
+| `github-actions-playbooks-uat` | `github-actions-platform-ops-toolkit-uat` | Playbooks domain-CD allowlist | `main`、`release/*`、`bugfix/*`、`daily-build-*` 分支和 tag | 同上 |
+| `github-actions-playbooks-prod` | `github-actions-platform-ops-toolkit-prod` | Playbooks domain-CD allowlist | `main` 和 `v*` tag | 同上 |
+
+所有 role 都同时绑定调用仓库的 `repository`、允许的 `job_workflow_ref` 和 Git ref。也就是说，只有被 allowlist 列出的 workflow 才能换取 token；仅仅在仓库里新增一个 workflow，不会自动获得 Vault 权限。
+
+每个环境 policy 的实际 KV 权限如下：
+
+| KV 路径 | `sit` / `uat` | `prod` | 说明 |
+| --- | --- | --- | --- |
+| `kv/data/CICD`、`kv/data/openclaw`、`kv/data/action-runner` | `read` | `read` | 公共 CI 和运行时凭据，只读 |
+| `kv/metadata/CICD`、`kv/metadata/action-runner` | `list`, `read` | `list`, `read` | 只能查看 metadata，不能删除公共 secret |
+| `kv/data/CICD/github-app/daily-snapshot`、`kv/data/CICD/observability` | `read` | `read` | 快照和可观测性凭据 |
+| `kv/data/CICD/domains/*` | `create`, `read`, `update`, `list` | `create`, `read`, `update`, `list` | 跨环境共享的域名证书；故意允许更新，但不允许删除 |
+| `kv/metadata/CICD/domains/*` | `list`, `read` | `list`, `read` | 证书 metadata，不允许删除 |
+| `kv/data/CICD/<env>` | `read` | `read` | 当前环境的云账号、Terraform State、SSH 私钥，只读 |
+| `kv/metadata/CICD/<env>` | `list`, `read` | `list`, `read` | 当前环境基础凭据 metadata |
+| `kv/data/WEB_SAAS` | `read`（当前 sit 不授权） | `read` | 当前兼容路径；uat/prod 仍共享，后续应迁移到 `kv/data/<env>/web-saas` |
+| `kv/data/<env>/*` | `create`, `read`, `update`, `delete`, `list` | `create`, `read`, `update`, `list` | 环境专属业务密钥；prod 禁止 data delete |
+| `kv/metadata/<env>/*` | `list`, `read`, `delete` | `list`, `read` | prod 禁止 metadata delete，避免永久删除所有版本 |
+
+注意：`prod` role 当前按脚本允许 `main` 和 `v*` tag；如果生产必须只能由版本 tag 发布，需要同时收紧脚本中的 prod `ref`，不能只改 README。
 
 #### 2. 为各域填充 KV 参数
 

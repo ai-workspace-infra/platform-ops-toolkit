@@ -1,171 +1,202 @@
 # platform-ops-toolkit
 
-中文向导
+[🇬🇧 English](README.md) · [🇨🇳 中文版](README_zh.md)
 
-`platform-ops-toolkit` 是平台运维的**入口仓库**，不是所有基础设施配置的存放地。
-新人只需要先记住这一点：日常真正要改的配置，主要在下面三个核心仓库；本仓库负责把它们组装起来，并通过 GitHub Actions 执行。`artifacts` 是可选的辅助仓库，不属于基础设施交付的必需入口。
+`platform-ops-toolkit` is the **entry repository** for platform operations. It is not the place where every infrastructure configuration is stored.
 
-| 仓库 | 负责什么 | 什么时候查看或修改 |
+The three core configuration repositories are:
+
+| Repository | Responsibility | When to use it |
 | --- | --- | --- |
-| [`platform-ops-toolkit`](https://github.com/ai-workspace-infra/platform-ops-toolkit) | 入口 Action、触发参数、流程编排、通用运维脚本 | 想启动一次运维任务，或修改流水线行为 |
-| [`iac_modules`](https://github.com/ai-workspace-infra/iac_modules) | Terraform 模块、云资源、主机和环境资源声明 | 想创建/调整云资源、VPS、网络或 Terraform 配置 |
-| [`playbooks`](https://github.com/ai-workspace-infra/playbooks) | Ansible Playbook，负责在主机上安装和配置具体 OS 应用 | 想修改服务安装、配置、部署或初始化逻辑 |
-| [`gitops`](https://github.com/ai-workspace-infra/gitops) | GitOps 配置仓库，保存环境运行配置和发布后的目标状态 | 想修改环境配置、域名、服务参数或 GitOps 目标状态 |
-| [`artifacts`](https://github.com/ai-workspace-infra/artifacts) | 可选的构建产物、镜像、压缩包或发布清单 | 当前发布流程需要复用或追溯构建产物时再查看 |
+| [`platform-ops-toolkit`](https://github.com/ai-workspace-infra/platform-ops-toolkit) | Entry Actions, workflow orchestration, inputs, and shared operations scripts | Start an operations task or change pipeline behavior |
+| [`iac_modules`](https://github.com/ai-workspace-infra/iac_modules) | Terraform modules, cloud resources, hosts, and environment resource declarations | Create or change cloud resources, VPSs, networks, or Terraform configuration |
+| [`playbooks`](https://github.com/ai-workspace-infra/playbooks) | Ansible Playbooks and reusable domain deployment workflows | Change OS initialization, application installation, or deployment logic |
+| [`gitops`](https://github.com/ai-workspace-infra/gitops) | GitOps environment configuration and desired runtime state | Change environment parameters, domains, service settings, or deployment tags |
+| [`artifacts`](https://github.com/ai-workspace-infra/artifacts) | Optional build artifacts, images, archives, or release manifests | Use only when a release needs to reuse or trace build artifacts |
 
-## 新人第一次使用：按这个顺序来
+`artifacts` is optional. The platform operations entry point can be used without it when the required images or immutable `deploy_tag` already exist elsewhere.
 
-### 0. 先确认你要做的事情
+## New user guide
 
-- 只想了解流程：阅读本 README 和 [`platform-ops.yaml`](.github/workflows/platform-ops.yaml)。
-- 想改云资源：去 `iac_modules`。
-- 想改服务器上的应用安装或配置：去 `playbooks`。
-- 想改某个环境的运行参数：去 `gitops`。
-- 想查看或管理构建产物：按项目需要使用 `artifacts`；没有它也不影响本仓库作为运维入口使用。
-- 想真正执行一次部署、扩容、迁移或恢复：回到本仓库的 **Actions** 页面，运行入口工作流。
+### 0. Decide where your change belongs
 
-不要把三个核心仓库的配置复制到本仓库；入口工作流会按 ref 将它们一起拉取。`artifacts` 是否参与某次发布，则取决于该发布流程是否需要对应的构建产物。
+- To understand the flow, read this file and [`platform-ops.yaml`](.github/workflows/platform-ops.yaml).
+- To change cloud resources, use `iac_modules`.
+- To change server or application installation, use `playbooks`.
+- To change environment runtime configuration, use `gitops`.
+- To inspect or manage build artifacts, use `artifacts` only if the project needs it.
+- To run a deployment, resize, migration, backup, or restore, return to this repository's **Actions** page.
 
-### 1. 准备 Vault Server
+Do not copy the three core repositories' configuration into this repository. The entry workflow checks them out using the selected refs.
 
-GitHub Actions 不直接保存云密钥、SSH 私钥和业务密钥。需要先准备一个已初始化、已解封，并且 GitHub Actions Runner 可以访问的 Vault Server。
+### 1. Prepare a Vault server
 
-当前默认地址是：[`https://vault.svc.plus`](https://vault.svc.plus)
+GitHub Actions does not store cloud credentials, SSH private keys, or application secrets directly in workflow inputs. Prepare a Vault server that is initialized, unsealed, and reachable from the GitHub Actions runner.
 
-如果使用其他地址，可以在手动运行工作流时填写 `vault_addr` 覆盖默认值。
+The current default address is [`https://vault.svc.plus`](https://vault.svc.plus). A manual workflow run can override it with `vault_addr`.
 
-### 2. 配置 GitHub Actions OIDC → Vault JWT
+For detailed GitHub Actions OIDC → Vault JWT setup—including JWT auth, Role/Policy binding, workflow claims, KV isolation, and troubleshooting—see [Vault Authentication and Policy Isolation](docs/vault/vault_authentication_and_policy_isolation.md). This README only provides the onboarding summary and entry points.
 
-这是一次性初始化步骤，需要 Vault 管理员权限。脚本会创建 `sit`、`uat`、`prod` 三套独立的 policy 和 role，并限制 role 只能由允许的仓库工作流、分支或 tag 换取。
+### 2. Configure GitHub Actions OIDC → Vault JWT
+
+This is a one-time setup and requires a Vault administrator token. The script creates environment-specific policies and JWT roles for `sit`, `uat`, and `prod`, with repository, workflow, and ref restrictions.
 
 ```bash
 export VAULT_ADDR=https://vault.svc.plus
-export VAULT_TOKEN="hvs.xxxxxxxxx"   # Vault 管理员 Token
+export VAULT_TOKEN="hvs.xxxxxxxxx"   # Vault administrator token
 
 chmod +x docs/tasks/vault_auth_split.sh
 ./docs/tasks/vault_auth_split.sh
 ```
 
-初始化后执行布局校验：
+Verify the layout after initialization:
 
 ```bash
 ./scripts/vault/vault_layout_verify.py
 ```
 
-看到退出码为 `0` 才算通过。不要把 `VAULT_TOKEN` 提交到 Git 仓库，也不要把它填进 GitHub Actions 的 workflow input。
+Exit code `0` means the assertions passed. Never commit `VAULT_TOKEN` or put it into a workflow input.
 
-### 3. 填充 Vault 必需数据
+#### 2.1 Roles and permissions created by the script
 
-流水线登录 Vault 后会读取以下几类路径：
+`vault_auth_split.sh` creates three environment policies and six JWT roles. The two role families use the same environment policy, but their `job_workflow_ref` allowlists target the platform toolkit workflows and the Playbooks reusable workflows respectively.
 
-| 类型 | 路径示例 | 用途 |
+| Role | Policy | Allowed workflow source | Branch / tag boundary | Token constraints |
+| --- | --- | --- | --- | --- |
+| `github-actions-platform-ops-toolkit-sit` | `github-actions-platform-ops-toolkit-sit` | Platform toolkit allowlist | PR merge refs and any branch | Batch token, 1h TTL, no default policy |
+| `github-actions-platform-ops-toolkit-uat` | `github-actions-platform-ops-toolkit-uat` | Platform toolkit allowlist | `main`, `release/*`, `bugfix/*`, and `daily-build-*` branches/tags | Same |
+| `github-actions-platform-ops-toolkit-prod` | `github-actions-platform-ops-toolkit-prod` | Platform toolkit allowlist | `main` and `v*` tags | Same |
+| `github-actions-playbooks-sit` | `github-actions-platform-ops-toolkit-sit` | Playbooks domain-CD allowlist | PR merge refs and any branch | Same |
+| `github-actions-playbooks-uat` | `github-actions-platform-ops-toolkit-uat` | Playbooks domain-CD allowlist | `main`, `release/*`, `bugfix/*`, and `daily-build-*` branches/tags | Same |
+| `github-actions-playbooks-prod` | `github-actions-platform-ops-toolkit-prod` | Playbooks domain-CD allowlist | `main` and `v*` tags | Same |
+
+Every role is bound to the calling repository, an allowlisted `job_workflow_ref`, and an allowed Git ref. Adding a new workflow to the repository does not automatically grant it Vault access.
+
+The actual KV permissions are:
+
+| KV path | `sit` / `uat` | `prod` | Description |
+| --- | --- | --- | --- |
+| `kv/data/CICD`, `kv/data/openclaw`, `kv/data/action-runner` | `read` | `read` | Shared CI and runtime credentials; read-only |
+| `kv/metadata/CICD`, `kv/metadata/action-runner` | `list`, `read` | `list`, `read` | Metadata inspection only; no deletion |
+| `kv/data/CICD/github-app/daily-snapshot`, `kv/data/CICD/observability` | `read` | `read` | Snapshot and observability credentials |
+| `kv/data/CICD/domains/*` | `create`, `read`, `update`, `list` | `create`, `read`, `update`, `list` | Shared domain certificates; update is intentional, deletion is denied |
+| `kv/metadata/CICD/domains/*` | `list`, `read` | `list`, `read` | Certificate metadata; deletion is denied |
+| `kv/data/CICD/<env>` | `read` | `read` | Environment cloud credentials, Terraform state, and SSH key; read-only |
+| `kv/metadata/CICD/<env>` | `list`, `read` | `list`, `read` | Metadata for environment base credentials |
+| `kv/data/WEB_SAAS` | `read` (not granted to current `sit`) | `read` | Compatibility path; currently shared by UAT and prod |
+| `kv/data/<env>/*` | `create`, `read`, `update`, `delete`, `list` | `create`, `read`, `update`, `list` | Environment-specific application secrets; prod denies data deletion |
+| `kv/metadata/<env>/*` | `list`, `read`, `delete` | `list`, `read` | Prod denies metadata deletion to prevent permanent version removal |
+
+The script currently allows the `prod` role on `main` and `v*` tags. If production must be tag-only, tighten the prod `ref` in the script as well; changing the README is not a security control.
+
+### 3. Populate required Vault data
+
+The workflow reads these KV tiers after authenticating:
+
+| Type | Example path | Purpose |
 | --- | --- | --- |
-| 公共 CI 凭据 | `kv/data/CICD` | 镜像仓库等公共服务凭据 |
-| 环境基础凭据 | `kv/data/CICD/<env>` | `VULTR_API_KEY`、Terraform State、SSH 部署私钥 |
-| 环境业务密钥 | `kv/data/<env>/*` | 数据库、Billing、代理等业务服务密钥 |
+| Shared CI credentials | `kv/data/CICD` | Shared services such as container registry access |
+| Environment base credentials | `kv/data/CICD/<env>` | `VULTR_API_KEY`, Terraform state, and SSH deployment key |
+| Environment application secrets | `kv/data/<env>/*` | Database, Billing, proxy, and other service secrets |
 
-其中 `<env>` 是 `sit`、`uat` 或 `prod`。生产环境的 role 不允许删除 KV metadata；生产密钥建议由管理员或专门的密钥轮换流程维护。
+`<env>` is `sit`, `uat`, or `prod`. The production role cannot delete KV metadata; production secret rotation should be handled by an administrator or a dedicated rotation workflow.
 
-### 4. 从 Actions 页面启动入口
+### 4. Start the entry workflow from Actions
 
-打开本仓库的 **Actions → Deploy Environment & Provision Infrastructure → Run workflow**。
+Open **Actions → Deploy Environment & Provision Infrastructure → Run workflow** in this repository.
 
-入口文件是：
+The entry file is:
 
 ```text
 .github/workflows/platform-ops.yaml
 ```
 
-第一次运行建议使用以下选择：
+For a first run, use these defaults as a starting point:
 
-| 参数 | 新人建议 |
+| Input | Recommendation |
 | --- | --- |
 | `runner_type` | `ubuntu-latest` |
-| `deploy_tag` | 使用已经存在的、不可变的镜像版本，例如 `daily-build-2026.07.30-r1` |
-| `infra_ref` / `playbooks_ref` / `gitops_ref` | 三个仓库都使用相互匹配的 `main` 或发布 ref |
-| `toolkit_ref` | 本仓库对应的发布 ref；留空默认 `main` |
-| `target_domains` | 先选需要的业务域；首次验证可选单域，不建议直接 `all` |
-| `cloud_provider` | 当前这条业务域链路实际只支持 `vultr-vps` |
-| `vault_env_path` | 与目标环境一致：`sit`、`uat` 或 `prod` |
-| `run_infrastructure` | 需要创建/更新主机时勾选 |
-| `run_application_deploy` | 需要在主机上部署应用时勾选；必须同时勾选 `run_infrastructure` |
-| `run_full_stack` | 从零创建环境时使用，会联动基础设施、应用部署和 DNS 发布 |
+| `deploy_tag` | An existing immutable image version, such as `daily-build-2026.07.30-r1` |
+| `infra_ref` / `playbooks_ref` / `gitops_ref` | Matching `main` or release refs across the three repositories |
+| `toolkit_ref` | The matching toolkit ref; blank defaults to `main` |
+| `target_domains` | Start with one required domain instead of `all` |
+| `cloud_provider` | `vultr-vps`; this is the only end-to-end provider currently wired for these domains |
+| `vault_env_path` | Match the target environment: `sit`, `uat`, or `prod` |
+| `run_infrastructure` | Enable when hosts or infrastructure must be created or updated |
+| `run_application_deploy` | Enable for application deployment; it requires `run_infrastructure` |
+| `run_full_stack` | Use when creating an environment from scratch; it also enables application and DNS steps |
 
-推荐的首次验证路径是：先只执行 Terraform/基础设施，再确认主机和 CMDB 正常，最后再执行应用部署。涉及生产 DNS 接管时，必须额外确认 `confirm_dns_switch`，不要在测试时勾选。
+For a first validation, run infrastructure first, verify the hosts and CMDB, and then run application deployment. Do not enable `confirm_dns_switch` during testing.
 
-## 其他 Actions 入口
+## Other Actions entry points
 
-除了主入口 `platform-ops.yaml`，本仓库还有 4 个面向特定运维场景的工作流：
+The repository also contains four workflows for focused operations:
 
-| 工作流 | 用途 | 如何使用 |
+| Workflow | Purpose | How to use it |
 | --- | --- | --- |
-| [`data-migration.yaml`](.github/workflows/data-migration.yaml) | 数据迁移、备份和恢复；支持 accounts 数据迁移和按业务域的 site migration | 可由 `platform-ops.yaml` 调用，也可以在 Actions 中手动运行；首次使用保持 `accounts_dry_run=true`，确认结果后再执行写入 |
-| [`daily-main-snapshot.yaml`](.github/workflows/daily-main-snapshot.yaml) | 跨组织、跨仓库生成统一的 `daily-build-*` 快照 tag，并触发各仓库的构建/发布链路 | 默认按计划每天执行，也可以手动指定 `snapshot_tag`、source ref、环境和仓库列表；快照 tag 应作为后续部署的 `deploy_tag` |
-| [`k6-performance-test.yaml`](.github/workflows/k6-performance-test.yaml) | 对指定环境执行 k6 压力测试，并将指标写入可观测性系统 | 仅支持手动运行；先用 `smoke`，确认目标 URL、环境和 Vault 凭据无误后，再使用 `capacity` 或更高 VU 数 |
-| [`cron-rotate-domain-tls-certs.yaml`](.github/workflows/cron-rotate-domain-tls-certs.yaml) | 定期更新域名 TLS 证书，并将证书状态保存在 Vault | 默认每两个月自动运行，也可以手动运行；需要 Vault 中的 Cloudflare 凭据，生产 role 和域名范围必须先确认 |
+| [`data-migration.yaml`](.github/workflows/data-migration.yaml) | Data migration, backup, and restore; supports accounts migration and domain-driven site migration | It can be called by `platform-ops.yaml` or run manually. Keep `accounts_dry_run=true` for the first run |
+| [`daily-main-snapshot.yaml`](.github/workflows/daily-main-snapshot.yaml) | Creates a consistent `daily-build-*` snapshot tag across organizations and repositories, then triggers build/release workflows | Runs on schedule or manually; the resulting tag can be used as `deploy_tag` |
+| [`k6-performance-test.yaml`](.github/workflows/k6-performance-test.yaml) | Runs k6 load tests and sends metrics to the observability system | Manual only; start with `smoke`, then increase to `capacity` or higher VU counts |
+| [`cron-rotate-domain-tls-certs.yaml`](.github/workflows/cron-rotate-domain-tls-certs.yaml) | Rotates domain TLS certificates and stores the certificate state in Vault | Runs every two months or manually; requires Cloudflare credentials in Vault and production approval |
 
-这 4 个工作流与主部署链路的关系可以简单理解为：
+The relationship is:
 
 ```text
-daily-main-snapshot.yaml  → 生成跨仓库 deploy_tag
+daily-main-snapshot.yaml  → create a cross-repository deploy_tag
                                 ↓
-platform-ops.yaml         → 资源 provision + 应用部署
+platform-ops.yaml         → provision resources + deploy applications
                                 ↓
-data-migration.yaml       → 按需迁移 / 备份 / 恢复
-k6-performance-test.yaml  → 部署后的性能验证
-cron-rotate-domain-tls-certs.yaml → 独立的证书轮换维护
+data-migration.yaml       → migrate / backup / restore when needed
+k6-performance-test.yaml  → validate performance after deployment
+cron-rotate-domain-tls-certs.yaml → independent certificate maintenance
 ```
 
-如果把项目切换到个人 GitHub 组织，这 4 个工作流也要一并检查硬编码的仓库、组织、Vault role、域名和可观测性地址。特别是 `daily-main-snapshot.yaml` 的组织矩阵、`k6-performance-test.yaml` 的 `playbooks` 仓库，以及证书轮换工作流使用的生产 Vault role，都不能直接沿用当前项目的值。
+## Trigger routes and environments
 
-## 触发方式与环境
-
-| 触发方式 | 默认环境 | 行为 |
+| Trigger | Default environment | Behavior |
 | --- | --- | --- |
-| Pull Request | `sit` | 校验和计划，不应作为生产发布入口 |
-| `main` / `release/*` push | `uat` | 校验和计划 |
-| `v*` tag | `prod` | 生产发布路径；生产 role 只接受版本 tag |
-| `workflow_dispatch` | 手动选择 | 真正执行 provision、deploy、migration、backup、restore 等动作 |
+| Pull Request | `sit` | Validation and planning; not a production release path |
+| Push to `main` / `release/*` | `uat` | Validation and planning |
+| `v*` tag | `prod` | Production release path; production role accepts the corresponding ref boundary |
+| `workflow_dispatch` | Manually selected | Runs provision, deploy, migration, backup, restore, and related actions |
 
-当前业务域的端到端资源声明、基础凭据和主机路径仍以 `vultr-vps` 为准。虽然 `iac_modules` 已有 AWS、GCP、Azure 模块，但不能仅因为下拉框出现选项就认为 `platform-ops.yaml` 已经支持这些云。
+The business-domain delivery path is currently wired end-to-end for `vultr-vps`. AWS, GCP, and Azure modules exist in `iac_modules`, but the presence of an option does not mean `platform-ops.yaml` supports that provider for these domains.
 
-## 一次运行实际发生什么
+## What happens during a run
 
 ```text
 Run workflow
     ↓
-platform-ops-toolkit 读取参数并通过 OIDC 登录 Vault
+platform-ops-toolkit reads inputs and authenticates to Vault with OIDC
     ↓
-iac_modules 运行 Terraform，创建/更新资源并生成本次 CMDB
+iac_modules runs Terraform, creates/updates resources, and produces the CMDB
     ↓
-playbooks 使用本次 CMDB，在主机上执行 Ansible 部署
+playbooks uses the CMDB from this run for Ansible deployment
     ↓
-gitops 提供环境目标配置，必要时由流程提交或同步变更
+gitops supplies the desired environment state and may receive an automated tag update
     ↓
-GitHub Actions 输出部署结果、日志和后续检查项
+GitHub Actions reports logs, deployment results, and follow-up checks
 ```
 
-核心原则是：Terraform 先准备资源，Ansible 再使用同一次运行生成的 inventory；不要手工用旧 inventory 部署。
+Terraform prepares the resources first. Ansible then uses the inventory generated by that same run; do not deploy with an old inventory.
 
-## 切换到个人项目时要修改什么
+## Adapting the workflow to a personal project
 
-`.github/workflows/platform-ops.yaml` 当前是为 `ai-workspace-infra` 这套项目编排的。`web-saas`、`ai-workspace`、`agent-proxy`、`infra-platform` 等业务域名称，代表当前项目的实际业务系统，不是拿来即用的通用模块。
+`.github/workflows/platform-ops.yaml` is currently orchestrated for the `ai-workspace-infra` project. `web-saas`, `ai-workspace`, `agent-proxy`, and `infra-platform` represent this project's real systems; they are not generic modules.
 
-例如，工作流目前会调用：
-
-| 当前绑定 | 在个人项目中需要怎么处理 |
+| Current binding | What to change in a personal project |
 | --- | --- |
-| `ai-workspace-infra/iac_modules` | 换成个人项目的 Terraform/IAC 仓库，并保留工作流需要的目录结构、资源声明和输出 |
-| `ai-workspace-infra/playbooks` | 换成个人项目的 Ansible 与可复用 Domain CD workflow 仓库 |
-| `ai-workspace-infra/gitops` | 换成个人项目的 GitOps config 仓库；如果保留自动回写 tag，还要给它配置写权限 |
-| `ai-workspace-infra/playbooks/.github/workflows/web-saas-domain-cd.yaml@main` | 换成个人项目对应的 reusable workflow；`ai-workspace`、`agent-proxy`、`open-platform` 等调用也要逐个替换 |
-| `ai-workspace-xstream/xray-exporter`、`compassvpn/xray-exporter` | 如果个人项目使用自己的 exporter，修改 workflow input 的默认值或手动传入 `xray_exporter_release_repository` |
-| `artifacts` | 按个人项目需要接入；只使用已有镜像/tag 时可以不接入 |
+| `ai-workspace-infra/iac_modules` | Replace with the project's Terraform/IAC repository and preserve the required directories, resource declarations, and outputs |
+| `ai-workspace-infra/playbooks` | Replace with the project's Ansible and reusable domain-CD workflow repository |
+| `ai-workspace-infra/gitops` | Replace with the project's GitOps repository; add write access if automatic tag updates are retained |
+| `ai-workspace-infra/playbooks/.github/workflows/web-saas-domain-cd.yaml@main` | Replace every reusable domain workflow reference, including AI Workspace, Agent Proxy, and Open Platform |
+| `ai-workspace-xstream/xray-exporter`, `compassvpn/xray-exporter` | Replace with the project's exporter repository or pass `xray_exporter_release_repository` explicitly |
+| `artifacts` | Integrate only if the personal project needs a shared artifact source |
 
-### 推荐的迁移步骤
+Recommended migration steps:
 
-1. 准备个人项目的 `platform-ops-toolkit`、`iac_modules`、`playbooks`、`gitops` 仓库。四个仓库不一定必须同名，但它们的职责和接口要对应；`artifacts` 仍然是可选的。
-2. 在 `.github/workflows/platform-ops.yaml` 中替换所有硬编码的仓库和 owner。重点搜索并修改以下位置：
+1. Prepare the personal project's `platform-ops-toolkit`, `iac_modules`, `playbooks`, and `gitops` repositories. They may have different names, but their interfaces and responsibilities must match. `artifacts` remains optional.
+2. Replace hard-coded repositories and owners in `.github/workflows/platform-ops.yaml`, especially:
 
    ```text
    repository: ai-workspace-infra/iac_modules
@@ -175,54 +206,46 @@ GitHub Actions 输出部署结果、日志和后续检查项
    owner: ai-workspace-infra
    ```
 
-   `uses:` 的 reusable workflow 不能只改 checkout 的仓库；必须把每一个 `uses: ...playbooks/.github/workflows/...` 也改成个人项目的地址，并确保目标 workflow 仍然声明了相同的 `workflow_call` inputs 和 secrets。
-3. 根据个人项目实际拥有的系统调整业务域。比如个人项目没有 `agent-proxy`，需要同步修改 `target_domains` 选项、Terraform 的 host/resource matrix、对应 job 的 `if` 条件、Vault 路径，以及 `playbooks` 中的域 CD workflow；仅把下拉框里的名称删掉是不够的。
-4. 检查 `playbooks` 内部调用的应用仓库。`platform-ops.yaml` 负责调度域 workflow，具体的 Web SaaS、AI Workspace、Agent Proxy 应用仓库引用通常在 `playbooks` 或 GitOps 配置中；需要在那里把当前项目的 service repository、镜像 registry、部署 tag 和域名一起替换。
-5. 重新配置 GitHub 权限：
+   Reusable workflow `uses:` references must be changed as well as checkout steps. The target workflows must keep compatible `workflow_call` inputs and secrets.
+3. Remove or adapt domains that do not exist in the personal project. Update `target_domains`, the Terraform host/resource matrix, job `if` conditions, Vault paths, and the corresponding Playbooks domain workflows.
+4. Check application repository references inside `playbooks` and GitOps. The toolkit dispatches domain workflows; the service repository, image registry, deploy tag, and domain names are often defined in those repositories.
+5. Configure GitHub permissions. The toolkit must read the IAC, Playbooks, and GitOps repositories. Reusable workflows must be visible to the caller. The GitOps update job needs write access; the current workflow uses a GitHub App token with `owner: ai-workspace-infra`, which must be reinstalled and changed or replaced with a minimal Vault-stored fine-grained token.
+6. Recreate Vault roles and policies for the personal project. Update `REPO`, `PLAYBOOKS_REPO`, and the workflow allowlists in [`vault_auth_split.sh`](docs/tasks/vault_auth_split.sh). Bind `repository` and `job_workflow_ref` to the personal project; do not reuse the current project's role. Recreate the KV paths and run `vault_layout_verify.py`.
+7. Use `workflow_dispatch` for a single-domain, non-production plan and deployment test before enabling `all` or production tag releases.
 
-   - 个人项目的 `platform-ops-toolkit` 必须能读取 `iac_modules`、`playbooks` 和 `gitops`。
-   - 被 `uses:` 调用的 reusable workflow 必须对调用仓库可见；跨组织或私有仓库时，还要确认 Actions 的访问策略。
-   - 自动更新 `gitops` tag 的 job 需要对个人项目的 `gitops` 有写权限。当前 workflow 使用 GitHub App token，并将 owner 固定为 `ai-workspace-infra`；迁移后要重新安装 App、修改 owner，或改用存放在 Vault 的最小权限 fine-grained token。
-6. 重新配置 Vault，不要直接复用当前项目的 role：
-
-   - 修改 [`vault_auth_split.sh`](docs/tasks/vault_auth_split.sh) 中的 `REPO`、`PLAYBOOKS_REPO` 和 workflow allowlist。
-   - 为个人项目创建新的 policy/role；role 的 `repository` 和 `job_workflow_ref` 必须绑定个人项目，不能继续绑定 `ai-workspace-infra/platform-ops-toolkit`。
-   - 按个人项目重建 `kv/data/CICD/<env>`、`kv/data/<env>/*`、域名证书和云账号凭据，并运行 `vault_layout_verify.py`。
-7. 最后用 `workflow_dispatch` 做一次单域、非生产的 Terraform plan，再做应用部署验证。确认 Vault、IAC、Playbooks、GitOps、镜像/tag 和 DNS 都属于同一个个人项目后，再启用 `all` 或生产 tag 发布。
-
-可以先用下面的搜索确认是否还有当前项目的绑定残留：
+Search for remaining project-specific bindings with:
 
 ```bash
 rg -n 'ai-workspace-infra|ai-workspace-xstream|compassvpn|svc\.plus|onwalk\.net' \
   .github docs config scripts
 ```
 
-## 常见问题
+## Troubleshooting
 
-### 我应该改哪个仓库？
+### Which repository should I change?
 
-改云资源去 `iac_modules`，改 OS/应用部署去 `playbooks`，改环境目标配置去 `gitops`；只有要改入口参数、流程编排或通用运维脚本时才改本仓库。
+Change `iac_modules` for cloud resources, `playbooks` for OS/application deployment, and `gitops` for environment desired state. Change this repository only for entry parameters, orchestration, or shared operations scripts.
 
-### Actions 里找不到 Run workflow？
+### Why is “Run workflow” missing?
 
-确认你有仓库的 Actions 使用权限，并且工作流文件已经存在于当前分支。只有 `workflow_dispatch` 工作流才能从 Actions 页面手动启动。
+Confirm that you have Actions permission and that the workflow exists on the current branch. Only workflows with `workflow_dispatch` can be started from the Actions page.
 
-### Vault 返回 403 或 permission denied？
+### Why does Vault return 403 or permission denied?
 
-先检查 `VAULT_ADDR`、OIDC/JWT auth method 和 role 是否已执行初始化脚本；再确认 `vault_env_path` 与目标环境一致，以及生产运行是否使用 `v*` tag。最后运行 `./scripts/vault/vault_layout_verify.py`。
+Check `VAULT_ADDR`, the OIDC/JWT auth method, and whether the initialization script has been run. Confirm that `vault_env_path` matches the target environment and that production uses an allowed `v*` tag or `main` ref. Then run `./scripts/vault/vault_layout_verify.py`.
 
-### 为什么选择 AWS/GCP/Azure 后失败？
+### Why does AWS/GCP/Azure fail?
 
-这是预留的多云选项。目前 `platform-ops.yaml` 这条业务域交付链路只完成了 `vultr-vps` 的端到端接线，工作流会有意快速失败，避免把资源部署到错误的云上。
+Those are reserved multi-cloud options. The business-domain delivery path currently has only the `vultr-vps` end-to-end wiring and intentionally fails fast for the other providers.
 
-### 部署成功但应用不对？
+### Why did deployment succeed but the application is wrong?
 
-检查四个仓库使用的 ref 是否匹配，尤其是 `deploy_tag`、`playbooks_ref` 和 `gitops_ref`。再检查目标域、Vault 环境路径、DNS 和 GitOps 配置是否属于同一个环境。
+Check that `deploy_tag`, `playbooks_ref`, and `gitops_ref` describe the same release. Then check the target domain, Vault environment path, DNS, and GitOps configuration.
 
-## 进一步阅读
+## Further reading
 
-- [Vault 鉴权与策略隔离](docs/vault/vault_authentication_and_policy_isolation.md)
-- [Vault KV 三层模型](docs/vault/kv_tier_model.md)
-- [多环境交付标准](docs/standards/multi-environment-delivery-and-release-standard.md)
-- [业务域文档](docs/domains/README.md)
-- [入口工作流](.github/workflows/platform-ops.yaml)
+- [Vault authentication and policy isolation](docs/vault/vault_authentication_and_policy_isolation.md)
+- [Vault KV tier model](docs/vault/kv_tier_model.md)
+- [Multi-environment delivery standard](docs/standards/multi-environment-delivery-and-release-standard.md)
+- [Business domain documentation](docs/domains/README.md)
+- [Entry workflow](.github/workflows/platform-ops.yaml)
