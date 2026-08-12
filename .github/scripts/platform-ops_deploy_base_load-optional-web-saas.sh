@@ -27,6 +27,10 @@ OPTIONAL_KEYS=(
   OAUTH_GOOGLE_CLIENT_SECRET
   INTERNAL_SERVICE_TOKEN
   EXPORTER_SOURCES_JSON
+  # An environment-owned, public HTTPS endpoint. It is configuration rather
+  # than a workflow_dispatch input so deployments stay under GitHub's 25-input
+  # limit and cannot silently fall back to a different environment's Bridge.
+  XWORKMATE_BRIDGE_SERVER_URL
 )
 
 # 1. 用 GitHub 的 OIDC id-token 换 Vault JWT 登录用的 JWT。
