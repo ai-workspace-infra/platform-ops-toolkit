@@ -687,14 +687,15 @@ jobs:
         # 缺失时 accounts 自己的 stripe 客户端软性 disabled, 不阻塞部署。
         STRIPE_SECRET_KEY:                 ${{ steps.vault.outputs.STRIPE_SECRET_KEY }}
         STRIPE_WEBHOOK_SECRET:             ${{ steps.vault.outputs.STRIPE_WEBHOOK_SECRET }}
-        WEB_SAAS_CONSOLE_DOMAIN:           console-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
-        WEB_SAAS_ACCOUNTS_DOMAIN:          accounts-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
-        # Accounts resolves the shared XWorkmate tenant from the canonical
-        # source-domain host. Forward that identity explicitly; the public
-        # UAT/prod accounts hostname is an environment-specific alias.
-        WEB_SAAS_ACCOUNTS_FORWARDED_HOST:  ${{ needs.provision.outputs.source_domain_base }}
+        # Deploy and migration share one base-domain contract. The playbooks
+        # derive Accounts' tenant host from TARGET_DOMAIN_BASE; no separate
+        # source/forwarded-host input is accepted.
+        TARGET_DOMAIN_BASE:                ${{ needs.provision.outputs.target_domain_base }}
+        DEPLOY_ENV:                        ${{ needs.provision.outputs.deployment_env }}
+        WEB_SAAS_CONSOLE_DOMAIN:           console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
+        WEB_SAAS_ACCOUNTS_DOMAIN:          accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
         WEB_SAAS_BILLING_DOMAIN:            ${{ needs.provision.outputs.deployment_env == 'uat' && format('billing-uat.{0}', needs.provision.outputs.target_domain_base) || '' }}
-        AGENT_CONTROLLER_URL:              https://accounts-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
+        AGENT_CONTROLLER_URL:              https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
         AGENT_REPO_VERSION:                ${{ needs.provision.outputs.deploy_tag }}
         AGENT_SVC_PLUS_MANAGE_SOURCE_CHECKOUT: "true"
         AGENT_SVC_PLUS_BUILD_ON_TARGET:    "true"
