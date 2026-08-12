@@ -692,10 +692,10 @@ jobs:
         # source/forwarded-host input is accepted.
         TARGET_DOMAIN_BASE:                ${{ needs.provision.outputs.target_domain_base }}
         DEPLOY_ENV:                        ${{ needs.provision.outputs.deployment_env }}
-        WEB_SAAS_CONSOLE_DOMAIN:           console-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
-        WEB_SAAS_ACCOUNTS_DOMAIN:          accounts-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
+        WEB_SAAS_CONSOLE_DOMAIN:           console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
+        WEB_SAAS_ACCOUNTS_DOMAIN:          accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
         WEB_SAAS_BILLING_DOMAIN:            ${{ needs.provision.outputs.deployment_env == 'uat' && format('billing-uat.{0}', needs.provision.outputs.target_domain_base) || '' }}
-        AGENT_CONTROLLER_URL:              https://accounts-${{ env.DEPLOY_ENV }}.${{ needs.provision.outputs.target_domain_base }}
+        AGENT_CONTROLLER_URL:              https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
         AGENT_REPO_VERSION:                ${{ needs.provision.outputs.deploy_tag }}
         AGENT_SVC_PLUS_MANAGE_SOURCE_CHECKOUT: "true"
         AGENT_SVC_PLUS_BUILD_ON_TARGET:    "true"
