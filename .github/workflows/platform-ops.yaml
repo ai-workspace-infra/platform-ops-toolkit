@@ -34,31 +34,11 @@ on:
         - ubuntu-latest
         - self-hosted
       deploy_tag:
-        description: "应用部署的不可变镜像版本 (例如 daily-build-2026.07.30-r1)，作为源码拉取与部署的统一基准。必填，拦截 main/latest。"
-        required: true
-        type: string
-      infra_ref:
-        description: "iac_modules 仓库的 Git Ref；留空则默认使用 main 分支"
+        description: "应用部署的不可变镜像版本（例如 daily-build-2026.07.30-r1）。operation=deploy 或 deploy+migrate 时必填；基础设施操作可留空。"
         required: false
-        default: ""
         type: string
-      playbooks_ref:
-        description: "playbooks 仓库的 Git Ref；留空则默认使用 main 分支"
-        required: false
-        default: ""
-        type: string
-      gitops_ref:
-        description: "gitops 仓库的 Git Ref；留空则默认使用 main 分支"
-        required: false
-        default: ""
-        type: string
-      toolkit_ref:
-        description: "platform-ops-toolkit 仓库的 Git Ref；留空则默认使用 main 分支"
-        required: false
-        default: ""
-        type: string
-      console_ref:
-        description: "xworkspace-console 仓库的 Git Ref；留空则回退到 deploy_tag"
+      source_ref:
+        description: "基础设施、Playbooks、GitOps、Toolkit 与 Console 共用的 Git Ref；留空使用各仓库默认（main，Console 回退 deploy_tag）"
         required: false
         default: ""
         type: string
@@ -88,31 +68,17 @@ on:
         required: false
         default: "https://observability.svc.plus"
         type: string
-      xray_exporter_release_repository:
-        description: "xray-exporter 发布仓库；留空时 UAT 自动使用 ai-workspace-xstream/xray-exporter，生产使用 compassvpn/xray-exporter"
+      xray_exporter_image:
+        description: "可选 Xray Exporter 覆盖，格式 owner/repository@tag；留空使用环境默认"
         required: false
         default: ""
         type: string
-      xray_exporter_version:
-        description: "xray-exporter 发布 tag；留空时 UAT 跟随 deploy_tag，生产使用 v0.6.0"
-        required: false
-        default: ""
-        type: string
-      run_full_stack:
-        description: "一键整套初始化: 申请 IaC 资源 -> 部署业务应用 -> 发布 DNS。勾选后强制打开下面两个开关与 DNS 发布, 用于从零拉起一个 sit/uat/prod 副本"
-        required: false
-        default: false
-        type: boolean
-      run_infrastructure:
-        description: "是否执行 Terraform Provision / Apply / Destroy。只建基础设施与 CMDB, 不部署任何业务服务"
-        required: false
-        default: false
-        type: boolean
-      run_application_deploy:
-        description: "Terraform Apply 之后是否执行 Bootstrap Node 与各业务域的全部应用服务部署。必须同时 run_infrastructure=true, 因为部署所用的 inventory 由 provision 阶段生成"
-        required: false
-        default: false
-        type: boolean
+      operation:
+        description: "执行范围：plan 仅校验；infra 仅基础设施；deploy 部署应用；deploy+migrate 部署后迁移；destroy 销毁"
+        required: true
+        default: "deploy"
+        type: choice
+        options: [plan, infra, deploy, deploy+migrate, destroy]
       target_domains:
         description: "选择要执行的业务域 (Business Domain)"
         required: true
@@ -144,19 +110,14 @@ on:
         - 4C8G
         - 2C4G
         - 1C2G
-      action:
-        description: "执行动作 (destroy 将自动执行 Terraform 销毁，不受 run_infrastructure 开关影响)"
+      dns_mode:
+        description: "DNS 行为：none 不发布；uat-records 仅更新 UAT 固定记录；prod-cutover 接管生产流量（仍须确认）"
         required: true
-        default: "deploy"
+        default: "none"
         type: choice
-        options: [deploy, deploy+migrate, resize, destroy, migrate, backup, restore]
+        options: [none, uat-records, prod-cutover]
       confirm_dns_switch:
-        description: "危险: 勾选此项将在最后一步接管原域名的生产流量 (仅真实灾备启用)"
-        required: false
-        default: false
-        type: boolean
-      uat_dns_update:
-        description: "仅 UAT: 幂等更新 billing/console/accounts/agent-proxy 的目标域 A 记录；不会触碰 svc.plus"
+        description: "危险确认：仅 dns_mode=prod-cutover 时勾选，确认接管原域名生产流量"
         required: false
         default: false
         type: boolean
@@ -230,23 +191,16 @@ jobs:
       INPUT_CLOUD_PROVIDER:        ${{ github.event.inputs.cloud_provider }}
       INPUT_VAULT_ENV_PATH:        ${{ github.event.inputs.vault_env_path }}
       INPUT_TARGET_DOMAINS:        ${{ github.event.inputs.target_domains }}
-      INPUT_RUN_FULL_STACK:        ${{ github.event.inputs.run_full_stack }}
-      INPUT_RUN_INFRASTRUCTURE:    ${{ github.event.inputs.run_infrastructure }}
-      INPUT_RUN_APPLICATION_DEPLOY:     ${{ github.event.inputs.run_application_deploy }}
       INPUT_INSTANCE_PLAN:          ${{ inputs.instance_plan || github.event.inputs.instance_plan || '4C8G' }}
-      INPUT_ACTION:                ${{ github.event.inputs.action }}
+      INPUT_OPERATION:             ${{ github.event.inputs.operation }}
       INPUT_DEPLOY_REF:            
-      INPUT_TOOLKIT_REF:           ${{ github.event.inputs.toolkit_ref }}
-      INPUT_INFRA_REF:             ${{ github.event.inputs.infra_ref }}
-      INPUT_PLAYBOOKS_REF:         ${{ github.event.inputs.playbooks_ref }}
-      INPUT_GITOPS_REF:            ${{ github.event.inputs.gitops_ref }}
-      INPUT_CONSOLE_REF:           ${{ github.event.inputs.console_ref }}
+      INPUT_SOURCE_REF:            ${{ github.event.inputs.source_ref }}
       INPUT_OFFLINE_MODE:          ${{ github.event.inputs.offline_mode }}
       INPUT_SOURCE_HOST:           ${{ github.event.inputs.source_host }}
       INPUT_SOURCE_DOMAIN_BASE:    ${{ github.event.inputs.source_domain_base }}
       INPUT_TARGET_DOMAIN_BASE:    ${{ github.event.inputs.target_domain_base }}
       INPUT_CONFIRM_DNS_SWITCH:    ${{ github.event.inputs.confirm_dns_switch }}
-      INPUT_UAT_DNS_UPDATE:        ${{ github.event.inputs.uat_dns_update }}
+      INPUT_DNS_MODE:              ${{ github.event.inputs.dns_mode }}
       INPUT_DEPLOY_TAG:            ${{ github.event.inputs.deploy_tag }}
     outputs:
       deployment_env:           ${{ steps.route.outputs.deployment_env }}
@@ -286,7 +240,7 @@ jobs:
         # Manual destroy must use the workflow code from the selected branch.
         # Falling back to deploy_ref can silently load an older tag without
         # the current destroy routing fix.
-        ref: ${{ github.event.inputs.toolkit_ref || 'main' }}
+        ref: ${{ github.event.inputs.source_ref || 'main' }}
 
     - name: Validate cloud_provider
       # 仅支持已接线的云厂商
@@ -423,17 +377,6 @@ jobs:
         # AWS_* / VULTR_API_KEY from GITHUB_ENV
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops_provision_reconcile-terraform-state.sh
-
-    - name: Adopt replacement instance into Terraform state
-      if: steps.route.outputs.run_infrastructure == 'true' && github.event_name == 'workflow_dispatch' && inputs.action == 'resize' && needs.resize.outputs.direction == 'downgrade'
-      working-directory: ${{ env.ENV_DIR }}
-      env:
-        ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE: ${{ steps.route.outputs.terraform_workspace }}
-        SOURCE_INSTANCE_ID:      ${{ inputs.resize_instance_id }}
-        REPLACEMENT_INSTANCE_ID: ${{ needs.resize.outputs.replacement_id }}
-        # AWS_* / TF_VAR_vultr_api_key from GITHUB_ENV
-      run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops_provision_adopt-resize-replacement.sh
 
     - name: Terraform Plan / Apply / Destroy
       if: steps.route.outputs.run_infrastructure == 'true'
@@ -1401,6 +1344,15 @@ jobs:
         ${{ github.workspace }}/.github/scripts/common_assert_ansible_host.sh
         ../cmdb/inventory.ini "${MATRIX_HOST}"
 
+    - name: Resolve Xray Exporter image
+      id: xray_exporter
+      env:
+        INPUT_XRAY_EXPORTER_IMAGE: ${{ github.event.inputs.xray_exporter_image }}
+        DEPLOYMENT_ENV: ${{ needs.provision.outputs.deployment_env }}
+        DEPLOY_TAG: ${{ needs.provision.outputs.deploy_tag }}
+      run: |-
+        ${{ github.workspace }}/.github/scripts/platform-ops_deploy_resolve-xray-exporter-image.sh
+
     - name: Deploy native agent-proxy services
       working-directory: playbooks
       env:
@@ -1419,11 +1371,8 @@ jobs:
         AGENT_BILLING_ENABLED: ${{ needs.provision.outputs.deployment_env != 'uat' && 'true' || 'false' }}
         EXPORTER_ENV: ${{ needs.provision.outputs.deployment_env }}
         ACCOUNTS_BASE_URL: https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
-        # A UAT snapshot tag is published by the fork, not by the upstream
-        # compatibility repository. Derive both values from the resolved
-        # deployment unless the operator explicitly overrides them.
-        XRAY_EXPORTER_RELEASE_REPOSITORY: ${{ github.event.inputs.xray_exporter_release_repository || (needs.provision.outputs.deployment_env == 'uat' && 'ai-workspace-xstream/xray-exporter' || 'compassvpn/xray-exporter') }}
-        XRAY_EXPORTER_VERSION: ${{ github.event.inputs.xray_exporter_version || (needs.provision.outputs.deployment_env == 'uat' && needs.provision.outputs.deploy_tag || 'v0.6.0') }}
+        XRAY_EXPORTER_RELEASE_REPOSITORY: ${{ steps.xray_exporter.outputs.repository }}
+        XRAY_EXPORTER_VERSION: ${{ steps.xray_exporter.outputs.version }}
         XRAY_EXPORTER_LISTEN_ADDR: ${{ needs.provision.outputs.deployment_env == 'uat' && '0.0.0.0:8080' || '127.0.0.1:8080' }}
         XRAY_EXPORTER_TCP_LISTEN_ADDR: ${{ needs.provision.outputs.deployment_env == 'uat' && '0.0.0.0:8081' || '127.0.0.1:8081' }}
         # UAT keeps the exporter -> local Vector hand-off on the agent host.

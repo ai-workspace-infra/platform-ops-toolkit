@@ -40,41 +40,38 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   resource_file="${deployment_env}/${rf}"
   terraform_workspace="${deployment_env}-${cloud_provider}-${STATE_PROJECT}-${rf}"
   state_key="${deployment_env}/${cloud_provider}/${STATE_PROJECT}/${rf}.tfstate"
-  # 执行边界拆成两段独立开关, 不再由一个参数同时代表"建基础设施"和"部署业务":
-  #   run_infrastructure -> Terraform render/init/apply|destroy + CMDB/matrix
-  #   run_application_deploy  -> Bootstrap Node + 四个业务域部署
-  # 两者默认都是 false, 手动触发必须显式选择要做什么。
-  run_infrastructure="${INPUT_RUN_INFRASTRUCTURE:-false}"
-  run_application_deploy="${INPUT_RUN_APPLICATION_DEPLOY:-false}"
+  # UI 使用单一 operation。内部仍输出两个显式开关，避免下游 job 的执行
+  # 边界模糊：run_infrastructure 负责 Terraform/CMDB，run_application_deploy
+  # 负责 Bootstrap 和业务域部署。
+  operation="${INPUT_OPERATION:-plan}"
   deploy_ref="${INPUT_DEPLOY_REF:-${INPUT_DEPLOY_TAG:-}}"
-  user_action="${INPUT_ACTION}"
 
-  if [ "$user_action" = "destroy" ]; then
-    # Destroy is an infrastructure-only action and must not depend on the
-    # optional run_infrastructure checkbox.
-    run_infrastructure=true
-    run_application_deploy=false
-  elif [ "$user_action" = "deploy+migrate" ]; then
-    run_infrastructure=true
-    run_application_deploy=true
-  fi
-
-  # 一键整套初始化: 申请 IaC 资源 -> 部署业务应用 -> 发布 DNS。
-  # 它不是第三种模式, 只是把上面两个开关和 DNS 发布一起打开, 这样"整套拉起
-  # 一个 sit/uat/prod 副本"是一次勾选, 而不是三次且必须记住顺序。
-  # 显式覆盖而非 || 兜底: 勾了它就是要整套, 不该被同时传入的 false 悄悄削弱。
-  if [ "${INPUT_RUN_FULL_STACK:-false}" = "true" ]; then
-    run_infrastructure=true
-    run_application_deploy=true
-    confirm_dns_switch_override=true
-  fi
-
-  # 非法组合必须显式失败, 不能静默跳过: 部署所用的 inventory (CMDB) 是在
-  # provision 阶段生成的, 跳过基础设施阶段就没有 inventory 可用。
-  if [ "${run_infrastructure}" != "true" ] && [ "${run_application_deploy}" = "true" ]; then
-    echo "::error::run_application_deploy=true requires run_infrastructure=true because the current deployment inventory is generated during provisioning." >&2
-    exit 1
-  fi
+  case "${operation}" in
+    plan)
+      run_infrastructure=true; run_application_deploy=false
+      terraform_action=plan; toolkit_action=none
+      ;;
+    infra)
+      run_infrastructure=true; run_application_deploy=false
+      terraform_action=apply; toolkit_action=deploy
+      ;;
+    deploy)
+      run_infrastructure=true; run_application_deploy=true
+      terraform_action=apply; toolkit_action=deploy
+      ;;
+    deploy+migrate)
+      run_infrastructure=true; run_application_deploy=true
+      terraform_action=apply; toolkit_action=deploy+migrate
+      ;;
+    destroy)
+      run_infrastructure=true; run_application_deploy=false
+      terraform_action=destroy; toolkit_action=none
+      ;;
+    *)
+      echo "::error::Unsupported operation '${operation}'." >&2
+      exit 1
+      ;;
+  esac
 
   case "${deployment_env}" in
     sit) env_suffix=-sit ;;
@@ -86,36 +83,37 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
       ;;
   esac
   
-  if [ "$user_action" = "destroy" ]; then
-    terraform_action="destroy"
-    toolkit_action="none"
-  elif [ "$user_action" = "deploy+migrate" ]; then
-    terraform_action="apply"
-    toolkit_action="deploy+migrate"
-  else
-    terraform_action="apply"
-    toolkit_action="$user_action"
-  fi
-  
-  infra_ref="${INPUT_INFRA_REF:-main}"
-  playbooks_ref="${INPUT_PLAYBOOKS_REF:-main}"
-  gitops_ref="${INPUT_GITOPS_REF:-main}"
-  console_ref="${INPUT_CONSOLE_REF:-${deploy_ref:-main}}"
-  toolkit_ref="${INPUT_TOOLKIT_REF:-main}"
+  source_ref="${INPUT_SOURCE_REF:-}"
+  infra_ref="${source_ref:-main}"
+  playbooks_ref="${source_ref:-main}"
+  gitops_ref="${source_ref:-main}"
+  console_ref="${source_ref:-${deploy_ref:-main}}"
+  toolkit_ref="${source_ref:-main}"
   offline_mode="${INPUT_OFFLINE_MODE}"
   source_host="${INPUT_SOURCE_HOST}"
   source_domain_base="${INPUT_SOURCE_DOMAIN_BASE}"
   target_domain_base="${INPUT_TARGET_DOMAIN_BASE}"
   cloud_provider="${INPUT_CLOUD_PROVIDER:-vultr-vps}"
-  confirm_dns_switch="${confirm_dns_switch_override:-${INPUT_CONFIRM_DNS_SWITCH}}"
-  uat_dns_update="${INPUT_UAT_DNS_UPDATE:-false}"
-
-  # UAT full-stack runs use the dedicated, fixed-record DNS reconciler. Keep
-  # the legacy confirm_dns_switch path for intentional disaster-recovery work,
-  # but never let it publish generic inventory-derived UAT records.
-  if [ "${INPUT_RUN_FULL_STACK:-false}" = "true" ] && [ "${deployment_env}" = "uat" ]; then
-    uat_dns_update=true
-  fi
+  dns_mode="${INPUT_DNS_MODE:-none}"
+  case "${dns_mode}" in
+    none)
+      confirm_dns_switch=false; uat_dns_update=false
+      ;;
+    uat-records)
+      confirm_dns_switch=false; uat_dns_update=true
+      ;;
+    prod-cutover)
+      if [ "${INPUT_CONFIRM_DNS_SWITCH:-false}" != "true" ]; then
+        echo "::error::dns_mode=prod-cutover requires confirm_dns_switch=true." >&2
+        exit 1
+      fi
+      confirm_dns_switch=true; uat_dns_update=false
+      ;;
+    *)
+      echo "::error::Unsupported dns_mode '${dns_mode}'." >&2
+      exit 1
+      ;;
+  esac
 else
   GITHUB_EVENT_NAME="${GITHUB_EVENT_NAME:-}"
   if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
