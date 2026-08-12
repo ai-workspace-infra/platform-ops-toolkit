@@ -83,6 +83,11 @@ on:
         required: true
         default: "onwalk.net"
         type: string
+      xworkmate_bridge_server_url:
+        description: "XWorkmate Bridge 的环境专属 HTTPS 地址；留空会使 Accounts 的 profile sync 明确失败，不会回退到其他环境"
+        required: false
+        default: ""
+        type: string
       observability_endpoint:
         description: "监控数据上报网关 (默认 https://observability.svc.plus)，支持覆盖"
         required: false
@@ -694,6 +699,10 @@ jobs:
         # source/forwarded-host input is accepted.
         TARGET_DOMAIN_BASE:                ${{ needs.provision.outputs.target_domain_base }}
         DEPLOY_ENV:                        ${{ needs.provision.outputs.deployment_env }}
+        # The bridge is an independent environment endpoint. It must be
+        # provided explicitly at dispatch time; never construct or fall back
+        # to a shared svc.plus URL from the target tenant domain.
+        XWORKMATE_BRIDGE_SERVER_URL:       ${{ github.event.inputs.xworkmate_bridge_server_url || '' }}
         WEB_SAAS_CONSOLE_DOMAIN:           console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
         WEB_SAAS_ACCOUNTS_DOMAIN:          accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
         WEB_SAAS_BILLING_DOMAIN:            ${{ needs.provision.outputs.deployment_env == 'uat' && format('billing-uat.{0}', needs.provision.outputs.target_domain_base) || '' }}
