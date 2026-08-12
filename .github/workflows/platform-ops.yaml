@@ -575,6 +575,7 @@ jobs:
         ignoreNotFound: true
         secrets: |
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
+          ${{ env.VAULT_KV }} ROOT_BOOTSTRAP_EMAIL | ROOT_BOOTSTRAP_EMAIL ;
           ${{ env.VAULT_KV }} ROOT_BOOTSTRAP_PASSWORD | ROOT_BOOTSTRAP_PASSWORD ;
           ${{ env.VAULT_KV_DATABASES }} account_pg_password | ACCOUNT_PG_PASSWORD ;
           ${{ env.VAULT_KV }} AI_WORKSPACE_AUTH_TOKEN | AI_WORKSPACE_AUTH_TOKEN ;
@@ -660,6 +661,7 @@ jobs:
         # compatibility variable, but source it from the canonical account
         # credential rather than a separate billing secret.
         BILLING_DB_PASSWORD:               ${{ steps.vault.outputs.WEB_SAAS_ACCOUNT_PG_PASSWORD }}
+        ROOT_BOOTSTRAP_EMAIL:              ${{ steps.vault.outputs.ROOT_BOOTSTRAP_EMAIL }}
         ROOT_BOOTSTRAP_PASSWORD:           ${{ steps.vault.outputs.ROOT_BOOTSTRAP_PASSWORD }}
         AUTH_TOKEN_PUBLIC_TOKEN:           ${{ steps.vault.outputs.WEB_SAAS_AUTH_TOKEN_PUBLIC_TOKEN }}
         AUTH_TOKEN_REFRESH_SECRET:         ${{ steps.vault.outputs.WEB_SAAS_AUTH_TOKEN_REFRESH_SECRET }}
@@ -812,7 +814,7 @@ jobs:
   # web-saas 业务密钥集中放在 kv/data/WEB_SAAS (人工维护, 不再自动生成/
   # 写回): POSTGRES_ROOT_PASSWORD, ACCOUNT_DB_PASSWORD, BILLING_DATABASE_URL,
   # INTERNAL_SERVICE_TOKEN。accounts 的系统 admin 引导密码是跨部署链路的
-  # CI/CD 凭据，固定放在 kv/data/CICD 的 ROOT_BOOTSTRAP_PASSWORD。
+  # CI/CD 凭据，固定放在 kv/data/CICD 的 ROOT_BOOTSTRAP_EMAIL / ROOT_BOOTSTRAP_PASSWORD。
   # GHCR 私有镜像凭据不在 WEB_SAAS, 而是跟其它 CI 通用凭据一起放在
   # kv/data/CICD: GHCR_USERNAME 直接同名取, 密码键名是 GHCR_TOKEN, 映射为
   # 各脚本统一消费的 GHCR_PASSWORD。
