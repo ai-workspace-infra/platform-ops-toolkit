@@ -46,7 +46,7 @@ error validating claims: claim "job_workflow_ref" does not match any
 associated bound claim values
 ```
 
-`docs/tasks/vault_service_repo_roles.sh` **已经**包含 `ci-pipeline.yml`(与
+`docs/tasks/vault_auth_split.sh` **已经**包含 `ci-pipeline.yml`(与
 `pipeline.yaml`/`pipeline.yml` 一起,三选一都放行),脚本本身是对的、
 `bash -n` 通过。缺的是把它重新应用到 Vault ——这一步需要 admin token,
 只能由用户执行:
@@ -54,7 +54,7 @@ associated bound claim values
 ```bash
 export VAULT_ADDR=https://vault.svc.plus
 export VAULT_TOKEN=hvs.xxx
-bash docs/tasks/vault_service_repo_roles.sh
+bash docs/tasks/vault_auth_split.sh
 ```
 
 跑完后五个仓的 main 构建需要重新触发(push 或 workflow_dispatch)。

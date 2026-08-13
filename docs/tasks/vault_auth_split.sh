@@ -356,13 +356,111 @@ echo "Creating Playbooks PROD role (main + v* tags)..."
 write_playbooks_role prod github-actions-platform-ops-toolkit-prod \
   '["refs/tags/v*", "refs/heads/main"]'
 
+# -----------------------------------------------------------------------------
+# Business-service CI roles
+#
+# These roles are intentionally separate from the platform-ops roles above.
+# Business-service CI only needs the shared GHCR push credentials at
+# kv/data/CICD; it must not inherit the platform policy that can read cloud,
+# Terraform-state, or host-deployment credentials.
+#
+# The service roles are kept in this script so one Vault bootstrap operation
+# provisions the complete GitHub Actions trust model. The default workflow
+# glob matches the service CI naming convention (ci-pipeline.yml,
+# pipeline.yaml, etc.). Repositories with a different workflow name pass an
+# explicit glob below.
+# -----------------------------------------------------------------------------
+
+write_service_policy() {
+  local service="$1"
+  echo "Creating policy github-actions-${service}..."
+  vault policy write "github-actions-${service}" - <<'EOF'
+# Shared GHCR credentials for business-service CI.
+# No cloud, Terraform-state, SSH, or environment-specific credentials.
+path "kv/data/CICD" {
+  capabilities = ["read"]
+}
+path "kv/metadata/CICD" {
+  capabilities = ["list", "read"]
+}
+EOF
+}
+
+# $1=service $2=environment suffix $3=ref claim JSON $4=repository
+# $5=workflow glob (optional)
+write_service_role() {
+  local service="$1" suffix="$2" ref_claim="$3" repo="$4"
+  local workflow_glob="${5:-${repo}/.github/workflows/*pipeline.ym*@*}"
+  echo "Creating role github-actions-${service}-${suffix} <- ${repo}"
+  vault write "auth/jwt/role/github-actions-${service}-${suffix}" - <<EOF
+{
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": ["vault"],
+  "bound_claims_type": "glob",
+  "bound_claims": {
+    "repository": "${repo}",
+    "job_workflow_ref": "${workflow_glob}",
+    "ref": ${ref_claim}
+  },
+  "token_policies": ["github-actions-${service}"],
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": "${TOKEN_TTL}",
+  "token_max_ttl": "${TOKEN_TTL}"
+}
+EOF
+}
+
+process_service_repo() {
+  local service="$1" repo="$2" workflow="${3:-}"
+  echo "=== business service ${service} (${repo})"
+  write_service_policy "${service}"
+
+  # SIT accepts PR merges and branch validation. The policy remains limited to
+  # shared GHCR credentials, so a SIT token cannot read platform secrets.
+  write_service_role "${service}" sit \
+    '["refs/pull/*/merge", "refs/heads/*", "refs/tags/sit-*"]' \
+    "${repo}" "${workflow}"
+
+  # UAT accepts main/release and the immutable daily snapshot tag namespace.
+  # Do not allow arbitrary bugfix branches to mint UAT credentials.
+  write_service_role "${service}" uat \
+    '["refs/heads/main", "refs/heads/release/*", "refs/heads/daily-build-*", "refs/tags/uat-*", "refs/tags/daily-build-*"]' \
+    "${repo}" "${workflow}"
+
+  # Production is restricted to release tags.
+  write_service_role "${service}" prod \
+    '["refs/tags/v*", "refs/tags/prod-*"]' \
+    "${repo}" "${workflow}"
+}
+
+process_gitops_service_repo() {
+  local repo="ai-workspace-infra/gitops"
+  local workflow="${repo}/.github/workflows/validate-release-pr.yml@*"
+  echo "=== deployment consumer gitops (${repo})"
+  write_service_policy gitops
+  write_service_role gitops sit '"refs/pull/*/merge"' "${repo}" "${workflow}"
+  write_service_role gitops uat '"refs/heads/main"' "${repo}" "${workflow}"
+  write_service_role gitops prod '"refs/tags/v*"' "${repo}" "${workflow}"
+}
+
+# CI-only service repositories. Their roles intentionally use a dedicated
+# github-actions-<service> policy instead of a platform-ops policy.
+process_service_repo accounts         ai-workspace-services/accounts
+process_service_repo billing-service  ai-workspace-services/billing-service
+process_service_repo console          ai-workspace-services/portal
+process_service_repo content-service  ai-workspace-services/content-service
+process_service_repo postgresql       ai-workspace-infra/postgresql.svc.plus
+process_gitops_service_repo
+
 # 死角色清理: -prod-tags 从来没有被任何 workflow 请求过, 其职责已并入 -prod。
 echo "Removing dead role github-actions-platform-ops-toolkit-prod-tags (if present)..."
 vault delete auth/jwt/role/github-actions-platform-ops-toolkit-prod-tags 2>/dev/null \
   || echo "  (not present, nothing to remove)"
 
 echo
-echo "Done. 3 个 policy + 3 个 role 已生效, 死角色 -prod-tags 已清理。"
+echo "Done. Platform roles, playbooks roles, 5 service roles, and gitops roles are active."
 echo
 echo
 echo "注意行为变更: prod 目前已放宽限制，允许 main 分支以及 v* tag 进行部署操作。"
