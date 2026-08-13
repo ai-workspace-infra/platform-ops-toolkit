@@ -640,11 +640,10 @@ jobs:
         # source/forwarded-host input is accepted.
         TARGET_DOMAIN_BASE:                ${{ needs.provision.outputs.target_domain_base }}
         DEPLOY_ENV:                        ${{ needs.provision.outputs.deployment_env }}
-        # Loaded from the environment-scoped WEB_SAAS Vault record by the
-        # optional configuration step above. A missing value is intentional:
-        # Accounts then fails profile sync closed rather than falling back to
-        # an endpoint belonging to another environment.
-        XWORKMATE_BRIDGE_SERVER_URL:       ${{ env.XWORKMATE_BRIDGE_SERVER_URL || '' }}
+        # Public Bridge ingress belongs to the deployment domain.  Vault may
+        # override it for a separately hosted Bridge, but it never falls back
+        # to a source-zone URL.
+        XWORKMATE_BRIDGE_SERVER_URL:       ${{ env.XWORKMATE_BRIDGE_SERVER_URL || format('https://bridge-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
         WEB_SAAS_CONSOLE_DOMAIN:           console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
         WEB_SAAS_ACCOUNTS_DOMAIN:          accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
         WEB_SAAS_BILLING_DOMAIN:            ${{ needs.provision.outputs.deployment_env == 'uat' && format('billing-uat.{0}', needs.provision.outputs.target_domain_base) || '' }}
@@ -725,7 +724,7 @@ jobs:
           DOMAIN: web-saas
           DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
           DEPLOY_TAG: ${{ needs.provision.outputs.deploy_tag }}
-          MANAGED_IMAGES: ACCOUNTS_IMAGE BILLING_IMAGE CONSOLE_IMAGE
+          MANAGED_IMAGES: ACCOUNTS_IMAGE BILLING_IMAGE CONSOLE_IMAGE XWORKMATE_BRIDGE_IMAGE
         run: bash .github/scripts/gitops-update-tags.sh
 
       # open-platform 域更新 (根据需要可以补充 MANAGED_IMAGES)
@@ -1018,6 +1017,7 @@ jobs:
         OBSERVE_URLS: >-
           https://console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
           https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
+          https://bridge-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/api/ping
       run: bash playbooks/.github/scripts/domain-cd-observe-endpoints.sh
 
     # 备份排在 observe 之后, 因为此刻证书要么是恢复来的、要么是本轮新签的,
@@ -1148,6 +1148,7 @@ jobs:
         OBSERVE_URLS: >-
           https://console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
           https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
+          https://bridge-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/api/ping
       run: bash playbooks/.github/scripts/domain-cd-observe-endpoints.sh
 
   update_uat_dns:
@@ -1236,6 +1237,7 @@ jobs:
           https://billing-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
           https://console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
           https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
+          https://bridge-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/api/ping
       run: bash playbooks/.github/scripts/domain-cd-observe-endpoints.sh
 
   deploy_infra_platform:
