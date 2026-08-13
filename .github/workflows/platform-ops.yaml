@@ -223,8 +223,7 @@ jobs:
       source_domain_base:       ${{ steps.route.outputs.source_domain_base }}
       target_domain_base:       ${{ steps.route.outputs.target_domain_base }}
       env_suffix:               ${{ steps.route.outputs.env_suffix }}
-      confirm_dns_switch:       ${{ steps.route.outputs.confirm_dns_switch }}
-      uat_dns_update:           ${{ steps.route.outputs.uat_dns_update }}
+      dns_mode:                 ${{ steps.route.outputs.dns_mode }}
       vault_env_path:           ${{ steps.route.outputs.vault_env_path }}
       cloud_provider:           ${{ steps.route.outputs.cloud_provider }}
       hosts:              ${{ steps.matrix.outputs.hosts         || '[]' }}
@@ -1073,8 +1072,7 @@ jobs:
       (needs.deploy_agent_proxy.result == 'success' || !contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       needs.deploy_ai_workspace.result != 'failure' &&
       needs.provision.outputs.terraform_action == 'apply' &&
-      needs.provision.outputs.confirm_dns_switch == 'true' &&
-      needs.provision.outputs.uat_dns_update != 'true' }}
+      needs.provision.outputs.dns_mode == 'prod-cutover' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     environment: production
     env:
@@ -1169,7 +1167,7 @@ jobs:
     if: >-
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
-      needs.provision.outputs.uat_dns_update == 'true' &&
+      needs.provision.outputs.dns_mode == 'uat-records' &&
       needs.deploy_base.result == 'success' &&
       (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       (needs.deploy_web_saas.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
@@ -1512,16 +1510,14 @@ jobs:
 
   trigger_data_migration:
     name: "[3] Post-deploy | Data Migration"
-    needs: [provision, deploy_base, deploy_web_saas, deploy_infra_platform, deploy_agent_proxy, deploy_ai_workspace, deploy_monitor_agent]
+    needs: [provision, deploy_base, deploy_web_saas, deploy_agent_proxy, deploy_monitor_agent]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
       needs.deploy_web_saas.result == 'success' &&
-      needs.deploy_infra_platform.result == 'success' &&
-      needs.deploy_agent_proxy.result == 'success' &&
-      needs.deploy_ai_workspace.result == 'success' &&
-      needs.deploy_monitor_agent.result == 'success' &&
+      (needs.deploy_agent_proxy.result == 'success' || needs.deploy_agent_proxy.result == 'skipped') &&
+      (needs.deploy_monitor_agent.result == 'success' || needs.deploy_monitor_agent.result == 'skipped') &&
       needs.provision.outputs.toolkit_action == 'deploy+migrate' }}
     uses: ./.github/workflows/data-migration.yaml
     with:
