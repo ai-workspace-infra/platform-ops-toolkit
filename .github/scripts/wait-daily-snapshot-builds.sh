@@ -7,7 +7,7 @@ require_env GH_TOKEN SNAPSHOT_TAG SNAPSHOT_REPOS SNAPSHOT_STATUS_FILE
 declare -A BUILD_WORKFLOWS=(
   [ai-workspace-services/accounts]=ci-pipeline.yml
   [ai-workspace-services/billing-service]=ci-pipeline.yml
-  [ai-workspace-services/docs]=ci-pipeline.yml
+  [ai-workspace-services/content-service]=ci-pipeline.yml
   [ai-workspace-services/portal]=ci-pipeline.yml
   [ai-workspace-services/postgresql.svc.plus]=ci-pipeline.yml
 )

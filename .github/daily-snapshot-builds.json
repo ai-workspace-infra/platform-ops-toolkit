@@ -14,7 +14,7 @@
       "artifacts": ["image", "binary", "zip", "release-manifest"]
     },
     {
-      "repository": "ai-workspace-services/docs",
+      "repository": "ai-workspace-services/content-service",
       "workflow": "ci-pipeline.yml",
       "dispatch_inputs": {"deployment_environment": "${DEPLOY_ENV}"},
       "artifacts": ["image", "binary", "zip", "release-manifest"]
