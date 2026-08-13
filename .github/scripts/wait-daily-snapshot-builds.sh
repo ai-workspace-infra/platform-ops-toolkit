@@ -9,6 +9,7 @@ declare -A BUILD_WORKFLOWS=(
   [ai-workspace-services/billing-service]=ci-pipeline.yml
   [ai-workspace-services/content-service]=ci-pipeline.yml
   [ai-workspace-services/portal]=ci-pipeline.yml
+  [ai-workspace-lab/xworkmate-bridge]=pipeline.yml
   [ai-workspace-services/postgresql.svc.plus]=ci-pipeline.yml
 )
 

@@ -158,13 +158,14 @@ reconcile_record() {
 reconcile_record "billing-${DEPLOY_ENV}.${TARGET_DOMAIN_BASE}" "${web_saas_ip}"
 reconcile_record "console-${DEPLOY_ENV}.${TARGET_DOMAIN_BASE}" "${web_saas_ip}"
 reconcile_record "accounts-${DEPLOY_ENV}.${TARGET_DOMAIN_BASE}" "${web_saas_ip}"
+reconcile_record "bridge-${DEPLOY_ENV}.${TARGET_DOMAIN_BASE}" "${web_saas_ip}"
 if [[ -n "${agent_proxy_ip}" ]]; then
   reconcile_record "agent-proxy.${TARGET_DOMAIN_BASE}" "${agent_proxy_ip}"
 fi
 
-record_count=3
+record_count=4
 if [[ -n "${agent_proxy_ip}" ]]; then
-  record_count=4
+  record_count=5
 fi
 echo "UAT DNS reconciliation completed for ${record_count} rendered records in ${UAT_ZONE}; web-saas ${web_saas_hosts[0]} (${web_saas_ip})${agent_proxy_ip:+, agent-proxy ${agent_proxy_hosts[0]} (${agent_proxy_ip})}."
 

@@ -52,5 +52,5 @@ if [[ -n "${SNAPSHOT_REPOS:-}" ]]; then
 fi
 bash docs/tasks/tag-ai-workspace-mains.sh "${args[@]}"
 
-build_repos="${SNAPSHOT_REPOS:-ai-workspace-services/accounts,ai-workspace-services/billing-service,ai-workspace-services/content-service,ai-workspace-services/portal,ai-workspace-services/postgresql.svc.plus}"
+build_repos="${SNAPSHOT_REPOS:-ai-workspace-services/accounts,ai-workspace-services/billing-service,ai-workspace-services/content-service,ai-workspace-services/portal,ai-workspace-lab/xworkmate-bridge,ai-workspace-services/postgresql.svc.plus}"
 SNAPSHOT_REPOS="${build_repos}" .github/scripts/wait-daily-snapshot-builds.sh
