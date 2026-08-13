@@ -39,6 +39,7 @@ deploy_output="$(run_route env INPUT_OPERATION=deploy INPUT_DNS_MODE=none)"
 assert_contains "${deploy_output}" "run_infrastructure=true"
 assert_contains "${deploy_output}" "run_application_deploy=true"
 assert_contains "${deploy_output}" "terraform_action=apply"
+assert_contains "${deploy_output}" "dns_mode=none"
 
 source_ref_output="$(run_route env INPUT_OPERATION=deploy INPUT_DNS_MODE=none INPUT_SOURCE_REF=uat-daily-build-2026.08.12-r14)"
 assert_contains "${source_ref_output}" "infra_ref=uat-daily-build-2026.08.12-r14"
@@ -52,13 +53,15 @@ assert_contains "${plan_output}" "run_application_deploy=false"
 assert_contains "${plan_output}" "terraform_action=plan"
 
 uat_dns_output="$(run_route env INPUT_OPERATION=deploy INPUT_DNS_MODE=uat-records)"
-assert_contains "${uat_dns_output}" "uat_dns_update=true"
-assert_contains "${uat_dns_output}" "confirm_dns_switch=false"
+assert_contains "${uat_dns_output}" "dns_mode=uat-records"
 
 if run_route env INPUT_OPERATION=deploy INPUT_DNS_MODE=prod-cutover >/dev/null 2>&1; then
   echo "prod-cutover without confirmation unexpectedly succeeded" >&2
   exit 1
 fi
+
+prod_dns_output="$(run_route env INPUT_VAULT_ENV_PATH=prod INPUT_OPERATION=deploy INPUT_DNS_MODE=prod-cutover INPUT_CONFIRM_DNS_SWITCH=true)"
+assert_contains "${prod_dns_output}" "dns_mode=prod-cutover"
 
 xray_output="$(mktemp)"
 GITHUB_OUTPUT="${xray_output}" DEPLOYMENT_ENV=uat DEPLOY_TAG=uat-daily-build-2026.08.12-r14 \
