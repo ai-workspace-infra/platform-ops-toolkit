@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # =============================================================================
-# 业务服务仓的 Vault JWT role（accounts / billing-service / console / docs /
+# 业务服务仓的 Vault JWT role（accounts / billing-service / console /
+# content-service /
 # postgresql）。
 #
 # 这些仓库**只跑 CI**：构建镜像并推到 GHCR。部署由 GitOps 侧完成 ——
@@ -148,7 +149,7 @@ process_gitops_repo() {
 process_repo accounts         ai-workspace-services/accounts
 process_repo billing-service  ai-workspace-services/billing-service
 process_repo console          ai-workspace-services/portal
-process_repo docs             ai-workspace-services/docs
+process_repo content-service  ai-workspace-services/content-service
 process_repo postgresql       ai-workspace-infra/postgresql.svc.plus
 process_gitops_repo
 

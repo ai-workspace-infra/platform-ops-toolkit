@@ -74,7 +74,7 @@ bash docs/tasks/clean-snapshot-tag-and-release.sh \
 ```text
 github-actions-accounts-daily
 github-actions-billing-service-daily
-github-actions-docs-daily
+github-actions-content-service-daily
 github-actions-portal-daily
 github-actions-postgresql-daily
 ```
