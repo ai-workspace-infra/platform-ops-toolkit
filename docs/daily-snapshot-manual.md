@@ -72,14 +72,14 @@ bash docs/tasks/clean-snapshot-tag-and-release.sh \
 `refs/tags/daily-build-*` 上，因此每个服务需要一个独立 role，例如：
 
 ```text
-github-actions-accounts-daily
-github-actions-billing-service-daily
-github-actions-content-service-daily
-github-actions-portal-daily
-github-actions-postgresql-daily
+github-actions-accounts-uat
+github-actions-billing-service-uat
+github-actions-content-service-uat
+github-actions-console-uat
+github-actions-postgresql-uat
 ```
 
-这些 role 至少需要绑定：
+这些 role 由统一入口 `docs/tasks/vault_auth_split.sh` 创建，至少需要绑定：
 
 ```text
 ref = refs/tags/daily-build-*
