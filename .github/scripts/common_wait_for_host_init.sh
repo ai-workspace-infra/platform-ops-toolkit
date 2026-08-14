@@ -30,8 +30,8 @@ fi
 # Bounded so a genuinely stuck host fails the job rather than hanging it. Held
 # locks normally clear well inside this; the point is to stop racing them, not
 # to wait indefinitely.
-timeout_secs="${HOST_INIT_WAIT_TIMEOUT:-420}"
-interval_secs=10
+timeout_secs="${HOST_INIT_WAIT_TIMEOUT:-120}"
+interval_secs=3
 ssh_opts=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
           -o ConnectTimeout=10 -o BatchMode=yes)
 
@@ -48,11 +48,6 @@ ssh "${ssh_opts[@]}" "root@${ip}" "
 # Non-Debian hosts have neither cloud-init's package phase nor
 # unattended-upgrades; the probe simply reports ready.
 probe=$(cat <<'REMOTE'
-if command -v cloud-init >/dev/null 2>&1; then
-  # `status --wait` blocks until cloud-init reaches done/error. Bound it here
-  # too so this probe cannot outlive the loop's own timeout.
-  timeout 60 cloud-init status --wait >/dev/null 2>&1 || true
-fi
 for lock in /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock; do
   [ -e "$lock" ] || continue
   if command -v fuser >/dev/null 2>&1 && fuser "$lock" >/dev/null 2>&1; then
