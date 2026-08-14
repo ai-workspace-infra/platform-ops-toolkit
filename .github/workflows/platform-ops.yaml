@@ -1275,9 +1275,7 @@ jobs:
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
-      (needs.observe_web_saas.result == 'success' ||
-       (!contains(fromJSON('["all","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
-        needs.observe_web_saas.result == 'skipped')) &&
+      (needs.observe_web_saas.result == 'success' || (!contains(fromJSON('["all","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && needs.observe_web_saas.result == 'skipped')) &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
