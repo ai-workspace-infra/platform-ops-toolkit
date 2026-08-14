@@ -26,6 +26,15 @@
       "artifacts": ["image", "release-manifest"]
     },
     {
+      "repository": "ai-workspace-lab/xworkmate-bridge",
+      "workflow": "pipeline.yml",
+      "dispatch_inputs": {
+        "environment": "${DEPLOY_ENV}",
+        "run_apply": "false"
+      },
+      "artifacts": ["image", "binary"]
+    },
+    {
       "repository": "ai-workspace-services/postgresql.svc.plus",
       "workflow": "ci-pipeline.yml",
       "dispatch_inputs": {

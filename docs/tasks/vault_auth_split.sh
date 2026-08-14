@@ -451,7 +451,7 @@ process_service_repo accounts         ai-workspace-services/accounts
 process_service_repo billing-service  ai-workspace-services/billing-service
 process_service_repo console          ai-workspace-services/portal
 process_service_repo content-service  ai-workspace-services/content-service
-process_service_repo postgresql       ai-workspace-infra/postgresql.svc.plus
+process_service_repo postgresql       ai-workspace-services/postgresql.svc.plus
 process_gitops_service_repo
 
 # 死角色清理: -prod-tags 从来没有被任何 workflow 请求过, 其职责已并入 -prod。

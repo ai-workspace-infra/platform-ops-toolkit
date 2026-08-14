@@ -13,6 +13,10 @@ declare -A BUILD_WORKFLOWS=(
   [ai-workspace-services/postgresql.svc.plus]=ci-pipeline.yml
 )
 
+declare -A RELEASE_MANIFEST_REQUIRED=(
+  [ai-workspace-lab/xworkmate-bridge]=false
+)
+
 timeout_seconds="${BUILD_TIMEOUT_SECONDS:-1800}"
 poll_seconds="${BUILD_POLL_SECONDS:-15}"
 deadline=$(( $(date +%s) + timeout_seconds ))
@@ -56,7 +60,7 @@ for repo in "${repos[@]}"; do
     run_id="$(jq -r \
       --arg tag "$SNAPSHOT_TAG" \
       --arg sha "$expected_sha" \
-      '[.[] | select(.event == "push" and .headBranch == $tag and .headSha == $sha)] | first | .databaseId // empty' \
+      '[.[] | select((.event == "push" or .event == "workflow_dispatch") and .headBranch == $tag and .headSha == $sha)] | first | .databaseId // empty' \
       <<< "$runs")"
     [[ -n "$run_id" ]] || sleep "$poll_seconds"
   done
@@ -78,12 +82,16 @@ for repo in "${repos[@]}"; do
       break
     fi
 
-    assets="$(gh release view "$SNAPSHOT_TAG" -R "$repo" --json assets --jq '[.assets[].name]' 2>/dev/null || printf '[]')"
-    if jq -e 'index("release-manifest.json") != null' <<< "$assets" >/dev/null; then
-      release_url="$(gh release view "$SNAPSHOT_TAG" -R "$repo" --json url --jq .url 2>/dev/null || true)"
-      record "$repo" "build_succeeded" "$run_sha" "CI run ${run_id}; release manifest ${release_url}"
+    if [[ "${RELEASE_MANIFEST_REQUIRED[$repo]:-true}" == "false" ]]; then
+      record "$repo" "build_succeeded" "$run_sha" "CI run ${run_id} completed"
     else
-      record "$repo" "manifest_missing" "$run_sha" "CI run ${run_id} succeeded but release-manifest.json is missing"
+      assets="$(gh release view "$SNAPSHOT_TAG" -R "$repo" --json assets --jq '[.assets[].name]' 2>/dev/null || printf '[]')"
+      if jq -e 'index("release-manifest.json") != null' <<< "$assets" >/dev/null; then
+        release_url="$(gh release view "$SNAPSHOT_TAG" -R "$repo" --json url --jq .url 2>/dev/null || true)"
+        record "$repo" "build_succeeded" "$run_sha" "CI run ${run_id}; release manifest ${release_url}"
+      else
+        record "$repo" "manifest_missing" "$run_sha" "CI run ${run_id} succeeded but release-manifest.json is missing"
+      fi
     fi
     recorded=true
     break
