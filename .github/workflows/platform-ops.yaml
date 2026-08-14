@@ -345,6 +345,10 @@ jobs:
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops_provision_map-instance-plan.sh
 
+    - name: Resolve active Vultr Golden Image snapshots
+      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'vultr-vps'
+      run: ${{ github.workspace }}/.github/scripts/platform-ops_provision_resolve-golden-image-snapshots.sh
+
     - name: generate.py render
       if: steps.route.outputs.run_infrastructure == 'true'
       working-directory: ${{ env.VPS_ROOT }}
