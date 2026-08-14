@@ -43,7 +43,8 @@ if [[ -n "${SNAPSHOT_STATUS_FILE:-}" ]]; then
 fi
 
 # Make the source ref explicit; snapshot tags remain immutable.
-args=(--tag "${tag}" --ref main --deploy-env "${DEPLOY_ENV}" --apply)
+snapshot_ref="${SNAPSHOT_REF:-main}"
+args=(--tag "${tag}" --ref "${snapshot_ref}" --deploy-env "${DEPLOY_ENV}" --apply)
 if [[ -n "${SNAPSHOT_ORGS:-}" ]]; then
   args+=(--org "${SNAPSHOT_ORGS}")
 fi
@@ -52,5 +53,27 @@ if [[ -n "${SNAPSHOT_REPOS:-}" ]]; then
 fi
 bash docs/tasks/tag-ai-workspace-mains.sh "${args[@]}"
 
-build_repos="${SNAPSHOT_REPOS:-ai-workspace-services/accounts,ai-workspace-services/billing-service,ai-workspace-services/content-service,ai-workspace-services/portal,ai-workspace-services/postgresql.svc.plus}"
-SNAPSHOT_REPOS="${build_repos}" .github/scripts/wait-daily-snapshot-builds.sh
+# Only repositories declared as build targets are waited on. The snapshot also
+# tags source-only repositories (for example xworkmate-bridge and .github),
+# but those repositories do not publish the release-manifest contract used by
+# this waiter and must not turn a successful snapshot into a timeout.
+build_config="${GITHUB_WORKSPACE:-.}/.github/daily-snapshot-builds.json"
+[[ -f "${build_config}" ]] || {
+  echo "::error::Missing daily snapshot build configuration: ${build_config}" >&2
+  exit 2
+}
+
+build_repos="$(jq -r '.repositories[].repository' "${build_config}")"
+if [[ -n "${SNAPSHOT_REPOS:-}" ]]; then
+  requested_repos="$(tr ',' '\n' <<< "${SNAPSHOT_REPOS}")"
+  build_repos="$(comm -12 \
+    <(sort -u <<< "${build_repos}") \
+    <(sort -u <<< "${requested_repos}"))"
+fi
+
+if [[ -n "${build_repos}" ]]; then
+  build_repos="$(paste -sd, <<< "${build_repos}")"
+  SNAPSHOT_REPOS="${build_repos}" .github/scripts/wait-daily-snapshot-builds.sh
+else
+  echo "No build-target repositories selected; skipping CI wait."
+fi
