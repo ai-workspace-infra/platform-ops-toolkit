@@ -216,8 +216,21 @@ REMOTE
   # stdin belongs to the tar stream. Pass the small remote program as an
   # encoded command argument instead of a here-document, otherwise the here-
   # document would replace the archive before ssh can forward it.
-  tar -C "${pem_tmp}" -czf - fullchain.pem cert.pem key.pem ca.pem trust-bundle.pem | ssh "${ssh_opts[@]}" "${host}" \
-    "DOMAIN_TLS_DIR=$(printf '%q' "${DOMAIN_TLS_DIR}") CERT_FINGERPRINT=$(printf '%q' "${cert_fingerprint}") bash -c \"\$(printf %s '${remote_script_b64}' | base64 -d)\""
+  local success=false
+  for attempt in 1 2 3 4 5; do
+    if tar -C "${pem_tmp}" -czf - fullchain.pem cert.pem key.pem ca.pem trust-bundle.pem | ssh "${ssh_opts[@]}" "${host}" \
+      "DOMAIN_TLS_DIR=$(printf '%q' "${DOMAIN_TLS_DIR}") CERT_FINGERPRINT=$(printf '%q' "${cert_fingerprint}") bash -c \"\$(printf %s '${remote_script_b64}' | base64 -d)\""; then
+      success=true
+      break
+    fi
+    echo "SSH restore attempt ${attempt} failed; retrying in 5s..." >&2
+    sleep 5
+  done
+
+  if [[ "${success}" != "true" ]]; then
+    echo "::error::Failed to restore domain TLS material to ${host} after multiple attempts." >&2
+    return 1
+  fi
 
   echo "Restored domain TLS material for non-Caddy consumers at ${DOMAIN_TLS_DIR}/current/."
 }
