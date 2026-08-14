@@ -845,6 +845,13 @@ jobs:
     - name: Wait for host SSH
       run: ${{ github.workspace }}/.github/scripts/common_wait_for_host_ssh.sh
 
+    # Doco-CD owns the Compose stack. Before DB Init starts to create roles,
+    # require the pull-only reconciler to have actually started PostgreSQL.
+    # The external helper emits read-only Doco-CD/Compose diagnostics on
+    # timeout, avoiding a second opaque four-minute container probe.
+    - name: Wait for Doco-CD Web SaaS PostgreSQL readiness
+      run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_base_wait-for-web-saas-postgres.sh
+
     - name: Install Ansible
       run: ${{ github.workspace }}/.github/scripts/common_install_ansible.sh
 
