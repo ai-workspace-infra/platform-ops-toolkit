@@ -296,12 +296,46 @@ process_gitops_service_repo() {
   write_service_role gitops prod '"refs/tags/v*"' "${repo}" "${workflow}"
 }
 
+process_artifacts_service_repo() {
+  local repo="ai-workspace-infra/artifacts"
+  local workflow="${repo}/.github/workflows/*@*"
+  echo "=== Infrastructure Artifacts: artifacts (${repo}) ==="
+  echo "  Creating policy github-actions-artifacts..."
+  vault policy write github-actions-artifacts - <<'EOF'
+path "kv/data/CICD" {
+  capabilities = ["read"]
+}
+path "kv/data/CICD/*" {
+  capabilities = ["read"]
+}
+path "kv/metadata/CICD" {
+  capabilities = ["list", "read"]
+}
+path "kv/metadata/CICD/*" {
+  capabilities = ["list", "read"]
+}
+EOF
+
+  write_service_role artifacts sit \
+    '["refs/pull/*/merge", "refs/heads/*", "refs/tags/sit-*"]' \
+    "${repo}" "${workflow}"
+
+  write_service_role artifacts uat \
+    '["refs/heads/main", "refs/heads/feature/*", "refs/heads/daily-build-*", "refs/tags/uat-*", "refs/tags/daily-build-*"]' \
+    "${repo}" "${workflow}"
+
+  write_service_role artifacts prod \
+    '["refs/tags/v*", "refs/tags/prod-*"]' \
+    "${repo}" "${workflow}"
+}
+
 process_service_repo accounts         ai-workspace-services/accounts
 process_service_repo billing-service  ai-workspace-services/billing-service
 process_service_repo console          ai-workspace-services/portal
 process_service_repo content-service  ai-workspace-services/content-service
 process_service_repo docs             ai-workspace-services/docs
 process_service_repo postgresql       ai-workspace-services/postgresql.svc.plus
+process_artifacts_service_repo
 process_gitops_service_repo
 
 # -----------------------------------------------------------------------------
