@@ -781,11 +781,12 @@ jobs:
   # 把建库挪到 observe 检查之前修复, 不是撤销任何一个 fix。
   initialize_web_saas_databases:
     name: "[2] DB Init | ${{ matrix.host }}"
-    needs: [provision, deploy_base]
+    needs: [provision, deploy_base, update_gitops_tags]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
+      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -899,16 +900,18 @@ jobs:
         --limit "${MATRIX_HOST}"
 
   # deploy_web_saas (stateless containers) 和 initialize_web_saas_databases (DB init)
-  # 并行运行 —— 两者都只依赖 deploy_base, 互相不阻塞。
+  # 并行运行。两者都必须等 GitOps tag 更新完成，随后 DB Init 由 playbook
+  # 等待 Doco-CD 拉起 PostgreSQL，避免在旧版本尚未收敛时提前探测容器。
   # switch_dns 等待两者都完成才切流量(最后一步流量门)。
   # observe 在 switch_dns 之后的 deploy_web_saas 中完成(DNS 此时已就位)。
   deploy_web_saas:
     name: "[2] Web SaaS | ${{ matrix.host }}"
-    needs: [provision, deploy_base]
+    needs: [provision, deploy_base, update_gitops_tags]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
+      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -1264,15 +1267,15 @@ jobs:
   deploy_agent_proxy:
     name: "[3] Agent Proxy | ${{ matrix.host }}"
     # A fresh agent needs Accounts to be serving before its first sync can
-    # generate the Xray runtime configs.  For an agent-only delivery there is
-    # no local Web SaaS observe job, so a skipped observe is still valid; for
-    # web-saas + agent-proxy this makes the dependency explicit.
+    # generate the Xray runtime configs. A skipped observe is valid only for
+    # an agent-only delivery; a combined Web SaaS + Agent Proxy delivery must
+    # have completed the Web SaaS observe gate successfully.
     needs: [provision, deploy_base, observe_web_saas]
     if: >-
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
-      (needs.observe_web_saas.result == 'success' || needs.observe_web_saas.result == 'skipped') &&
+      (needs.observe_web_saas.result == 'success' || (!contains(fromJSON('["all","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && needs.observe_web_saas.result == 'skipped')) &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
