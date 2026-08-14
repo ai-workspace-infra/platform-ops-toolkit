@@ -1,0 +1,37 @@
+name: UAT Serverless Orchestrator
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to deploy to Cloud Run UAT'
+        required: false
+        default: 'latest'
+  schedule:
+    # 每个工作日 09:00 (UTC 01:00) 自动拉起 UAT 临时计算环境
+    - cron: '0 1 * * 1-5'
+
+jobs:
+  deploy_uat:
+    name: Provision UAT Serverless Stack
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run UAT Orchestrator Script
+        run: ./.github/scripts/uat_orchestrator_runner.sh
+        env:
+          VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+          IMAGE_TAG: ${{ github.event.inputs.image_tag || 'latest' }}

@@ -1,0 +1,21 @@
+name: UAT Daily Compute Cleanup
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 每天 20:00 (UTC 12:00) 彻底销毁 Cloud Run 临时计算实例并清理镜像
+    - cron: '0 12 * * *'
+
+jobs:
+  cleanup_uat:
+    name: Teardown UAT Ephemeral Compute
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run UAT Teardown Script
+        run: ./.github/scripts/uat_cleanup_runner.sh
+        env:
+          VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
