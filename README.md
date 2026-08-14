@@ -7,7 +7,7 @@
 If you are using this repository for the first time, follow these four steps:
 
 1. Prepare a Vault server reachable from the GitHub Actions runner. The current default is [`https://vault.svc.plus`](https://vault.svc.plus).
-2. Use a Vault administrator token to run [`docs/tasks/vault_auth_split.sh`](docs/tasks/vault_auth_split.sh) and configure GitHub Actions OIDC → Vault JWT.
+2. Use a Vault administrator token to run [`scripts/create_vault_service_repo_roles.sh`](scripts/create_vault_service_repo_roles.sh) and configure GitHub Actions OIDC → Vault JWT.
 3. Open **Actions → Deploy Environment & Provision Infrastructure → Run workflow** in this repository.
 4. Fill in the target environment and deployment inputs, then click **Run workflow**. This is the entry point for deployment, resize, migration, backup, and restore operations.
 
@@ -45,8 +45,8 @@ This is a one-time setup and requires Vault administrator access:
 export VAULT_ADDR=https://vault.svc.plus
 export VAULT_TOKEN="hvs.xxxxxxxxx"   # Vault administrator token
 
-chmod +x docs/tasks/vault_auth_split.sh
-./docs/tasks/vault_auth_split.sh
+chmod +x scripts/create_vault_service_repo_roles.sh
+./scripts/create_vault_service_repo_roles.sh
 ```
 
 For the detailed JWT auth, Role/Policy, workflow claim, KV isolation, and troubleshooting instructions, see [Vault Authentication and Policy Isolation](docs/vault/vault_authentication_and_policy_isolation.md). This README only provides the onboarding path and operation entry points.
@@ -170,7 +170,7 @@ When switching projects, update at least:
 2. Service repositories, image registries, domains, and tags referenced inside `playbooks` and GitOps.
 3. `target_domains`, the Terraform host/resource matrix, job conditions, and Vault paths; remove domains that do not exist in the personal project.
 4. GitHub App installations, selected repositories, Contents/Actions permissions, and GitOps write access.
-5. `REPO`, `PLAYBOOKS_REPO`, workflow allowlists, and new policies/roles in [`vault_auth_split.sh`](docs/tasks/vault_auth_split.sh).
+5. `REPO`, `PLAYBOOKS_REPO`, workflow allowlists, and new policies/roles in [`vault_auth_split.sh`](scripts/create_vault_service_repo_roles.sh).
 
 Search for old project bindings with:
 

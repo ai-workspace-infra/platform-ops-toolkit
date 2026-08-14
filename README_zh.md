@@ -7,7 +7,7 @@
 如果你是第一次使用，只需要按下面 4 步走：
 
 1. 准备一个可以被 GitHub Actions Runner 访问的 Vault Server，当前默认地址是 [`https://vault.svc.plus`](https://vault.svc.plus)。
-2. 用 Vault 管理员 Token 执行 [`docs/tasks/vault_auth_split.sh`](docs/tasks/vault_auth_split.sh)，配置 GitHub Actions OIDC → Vault JWT。
+2. 用 Vault 管理员 Token 执行 [`scripts/create_vault_service_repo_roles.sh`](scripts/create_vault_service_repo_roles.sh)，配置 GitHub Actions OIDC → Vault JWT。
 3. 打开本仓库的 **Actions → Deploy Environment & Provision Infrastructure → Run workflow**。
 4. 按目标环境填写参数，点击 **Run workflow**。真正的部署、扩容、迁移、备份和恢复都从这里进入。
 
@@ -47,8 +47,8 @@ GitHub Actions 不直接保存云密钥、SSH 私钥和业务密钥。Vault 必�
 export VAULT_ADDR=https://vault.svc.plus
 export VAULT_TOKEN="hvs.xxxxxxxxx"   # Vault 管理员 Token
 
-chmod +x docs/tasks/vault_auth_split.sh
-./docs/tasks/vault_auth_split.sh
+chmod +x scripts/create_vault_service_repo_roles.sh
+./scripts/create_vault_service_repo_roles.sh
 ```
 
 详细的 JWT auth、Role/Policy、workflow claim、KV 隔离和故障排查，请阅读 [Vault 鉴权与策略隔离手册](docs/vault/vault_authentication_and_policy_isolation.md)。本 README 只负责新人向导和操作入口。
@@ -172,7 +172,7 @@ platform-ops-toolkit
 2. `playbooks` 和 GitOps 内部引用的 service repository、镜像 registry、域名和 tag。
 3. `target_domains`、Terraform host/resource matrix、job 条件和 Vault 路径，删除个人项目不存在的业务域。
 4. GitHub App 的安装组织、selected repositories、Contents/Actions 权限，以及自动更新 GitOps 所需的写权限。
-5. [`vault_auth_split.sh`](docs/tasks/vault_auth_split.sh) 的 `REPO`、`PLAYBOOKS_REPO`、workflow allowlist 和新的 policy/role。
+5. [`vault_auth_split.sh`](scripts/create_vault_service_repo_roles.sh) 的 `REPO`、`PLAYBOOKS_REPO`、workflow allowlist 和新的 policy/role。
 
 可用下面的搜索检查旧项目绑定：
 
