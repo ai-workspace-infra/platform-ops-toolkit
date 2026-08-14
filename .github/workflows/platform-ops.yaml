@@ -239,7 +239,9 @@ jobs:
         # Manual destroy must use the workflow code from the selected branch.
         # Falling back to deploy_ref can silently load an older tag without
         # the current destroy routing fix.
-        ref: ${{ github.event.inputs.source_ref || 'main' }}
+        # Pull-request checks must evaluate the PR head, not the base branch;
+        # otherwise newly added scripts are absent from the checked-out tree.
+        ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.inputs.source_ref || 'main' }}
 
     - name: Validate cloud_provider
       # 仅支持已接线的云厂商
