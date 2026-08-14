@@ -647,7 +647,7 @@ jobs:
         WEB_SAAS_ACCOUNTS_DOMAIN:          accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
         WEB_SAAS_BILLING_DOMAIN:            ${{ needs.provision.outputs.deployment_env == 'uat' && format('billing-uat.{0}', needs.provision.outputs.target_domain_base) || '' }}
         AGENT_CONTROLLER_URL:              https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
-        AGENT_REPO_VERSION:                ${{ needs.provision.outputs.deploy_tag }}
+        AGENT_REPO_VERSION:                ${{ contains(needs.provision.outputs.deploy_tag, 'daily-build') && 'main' || needs.provision.outputs.deploy_tag }}
         AGENT_SVC_PLUS_MANAGE_SOURCE_CHECKOUT: "true"
         AGENT_SVC_PLUS_BUILD_ON_TARGET:    "true"
         # 给了它 web_saas_host_config 就渲染 DNS-01 + *.<base> 泛域名 Caddyfile,
@@ -1376,7 +1376,7 @@ jobs:
         INTERNAL_SERVICE_TOKEN: ${{ steps.vault.outputs.INTERNAL_SERVICE_TOKEN }}
         AGENT_CONTROLLER_URL: https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
         AGENT_CONTROLLER_IP: ${{ steps.controller.outputs.ip }}
-        AGENT_REPO_VERSION: ${{ needs.provision.outputs.deploy_tag }}
+        AGENT_REPO_VERSION: ${{ contains(needs.provision.outputs.deploy_tag, 'daily-build') && 'main' || needs.provision.outputs.deploy_tag }}
         AGENT_ID: ${{ matrix.host }}
         AGENT_PROXY_DOMAIN: ${{ matrix.host }}
         AGENT_DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
