@@ -7,7 +7,7 @@
 "这个仓库具体是怎样"的事实，随 workflow 改动同步维护，不要让通用 skill 里出现会漂移的
 本仓库细节。
 
-更新时间：2026-08-02（对应 `main@3915e54`）
+更新时间：2026-08-14
 
 ---
 
@@ -31,21 +31,17 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
 
 ---
 
-## 2. `daily-main-snapshot.yaml` —— 4 个输入，一个是死的
+## 2. `daily-main-snapshot.yaml` —— 4 个输入
 
 | input | 类型 | 现状 |
 |---|---|---|
 | `snapshot_tag` | string | 留空 → `daily-build-$(date -u +%Y.%m.%d)` |
-| `snapshot_source_ref` | string | **死输入，见下** |
+| `snapshot_source_ref` | string | 留空使用 `main`；也可指定明确的 source ref |
 | `deploy_env` | choice：sit / uat / prod | 默认 `uat` |
-| `repositories` | string，逗号分隔 | 留空 → 默认 5 个业务仓（accounts / billing-service / docs / portal / postgresql.svc.plus） |
+| `repositories` | string，逗号分隔 | 留空 → 仅当前构建清单中的 6 个仓（accounts / billing-service / content-service / portal / postgresql.svc.plus / xworkmate-bridge） |
 
-- **`snapshot_source_ref` 从未生效**：workflow 把它作为 `SNAPSHOT_REF` 传进 step
-  （`.github/workflows/daily-main-snapshot.yaml`），但
-  `.github/scripts/tag-daily-main-snapshot.sh` 里 `args=(--tag "${tag}" --ref main ...)`
-  写死 `--ref main`、从不读 `SNAPSHOT_REF`。**Agent 不要把这个字段当作可用输入呈现给
-  用户**；如果用户明确要求非 main 的 source ref，应告知该字段当前不生效，而不是假装
-  已生效地派发。
+- **`snapshot_source_ref` 已生效**：该值会作为 `SNAPSHOT_REF` 传给打 tag 脚本；新 tag
+  固定指向所选 ref。不能用同一个 tag 改指向另一个提交，需使用新的 retry tag。
 - **tag 命名两套约定并存**：脚本默认产出**不带环境前缀**的 `daily-build-YYYY.MM.DD`；
   另一套运维口径是 `uat-daily-build-YYYY-MM-DD-rN` 这类带前缀的 tag。
   `docs/tasks/tag-ai-workspace-mains.sh` 的 `infer_deploy_env_from_tag()` 按前缀
@@ -53,9 +49,10 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
   其余一律兜底 `uat`）推断部署环境，从而决定换哪个 Vault role。**默认让 `snapshot_tag`
   留空、用 workflow 自带的默认值**；只有用户明确要自定义 tag 时才手填，并提醒对方
   前缀会影响后续认证路由。
-- 矩阵横跨 4 个 org（`ai-workspace-infra` / `ai-workspace-lab` / `ai-workspace-services` /
-  `ai-workspace-xstream`），且 `wait-daily-snapshot-builds.sh` 还要等下游各仓构建完成 →
-  单次 run 是分钟级甚至更久，观察节奏不要按秒级 CI 的预期来卡超时。
+- 矩阵横跨 4 个 org，但每个 job 只处理归属本 org 的构建清单仓库；infra、xstream 当前
+  没有清单目标，会直接跳过。每个仓库有独立等待预算，某个仓没有 run 不会把后续仓库
+  已完成的构建误判为超时。`xworkmate-bridge` 不接收 daily tag push，而是在 tag 创建后
+  显式 `workflow_dispatch`（`environment=uat`、`run_apply=false`）。
 
 **验收**：run 绿不等于每个仓都真的打上了预期的 tag/release。逐仓核对
 `gh release view <tag> -R <repo>` 或对应的 assets 是否存在（`wait-daily-snapshot-builds.sh`

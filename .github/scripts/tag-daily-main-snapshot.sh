@@ -42,38 +42,81 @@ if [[ -n "${SNAPSHOT_STATUS_FILE:-}" ]]; then
   : > "${SNAPSHOT_STATUS_FILE}"
 fi
 
-# Make the source ref explicit; snapshot tags remain immutable.
-snapshot_ref="${SNAPSHOT_REF:-main}"
-args=(--tag "${tag}" --ref "${snapshot_ref}" --deploy-env "${DEPLOY_ENV}" --apply)
-if [[ -n "${SNAPSHOT_ORGS:-}" ]]; then
-  args+=(--org "${SNAPSHOT_ORGS}")
-fi
-if [[ -n "${SNAPSHOT_REPOS:-}" ]]; then
-  args+=(--repo "${SNAPSHOT_REPOS}")
-fi
-bash docs/tasks/tag-ai-workspace-mains.sh "${args[@]}"
-
-# Only repositories declared as build targets are waited on. The snapshot also
-# tags source-only repositories (for example .github), but those repositories
-# do not publish the build contract used by this waiter and must not turn a
-# successful snapshot into a timeout.
+# The scheduled snapshot is limited to the active build inventory below.  It
+# used to tag every non-archived repository in each organization before this
+# point, which could invoke unrelated legacy workflows.
 build_config="${GITHUB_WORKSPACE:-.}/.github/daily-snapshot-builds.json"
 [[ -f "${build_config}" ]] || {
   echo "::error::Missing daily snapshot build configuration: ${build_config}" >&2
   exit 2
 }
 
-build_repos="$(jq -r '.repositories[].repository' "${build_config}")"
+# Each matrix job owns a single organization and must never tag or wait for
+# every repository in the other organizations.  The build inventory is the
+# canonical scheduled-snapshot scope; it prevents unrelated/stale repositories
+# from receiving a daily tag merely because they still have a main branch.
+snapshot_organization="${SNAPSHOT_ORGS:-}"
+[[ "${snapshot_organization}" =~ ^ai-workspace-(infra|lab|services|xstream)$ ]] || {
+  echo "::error::SNAPSHOT_ORGS must name the current matrix organization (got: ${snapshot_organization:-empty})" >&2
+  exit 2
+}
+
+configured_repos="$(jq -r '.repositories[].repository' "${build_config}")"
+build_repos="$(awk -F/ -v org="${snapshot_organization}" '$1 == org' <<< "${configured_repos}")"
+
 if [[ -n "${SNAPSHOT_REPOS:-}" ]]; then
   requested_repos="$(tr ',' '\n' <<< "${SNAPSHOT_REPOS}")"
   build_repos="$(comm -12 \
     <(sort -u <<< "${build_repos}") \
     <(sort -u <<< "${requested_repos}"))"
+  tag_repos="$(awk -F/ -v org="${snapshot_organization}" '$1 == org' <<< "${requested_repos}")"
+else
+  tag_repos="${build_repos}"
+fi
+
+# Infra and xstream currently own no active daily-build target.  Leave an
+# empty status artifact so the matrix summary remains deterministic, but do
+# not enumerate and tag all of their repositories.
+if [[ -z "${tag_repos}" ]]; then
+  echo "No active snapshot repositories for ${snapshot_organization}; skipping tag and CI wait."
+  exit 0
+fi
+
+tag_repos="$(paste -sd, - <<< "${tag_repos}")"
+args=(--tag "${tag}" --ref "${SNAPSHOT_REF:-main}" --deploy-env "${DEPLOY_ENV}" --apply
+  --org "${snapshot_organization}" --repo "${tag_repos}")
+bash docs/tasks/tag-ai-workspace-mains.sh "${args[@]}"
+
+# Most build repositories start from the tag push.  xworkmate-bridge only
+# accepts v* tag pushes, so dispatch it explicitly after its immutable daily
+# tag is present.  Reuse the centralized dispatcher to keep its inputs in one
+# place and avoid dispatching a duplicate build for push-triggered services.
+dispatch_repos="$(jq -r \
+  --arg org "${snapshot_organization}" \
+  --arg selected "${tag_repos}" \
+  '[.repositories[]
+    | select(.trigger == "workflow_dispatch")
+    | select(.repository | startswith($org + "/"))
+    | select(.repository as $repo | ($selected | split(",") | index($repo)))
+    | .repository] | .[]' \
+  "${build_config}")"
+if [[ -n "${dispatch_repos}" ]]; then
+  dispatch_repos="$(paste -sd, - <<< "${dispatch_repos}")"
+  bash docs/tasks/tag-ai-workspace-mains.sh \
+    --tag "${tag}" \
+    --ref "${SNAPSHOT_REF:-main}" \
+    --deploy-env "${DEPLOY_ENV}" \
+    --org "${snapshot_organization}" \
+    --repo "${dispatch_repos}" \
+    --apply \
+    --build
 fi
 
 if [[ -n "${build_repos}" ]]; then
-  build_repos="$(paste -sd, <<< "${build_repos}")"
-  SNAPSHOT_REPOS="${build_repos}" .github/scripts/wait-daily-snapshot-builds.sh
+  build_repos="$(paste -sd, - <<< "${build_repos}")"
+  SNAPSHOT_ORGANIZATION="${snapshot_organization}" \
+    SNAPSHOT_REPOS="${build_repos}" \
+    .github/scripts/wait-daily-snapshot-builds.sh
 else
   echo "No build-target repositories selected; skipping CI wait."
 fi
