@@ -5,7 +5,7 @@ This file is the explicit English alternate entry point. The canonical English g
 ## Quick start
 
 1. Prepare a reachable, initialized and unsealed Vault server. The default is [`https://vault.svc.plus`](https://vault.svc.plus).
-2. From a checkout of this repository, run [`docs/tasks/vault_auth_split.sh`](docs/tasks/vault_auth_split.sh) with a Vault administrator token.
+2. From a checkout of this repository, run [`scripts/create_vault_service_repo_roles.sh`](scripts/create_vault_service_repo_roles.sh) with a Vault administrator token.
 3. Verify the result with `./scripts/vault/vault_layout_verify.py`.
 4. Open **Actions → Deploy Environment & Provision Infrastructure → Run workflow**.
 5. Start with a single domain, matching refs, an immutable `deploy_tag`, `vultr-vps`, and the correct `vault_env_path`.
