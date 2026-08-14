@@ -54,9 +54,9 @@ fi
 bash docs/tasks/tag-ai-workspace-mains.sh "${args[@]}"
 
 # Only repositories declared as build targets are waited on. The snapshot also
-# tags source-only repositories (for example xworkmate-bridge and .github),
-# but those repositories do not publish the release-manifest contract used by
-# this waiter and must not turn a successful snapshot into a timeout.
+# tags source-only repositories (for example .github), but those repositories
+# do not publish the build contract used by this waiter and must not turn a
+# successful snapshot into a timeout.
 build_config="${GITHUB_WORKSPACE:-.}/.github/daily-snapshot-builds.json"
 [[ -f "${build_config}" ]] || {
   echo "::error::Missing daily snapshot build configuration: ${build_config}" >&2

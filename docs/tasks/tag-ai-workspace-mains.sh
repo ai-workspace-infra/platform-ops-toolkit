@@ -24,6 +24,7 @@ declare -A BUILD_WORKFLOWS=(
   [ai-workspace-services/billing-service]="ci-pipeline.yml"
   [ai-workspace-services/content-service]="ci-pipeline.yml"
   [ai-workspace-services/portal]="ci-pipeline.yml"
+  [ai-workspace-lab/xworkmate-bridge]="pipeline.yml"
   [ai-workspace-services/postgresql.svc.plus]="ci-pipeline.yml"
 )
 
@@ -115,6 +116,12 @@ dispatch_build_workflow() {
   printf 'DISPATCH\t%s\t%s\t%s\n' "${repo}" "${workflow}" "${tag}"
 
   case "${repo}" in
+    ai-workspace-lab/xworkmate-bridge)
+      gh workflow run "${workflow}" --repo "${repo}" --ref "${tag}" \
+        -f "environment=${deploy_env}" \
+        -f "run_apply=false" \
+        >/dev/null
+      ;;
     ai-workspace-services/postgresql.svc.plus)
       gh workflow run "${workflow}" --repo "${repo}" --ref "${tag}" \
         -f "image_tag=${tag}" \

@@ -223,8 +223,7 @@ jobs:
       source_domain_base:       ${{ steps.route.outputs.source_domain_base }}
       target_domain_base:       ${{ steps.route.outputs.target_domain_base }}
       env_suffix:               ${{ steps.route.outputs.env_suffix }}
-      confirm_dns_switch:       ${{ steps.route.outputs.confirm_dns_switch }}
-      uat_dns_update:           ${{ steps.route.outputs.uat_dns_update }}
+      dns_mode:                 ${{ steps.route.outputs.dns_mode }}
       vault_env_path:           ${{ steps.route.outputs.vault_env_path }}
       cloud_provider:           ${{ steps.route.outputs.cloud_provider }}
       hosts:              ${{ steps.matrix.outputs.hosts         || '[]' }}
@@ -640,11 +639,10 @@ jobs:
         # source/forwarded-host input is accepted.
         TARGET_DOMAIN_BASE:                ${{ needs.provision.outputs.target_domain_base }}
         DEPLOY_ENV:                        ${{ needs.provision.outputs.deployment_env }}
-        # Loaded from the environment-scoped WEB_SAAS Vault record by the
-        # optional configuration step above. A missing value is intentional:
-        # Accounts then fails profile sync closed rather than falling back to
-        # an endpoint belonging to another environment.
-        XWORKMATE_BRIDGE_SERVER_URL:       ${{ env.XWORKMATE_BRIDGE_SERVER_URL || '' }}
+        # Public Bridge ingress belongs to the deployment domain.  Vault may
+        # override it for a separately hosted Bridge, but it never falls back
+        # to a source-zone URL.
+        XWORKMATE_BRIDGE_SERVER_URL:       ${{ env.XWORKMATE_BRIDGE_SERVER_URL || format('https://bridge-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
         WEB_SAAS_CONSOLE_DOMAIN:           console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
         WEB_SAAS_ACCOUNTS_DOMAIN:          accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
         WEB_SAAS_BILLING_DOMAIN:            ${{ needs.provision.outputs.deployment_env == 'uat' && format('billing-uat.{0}', needs.provision.outputs.target_domain_base) || '' }}
@@ -725,7 +723,7 @@ jobs:
           DOMAIN: web-saas
           DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
           DEPLOY_TAG: ${{ needs.provision.outputs.deploy_tag }}
-          MANAGED_IMAGES: ACCOUNTS_IMAGE BILLING_IMAGE CONSOLE_IMAGE
+          MANAGED_IMAGES: ACCOUNTS_IMAGE BILLING_IMAGE CONSOLE_IMAGE XWORKMATE_BRIDGE_IMAGE
         run: bash .github/scripts/gitops-update-tags.sh
 
       # open-platform 域更新 (根据需要可以补充 MANAGED_IMAGES)
@@ -1018,6 +1016,7 @@ jobs:
         OBSERVE_URLS: >-
           https://console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
           https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
+          https://bridge-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/api/ping
       run: bash playbooks/.github/scripts/domain-cd-observe-endpoints.sh
 
     # 备份排在 observe 之后, 因为此刻证书要么是恢复来的、要么是本轮新签的,
@@ -1073,8 +1072,7 @@ jobs:
       (needs.deploy_agent_proxy.result == 'success' || !contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       needs.deploy_ai_workspace.result != 'failure' &&
       needs.provision.outputs.terraform_action == 'apply' &&
-      needs.provision.outputs.confirm_dns_switch == 'true' &&
-      needs.provision.outputs.uat_dns_update != 'true' }}
+      needs.provision.outputs.dns_mode == 'prod-cutover' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     environment: production
     env:
@@ -1148,6 +1146,7 @@ jobs:
         OBSERVE_URLS: >-
           https://console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
           https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
+          https://bridge-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/api/ping
       run: bash playbooks/.github/scripts/domain-cd-observe-endpoints.sh
 
   update_uat_dns:
@@ -1168,7 +1167,7 @@ jobs:
     if: >-
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
-      needs.provision.outputs.uat_dns_update == 'true' &&
+      needs.provision.outputs.dns_mode == 'uat-records' &&
       needs.deploy_base.result == 'success' &&
       (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       (needs.deploy_web_saas.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
@@ -1236,6 +1235,7 @@ jobs:
           https://billing-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
           https://console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
           https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
+          https://bridge-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/api/ping
       run: bash playbooks/.github/scripts/domain-cd-observe-endpoints.sh
 
   deploy_infra_platform:
@@ -1510,16 +1510,14 @@ jobs:
 
   trigger_data_migration:
     name: "[3] Post-deploy | Data Migration"
-    needs: [provision, deploy_base, deploy_web_saas, deploy_infra_platform, deploy_agent_proxy, deploy_ai_workspace, deploy_monitor_agent]
+    needs: [provision, deploy_base, deploy_web_saas, deploy_agent_proxy, deploy_monitor_agent]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
       needs.deploy_web_saas.result == 'success' &&
-      needs.deploy_infra_platform.result == 'success' &&
-      needs.deploy_agent_proxy.result == 'success' &&
-      needs.deploy_ai_workspace.result == 'success' &&
-      needs.deploy_monitor_agent.result == 'success' &&
+      (needs.deploy_agent_proxy.result == 'success' || needs.deploy_agent_proxy.result == 'skipped') &&
+      (needs.deploy_monitor_agent.result == 'success' || needs.deploy_monitor_agent.result == 'skipped') &&
       needs.provision.outputs.toolkit_action == 'deploy+migrate' }}
     uses: ./.github/workflows/data-migration.yaml
     with:

@@ -15,6 +15,9 @@ SOURCE_HOST_DEFAULT="install.svc.plus"
 SOURCE_DOMAIN_BASE_DEFAULT="svc.plus"
 TARGET_DOMAIN_BASE_DEFAULT="onwalk.net"
 STATE_PROJECT="platform-ops-toolkit"
+dns_mode=none
+confirm_dns_switch=false
+uat_dns_update=false
 # Defaults are intentionally safe: no branch deployment reads a host
 # variable. Terraform creates the host and its CMDB is the only deploy
 # inventory for that run.
@@ -40,9 +43,8 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   resource_file="${deployment_env}/${rf}"
   terraform_workspace="${deployment_env}-${cloud_provider}-${STATE_PROJECT}-${rf}"
   state_key="${deployment_env}/${cloud_provider}/${STATE_PROJECT}/${rf}.tfstate"
-  # UI 使用单一 operation。内部仍输出两个显式开关，避免下游 job 的执行
-  # 边界模糊：run_infrastructure 负责 Terraform/CMDB，run_application_deploy
-  # 负责 Bootstrap 和业务域部署。
+  # UI 使用单一 operation。下游 job 只消费解析后的执行意图，避免在
+  # workflow 中重复拼接相互矛盾的开关条件。
   operation="${INPUT_OPERATION:-plan}"
   deploy_ref="${INPUT_DEPLOY_REF:-${INPUT_DEPLOY_TAG:-}}"
 
@@ -257,7 +259,7 @@ if [ "${run_application_deploy}" = "true" ]; then
   esac
 fi
 
-for key in deployment_env resource_file resource_files_full terraform_workspace state_key run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider source_host source_domain_base target_domain_base env_suffix confirm_dns_switch uat_dns_update deploy_tag; do
+for key in deployment_env resource_file resource_files_full terraform_workspace state_key run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider source_host source_domain_base target_domain_base env_suffix dns_mode deploy_tag; do
   value="${!key:-}"
   echo "$key=$value" >> "$GITHUB_OUTPUT"
 done
