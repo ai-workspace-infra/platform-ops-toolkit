@@ -1,33 +1,38 @@
 {
-  "version": 1,
+  "version": 2,
   "repositories": [
     {
       "repository": "ai-workspace-services/accounts",
       "workflow": "ci-pipeline.yml",
+      "trigger": "push",
       "dispatch_inputs": {"deploy_env": "${DEPLOY_ENV}"},
       "artifacts": ["image", "binary", "zip", "release-manifest"]
     },
     {
       "repository": "ai-workspace-services/billing-service",
       "workflow": "ci-pipeline.yml",
+      "trigger": "push",
       "dispatch_inputs": {"deployment_environment": "${DEPLOY_ENV}"},
       "artifacts": ["image", "binary", "zip", "release-manifest"]
     },
     {
       "repository": "ai-workspace-services/content-service",
       "workflow": "ci-pipeline.yml",
+      "trigger": "push",
       "dispatch_inputs": {"deployment_environment": "${DEPLOY_ENV}"},
       "artifacts": ["image", "binary", "zip", "release-manifest"]
     },
     {
       "repository": "ai-workspace-services/portal",
       "workflow": "ci-pipeline.yml",
+      "trigger": "push",
       "dispatch_inputs": {"deployment_environment": "${DEPLOY_ENV}"},
       "artifacts": ["image", "release-manifest"]
     },
     {
       "repository": "ai-workspace-lab/xworkmate-bridge",
       "workflow": "pipeline.yml",
+      "trigger": "workflow_dispatch",
       "dispatch_inputs": {
         "environment": "${DEPLOY_ENV}",
         "run_apply": "false"
@@ -37,6 +42,7 @@
     {
       "repository": "ai-workspace-services/postgresql.svc.plus",
       "workflow": "ci-pipeline.yml",
+      "trigger": "push",
       "dispatch_inputs": {
         "image_tag": "${SNAPSHOT_TAG}",
         "deployment_environment": "${DEPLOY_ENV}",
