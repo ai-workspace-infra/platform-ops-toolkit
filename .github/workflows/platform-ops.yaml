@@ -723,7 +723,14 @@ jobs:
           DOMAIN: web-saas
           DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
           DEPLOY_TAG: ${{ needs.provision.outputs.deploy_tag }}
-          MANAGED_IMAGES: ACCOUNTS_IMAGE BILLING_IMAGE CONSOLE_IMAGE XWORKMATE_BRIDGE_IMAGE
+          # XWORKMATE_BRIDGE_IMAGE 暂时移出托管列表: ai-workspace-lab/xworkmate-bridge
+          # 的 Pipeline 只把镜像推成 commit SHA tag, 不产出 uat-daily-build-* tag
+          # (见 run 31769621656: tags: ...xworkmate-bridge:050977839b46...)。留在
+          # 列表里会把 .env.uat 改写成 GHCR 里不存在的 tag, compose 整体 pull 失败,
+          # 于是整个 web-saas stack 都起不来 —— 2026-08-14 就是这样把 UAT 打挂的
+          # (run 31773108095: DB Init 等 postgres 超时, accounts 迁移 exit 125)。
+          # bridge 流水线补上 daily-build tag 之后再加回来。
+          MANAGED_IMAGES: ACCOUNTS_IMAGE BILLING_IMAGE CONSOLE_IMAGE
         run: bash .github/scripts/gitops-update-tags.sh
 
       # open-platform 域更新 (根据需要可以补充 MANAGED_IMAGES)

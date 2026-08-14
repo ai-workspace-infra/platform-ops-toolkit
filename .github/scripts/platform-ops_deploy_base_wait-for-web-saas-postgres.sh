@@ -23,7 +23,11 @@ host_ip="$(jq -r --arg host "${MATRIX_HOST}" '.[$host].ip // empty' "${cmdb_file
   exit 2
 }
 
+# common_configure_ssh_key.sh writes the deploy key to a non-default filename,
+# so ssh never picks it up implicitly. Without an explicit -i every connection
+# below fails with "Permission denied (publickey)".
 ssh_opts=(
+  -i ~/.ssh/id_deploy
   -o BatchMode=yes
   -o ConnectTimeout=15
   -o StrictHostKeyChecking=no
@@ -64,6 +68,16 @@ print_diagnostics() {
     -e 's/xox[baprs]-[A-Za-z0-9-]+/***REDACTED_SLACK_TOKEN***/g' || true
   echo "::endgroup::"
 }
+
+# Prove the SSH transport works before entering the poll loop. The preceding
+# "Wait for host SSH" step only probes TCP/22, so a rejected key still reaches
+# this script. Inside the loop an auth failure is indistinguishable from
+# "container not created yet", which burns the full timeout and then reports a
+# misleading readiness error instead of the real cause.
+if ! ssh_probe="$(ssh "${ssh_opts[@]}" "root@${host_ip}" true 2>&1)"; then
+  echo "::error::Cannot open an authenticated SSH session to root@${host_ip} (${MATRIX_HOST}): ${ssh_probe}" >&2
+  exit 1
+fi
 
 deadline=$(( $(date +%s) + timeout_seconds ))
 last_state="unavailable"
