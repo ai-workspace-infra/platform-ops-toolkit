@@ -32,8 +32,12 @@ fi
 # to wait indefinitely.
 timeout_secs="${HOST_INIT_WAIT_TIMEOUT:-120}"
 interval_secs=3
+ssh_key="${SSH_KEY_PATH:-$HOME/.ssh/id_deploy}"
 ssh_opts=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
           -o ConnectTimeout=10 -o BatchMode=yes)
+if [ -f "${ssh_key}" ]; then
+  ssh_opts+=(-i "${ssh_key}")
+fi
 
 # Actively disable and terminate background unattended-upgrades to avoid 7-minute lock delays.
 echo "Disabling unattended-upgrades on ${MATRIX_HOST} (${ip})..."
