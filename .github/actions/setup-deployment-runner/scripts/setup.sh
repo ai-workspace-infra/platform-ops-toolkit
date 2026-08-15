@@ -111,8 +111,16 @@ REMOTE
 }
 
 install_ansible() {
-  pip install --quiet ansible hvac
-  python3 -m pip install --quiet --break-system-packages hvac
+  if command -v ansible >/dev/null 2>&1 && python3 -c 'import hvac' >/dev/null 2>&1; then
+    echo 'Ansible and hvac are already available on the deployment runner.'
+    return
+  fi
+
+  local pip_args=(--quiet)
+  if python3 -m pip install --help 2>&1 | grep -q -- '--break-system-packages'; then
+    pip_args+=(--break-system-packages)
+  fi
+  python3 -m pip install "${pip_args[@]}" ansible hvac
   python3 -c 'import hvac'
 }
 

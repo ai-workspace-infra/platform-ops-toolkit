@@ -43,6 +43,11 @@ kv/data/CICD/prod  SMTP_USERNAME, SMTP_PASSWORD
 迁移 Platform Ops、Action Runner 与 Data Migration 的重复 step，随后删除被完全
 取代的 `common_*` SSH/Ansible 脚本及重复 migration SSH key 脚本。
 
+状态：已完成。P1 已通过 `setup-deployment-runner` 接入 Platform Ops、Action Runner
+和 Data Migration；已删除被完全取代的 SSH/Ansible 初始化脚本。Action 现在会先检测
+Runner 上是否已有 `ansible` 与 `hvac`，仅在缺失时执行一次安装，避免矩阵 job 重复安装
+和重复拉取依赖。`common_require_env.sh` 仍作为业务脚本共享库保留，未被误删。
+
 ### P2 — 收敛 Terraform 命令
 
 新增 `terraform-command`，接收 command、working directory 与 config directory。
