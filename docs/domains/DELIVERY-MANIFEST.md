@@ -22,7 +22,7 @@
 
 | 领域 | 负责服务 | CI Build 所属 | CD 入口 | Bootstrap playbook |
 |---|---|---|---|---|
-| `web-saas` | Console、Accounts、Billing、Caddy | 各服务开发仓库 | `web-saas-domain-cd.yaml` | `setup-Doco-CD.yaml` |
+| `web-saas` | Console、Accounts、Billing、Xworkmate Bridge、Caddy、PostgreSQL、PostgreSQL Tunnel | 各服务开发仓库 | `web-saas-domain-cd.yaml` | `setup-Doco-CD.yaml` |
 | `ai-workspace` | LiteLLM、OpenClaw、QMD、Agent/Model routing | 各服务开发仓库 | `ai-workspace-domain-cd.yaml` | `setup-ai-workspace-rootless.yml` |
 | `agent-proxy` | Caddy、Xray、Exporter、Vector、agent-svc-plus | 对应服务仓库 | `agent-proxy-domain-cd.yaml` | `setup-agent-proxy-domain.yml` |
 | `open-platform` | Gitea、Vault、Zitadel、Grafana、VictoriaMetrics 等 | 对应基础服务/制品仓库 | `open-platform-domain-cd.yaml` | `setup-open-platform-domain.yml` |
