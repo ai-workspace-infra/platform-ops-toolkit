@@ -1340,6 +1340,7 @@ jobs:
         INPUT_XRAY_EXPORTER_IMAGE: ${{ github.event.inputs.xray_exporter_image }}
         DEPLOYMENT_ENV: ${{ needs.provision.outputs.deployment_env }}
         DEPLOY_TAG: ${{ needs.provision.outputs.deploy_tag }}
+        GH_TOKEN: ${{ github.token }}
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_resolve-xray-exporter-image.sh
 
