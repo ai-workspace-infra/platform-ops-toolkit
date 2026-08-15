@@ -43,8 +43,8 @@ workflow 会从各仓库当时的 `main` SHA 创建不可变的
 稳定发布 tag 与日常构建 tag 共用同一个跨仓库打标脚本，区别只在 tag
 值和路由语义：`daily-build-*` 是每日自动构建，`uat-daily-build-*` 是允许的
 UAT 构建/重试 tag，`v*` 是受控手动选择的正式 PROD 发布，`sit-*` 是低频
-SIT 验证。Daily Snapshot 不能把 `v*` 作为 `snapshot_tag`；否则服务 CI 和
-平台路由会把日常构建误判为正式发布。
+SIT 验证。`v*` 只能与 `prod` 配对；日常/UAT tag 只能与 `sit`/`uat` 配对，
+由 preflight 在矩阵启动前拒绝错误组合。
 
 路由组合约定：
 

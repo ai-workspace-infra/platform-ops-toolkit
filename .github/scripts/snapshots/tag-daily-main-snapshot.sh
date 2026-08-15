@@ -3,50 +3,24 @@ set -euo pipefail
 
 . "$(dirname "${BASH_SOURCE[0]}")/../platform-ops/provision/common_require_env.sh"
 require_env GH_TOKEN DEPLOY_ENV
+. "$(dirname "${BASH_SOURCE[0]}")/snapshot-tag-policy.sh"
 
-tag="${SNAPSHOT_TAG:-daily-build-$(date -u +%Y.%m.%d)}"
-tag="$(printf '%s' "${tag}" | tr -d '\r\n' | xargs)"
+tag="$(resolve_and_validate_snapshot_tag)"
 export SNAPSHOT_TAG="${tag}"
-[[ "${tag}" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || {
-  echo "::error::Invalid snapshot tag: ${tag}" >&2
-  exit 2
-}
 # 自动 schedule 使用 daily-build-*；人工 workflow_dispatch 也允许
 # uat-daily-build-* 和受控 v* release tag。tag 与环境必须配对:
 # daily/uat tag -> sit|uat, v* -> prod.
 #
 # 1. 各 service 仓 CI 的 release job 条件是
 #      contains(github.ref, 'daily-build-')
-#    不含这一段, job 直接 skipped, 但整个 run 仍报 success —— 快照随后收不到
-#    release-manifest.json, 以 manifest_missing 失败。CI 全绿、快照失败, 排查
-#    起点离根因很远。
+#    日常 tag 不含这一段时, job 直接 skipped, 但整个 run 仍报 success —— UAT
+#    快照随后收不到 release-manifest.json。稳定 v* 发布不依赖这个 daily-only
+#    manifest, 由构建 Run 成功作为稳定制品构建证据。
 #
-# 2. 更要紧的一面: 发布路由把 release 形状的 tag(v*, *-release-*)判给 prod。
-#    2026-08-04 用 snapshot_tag=v2026.8.4 跑了一次 uat 快照, tag 打到各仓后,
-#    platform-ops-toolkit 被 tag push 拉进了 DEPLOY_ENV=prod 的部署 —— 它没成,
-#    唯一的原因是 gitops/compose/web-saas/.env.prod 不存在。一次 UAT 快照不该
-#    有任何机会碰到生产, 更不该靠一个缺失的文件兜底。
+# 2. v* 只能与 prod 配对，且代表人工控制的稳定发布；daily/uat tag 只能进入
+#    sit/uat。前置 job 会在矩阵启动前拒绝错误组合，不让跨仓 tag 操作先发生。
 #
 # 默认值本来就满足 daily-build-*; 这里挡的是显式传参绕过规则的情况。
-case "${tag}" in
-  v[0-9A-Za-z._/-]*)
-    [[ "${DEPLOY_ENV}" == prod ]] || {
-      echo "::error::v* release tags require deploy_env=prod; release publication is manually controlled." >&2
-      exit 2
-    }
-    ;;
-  daily-build-[0-9A-Za-z._/-]*|uat-daily-build-[0-9A-Za-z._/-]*)
-    [[ "${DEPLOY_ENV}" =~ ^(sit|uat)$ ]] || {
-      echo "::error::daily-build-* and uat-daily-build-* require deploy_env=sit or uat; use v* with prod for a release." >&2
-      exit 2
-    }
-    ;;
-  *)
-    echo "::error::Snapshot tag must match daily-build-*, uat-daily-build-*, or a controlled v* release tag." >&2
-    exit 2
-    ;;
-esac
-
 echo "Creating main snapshot ${tag} for ${DEPLOY_ENV}."
 if [[ -n "${SNAPSHOT_STATUS_FILE:-}" ]]; then
   mkdir -p "$(dirname "${SNAPSHOT_STATUS_FILE}")"

@@ -38,10 +38,11 @@ selector; an existing tag is never moved or overwritten.
 The shared tagging script must receive the intended tag explicitly. Stable
 release publication and daily snapshot publication differ by the tag value and
 the selected environment, not by a second tag-creation implementation. A
-`v*` tag must never be passed as `SNAPSHOT_TAG` to the Daily Main Snapshot
-workflow. Daily automatic builds use `daily-build-*`; `uat-daily-build-*` is
-also allowed for explicit UAT retries and validation. This prevents a daily
-build from being routed into production.
+The shared snapshot workflow may receive a controlled `v*` tag only when the
+selected environment is `prod`; it then follows the stable-release build
+contract. Daily automatic builds use `daily-build-*`; `uat-daily-build-*` is
+also allowed for explicit UAT retries and validation. The preflight rejects
+any tag/environment mismatch before the matrix starts.
 
 Production is fail-closed to exactly two Git refs: `refs/tags/v*` and
 `refs/heads/release/v*`. `main`, other `release/*` branches, and all daily

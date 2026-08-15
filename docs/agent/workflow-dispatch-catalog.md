@@ -41,9 +41,11 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
   固定指向所选 ref。不能用同一个 tag 改指向另一个提交，需使用新的 retry tag。
 - **tag 命名规范与强制约束**：
   - **必须包含 `daily-build-`**：脚本默认产出 `daily-build-YYYY.MM.DD`，自定义通常为 `uat-daily-build-YYYY.MM.DD-rN`。
-  - **严禁使用 `v*`（如 `v2026.08.15`）或 `*-release-*` 等 release 形状的 tag**：
-    1. 各 Service CI 的 release asset 发布（`release-manifest.json`）仅对 `daily-build-*` 生效；非 daily-build tag 会导致 CI 虽绿但 manifest 缺失。
-    2. `v*` tag 会被多环境路由规则直接路由给生产（`prod`）环境，产生灾难性误投产风险。
+  - `v*`（如 `v2026.08.15`）是稳定 PROD 发布 tag，只允许配合 `deploy_env=prod`；
+    `daily-build-*` / `uat-daily-build-*` 才是日常/UAT snapshot tag，只允许配合
+    `sit`/`uat`。workflow preflight 会在矩阵启动前拒绝错误组合。
+  - UAT snapshot 的 `release-manifest.json` 是必需验收证据；稳定 `v*` 发布不要求
+    daily-only manifest，以对应 tag CI Run 成功作为构建证据。
   - `docs/tasks/tag-ai-workspace-mains.sh` 的 `infer_deploy_env_from_tag()` 按前缀
     （`v*`→prod，`release/*`→uat，`sit-*`/`snapshot-*`→sit，`uat-*`→uat，`prod-*`→prod，
     其余一律兜底 `uat`）推断部署环境，从而决定换哪个 Vault role；这只是实现细节，不能

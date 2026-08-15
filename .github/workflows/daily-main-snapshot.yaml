@@ -35,8 +35,26 @@ permissions:
   id-token: write
 
 jobs:
+  preflight:
+    name: Validate snapshot tag and environment
+    runs-on: ubuntu-latest
+    outputs:
+      snapshot_tag: ${{ steps.policy.outputs.snapshot_tag }}
+      deploy_env: ${{ steps.policy.outputs.deploy_env }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Validate snapshot policy
+        id: policy
+        env:
+          DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
+          SNAPSHOT_TAG: ${{ inputs.snapshot_tag }}
+        run: ${{ github.workspace }}/.github/scripts/snapshots/validate-daily-snapshot-input.sh
+
   snapshot:
     name: Tag and build main snapshot
+    needs: preflight
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -80,8 +98,8 @@ jobs:
         if: ${{ inputs.repositories == '' || contains(inputs.repositories, matrix.organization) }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
-          SNAPSHOT_TAG: ${{ inputs.snapshot_tag }}
+          DEPLOY_ENV: ${{ needs.preflight.outputs.deploy_env }}
+          SNAPSHOT_TAG: ${{ needs.preflight.outputs.snapshot_tag }}
           SNAPSHOT_ORGS: ${{ matrix.organization }}
           SNAPSHOT_REPOS: ${{ inputs.repositories }}
           SNAPSHOT_FILTER_BY_ORG: ${{ inputs.repositories != '' && 'true' || 'false' }}

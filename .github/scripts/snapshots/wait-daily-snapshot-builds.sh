@@ -17,6 +17,12 @@ declare -A RELEASE_MANIFEST_REQUIRED=(
   [ai-workspace-lab/xworkmate-bridge]=false
 )
 
+# Service pipelines publish release-manifest.json for daily snapshot tags.
+# Stable v* release pipelines intentionally skip that daily-only job; for a
+# stable tag, a successful tag-triggered CI run is the release build evidence.
+stable_release=false
+[[ "${SNAPSHOT_TAG}" == v* ]] && stable_release=true
+
 timeout_seconds="${BUILD_TIMEOUT_SECONDS:-1800}"
 poll_seconds="${BUILD_POLL_SECONDS:-15}"
 snapshot_organization="${SNAPSHOT_ORGANIZATION:-}"
@@ -96,7 +102,7 @@ for repo in "${repos[@]}"; do
       break
     fi
 
-    if [[ "${RELEASE_MANIFEST_REQUIRED[$repo]:-true}" == "false" ]]; then
+    if [[ "${stable_release}" == true || "${RELEASE_MANIFEST_REQUIRED[$repo]:-true}" == "false" ]]; then
       record "$repo" "build_succeeded" "$run_sha" "CI run ${run_id} completed"
     else
       assets="$(gh release view "$SNAPSHOT_TAG" -R "$repo" --json assets --jq '[.assets[].name]' 2>/dev/null || printf '[]')"
