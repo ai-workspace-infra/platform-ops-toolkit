@@ -1,6 +1,6 @@
 #!/bin/bash
 set -eo pipefail
-. "$(dirname "${BASH_SOURCE[0]}")/common_require_env.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../platform-ops/provision/common_require_env.sh"
 
 # Fail red when the Vault KV keys are missing, and assert the two DSNs point at
 # the environments they are supposed to. Without this the migration script would

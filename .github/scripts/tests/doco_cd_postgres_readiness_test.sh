@@ -5,7 +5,7 @@ set -euo pipefail
 # models both the healthy path and a timeout that must emit Doco-CD diagnostics.
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-script="${repo_root}/.github/scripts/platform-ops_deploy_base_wait-for-web-saas-postgres.sh"
+script="${repo_root}/.github/scripts/platform-ops/deploy/platform-ops_deploy_base_wait-for-web-saas-postgres.sh"
 workdir="$(mktemp -d)"
 trap 'rm -rf "${workdir}"' EXIT
 

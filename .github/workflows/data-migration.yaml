@@ -252,7 +252,7 @@ jobs:
     # taken from the binary's embedded schema.sql, and import rejects a snapshot
     # whose hash differs. Building once is what keeps export and import agreeing.
     - name: Build migratectl
-      run: .github/scripts/data-migration_accounts_build-migratectl.sh
+      run: .github/scripts/data-migration/data-migration_accounts_build-migratectl.sh
 
     # ---- ssh transport -------------------------------------------------------
     - name: Load SSH key from Vault
@@ -298,7 +298,7 @@ jobs:
         MIGRATECTL_BIN: ${{ github.workspace }}/bin/migratectl
         CMDB_FILE: ${{ github.workspace }}/cmdb/cmdb.json
         DRY_RUN: ${{ inputs.accounts_dry_run && 'true' || 'false' }}
-      run: .github/scripts/accounts_data_migration_ssh.sh
+      run: .github/scripts/data-migration/accounts_data_migration_ssh.sh
 
     # ---- direct transport ----------------------------------------------------
     - name: Load migration DSNs from Vault
@@ -319,7 +319,7 @@ jobs:
       env:
         MIGRATION_SOURCE_DSN: ${{ steps.vault.outputs.MIGRATION_SOURCE_DSN }}
         MIGRATION_TARGET_DSN: ${{ steps.vault.outputs.MIGRATION_TARGET_DSN }}
-      run: .github/scripts/data-migration_accounts_assert-credentials.sh
+      run: .github/scripts/data-migration/data-migration_accounts_assert-credentials.sh
 
     - name: Run accounts migration (dry_run=${{ inputs.accounts_dry_run }})
       if: ${{ (inputs.accounts_transport || 'ssh') == 'direct' }}
@@ -329,7 +329,7 @@ jobs:
         MIGRATECTL_BIN: ${{ github.workspace }}/bin/migratectl
         SNAPSHOT_FILE: ${{ runner.temp }}/account-prod-snapshot.yaml
         DRY_RUN: ${{ inputs.accounts_dry_run && 'true' || 'false' }}
-      run: .github/scripts/accounts_data_migration.sh
+      run: .github/scripts/data-migration/accounts_data_migration.sh
 
   data_migration:
     name: Migrate Site Data (Source -> Target)
@@ -405,4 +405,4 @@ jobs:
         PROVISION_TARGET_DOMAIN_BASE: ${{ inputs.site_target_domain_base || 'onwalk.net' }}
         PROVISION_SOURCE_DOMAIN_BASE: ${{ inputs.site_source_domain_base || 'svc.plus' }}
       run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops_data_migration_run-toolkit-action-needs-provision-outputs-toolkit-action.sh
+        ${{ github.workspace }}/.github/scripts/data-migration/platform-ops_data_migration_run-toolkit-action-needs-provision-outputs-toolkit-action.sh

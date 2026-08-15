@@ -84,13 +84,13 @@ bash docs/tasks/tag-ai-workspace-mains.sh \
 - 跳过提示中给出 `TAG-r1` 的不可变重试建议。
 - help 明确 `--ref` 不会移动已有 tag。
 
-### `.github/scripts/tag-daily-main-snapshot.sh`
+### `.github/scripts/snapshots/tag-daily-main-snapshot.sh`
 
 - 每日任务显式传入 `--ref main`。
 - tag 仍由 `daily-build-YYYY.MM.DD` 或 `SNAPSHOT_TAG` 决定。
 - 同一天基础 tag 已存在时，不自动修改它。
 
-### `.github/scripts/wait-daily-snapshot-builds.sh`
+### `.github/scripts/snapshots/wait-daily-snapshot-builds.sh`
 
 - 等待前解析当前快照 tag 的 commit SHA。
 - CI run 查询增加 `headSha` 条件。
@@ -111,8 +111,8 @@ bash docs/tasks/tag-ai-workspace-mains.sh \
 ```bash
 bash -n \
   docs/tasks/tag-ai-workspace-mains.sh \
-  .github/scripts/tag-daily-main-snapshot.sh \
-  .github/scripts/wait-daily-snapshot-builds.sh
+  .github/scripts/snapshots/tag-daily-main-snapshot.sh \
+  .github/scripts/snapshots/wait-daily-snapshot-builds.sh
 
 git diff --check
 ```

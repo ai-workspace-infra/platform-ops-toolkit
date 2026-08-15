@@ -8,7 +8,7 @@ set -euo pipefail
 # the CMDB address instead.  The post-DNS jobs remain responsible for testing
 # the public ingress, TLS, redirects, and endpoint responses.
 
-. "$(dirname "${BASH_SOURCE[0]}")/common_require_env.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../provision/common_require_env.sh"
 require_env MATRIX_HOST
 
 timeout_seconds="${WEB_SAAS_CONTAINER_READY_TIMEOUT_SECONDS:-120}"

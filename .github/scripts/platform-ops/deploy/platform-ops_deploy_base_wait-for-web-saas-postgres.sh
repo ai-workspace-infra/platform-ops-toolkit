@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-. "$(dirname "${BASH_SOURCE[0]}")/common_require_env.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../provision/common_require_env.sh"
 require_env MATRIX_HOST
 
 timeout_seconds="${WEB_SAAS_POSTGRES_READY_TIMEOUT_SECONDS:-300}"

@@ -6,7 +6,7 @@ set -euo pipefail
 # now reaches the explicit NO_TLS_HANDSHAKE diagnostic instead.
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-script="${repo_root}/.github/scripts/platform-ops_deploy_base_assert-caddy-uses-restored-cert.sh"
+script="${repo_root}/.github/scripts/platform-ops/deploy/platform-ops_deploy_base_assert-caddy-uses-restored-cert.sh"
 workdir="$(mktemp -d)"
 trap 'rm -rf "${workdir}"' EXIT
 

@@ -1,0 +1,13 @@
+name: Release Quality
+description: Run repository release security checks.
+
+runs:
+  using: composite
+  steps:
+    - name: Install gitleaks
+      shell: bash
+      run: ${{ github.action_path }}/scripts/validate-release-pr_sec-qa-gate_install-gitleaks.sh
+
+    - name: Run gitleaks detect
+      shell: bash
+      run: ${{ github.action_path }}/scripts/validate-release-pr_sec-qa-gate_run-gitleaks-detect.sh

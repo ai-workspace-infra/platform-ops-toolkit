@@ -6,6 +6,11 @@
 部署、DNS、迁移和快照脚本的独立诊断边界。LandingZone 邮件通知不再消费 GitHub
 Actions Secret，统一使用 GitHub OIDC 认证后从 Vault 读取。
 
+脚本目录按领域归档：`platform-ops/{provision,deploy,dns,observe}`、
+`data-migration`、`resize`、`snapshots` 与 `tests`。同一长前缀且属于同一执行边界
+的脚本合并为 dispatcher，通过显式子命令选择内部函数；不跨领域合并，也不改变
+workflow job 数量、依赖关系或 step 顺序。
+
 ## 范围与边界
 
 | 范围 | 实施方式 | 不做的事 |
@@ -58,6 +63,7 @@ step；保留 LandingZone 的专用 plan 脚本。
 
 - YAML 解析、workflow gating、脚本可执行位检查；
 - 对 Composite Action shell 执行 `bash -n`；
+- 对 dispatcher 子命令执行隔离的 mock 回归测试；
 - PR 事件中部署 job 仍应按环境路由规则跳过；
 - 回滚仅需 revert 本 PR；Vault SMTP 键可以保留，不会暴露凭据。
 

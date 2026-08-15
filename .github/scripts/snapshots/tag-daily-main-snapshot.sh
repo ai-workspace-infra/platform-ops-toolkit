@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-. "$(dirname "${BASH_SOURCE[0]}")/common_require_env.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../platform-ops/provision/common_require_env.sh"
 require_env GH_TOKEN DEPLOY_ENV
 
 tag="${SNAPSHOT_TAG:-daily-build-$(date -u +%Y.%m.%d)}"
@@ -116,7 +116,7 @@ if [[ -n "${build_repos}" ]]; then
   build_repos="$(paste -sd, - <<< "${build_repos}")"
   SNAPSHOT_ORGANIZATION="${snapshot_organization}" \
     SNAPSHOT_REPOS="${build_repos}" \
-    .github/scripts/wait-daily-snapshot-builds.sh
+    "$(dirname "${BASH_SOURCE[0]}")/wait-daily-snapshot-builds.sh"
 else
   echo "No build-target repositories selected; skipping CI wait."
 fi

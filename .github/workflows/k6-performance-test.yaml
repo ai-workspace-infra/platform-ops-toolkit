@@ -97,4 +97,4 @@ jobs:
         env:
           K6_PROMETHEUS_RW_USERNAME: ${{ steps.vault.outputs.K6_PROMETHEUS_RW_USERNAME }}
           K6_PROMETHEUS_RW_PASSWORD: ${{ steps.vault.outputs.K6_PROMETHEUS_RW_PASSWORD }}
-        run: .github/scripts/run_k6_performance_test.sh
+        run: .github/scripts/platform-ops/observe/run_k6_performance_test.sh

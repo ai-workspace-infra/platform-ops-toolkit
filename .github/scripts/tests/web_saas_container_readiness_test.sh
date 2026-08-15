@@ -6,7 +6,7 @@ set -euo pipefail
 # diagnostics if a required container never appears.
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-script="${repo_root}/.github/scripts/platform-ops_observe-web-saas-containers.sh"
+script="${repo_root}/.github/scripts/platform-ops/observe/platform-ops_observe-web-saas-containers.sh"
 workdir="$(mktemp -d)"
 trap 'rm -rf "${workdir}"' EXIT
 

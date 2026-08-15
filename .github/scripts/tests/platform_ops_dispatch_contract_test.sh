@@ -2,8 +2,8 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-route_script="${repo_root}/.github/scripts/platform-ops_provision_route-ref-to-an-explicit-profile.sh"
-xray_script="${repo_root}/.github/scripts/platform-ops_deploy_resolve-xray-exporter-image.sh"
+route_script="${repo_root}/.github/scripts/platform-ops/provision/platform-ops_provision_route-ref-to-an-explicit-profile.sh"
+xray_script="${repo_root}/.github/scripts/platform-ops/deploy/platform-ops_deploy_resolve-xray-exporter-image.sh"
 
 run_route() {
   local output

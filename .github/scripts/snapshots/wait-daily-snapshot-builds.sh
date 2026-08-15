@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-. "$(dirname "${BASH_SOURCE[0]}")/common_require_env.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../platform-ops/provision/common_require_env.sh"
 require_env GH_TOKEN SNAPSHOT_TAG SNAPSHOT_REPOS SNAPSHOT_STATUS_FILE
 
 declare -A BUILD_WORKFLOWS=(

@@ -64,7 +64,7 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
 
 ### 3.1 隐式规则（都是脚本/工作流硬编码的行为，不在 YAML schema 里可见）
 
-来源：`.github/scripts/platform-ops_provision_route-ref-to-an-explicit-profile.sh`
+来源：`.github/scripts/platform-ops/provision/platform-ops_provision_route-ref-to-an-explicit-profile.sh`
 与 workflow 头部注释。
 
 1. `run_application_deploy=true` 必须同时 `run_infrastructure=true`，否则脚本
@@ -82,7 +82,7 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
    gitops pin**，而不是等 20 分钟后的 CI 失败去发现。
 5. `instance_plan` 只真正作用于 web-saas 主机。`agent-proxy.yaml` 的 host plan 是
    **硬编码 `vc2-1c-2gb`**，完全不读 `INSTANCE_PLAN_API`。
-   `.github/scripts/platform-ops_provision_map-instance-plan.sh` 里"agent-proxy 默认
+   `.github/scripts/platform-ops/provision/platform-ops_provision_map-instance-plan.sh` 里"agent-proxy 默认
    1C2G"的特判只在 `target_domains == "agent-proxy"` 且 `instance_plan == "4C8G"` 时
    触发，选 `"web-saas + agent-proxy"` 不会走到这条特判——但结果恰好也是 1C2G，只是
    路径不同，agent 不要把这两件事记混。

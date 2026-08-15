@@ -134,7 +134,7 @@ jobs:
     - name: Load AWS config
       if: ${{ env.CLOUD_PROVIDER == 'aws-cloud' }}
       run: |-
-        .github/scripts/iac-pipeline-multi-cloud-account-matrix_terraform_load-aws-config.sh
+        .github/scripts/platform-ops/provision/iac-pipeline-multi-cloud-account-matrix_terraform_load-aws-config.sh
 
     - uses: aws-actions/configure-aws-credentials@v4
       if: ${{ env.CLOUD_PROVIDER == 'aws-cloud' && env.AWS_ROLE_ARN != '' }}
@@ -151,7 +151,7 @@ jobs:
         MATRIX_COMPONENT: ${{ matrix.component }}
         VAULT_TF_STATE_ACCESS_KEY: ${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}
       run: |-
-        .github/scripts/iac-pipeline-multi-cloud-account-matrix_terraform_setup-terraform-cli-args.sh
+        .github/scripts/platform-ops/provision/iac-pipeline-multi-cloud-account-matrix_terraform_setup-terraform-cli-args.sh
 
     - name: Init
       uses: ./.github/actions/terraform-command
