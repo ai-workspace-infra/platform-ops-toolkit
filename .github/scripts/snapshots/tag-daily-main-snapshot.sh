@@ -11,12 +11,12 @@ export SNAPSHOT_TAG="${tag}"
   echo "::error::Invalid snapshot tag: ${tag}" >&2
   exit 2
 }
-[[ "${DEPLOY_ENV}" =~ ^(sit|uat|prod)$ ]] || {
-  echo "::error::Invalid deploy environment: ${DEPLOY_ENV}" >&2
+[[ "${DEPLOY_ENV}" =~ ^(sit|uat)$ ]] || {
+  echo "::error::Daily Snapshot supports only sit or uat (got: ${DEPLOY_ENV}); use a controlled v* release tag for prod." >&2
   exit 2
 }
 
-# 快照 tag 必须带 daily-build- 这一段。两件事都挂在它上面:
+# 快照 tag 必须是 daily-build-* 或 uat-daily-build-*。两件事都挂在它上面:
 #
 # 1. 各 service 仓 CI 的 release job 条件是
 #      contains(github.ref, 'daily-build-')
@@ -31,8 +31,8 @@ export SNAPSHOT_TAG="${tag}"
 #    有任何机会碰到生产, 更不该靠一个缺失的文件兜底。
 #
 # 默认值本来就满足这条; 这里挡的是显式传参绕过默认值的情况。
-[[ "${tag}" == *daily-build-* ]] || {
-  echo "::error::Snapshot tag must contain 'daily-build-' (got: ${tag}). Service CI publishes release-manifest.json only for daily-build tags, and release-shaped tags such as v* route the delivery pipeline to prod." >&2
+[[ "${tag}" =~ ^(daily-build|uat-daily-build)-[A-Za-z0-9._/-]+$ ]] || {
+  echo "::error::Snapshot tag must match daily-build-* or uat-daily-build-* (got: ${tag}). Use a controlled v* tag for a production release." >&2
   exit 2
 }
 

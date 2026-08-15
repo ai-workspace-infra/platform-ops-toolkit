@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       snapshot_tag:
-        description: "自定义跨仓快照 tag（必须包含 'daily-build-'，例如 uat-daily-build-YYYY.MM.DD-rN；严禁使用 v* 等 release 格式）；留空则使用 daily-build-YYYY.MM.DD"
+        description: "自定义快照 tag；仅允许 daily-build-* 或 uat-daily-build-*，严禁使用 v*；留空使用 daily-build-YYYY.MM.DD"
         required: false
         type: string
       snapshot_source_ref:
@@ -16,14 +16,13 @@ on:
         default: main
         type: string
       deploy_env:
-        description: "选择镜像构建/发布环境"
+        description: "选择日常构建验证环境；正式 PROD 发布请使用受控 v* tag"
         required: true
         default: uat
         type: choice
         options:
           - sit
           - uat
-          - prod
       repositories:
         description: "可选：精确仓库列表，逗号分隔，例如 ai-workspace-services/accounts"
         required: false
