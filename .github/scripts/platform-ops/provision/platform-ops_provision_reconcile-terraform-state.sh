@@ -34,8 +34,13 @@ state_json="$(terraform show -json 2>/dev/null || echo '{}')"
 # state 的删除范围: 它们每次 plan 重新求值, 没有会陈旧的 ID。
 mapfile -t entries < <(
   jq -r '
-    def resources: .. | objects | select(has("resources")) | .resources[];
-    [ (.values.root_module? // empty) | resources ]
+    # Terraform nests module resources under child_modules. Walk the module
+    # tree explicitly; a root-only query silently misses stale instances in
+    # addresses such as module.compute_console_nat_onwalk_net.vultr_instance.this.
+    def module_resources:
+      (.resources[]?),
+      (.child_modules[]? | module_resources);
+    [ (.values.root_module? // empty) | module_resources ]
     | map(select(.mode == "managed"))
     | map(select(.type == "vultr_instance" or .type == "vultr_ssh_key"))
     | .[] | [.address, .type, (.values.id // "")] | @tsv
