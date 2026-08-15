@@ -1193,7 +1193,19 @@ jobs:
       observe_agent_proxy_after_dns,
       trigger_data_migration
     ]
-    if: ${{ always() }}
+    # Keep the summary alive after failed upstream jobs, but explicitly assert
+    # that every declared need has produced a result. This satisfies the
+    # workflow gating contract without turning a failure into a skipped summary.
+    if: >-
+      ${{ always() && !cancelled() &&
+      needs.provision.result != '' &&
+      needs.deploy_web_saas.result != '' &&
+      needs.initialize_web_saas_databases.result != '' &&
+      needs.deploy_agent_proxy.result != '' &&
+      needs.switch_dns.result != '' &&
+      needs.observe_web_saas_after_dns.result != '' &&
+      needs.observe_agent_proxy_after_dns.result != '' &&
+      needs.trigger_data_migration.result != '' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     steps:
     - name: Checkout repository
