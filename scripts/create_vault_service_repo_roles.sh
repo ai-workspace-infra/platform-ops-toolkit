@@ -282,7 +282,7 @@ process_service_repo() {
     "${repo}" "${workflow}"
 
   write_service_role "${service}" prod \
-    '["refs/tags/v*", "refs/tags/prod-*"]' \
+    '["refs/tags/v*", "refs/heads/release/v*"]' \
     "${repo}" "${workflow}"
 }
 
@@ -325,7 +325,7 @@ EOF
     "${repo}" "${workflow}"
 
   write_service_role artifacts prod \
-    '["refs/tags/v*", "refs/tags/prod-*"]' \
+    '["refs/tags/v*", "refs/heads/release/v*"]' \
     "${repo}" "${workflow}"
 }
 
