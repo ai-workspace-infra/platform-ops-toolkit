@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 断言: 磁盘上既然有恢复下来的泛域名证书, 渲染出来的 Caddyfile 就必须真的
+# 诊断: 磁盘上既然有恢复下来的泛域名证书, 渲染出来的 Caddyfile 就必须真的
 # 引用它。
+#
+# 此脚本不再属于 deploy_base 的 Pre-DNS 阻断条件。部署门只验证内部容器
+# Running；DNS 切换之后由 domain-cd-observe-endpoints.sh 从外部验证 TLS / HTTP。
+# 保留这个脚本供故障诊断或需要明确定位 "恢复证书是否正在被 Caddy 提供" 的场景
+# 使用。
 #
 # 为什么需要这个断言。恢复脚本只能保证"证书写到磁盘了", 用不用它取决于
 # Caddyfile 里是不是 `tls <fullchain> <key>` —— 那是 playbooks 渲染的, 在恢复
@@ -80,8 +85,15 @@ if [ -z "$(docker ps -q --filter name='^web-saas-caddy$')" ]; then
 fi
 
 want="$(openssl x509 -in "${fullchain}" -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2)"
-got="$(echo | openssl s_client -connect 127.0.0.1:443 -servername "${SNI_HOST}" 2>/dev/null \
-        | openssl x509 -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2)"
+
+# With `set -e -o pipefail`, a refused or incomplete TLS handshake makes the
+# openssl pipeline exit before we can emit NO_TLS_HANDSHAKE. Keep that expected
+# probe failure as data instead: an empty fingerprint is handled below with a
+# precise diagnostic result.
+got="$({
+  echo | timeout 10s openssl s_client -connect 127.0.0.1:443 -servername "${SNI_HOST}" 2>/dev/null \
+    | openssl x509 -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2
+} || true)"
 
 if [ -z "${got}" ]; then
   echo "NO_TLS_HANDSHAKE"
