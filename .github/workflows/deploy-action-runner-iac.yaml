@@ -84,7 +84,7 @@ jobs:
             ${{ env.VAULT_KV }} TF_STATE_REGION | TF_STATE_REGION
 
       - name: Checkout iac_modules
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/iac_modules
           ref: ${{ github.event.inputs.infra_ref || 'main' }}
@@ -94,7 +94,7 @@ jobs:
         with:
           terraform_version: "1.9.8"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -146,7 +146,7 @@ jobs:
 
       - name: Upload CMDB + inventory artifact
         if: ${{ github.event.inputs.terraform_action == 'apply' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: action-runner-cmdb
           path: |
@@ -164,19 +164,19 @@ jobs:
         host: ${{ fromJSON(needs.provision.outputs.hosts) }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.toolkit_ref || '' }}
 
       - name: Checkout playbooks
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/playbooks
           ref: ${{ github.event.inputs.infra_ref || 'main' }}
           path: playbooks
 
       - name: Download CMDB
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: action-runner-cmdb
           path: cmdb

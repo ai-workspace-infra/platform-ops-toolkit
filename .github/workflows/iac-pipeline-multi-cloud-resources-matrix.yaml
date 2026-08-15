@@ -101,10 +101,10 @@ jobs:
 
     steps:
     - name: Checkout Toolkit
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Checkout iac_modules
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/iac_modules
         path: iac_modules

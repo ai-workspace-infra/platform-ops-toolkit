@@ -98,10 +98,10 @@ jobs:
 
     steps:
     - name: Checkout Toolkit
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Checkout iac_modules
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/iac_modules
         path: iac_modules
@@ -158,7 +158,7 @@ jobs:
       run: .github/scripts/platform-ops/provision/iac-pipeline-multi-cloud-landingzone-baseline_landingzone_terraform-plan-landingzone.sh
 
     - name: Upload LandingZone Plan Artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: landingzone-plan
         path: ${{ env.TF_WORKDIR }}/plan_output.txt
