@@ -42,13 +42,16 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
 
 - **`snapshot_source_ref` 已生效**：该值会作为 `SNAPSHOT_REF` 传给打 tag 脚本；新 tag
   固定指向所选 ref。不能用同一个 tag 改指向另一个提交，需使用新的 retry tag。
-- **tag 命名两套约定并存**：脚本默认产出**不带环境前缀**的 `daily-build-YYYY.MM.DD`；
-  另一套运维口径是 `uat-daily-build-YYYY-MM-DD-rN` 这类带前缀的 tag。
-  `docs/tasks/tag-ai-workspace-mains.sh` 的 `infer_deploy_env_from_tag()` 按前缀
-  （`v*`→prod，`release/*`→uat，`sit-*`/`snapshot-*`→sit，`uat-*`→uat，`prod-*`→prod，
-  其余一律兜底 `uat`）推断部署环境，从而决定换哪个 Vault role。**默认让 `snapshot_tag`
-  留空、用 workflow 自带的默认值**；只有用户明确要自定义 tag 时才手填，并提醒对方
-  前缀会影响后续认证路由。
+- **tag 命名规范与强制约束**：
+  - **必须包含 `daily-build-`**：脚本默认产出 `daily-build-YYYY.MM.DD`，自定义通常为 `uat-daily-build-YYYY.MM.DD-rN`。
+  - **严禁使用 `v*`（如 `v2026.08.15`）或 `*-release-*` 等 release 形状的 tag**：
+    1. 各 Service CI 的 release asset 发布（`release-manifest.json`）仅对 `daily-build-*` 生效；非 daily-build tag 会导致 CI 虽绿但 manifest 缺失。
+    2. `v*` tag 会被多环境路由规则直接路由给生产（`prod`）环境，产生灾难性误投产风险。
+  - `docs/tasks/tag-ai-workspace-mains.sh` 的 `infer_deploy_env_from_tag()` 按前缀
+    （`v*`→prod，`release/*`→uat，`sit-*`/`snapshot-*`→sit，`uat-*`→uat，`prod-*`→prod，
+    其余一律兜底 `uat`）推断部署环境，从而决定换哪个 Vault role。**默认让 `snapshot_tag`
+    留空、用 workflow 自带的默认值**；只有需要加入新 commit 时才指定带 revision 后缀的 tag（如 `uat-daily-build-2026.08.15-r6`）。
+- **tag 不可变性**：快照 tag 不会移动或覆盖已存在的 git tag。若 main 分支有新代码需构建，必须使用新的 revision 后缀（`-r2`, `-r3` 等）。
 - 矩阵横跨 4 个 org，但每个 job 只处理归属本 org 的构建清单仓库；infra、xstream 当前
   没有清单目标，会直接跳过。每个仓库有独立等待预算，某个仓没有 run 不会把后续仓库
   已完成的构建误判为超时。`xworkmate-bridge` 不接收 daily tag push，而是在 tag 创建后
