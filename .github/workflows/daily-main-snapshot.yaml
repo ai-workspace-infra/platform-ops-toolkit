@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       snapshot_tag:
-        description: "自定义跨仓快照 tag；留空则使用 daily-build-YYYY.MM.DD"
+        description: "自定义跨仓快照 tag（必须包含 'daily-build-'，例如 uat-daily-build-YYYY.MM.DD-rN；严禁使用 v* 等 release 格式）；留空则使用 daily-build-YYYY.MM.DD"
         required: false
         type: string
       snapshot_source_ref:
