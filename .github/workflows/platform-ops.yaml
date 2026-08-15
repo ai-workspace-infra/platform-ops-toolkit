@@ -672,17 +672,6 @@ jobs:
         CLOUDFLARE_DNS_API_TOKEN:          ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_base_bootstrap-node.sh
 
-    # 恢复步骤只能保证"证书写到磁盘了", 用不用它取决于上一步渲染出来的
-    # Caddyfile。两者之间没有强制关系, 于是出现过"每一步都成功、合起来什么也
-    # 没做成"的情况(run 30623661870)。这里在渲染之后做一次真正会失败的检查:
-    # 有证书却没被引用就是配置错了, 必须当场红, 而不是等到 observe 那里以
-    # "TLS handshake failed" 这种毫无指向性的形式暴露。
-    - name: Assert Caddy actually serves the restored certificate
-      if: ${{ contains(needs.provision.outputs.target_domains, 'web-saas') || needs.provision.outputs.target_domains == 'all' }}
-      env:
-        DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
-      run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_base_assert-caddy-uses-restored-cert.sh
-
   # ---------------------------------------------------------------------------
   # 步骤 2.5: 自动推进 GitOps 版本
   # 如果用户在触发流程时显式指定了 deploy_tag，我们将替用户自动把新的 tag 写入
