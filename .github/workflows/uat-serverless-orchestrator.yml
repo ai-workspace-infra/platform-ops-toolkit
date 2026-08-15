@@ -30,7 +30,7 @@ jobs:
           node-version: 20
 
       - name: Run UAT Orchestrator Script
-        run: ./.github/scripts/uat_orchestrator_runner.sh
+        run: ./.github/scripts/platform-ops/deploy/uat_orchestrator_runner.sh
         env:
           VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
           VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}

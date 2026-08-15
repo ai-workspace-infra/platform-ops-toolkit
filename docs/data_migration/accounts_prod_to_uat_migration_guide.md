@@ -117,7 +117,7 @@ migratectl import \
 ## 5. CI/CD 流水线集成与防呆脚本
 
 ### 5.1 防呆执行脚本
-- 脚本位置: `platform-ops-toolkit/.github/scripts/accounts_data_migration.sh`
+- 脚本位置: `platform-ops-toolkit/.github/scripts/data-migration/accounts_data_migration.sh`
 - 功能:
   1. 接收 `MIGRATION_SOURCE_DSN` 和 `MIGRATION_TARGET_DSN`。
   2. 执行 DSN 方向断言校验（目标非 PROD、目标是 UAT、源与目标不同）。

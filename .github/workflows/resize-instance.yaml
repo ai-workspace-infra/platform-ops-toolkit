@@ -167,7 +167,7 @@ jobs:
           # 标识现查真实 ID。target_domain 就是主机 label(命名约定保证),
           # 是自愈的主线索。
           EXPECTED_HOSTNAME: ${{ inputs.target_domain }}
-        run: ${{ github.workspace }}/.github/scripts/resize-instance_preflight.sh
+        run: ${{ github.workspace }}/.github/scripts/resize/resize-instance_preflight.sh
 
       - name: Create backup snapshot
         id: backup
@@ -175,7 +175,7 @@ jobs:
         env:
           VULTR_API_KEY: ${{ steps.vault.outputs.VULTR_API_KEY }}
           INSTANCE_ID: ${{ inputs.instance_id }}
-        run: ${{ github.workspace }}/.github/scripts/resize-instance_vultr-vps_create-backup.sh
+        run: ${{ github.workspace }}/.github/scripts/resize/resize-instance_vultr-vps_create-backup.sh
 
       - name: Apply upgrade or create replacement
         id: terraform
@@ -191,14 +191,14 @@ jobs:
           LABEL: ${{ steps.preflight.outputs.label }}
           SNAPSHOT_ID: ${{ steps.backup.outputs.snapshot_id }}
           VULTR_API_KEY: ${{ steps.vault.outputs.VULTR_API_KEY }}
-        run: ${{ github.workspace }}/.github/scripts/resize-instance_apply-terraform.sh
+        run: ${{ github.workspace }}/.github/scripts/resize/resize-instance_apply-terraform.sh
 
       - name: Health check replacement
         if: steps.preflight.outputs.direction == 'downgrade'
         env:
           REPLACEMENT_IP: ${{ steps.terraform.outputs.replacement_ip }}
           TARGET_DOMAIN: ${{ inputs.target_domain }}
-        run: ${{ github.workspace }}/.github/scripts/resize-instance_healthcheck.sh
+        run: ${{ github.workspace }}/.github/scripts/resize/resize-instance_healthcheck.sh
 
       - name: Load Cloudflare credential for DNS cutover
         id: cloudflare
@@ -219,13 +219,13 @@ jobs:
           CLOUDFLARE_ZONE_ID: ${{ inputs.cloudflare_zone_id }}
           TARGET_DOMAIN: ${{ inputs.target_domain }}
           REPLACEMENT_IP: ${{ steps.terraform.outputs.replacement_ip }}
-        run: ${{ github.workspace }}/.github/scripts/resize-instance_switch-dns.sh
+        run: ${{ github.workspace }}/.github/scripts/resize/resize-instance_switch-dns.sh
 
       - name: Observation window
         if: steps.preflight.outputs.direction == 'downgrade'
         env:
           OBSERVATION_SECONDS: ${{ inputs.observation_seconds }}
-        run: ${{ github.workspace }}/.github/scripts/resize-instance_observe.sh
+        run: ${{ github.workspace }}/.github/scripts/resize/resize-instance_observe.sh
 
       - name: Destroy source instance only after explicit confirmation
         if: inputs.destroy_old_instance && steps.preflight.outputs.direction == 'downgrade' && inputs.switch_dns
@@ -233,4 +233,4 @@ jobs:
           VULTR_API_KEY: ${{ steps.vault.outputs.VULTR_API_KEY }}
           INSTANCE_ID: ${{ inputs.instance_id }}
           REPLACEMENT_IP: ${{ steps.terraform.outputs.replacement_ip }}
-        run: ${{ github.workspace }}/.github/scripts/resize-instance_destroy-old.sh
+        run: ${{ github.workspace }}/.github/scripts/resize/resize-instance_destroy-old.sh

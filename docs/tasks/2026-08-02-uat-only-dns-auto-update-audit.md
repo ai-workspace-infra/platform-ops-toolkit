@@ -21,7 +21,7 @@
 
 - 新增显式 `uat_dns_update` workflow input，默认 `false`；UAT `run_full_stack` 自动选择该安全路径。
 - 路由脚本验证 `uat`、`onwalk.net` 和包含 `web-saas` 的目标域；UAT 不允许继续通过旧 `confirm_dns_switch` 触发通用 DNS 切流。
-- 新 job 只读取 UAT Vault role 注入的 DNS token，调用仓库内 `.github/scripts/platform-ops_uat_dns_reconcile.sh`。
+- 新 job 只读取 UAT Vault role 注入的 DNS token，调用仓库内 `.github/scripts/platform-ops/dns/platform-ops_uat_dns_reconcile.sh`。
 - 脚本固定三条记录，先读取 zone/record，已有唯一记录则 PUT 更新、删除多余同名记录；目标一致时不写 API；不存在时 POST 创建。
 - 脚本拒绝非 `onwalk.net` zone、非 UAT 目标和不明确的 CMDB web-saas 主机，避免误切 `svc.plus`。
 

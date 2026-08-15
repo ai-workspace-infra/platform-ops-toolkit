@@ -11,7 +11,7 @@ set -euo pipefail
 # ==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TARGET_SCRIPT="${SCRIPT_DIR}/../accounts_data_migration.sh"
+TARGET_SCRIPT="${SCRIPT_DIR}/../data-migration/accounts_data_migration.sh"
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "${WORKDIR}"' EXIT

@@ -32,4 +32,4 @@ jobs:
         BRANCH: ${{ inputs.branch }}
         REPO: ${{ github.repository }}
       run: |-
-        .github/scripts/check-iaas-ready_check_check-workflows-status.sh
+        .github/scripts/platform-ops/provision/check-iaas-ready_check_check-workflows-status.sh

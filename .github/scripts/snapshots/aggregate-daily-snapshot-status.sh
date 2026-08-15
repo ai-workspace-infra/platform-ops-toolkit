@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-. "$(dirname "${BASH_SOURCE[0]}")/common_require_env.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../platform-ops/provision/common_require_env.sh"
 require_env SNAPSHOT_STATUS_DIRECTORY GITHUB_OUTPUT
 
 shopt -s nullglob

@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run UAT Teardown Script
-        run: ./.github/scripts/uat_cleanup_runner.sh
+        run: ./.github/scripts/platform-ops/deploy/uat_cleanup_runner.sh
         env:
           VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
           VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}

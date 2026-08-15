@@ -6,7 +6,7 @@ set -euo pipefail
 # dispatched on the immutable snapshot tag with the expected inputs.
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-snapshot_script="${repo_root}/.github/scripts/tag-daily-main-snapshot.sh"
+snapshot_script="${repo_root}/.github/scripts/snapshots/tag-daily-main-snapshot.sh"
 workdir="$(mktemp -d)"
 trap 'rm -rf "${workdir}"' EXIT
 

@@ -74,7 +74,7 @@ jobs:
         INPUT_RESOURCES_COMPONENTS_____S3_EC2_: ${{ inputs.resources_components || 's3,ec2' }}
         INPUT_ACCOUNTS_COMPONENTS_____VPC_ROLE_: ${{ inputs.accounts_components || 'vpc,role' }}
       run: |-
-        .github/scripts/iac-pipeline-multi-cloud-master_prepare-matrix_step-0.sh
+        .github/scripts/platform-ops/provision/iac-pipeline-multi-cloud-master_prepare-matrix_step-0.sh
 
   landingzone:
     needs: prepare-matrix

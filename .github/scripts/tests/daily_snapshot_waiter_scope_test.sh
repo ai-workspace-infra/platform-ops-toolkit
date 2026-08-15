@@ -7,7 +7,7 @@ set -euo pipefail
 # matrix organization filter excludes cross-organization repositories.
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-waiter="${repo_root}/.github/scripts/wait-daily-snapshot-builds.sh"
+waiter="${repo_root}/.github/scripts/snapshots/wait-daily-snapshot-builds.sh"
 workdir="$(mktemp -d)"
 trap 'rm -rf "${workdir}"' EXIT
 

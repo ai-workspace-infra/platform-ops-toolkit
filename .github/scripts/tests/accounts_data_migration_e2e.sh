@@ -27,7 +27,7 @@ set -euo pipefail
 # ==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MIGRATION_SCRIPT="${SCRIPT_DIR}/../accounts_data_migration.sh"
+MIGRATION_SCRIPT="${SCRIPT_DIR}/../data-migration/accounts_data_migration.sh"
 
 ACCOUNTS_REPO="${ACCOUNTS_REPO:-}"
 MIGRATECTL_BIN="${MIGRATECTL_BIN:-}"

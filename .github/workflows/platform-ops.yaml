@@ -254,7 +254,7 @@ jobs:
       id: route
       # env block inherited from job level — no repetition needed here
       run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops_provision_route-ref-to-an-explicit-profile.sh
+        ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_route-ref-to-an-explicit-profile.sh
 
     - name: Load Vault secrets
       if: steps.route.outputs.run_infrastructure == 'true'
@@ -335,7 +335,7 @@ jobs:
 
     - name: Install render deps
       if: steps.route.outputs.run_infrastructure == 'true'
-      run: ${{ github.workspace }}/.github/scripts/platform-ops_provision_install-render-deps.sh
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_install-render-deps.sh
 
     - name: Map Instance Plan
       if: steps.route.outputs.run_infrastructure == 'true'
@@ -345,11 +345,11 @@ jobs:
         INPUT_INSTANCE_PLAN:             ${{ env.INPUT_INSTANCE_PLAN }}
         INPUT_CLOUD_PROVIDER:          ${{ steps.route.outputs.cloud_provider }}
       run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops_provision_map-instance-plan.sh
+        ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_map-instance-plan.sh
 
     - name: Resolve active Vultr Golden Image snapshots
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'vultr-vps'
-      run: ${{ github.workspace }}/.github/scripts/platform-ops_provision_resolve-golden-image-snapshots.sh
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_resolve-golden-image-snapshots.sh
 
     - name: generate.py render
       if: steps.route.outputs.run_infrastructure == 'true'
@@ -369,7 +369,7 @@ jobs:
         ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY: ${{ steps.route.outputs.state_key }}
         # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / TF_STATE_* from GITHUB_ENV
       run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops_provision_terraform-init.sh
+        ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_terraform-init.sh
 
     # 必须排在 plan/apply/destroy 之前: terraform 的第一件事是 refresh, 而
     # state 里一个指向已删实例的 ID 会让 vultr provider 在 refresh 阶段硬失败,
@@ -382,7 +382,7 @@ jobs:
         ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE: ${{ steps.route.outputs.terraform_workspace }}
         # AWS_* / VULTR_API_KEY from GITHUB_ENV
       run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops_provision_reconcile-terraform-state.sh
+        ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_reconcile-terraform-state.sh
 
     - name: Terraform Plan / Apply / Destroy
       if: steps.route.outputs.run_infrastructure == 'true'
@@ -395,7 +395,7 @@ jobs:
         ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY:           ${{ steps.route.outputs.state_key }}
         # AWS_* / TF_VAR_vultr_api_key / VULTR_API_KEY from GITHUB_ENV
       run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops_provision_terraform-apply-destroy.sh
+        ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_terraform-apply-destroy.sh
 
     - name: generate.py inventory
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.terraform_action == 'apply'
@@ -417,14 +417,14 @@ jobs:
         HOSTS_MANIFEST: hosts_manifest.json
         CMDB_FILE: cmdb.json
       run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops_provision_reconcile-backup-schedules.sh
+        ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_reconcile-backup-schedules.sh
 
     - name: Build deploy matrix
       id: matrix
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.terraform_action == 'apply'
       working-directory: ${{ env.ENV_DIR }}
       run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops_provision_build-deploy-matrix.sh
+        ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_build-deploy-matrix.sh
 
 
     - name: Initialize Databases Credentials
@@ -436,7 +436,7 @@ jobs:
       env:
         VAULT_ENV_PATH: ${{ steps.route.outputs.vault_env_path }}
       run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops_provision_initialize-databases-credentials.sh
+        ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_initialize-databases-credentials.sh
 
     - name: Initialize Agent Proxy Credentials
       # 仅当目标域真的包含 agent-proxy 时才初始化, 避免只建 web-saas 时
@@ -448,7 +448,7 @@ jobs:
       env:
         VAULT_ENV_PATH: ${{ steps.route.outputs.vault_env_path }}
       run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops_provision_initialize-agent-proxy-credentials.sh
+        ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_initialize-agent-proxy-credentials.sh
 
 
     - name: Upload CMDB artifact
@@ -512,7 +512,7 @@ jobs:
     - name: Resolve agent-proxy source CIDRs for Billing Caddy
       env:
         CMDB_FILE: cmdb/cmdb.json
-      run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_base_resolve-billing-agent-cidrs.sh
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_base_resolve-billing-agent-cidrs.sh
 
     - name: Load Vault secrets
       id: vault
@@ -549,7 +549,7 @@ jobs:
     # 耦合。ACTIONS_ID_TOKEN_REQUEST_URL/TOKEN 由 id-token: write 权限
     # (workflow 顶层已声明)自动注入, 无需在此显式传递。
     - name: Load optional web-saas secrets
-      run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_base_load-optional-web-saas.sh
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_base_load-optional-web-saas.sh
 
     # SSH 可达不等于机器可用。新 VPS 此时通常还在跑 cloud-init 与
     # unattended-upgrades, 它们持有 dpkg 前端锁 —— 后续任何 apt 任务撞上
@@ -591,7 +591,7 @@ jobs:
         # to stunnel's internal CA. Non-Caddy consumers use current/{fullchain,
         # cert,key,ca}.pem below; `current` flips atomically after validation.
         DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
-      run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_base_restore-caddy-certs.sh
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_base_restore-caddy-certs.sh
 
     - name: Bootstrap node according to CMDB role
       working-directory: playbooks
@@ -663,7 +663,7 @@ jobs:
         # 没给就退回逐域名 HTTP-01。HTTP-01 要求 A 记录已经指向本机, 而交付顺序
         # 是"先部署新主机、最后才切 DNS" —— 切换之前签不出证书。
         CLOUDFLARE_DNS_API_TOKEN:          ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
-      run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_base_bootstrap-node.sh
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_base_bootstrap-node.sh
 
   # ---------------------------------------------------------------------------
   # 步骤 2.5: 自动推进 GitOps 版本
@@ -848,7 +848,7 @@ jobs:
     # The external helper emits read-only Doco-CD/Compose diagnostics on
     # timeout, avoiding a second opaque four-minute container probe.
     - name: Wait for Doco-CD Web SaaS PostgreSQL readiness
-      run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_base_wait-for-web-saas-postgres.sh
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_base_wait-for-web-saas-postgres.sh
 
     - name: Cache pip packages
       uses: actions/cache@v4
@@ -1013,7 +1013,7 @@ jobs:
     - name: Wait for Web SaaS internal containers
       env:
         CMDB_FILE: cmdb/cmdb.json
-      run: ${{ github.workspace }}/.github/scripts/platform-ops_observe-web-saas-containers.sh
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_observe-web-saas-containers.sh
 
   switch_dns:
     name: "[3] DNS Gate | switch + observe"
@@ -1090,13 +1090,13 @@ jobs:
       env:
         CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
       run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops_switch_dns_switch-cloudflare-dns-records.sh
+        ${{ github.workspace }}/.github/scripts/platform-ops/dns/platform-ops_switch_dns_switch-cloudflare-dns-records.sh
 
     - name: Remove temporary agent controller host pin
       if: >-
         ${{ contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
         needs.provision.outputs.target_domains) }}
-      run: ${{ github.workspace }}/.github/scripts/platform-ops_switch_dns_remove-temporary-agent-controller-host.sh
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/dns/platform-ops_switch_dns_remove-temporary-agent-controller-host.sh
 
     - name: Observe Web SaaS endpoints (post-DNS)
       # DNS 已切换, 现在轮询公网 URL 验证服务真正可达。
@@ -1115,7 +1115,7 @@ jobs:
       env:
         VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
         CMDB_FILE: cmdb/cmdb.json
-      run: ${{ github.workspace }}/.github/scripts/platform-ops_observe_backup-caddy-certs.sh
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_observe_backup-caddy-certs.sh
 
   update_uat_dns:
     name: Reconcile UAT DNS Records & Observe
@@ -1188,7 +1188,7 @@ jobs:
       id: uat_dns
       env:
         CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
-      run: ${{ github.workspace }}/.github/scripts/platform-ops_uat_dns_reconcile.sh
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/dns/platform-ops_uat_dns_reconcile.sh
 
     - name: Observe UAT Web SaaS endpoints
       env:
@@ -1214,7 +1214,7 @@ jobs:
       env:
         VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
         CMDB_FILE: cmdb/cmdb.json
-      run: ${{ github.workspace }}/.github/scripts/platform-ops_observe_backup-caddy-certs.sh
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_observe_backup-caddy-certs.sh
 
   deploy_infra_platform:
     name: "[2] Infra | ${{ matrix.host }}"
@@ -1292,7 +1292,7 @@ jobs:
       id: controller
       env:
         CMDB_FILE: cmdb/cmdb.json
-      run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_agent_proxy_resolve-controller-ip.sh
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_agent_proxy_resolve-controller-ip.sh
 
     - name: Load agent-proxy secrets
       id: vault
@@ -1332,7 +1332,7 @@ jobs:
         DEPLOYMENT_ENV: ${{ needs.provision.outputs.deployment_env }}
         DEPLOY_TAG: ${{ needs.provision.outputs.deploy_tag }}
       run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops_deploy_resolve-xray-exporter-image.sh
+        ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_resolve-xray-exporter-image.sh
 
     - name: Deploy native agent-proxy services
       working-directory: playbooks
@@ -1491,7 +1491,7 @@ jobs:
         VECTOR_BILLING_INGEST_ADDRESS: 127.0.0.1:8686
         VECTOR_BILLING_INGEST_URL: https://billing-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/v1/ingest/snapshots
         VECTOR_SNAPSHOT_URL: ${{ needs.provision.outputs.deployment_env == 'uat' && contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && 'http://127.0.0.1:8686' || '' }}
-      run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_monitor_agent.sh
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_monitor_agent.sh
 
   trigger_data_migration:
     name: "[3] Post-deploy | Data Migration"

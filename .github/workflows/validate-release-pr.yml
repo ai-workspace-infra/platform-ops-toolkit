@@ -19,12 +19,8 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Install gitleaks
-      run: |-
-        .github/scripts/validate-release-pr_sec-qa-gate_install-gitleaks.sh
-
-    - name: Run gitleaks detect
-      run: .github/scripts/validate-release-pr_sec-qa-gate_run-gitleaks-detect.sh
+    - name: Run release quality checks
+      uses: ./.github/actions/release-quality
 
   workflow-gating:
     name: Workflow Gating Verify

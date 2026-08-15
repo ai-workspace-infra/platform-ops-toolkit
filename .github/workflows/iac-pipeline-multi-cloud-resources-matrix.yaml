@@ -144,7 +144,7 @@ jobs:
         MATRIX_COMPONENT: ${{ matrix.component }}
         VAULT_TF_STATE_ACCESS_KEY: ${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}
       run: |-
-        .github/scripts/iac-pipeline-multi-cloud-resources-matrix_terraform_setup-terraform-cli-args.sh
+        .github/scripts/platform-ops/provision/iac-pipeline-multi-cloud-resources-matrix_terraform_setup-terraform-cli-args.sh
 
     - name: Init
       uses: ./.github/actions/terraform-command

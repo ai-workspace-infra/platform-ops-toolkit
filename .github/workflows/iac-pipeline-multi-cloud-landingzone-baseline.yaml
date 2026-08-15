@@ -155,7 +155,7 @@ jobs:
       id: tfplan
       if: env.DEPLOY_ACTION == 'plan'
       working-directory: ${{ env.TF_WORKDIR }}
-      run: .github/scripts/iac-pipeline-multi-cloud-landingzone-baseline_landingzone_terraform-plan-landingzone.sh
+      run: .github/scripts/platform-ops/provision/iac-pipeline-multi-cloud-landingzone-baseline_landingzone_terraform-plan-landingzone.sh
 
     - name: Upload LandingZone Plan Artifact
       uses: actions/upload-artifact@v4
@@ -174,7 +174,7 @@ jobs:
     - name: Run Validation Checks
       if: env.DEPLOY_ACTION == 'apply'
       run: |-
-        .github/scripts/iac-pipeline-multi-cloud-landingzone-baseline_landingzone_run-validation-checks.sh
+        .github/scripts/platform-ops/provision/iac-pipeline-multi-cloud-landingzone-baseline_landingzone_run-validation-checks.sh
 
     - name: Load SMTP notification credentials from Vault
       id: smtp
@@ -195,4 +195,4 @@ jobs:
         SMTP_PASSWORD: ${{ steps.smtp.outputs.SMTP_PASSWORD }}
         SMTP_USERNAME: ${{ steps.smtp.outputs.SMTP_USERNAME }}
       run: |-
-        .github/scripts/iac-pipeline-multi-cloud-landingzone-baseline_landingzone_notify.sh
+        .github/scripts/platform-ops/provision/iac-pipeline-multi-cloud-landingzone-baseline_landingzone_notify.sh
