@@ -1143,6 +1143,9 @@ jobs:
         host: ${{ fromJSON(needs.provision.outputs.hosts_agent_proxy) }}
     env:
       MATRIX_HOST: ${{ matrix.host }}
+      ANSIBLE_HOST_KEY_CHECKING: "False"
+      ANSIBLE_PIPELINING: "True"
+      ANSIBLE_SSH_ARGS: "-o ControlMaster=auto -o ControlPersist=60s -o IdentityFile=~/.ssh/id_deploy -o StrictHostKeyChecking=no"
       VAULT_ENV_PATH: ${{ needs.provision.outputs.vault_env_path }}
     steps:
     - name: Checkout repository
