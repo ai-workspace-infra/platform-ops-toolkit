@@ -102,13 +102,21 @@ on:
         - azure-cloud
         - vultr-vps
       instance_plan:
-        description: "选择 VPS 规格 (全域建议 4C8G，单域支持 2C4G 矩阵，agent-proxy 默认 1C2G)"
+        description: "选择 Web SaaS VPS 规格 (全域建议 4C8G，单域支持 2C4G 矩阵)"
         required: true
         default: "4C8G"
         type: choice
         options:
         - 4C8G
         - 2C4G
+        - 1C2G
+      agent_proxy_plan:
+        description: "Agent Proxy 运行时规格（默认 1C1G，必要时可显式升到 1C2G）"
+        required: true
+        default: "1C1G"
+        type: choice
+        options:
+        - 1C1G
         - 1C2G
       dns_mode:
         description: "DNS 行为：none 不发布；uat-records 仅更新 UAT 固定记录；prod-cutover 接管生产流量（仍须确认）"
@@ -192,6 +200,7 @@ jobs:
       INPUT_VAULT_ENV_PATH:        ${{ github.event.inputs.vault_env_path }}
       INPUT_TARGET_DOMAINS:        ${{ github.event.inputs.target_domains }}
       INPUT_INSTANCE_PLAN:          ${{ inputs.instance_plan || github.event.inputs.instance_plan || '4C8G' }}
+      INPUT_AGENT_PROXY_PLAN:       ${{ inputs.agent_proxy_plan || github.event.inputs.agent_proxy_plan || '1C1G' }}
       INPUT_OPERATION:             ${{ github.event.inputs.operation }}
       INPUT_DEPLOY_REF:            
       INPUT_SOURCE_REF:            ${{ github.event.inputs.source_ref }}
@@ -343,6 +352,7 @@ jobs:
       env:
         INPUT_DOMAIN_____ALL_:         ${{ github.event.inputs.target_domains || 'all' }}
         INPUT_INSTANCE_PLAN:             ${{ env.INPUT_INSTANCE_PLAN }}
+        INPUT_AGENT_PROXY_PLAN:          ${{ env.INPUT_AGENT_PROXY_PLAN }}
         INPUT_CLOUD_PROVIDER:          ${{ steps.route.outputs.cloud_provider }}
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_map-instance-plan.sh
@@ -359,6 +369,7 @@ jobs:
         INSTANCE_PLAN_API:  ${{ steps.plan.outputs.api }}
         TF_WORKSPACE_PREFIX: env
         TARGET_DOMAIN_BASE: ${{ steps.route.outputs.target_domain_base }}
+        AGENT_PROXY_PLAN_API: ${{ steps.plan.outputs.agent_api }}
         # TF_STATE_* and AWS_* already in env via "Export Terraform credentials"
       run: python3 scripts/generate.py render --resources ${{ steps.route.outputs.resource_files_full }} --workdir envs/platform-ops-toolkit
 
@@ -403,6 +414,7 @@ jobs:
       env:
         TARGET_DOMAIN_BASE: ${{ steps.route.outputs.target_domain_base }}
         INSTANCE_PLAN_API: ${{ steps.plan.outputs.api }}
+        AGENT_PROXY_PLAN_API: ${{ steps.plan.outputs.agent_api }}
         # AWS_* from GITHUB_ENV
       run: python3 scripts/generate.py inventory --resources ${{ steps.route.outputs.resource_files_full }} --workdir envs/platform-ops-toolkit
 
@@ -843,6 +855,19 @@ jobs:
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
           ${{ env.VAULT_KV }} ROOT_BOOTSTRAP_PASSWORD | ROOT_BOOTSTRAP_PASSWORD ;
 
+    # The readiness probe below uses ~/.ssh/id_deploy directly. Configure the
+    # runner before probing PostgreSQL; placing this after the probe causes a
+    # misleading "container not ready" failure on a perfectly reachable host.
+    - name: Setup deployment runner
+      uses: ./.github/actions/setup-deployment-runner
+      with:
+        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+        matrix_host: ${{ matrix.host }}
+        wait_for_ssh: 'true'
+        install_ansible: 'true'
+        assert_ansible_target: 'true'
+        ansible_inventory: cmdb/inventory.ini
+
     # Doco-CD owns the Compose stack. Before DB Init starts to create roles,
     # require the pull-only reconciler to have actually started PostgreSQL.
     # The external helper emits read-only Doco-CD/Compose diagnostics on
@@ -857,18 +882,6 @@ jobs:
         key: ${{ runner.os }}-pip-ansible-v1
         restore-keys: |
           ${{ runner.os }}-pip-
-
-    # 0 主机命中仍 exit 0 是本仓 workplan 的陷阱 #12。setup-deployment-runner
-    # 内置的 Ansible target assertion 在这里阻断该类假绿。
-    - name: Setup deployment runner
-      uses: ./.github/actions/setup-deployment-runner
-      with:
-        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
-        matrix_host: ${{ matrix.host }}
-        wait_for_ssh: 'true'
-        install_ansible: 'true'
-        assert_ansible_target: 'true'
-        ansible_inventory: cmdb/inventory.ini
 
     # 这一步此前跑的是 deploy_accounts_svc_plus.yml —— 那是"部署 accounts
     # 服务"的 playbook, 与步骤名(建库建角色)对不上, 而且容器栈本就该由

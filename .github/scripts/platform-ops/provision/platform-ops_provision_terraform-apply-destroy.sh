@@ -16,9 +16,10 @@ case "${ACTION}" in
 
     downgrade_count="$(jq '
       def rank:
-        if . == "vc2-1c-2gb" then 1
-        elif . == "vc2-2c-4gb" then 2
-        elif . == "vc2-4c-8gb" then 3
+        if . == "vc2-1c-1gb" then 1
+        elif . == "vc2-1c-2gb" then 2
+        elif . == "vc2-2c-4gb" then 3
+        elif . == "vc2-4c-8gb" then 4
         else 0
         end;
       [ .resource_changes[]?

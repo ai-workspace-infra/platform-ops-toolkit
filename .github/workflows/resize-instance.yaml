@@ -65,7 +65,7 @@ on:
         description: "Desired Vultr plan"
         required: true
         type: choice
-        options: [vc2-1c-2gb, vc2-2c-4gb, vc2-4c-8gb]
+        options: [vc2-1c-1gb, vc2-1c-2gb, vc2-2c-4gb, vc2-4c-8gb]
       resize_mode:
         description: "auto detects upgrade/downgrade from the current plan"
         required: true
