@@ -96,6 +96,7 @@ echo "[STEP 2/4] Running Dry-Run import preview on UAT target DB..."
 ${MIGRATECTL_BIN} import \
   --dsn "${TARGET_DSN}" \
   --file "${SNAPSHOT_FILE}" \
+  --regenerate-user-uuids \
   --dry-run \
   --merge \
   --merge-strategy timestamp
@@ -118,6 +119,7 @@ echo "[STEP 3/4] Executing real merge import into UAT target DB..."
 ${MIGRATECTL_BIN} import \
   --dsn "${TARGET_DSN}" \
   --file "${SNAPSHOT_FILE}" \
+  --regenerate-user-uuids \
   --merge \
   --merge-strategy timestamp
 echo "[STEP 3/4] Accounts data migration completed successfully."
@@ -135,14 +137,15 @@ else
   VERIFY_OUTPUT="$(${MIGRATECTL_BIN} import \
     --dsn "${TARGET_DSN}" \
     --file "${SNAPSHOT_FILE}" \
+    --regenerate-user-uuids \
     --dry-run \
     --merge \
     --merge-strategy timestamp 2>&1)"
   echo "${VERIFY_OUTPUT}"
 
-  if ! grep -qE 'users inserted=0'      <<<"${VERIFY_OUTPUT}" ||
-     ! grep -qE 'Identities inserted=0' <<<"${VERIFY_OUTPUT}" ||
-     ! grep -qE 'Sessions inserted=0'   <<<"${VERIFY_OUTPUT}"; then
+  if ! grep -qE 'users inserted=0 updated=0' <<<"${VERIFY_OUTPUT}" ||
+     ! grep -qE 'Identities inserted=0 updated=0' <<<"${VERIFY_OUTPUT}" ||
+     ! grep -qE 'Sessions inserted=0 updated=0' <<<"${VERIFY_OUTPUT}"; then
     echo "[VERIFY FAILED] Snapshot rows are still missing in UAT after the merge." >&2
     exit 1
   fi

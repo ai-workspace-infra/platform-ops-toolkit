@@ -41,7 +41,7 @@ Accounts 已有 `cmd/migratectl`、`internal/migrate` 和 `make account-export` 
   groups、permissions 和审计时间；密码字段是 bcrypt/同类哈希，不是明文密码。
 - 当前 `UserRecord` 没有完整承载 `users.proxy_uuid`，而数据库模型同时存在
   `users.uuid` 与 `users.proxy_uuid`。迁移必须明确保存二者，并在导入前校验
-  `proxy_uuid = uuid` 的项目约束，避免 Xray 配置和 Portal QR 再次漂移。
+  `proxy_uuid` 与 `users.uuid` 的语义隔离约束，避免 Xray 配置和 Portal QR 再次漂移。
 - 当前导出器还会读取 identities/sessions；这与“只迁移 web-saas 用户身份”的
   最小目标不一致，正式实现应增加字段范围/资源范围开关，默认关闭 sessions。
 - 当前 `config/sync.yaml` 的 remote 示例使用 `root`，不能作为正式 Source 迁移
@@ -69,10 +69,10 @@ password: <password hash only>
 导出 SQL 必须显式列出 `proxy_uuid`，不能使用 `SELECT *`。导入时：
 
 1. 校验 `uuid` 和 `proxyUuid` 都是合法 UUID。
-2. 默认要求 `proxyUuid == uuid`；不一致记录为阻断性冲突，不自动生成新 UUID。
-3. 以 `uuid` 作为用户主键 upsert，写入同一个 `proxy_uuid`。
+2. `proxyUuid` 必须是合法且非空的代理凭据；不再要求它等于 `uuid`。
+3. PROD→UAT 使用 `--regenerate-user-uuids`：以 `proxyUuid` 优先匹配目标用户，重新分配目标 `users.uuid`，并写入同一个 `proxy_uuid`。
 4. 目标已存在同 UUID 但 email/username 冲突时停止，不覆盖并生成审计报告。
-5. 导入事务提交前执行一致性查询：`users.proxy_uuid = users.uuid`、数量、快照
+5. 导入事务提交前执行一致性查询：`users.proxy_uuid` 与快照一致、目标 `users.uuid` 已重新分配且不等于 `proxy_uuid`、数量、快照
    digest 和目标写入数量必须全部通过。
 
 ### 3.2 单向模式
@@ -150,7 +150,7 @@ Workflow 中的 shell 逻辑继续放在 `.github/scripts/`，YAML 只负责调�
 4. 只导出一个 allowlist UUID，检查 `uuid`、`proxyUuid`、email、password hash
    和 digest；不得出现 sessions/MFA/billing 数据。
 5. Target dry-run 检查冲突，人工确认后导入一个 UAT 账号。
-6. 检查 Xray 配置、Portal QR 与 `users.uuid` 一致；再扩展到全量 UAT 用户。
+6. 检查 Xray 配置、Portal QR 与 `users.proxy_uuid` 一致，且不使用 `users.uuid`；再扩展到全量 UAT 用户。
 7. 验证重复运行是幂等的，Source 没有 UPDATE/DDL，Target 有完整审计记录。
 
 ## 6. 生产启用门槛
@@ -163,7 +163,7 @@ Workflow 中的 shell 逻辑继续放在 `.github/scripts/`，YAML 只负责调�
 
 ## 7. 待实现清单
 
-- [ ] Accounts：增加 `proxy_uuid` 快照字段、导入一致性校验和冲突阻断。
+- [x] Accounts：增加 `proxy_uuid` 快照字段、导入一致性校验和冲突阻断。（待真实环境演练。）
 - [ ] Accounts：增加 `source-export` / `target-import` 单向模式，默认排除
   sessions/MFA。
 - [ ] Platform Ops：把 source/target/范围/dry-run 显式化为 workflow inputs。
@@ -172,4 +172,3 @@ Workflow 中的 shell 逻辑继续放在 `.github/scripts/`，YAML 只负责调�
 - [ ] Playbooks：在 UAT 主机通过 `roles/readonly_ssh_user` 创建普通 Linux
   `readonly` 与 PostgreSQL `readonly`，默认不启用生产。
 - [ ] UAT：完成 preflight、单用户 dry-run、单向导入、幂等和权限反向验证。
-

@@ -30,6 +30,12 @@
   - **仅迁移 `accounts` 模块**的数据（包含用户 `users`、身份 `identities`、会话 `sessions` 等）。
   - 使用 `accounts` 服务内置的 `migratectl` CLI 工具。
 
+### 1.1 UUID 语义约定
+
+- `users.uuid` 是账户内部不可变身份标识，只用于 Accounts 内部关系，不作为代理凭据，也不展示给用户。
+- `users.proxy_uuid` 是可轮换的代理凭据。Portal 二维码、Accounts Agent 下发给 Xray、运行态 Xray 客户端以及账户概览统一使用它。
+- PROD→UAT 迁移必须使用 `--regenerate-user-uuids`：保留快照中的 `proxy_uuid`，为目标用户分配新的 `users.uuid`，并在同一事务中重写依赖 `users.uuid` 的关联数据。
+
 ---
 
 ## 2. 4 层防呆设计 (Safeguard / Anti-Foolishness)
@@ -97,6 +103,7 @@ migratectl export \
 migratectl import \
   --dsn "postgres://account_user:<UAT_PG_PASSWORD>@postgresql-saas-uat.onwalk.net:5432/account" \
   --file /tmp/account-prod-snapshot.yaml \
+  --regenerate-user-uuids \
   --dry-run \
   --merge \
   --merge-strategy timestamp
@@ -108,6 +115,7 @@ migratectl import \
 migratectl import \
   --dsn "postgres://account_user:<UAT_PG_PASSWORD>@postgresql-saas-uat.onwalk.net:5432/account" \
   --file /tmp/account-prod-snapshot.yaml \
+  --regenerate-user-uuids \
   --merge \
   --merge-strategy timestamp
 ```
@@ -121,7 +129,7 @@ migratectl import \
 - 功能:
   1. 接收 `MIGRATION_SOURCE_DSN` 和 `MIGRATION_TARGET_DSN`。
   2. 执行 DSN 方向断言校验（目标非 PROD、目标是 UAT、源与目标不同）。
-  3. 执行 `migratectl export` -> `import --dry-run` -> `import --merge` -> **收敛校验**。
+  3. 执行 `migratectl export` -> `import --regenerate-user-uuids --dry-run` -> `import --regenerate-user-uuids --merge` -> **收敛校验**。
   4. 快照含口令哈希与 session token，用 `trap ... EXIT` 保证任何失败路径都会清除。
   5. 日志中的 DSN 口令一律脱敏。
 
@@ -183,11 +191,13 @@ ACCOUNTS_REPO=/path/to/ai-workspace-service/accounts \
   .github/scripts/tests/accounts_data_migration_e2e.sh
 ```
 
-### 6.2 已验证项（2026-08-05，本地双容器演练，31/31 通过）
+### 6.2 已验证项（2026-08-15，本地双容器演练，42/42 通过）
 - [x] PROD 只读数据库 SQL `INSERT/UPDATE/DELETE` 全部 `permission denied`
 - [x] `migratectl export` 可用只读 DSN 导出，快照为 `version: v1` 且带 `schemaHash`，文件权限 `0600`
 - [x] `migratectl import --dry-run` 在事务内执行并回滚，UAT 三张表行数零变化
 - [x] `--merge --merge-strategy timestamp` 正式导入，users/identities/sessions 全部落地
+- [x] PROD `proxy_uuid` 原样保留，目标 `users.uuid` 重新分配且不再等于 `proxy_uuid`
+- [x] 已存在旧 `users.uuid` 的目标用户在事务内完成 rekey，identities/sessions 及其他外键引用跟随新 UUID
 - [x] 重放同一快照幂等，不产生重复行
 - [x] 冲突时 `updated_at` 较新的 UAT 行被保留，报告中体现 `Conflicts skipped`
 - [x] UAT 独有数据不被合并删除

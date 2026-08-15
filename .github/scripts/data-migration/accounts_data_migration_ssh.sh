@@ -217,7 +217,7 @@ if [ "${TRANSFERRED_BYTES}" -le 0 ]; then
 fi
 echo "[STEP 2/5] Transferred ${TRANSFERRED_BYTES} bytes."
 
-IMPORT_BASE="import --dsn postgres://${TARGET_DB_USER}@127.0.0.1:5432/${DB_NAME}?sslmode=disable --file /work/snapshot.yaml --merge --merge-strategy timestamp"
+IMPORT_BASE="import --dsn postgres://${TARGET_DB_USER}@127.0.0.1:5432/${DB_NAME}?sslmode=disable --file /work/snapshot.yaml --regenerate-user-uuids --merge --merge-strategy timestamp"
 
 # ------------------------------------------------------------------------------
 # Step 3: dry-run preview on UAT
@@ -249,9 +249,9 @@ else
   echo "[STEP 5/5] Verifying convergence..."
   VERIFY_OUTPUT="$(remote_migratectl "${TARGET_ADDR}" "${TARGET_CONTAINER}" ${IMPORT_BASE} --dry-run 2>&1)"
   echo "${VERIFY_OUTPUT}"
-  if ! grep -qE 'users inserted=0'      <<<"${VERIFY_OUTPUT}" ||
-     ! grep -qE 'Identities inserted=0' <<<"${VERIFY_OUTPUT}" ||
-     ! grep -qE 'Sessions inserted=0'   <<<"${VERIFY_OUTPUT}"; then
+  if ! grep -qE 'users inserted=0 updated=0' <<<"${VERIFY_OUTPUT}" ||
+     ! grep -qE 'Identities inserted=0 updated=0' <<<"${VERIFY_OUTPUT}" ||
+     ! grep -qE 'Sessions inserted=0 updated=0' <<<"${VERIFY_OUTPUT}"; then
     echo "[VERIFY FAILED] Snapshot rows are still missing in UAT after the merge." >&2
     exit 1
   fi

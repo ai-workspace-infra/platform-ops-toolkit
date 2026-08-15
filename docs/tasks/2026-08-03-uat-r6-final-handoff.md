@@ -162,11 +162,14 @@ Database invariants:
 
 Identity invariants:
 
-- `proxy_uuid == users.uuid`.
-- Portal QR UUID, Accounts UUID and Xray client UUID must remain identical.
-- Email is a human-readable correlation attribute; UUID is the accounting key.
-- UUID renewal/sandbox rotation must update the canonical UUID path instead of
-  generating an independent proxy identity.
+- `users.uuid` is the immutable internal account identity; `users.proxy_uuid` is
+  the independently rotatable proxy credential.
+- Portal QR, Accounts Agent output, runtime Xray clients and the account
+  overview must all use `proxy_uuid`.
+- Email is a human-readable correlation attribute; internal relations use
+  `users.uuid` and proxy access uses `proxy_uuid`.
+- UUID renewal/sandbox rotation changes the proxy credential path without
+  exposing or reusing the internal account UUID.
 
 ## Runs
 
