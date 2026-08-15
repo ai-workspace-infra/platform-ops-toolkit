@@ -87,12 +87,47 @@ all_required_containers_running() {
   [[ "${#not_running[@]}" -eq 0 ]]
 }
 
+# A running Caddy process is not sufficient for a DNS cutover. Docker can retain
+# an old container that was created without its host port bindings; the process
+# still listens inside the container while every external 443 connection is
+# refused. Require Docker to publish both declared ingress ports before this
+# internal readiness gate succeeds.
+caddy_ingress_bindings() {
+  ssh "${ssh_opts[@]}" "root@${host_ip}" 'bash -s' <<'REMOTE'
+    set -eu
+    for port in 80/tcp 443/tcp; do
+      case "$port" in
+        80/tcp)
+          template='{{range (index .NetworkSettings.Ports "80/tcp")}}{{.HostIp}}:{{.HostPort}} {{end}}'
+          ;;
+        443/tcp)
+          template='{{range (index .NetworkSettings.Ports "443/tcp")}}{{.HostIp}}:{{.HostPort}} {{end}}'
+          ;;
+      esac
+
+      bindings="$(docker inspect --format "$template" web-saas-caddy)"
+      if [[ -z "${bindings//[[:space:]]/}" ]]; then
+        printf '%s|missing\n' "$port"
+      else
+        printf '%s|%s\n' "$port" "$bindings"
+      fi
+    done
+REMOTE
+}
+
+caddy_ingress_is_published() {
+  local bindings="$1"
+  [[ "$(awk -F'|' '$1 == "80/tcp" && $2 != "missing" { seen80=1 } $1 == "443/tcp" && $2 != "missing" { seen443=1 } END { print (seen80 && seen443) ? "yes" : "no" }' <<< "${bindings}")" == "yes" ]]
+}
+
 print_diagnostics() {
   echo "::group::Doco-CD and Web SaaS container diagnostics for ${MATRIX_HOST}"
   ssh "${ssh_opts[@]}" "root@${host_ip}" '
     set +e
     echo "--- web-saas container state ---"
     docker ps -a --filter "name=web-saas-" --format "table {{.Names}}\\t{{.Status}}\\t{{.Image}}" 2>&1 || true
+    echo "--- web-saas Caddy host port bindings ---"
+    docker inspect -f "port_bindings={{json .NetworkSettings.Ports}} restart_count={{.RestartCount}}" web-saas-caddy 2>&1 || true
     echo "--- Doco-CD compose state ---"
     docker compose --project-name doco-cd -f /opt/doco-cd/docker-compose.yml ps 2>&1 || true
     echo "--- Doco-CD container state ---"
@@ -113,6 +148,7 @@ fi
 
 deadline=$(( $(date +%s) + timeout_seconds ))
 last_states=""
+last_ingress_bindings=""
 while :; do
   states="$(container_states 2>&1)" || states="ssh or docker inspection failed"
   if [[ "${states}" != "${last_states}" ]]; then
@@ -120,8 +156,14 @@ while :; do
     last_states="${states}"
   fi
 
-  if all_required_containers_running "${states}"; then
-    echo "Web SaaS internal containers are running on ${MATRIX_HOST}; public ingress will be verified after DNS reconciliation."
+  ingress_bindings="$(caddy_ingress_bindings 2>&1)" || ingress_bindings="ssh or Docker port inspection failed"
+  if [[ "${ingress_bindings}" != "${last_ingress_bindings}" ]]; then
+    printf '%s\n' "${ingress_bindings}"
+    last_ingress_bindings="${ingress_bindings}"
+  fi
+
+  if all_required_containers_running "${states}" && caddy_ingress_is_published "${ingress_bindings}"; then
+    echo "Web SaaS internal containers and Caddy host port bindings are ready on ${MATRIX_HOST}; public ingress will be verified after DNS reconciliation."
     exit 0
   fi
 
@@ -129,6 +171,6 @@ while :; do
   sleep "${poll_seconds}"
 done
 
-echo "::error::Web SaaS containers did not all reach running state on ${MATRIX_HOST} within ${timeout_seconds}s." >&2
+echo "::error::Web SaaS containers and Caddy host port bindings did not all reach readiness on ${MATRIX_HOST} within ${timeout_seconds}s." >&2
 print_diagnostics
 exit 1

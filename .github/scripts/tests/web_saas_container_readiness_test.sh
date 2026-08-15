@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Unit test the pre-DNS container gate without contacting a host.  It must
-# accept running containers without checking a public port, and print Doco-CD
-# diagnostics if a required container never appears.
+# Unit test the pre-DNS container gate without contacting a host. It must
+# require both running containers and the declared Caddy host port bindings,
+# and print Doco-CD diagnostics if readiness never converges.
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 script="${repo_root}/.github/scripts/platform-ops/observe/platform-ops_observe-web-saas-containers.sh"
@@ -26,7 +26,7 @@ if [[ "${SSH_MODE}" == "missing" && "$*" == *"Doco-CD recent logs"* ]]; then
   printf 'simulated Doco-CD diagnostic output\n'
   exit 0
 fi
-if [[ "${SSH_MODE}" == "healthy" ]]; then
+if [[ "$*" == *"web-saas-postgresql"* && "${SSH_MODE}" == "healthy" ]]; then
   cat <<'STATES'
 web-saas-postgresql|running|healthy
 web-saas-stunnel-server|running|healthy
@@ -37,6 +37,11 @@ web-saas-billing|running|none
 web-saas-console|running|none
 web-saas-caddy|running|none
 STATES
+elif [[ "$*" == *"bash -s"* && "${SSH_MODE}" == "healthy" ]]; then
+  cat <<'PORTS'
+80/tcp|0.0.0.0:80
+443/tcp|0.0.0.0:443
+PORTS
 else
   printf 'web-saas-caddy|missing|none\n'
 fi
@@ -50,7 +55,7 @@ MATRIX_HOST=console-uat.onwalk.net \
 CMDB_FILE="${workdir}/cmdb.json" \
 bash "${script}" >"${workdir}/healthy.out"
 
-grep -Fq 'public ingress will be verified after DNS reconciliation' "${workdir}/healthy.out"
+grep -Fq 'Caddy host port bindings are ready' "${workdir}/healthy.out"
 
 set +e
 PATH="${workdir}:${PATH}" \
