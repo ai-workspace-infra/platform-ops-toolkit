@@ -2,6 +2,11 @@
 
 `Daily Main Snapshot` 仅使用 GitHub App 认证。workflow 通过 GitHub OIDC 登录 Vault，读取 App 私钥并按目标组织生成 installation token。
 
+本手册只用于 SIT/UAT 快照构建。Daily Snapshot 不是 PROD 发布入口；即使
+workflow 暴露了 `deploy_env=prod` 输入，也不得用日快照或 UAT 快照进入生产。
+PROD 只接受 `refs/tags/v*` 或 `refs/heads/release/v*`，详见
+[多环境交付与发布规范](standards/multi-environment-delivery-and-release-standard.md)。
+
 ## 前置配置
 
 Vault KV v2 路径：
@@ -44,11 +49,17 @@ SIT 验证。Daily Snapshot 不能把 `v*` 作为 `snapshot_tag`；否则服务 
 路由组合约定：
 
 - `main + uat`：常规交付默认路径。
-- `main + prod`：仅受控手动/应急操作，不由普通 `main` push 推断。
+- `refs/heads/release/v* + prod`：受控生产分支路径，必须经过生产审批。
+- `refs/tags/v* + prod`：受控正式稳定发布路径，tag 不可移动、覆盖或删除。
 - `main + sit`：低频手动验证，基本不参与日常调度。
 - `daily-build-*`：每日自动构建入口。
 - `uat-daily-build-*`：允许的 UAT 构建、重试与验证入口。
-- `v*`：受控手动选择的正式稳定发布入口，tag 不可移动、覆盖或删除。
+- `release/*`（不含 `release/v*`）：UAT 路径，不得进入 PROD。
+- `v*`：只作为 `refs/tags/v*` 的正式稳定发布入口，不得作为日快照输入。
+
+`main`、非 `release/v*` 分支、`daily-build-*`、`uat-daily-build-*`、
+`sit-*`、`snapshot-*`、`prod-*` 以及任何其他 tag/branch 都是 PROD 禁止来源。
+不能通过 `deploy_env`、`snapshot_tag` 或脚本的前缀推断绕过这一限制。
 
 手工创建重试快照 tag 时可执行：
 
@@ -103,7 +114,9 @@ job_workflow_ref = <service repository>/.github/workflows/ci-pipeline.yml@refs/t
 ```
 
 role 只读构建所需的 Vault 路径，并只允许 `sit` / `uat` 的 GHCR 或制品发布路径。
-不要把 `daily-build-*` 加入生产 `v*` role。
+不要把 `daily-build-*`、`uat-daily-build-*`、`sit-*`、`snapshot-*` 或
+`prod-*` 加入生产 role；生产 role 只能接受
+`refs/tags/v*` 和 `refs/heads/release/v*`。
 
 如果服务 workflow 仍使用 `workflow_dispatch` 而不是 tag push，还必须让它显式使用
 `daily-build-*` 作为 checkout ref、镜像 tag、binary/zip 名称和 chart version。

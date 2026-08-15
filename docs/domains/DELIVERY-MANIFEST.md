@@ -38,7 +38,12 @@ CD **绝不在部署时决定版本**，版本必须由调用方显式传入 `de
 |---|---|
 | SIT | 用户定义（dispatch 时显式给出） |
 | UAT | 调用方显式给出的不可变快照 tag（例如 `daily-build-2026.07.30-r2`） |
-| PROD | 触发它的 `v*` tag 或 `release/*` |
+| PROD | 仅允许来自 `refs/tags/v*` 或 `refs/heads/release/v*` 的发布制品 |
+
+PROD 的源 ref 是严格 allowlist，不得由 `deploy_tag` 名称、workflow 输入或
+脚本推断扩大。`main`、非 `release/v*` 分支、`daily-build-*`、
+`uat-daily-build-*`、`sit-*`、`snapshot-*`、`prod-*` 以及其他 tag/branch
+均不得进入 PROD。日快照和 UAT 快照只能被 UAT/SIT 消费。
 
 > 这条约定的意义在于：**PR CI 只证明代码可交付，CD 才负责改变 SIT/UAT/Prod 环境**。
 > 没有显式版本就等于"部署此刻的 main"，那是一次无法复现、也无法回滚到确切内容的发布。
