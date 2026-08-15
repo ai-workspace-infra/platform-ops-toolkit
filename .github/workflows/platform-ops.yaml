@@ -972,11 +972,12 @@ jobs:
   # 一台已经销毁的老机器)时, 量到的依然是"我刚部署的这台"。
   observe_web_saas:
     name: "[3] Observe | ${{ matrix.host }}"
-    needs: [provision, deploy_base, deploy_web_saas, initialize_web_saas_databases]
+    # deploy_web_saas and DB Init are the preceding stage. deploy_base is
+    # already an upstream dependency of both and need not be repeated here.
+    needs: [provision, deploy_web_saas, initialize_web_saas_databases]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
-      needs.deploy_base.result == 'success' &&
       needs.deploy_web_saas.result == 'success' &&
       needs.initialize_web_saas_databases.result == 'success' &&
       needs.provision.outputs.run_application_deploy == 'true' &&
@@ -1137,13 +1138,12 @@ jobs:
     name: Reconcile UAT DNS Records & Observe
     # This job is deliberately separate from the production cutover job. The
     # route script and the reconciler both enforce the UAT-only boundary.
+    # Wait only for the final jobs of the preceding deployment stage. The
+    # provision job remains here solely because this job consumes its resolved
+    # routing outputs; the intermediate jobs are already in those chains.
     needs: [
       provision,
-      deploy_base,
-      deploy_web_saas,
-      initialize_web_saas_databases,
       observe_web_saas,
-      update_gitops_tags,
       deploy_infra_platform,
       deploy_agent_proxy,
       deploy_ai_workspace
@@ -1152,10 +1152,6 @@ jobs:
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
       needs.provision.outputs.dns_mode == 'uat-records' &&
-      needs.deploy_base.result == 'success' &&
-      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
-      (needs.deploy_web_saas.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
-      (needs.initialize_web_saas_databases.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       (needs.observe_web_saas.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       needs.deploy_infra_platform.result != 'failure' &&
       (needs.deploy_agent_proxy.result == 'success' || !contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
@@ -1266,11 +1262,12 @@ jobs:
     # generate the Xray runtime configs. A skipped observe is valid only for
     # an agent-only delivery; a combined Web SaaS + Agent Proxy delivery must
     # have completed the Web SaaS observe gate successfully.
-    needs: [provision, deploy_base, observe_web_saas]
+    # observe_web_saas is the preceding stage for the combined web-saas path;
+    # it already includes the base/bootstrap dependency transitively.
+    needs: [provision, observe_web_saas]
     if: >-
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
-      needs.deploy_base.result == 'success' &&
       (needs.observe_web_saas.result == 'success' || (!contains(fromJSON('["all","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && needs.observe_web_saas.result == 'skipped')) &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
@@ -1530,11 +1527,12 @@ jobs:
     # Data migration uses the CMDB address and the local PostgreSQL container.
     # It is independent of Agent Proxy and observability, and can begin as
     # soon as the database bootstrap/schema job completes.
-    needs: [provision, deploy_base, initialize_web_saas_databases]
+    # DB Init is the only preceding stage required for migration. The base
+    # job is already in DB Init's dependency chain.
+    needs: [provision, initialize_web_saas_databases]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
-      needs.deploy_base.result == 'success' &&
       needs.initialize_web_saas_databases.result == 'success' &&
       needs.provision.outputs.toolkit_action == 'deploy+migrate' }}
     uses: ./.github/workflows/data-migration.yaml
