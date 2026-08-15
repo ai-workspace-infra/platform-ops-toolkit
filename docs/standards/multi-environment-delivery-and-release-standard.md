@@ -18,6 +18,34 @@ State keys MUST follow `<env>/<cloud>/<project>/<resource-set>.tfstate`.
 The Terraform workspace uses the same dimensions as `<env>-<cloud>-<project>-<resource-set>`.
 Apply and destroy MUST resolve both values through the same routing script.
 
+### 1.1 Ref and environment combinations
+
+The cross-repository tag operation uses one tagging script for both stable
+release tags and daily build tags. The tag prefix is the only release-class
+selector; an existing tag is never moved or overwritten.
+
+| Combination | Meaning | Policy |
+|---|---|---|
+| `main + uat` | Normal continuous delivery | Default branch delivery path; safe default for routine changes |
+| `main + prod` | Controlled production operation | Manual/emergency path only; must be explicitly approved and must not be inferred from an ordinary `main` push |
+| `main + sit` | Low-frequency validation | Manual verification only; not a scheduled delivery path |
+| `v*` tag | Controlled stable production release | Manually selected release tag only; immutable, never moved/overwritten/deleted, and never used as an automatic build tag |
+| `daily-build-*` tag | Daily automatic build snapshot | Scheduled daily build artifact path for UAT/build verification |
+| `uat-daily-build-*` tag | Allowed UAT build/retry snapshot | Explicitly allowed UAT variant for retries, validation, and environment handoff |
+| `sit-*` tag | SIT snapshot | Low-frequency test snapshot; used only when SIT validation is explicitly requested |
+
+The shared tagging script must receive the intended tag explicitly. Stable
+release publication and daily snapshot publication differ by the tag value and
+the selected environment, not by a second tag-creation implementation. A
+`v*` tag must never be passed as `SNAPSHOT_TAG` to the Daily Main Snapshot
+workflow. Daily automatic builds use `daily-build-*`; `uat-daily-build-*` is
+also allowed for explicit UAT retries and validation. This prevents a daily
+build from being routed into production.
+
+The formal production route remains a manually selected, annotated `v*` tag.
+`main + prod` is a separate controlled exception for operational workflows and
+must use its own approval and Vault authorization boundary.
+
 ### State 演进与迁移治理
 
 状态 key 是资源生命周期的唯一索引，不得在普通 deploy 中自动尝试旧 key。平台切换层级、项目名、云厂商或资源集合时，必须走一次显式迁移：
