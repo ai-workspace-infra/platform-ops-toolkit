@@ -1129,6 +1129,10 @@ jobs:
           https://console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
           https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
           https://bridge-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/api/ping
+        # Console is public, while Accounts and Bridge intentionally require
+        # authentication.  Their 404/401 responses prove the routed service
+        # is alive; the observer still rejects every other unexpected code.
+        OBSERVE_EXPECTED_CODES: "200,404,401"
       run: bash playbooks/.github/scripts/domain-cd-observe-endpoints.sh
 
   observe_agent_proxy_after_dns:
