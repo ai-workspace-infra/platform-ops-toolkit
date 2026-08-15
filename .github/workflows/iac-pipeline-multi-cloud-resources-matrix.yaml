@@ -81,10 +81,10 @@ permissions:
 env:
   PROJECT: ${{ inputs.project || github.event.inputs.project || 'svc.plus' }}
   CLOUD_PROVIDER: ${{ inputs.cloud_provider || github.event.inputs.cloud_provider || 'aws-cloud' }}
-  DEPLOY_ENV: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' && 'uat' || ((startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/tags/v')) && 'prod' || 'sit')) || inputs.vault_env_path || github.event.inputs.vault_env_path || 'sit' }}
+  DEPLOY_ENV: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' && 'uat' || ((startsWith(github.ref, 'refs/heads/release/v') || startsWith(github.ref, 'refs/tags/v')) && 'prod' || 'sit')) || inputs.vault_env_path || github.event.inputs.vault_env_path || 'sit' }}
   DEPLOY_ACTION: ${{ inputs.deploy_action || github.event.inputs.deploy_action || 'plan' }}
   BASE_DIR: iac_modules/terraform-hcl-standard/${{ inputs.cloud_provider || github.event.inputs.cloud_provider || 'aws-cloud' }}/component/
-  CONFIG_DIR: gitops/${{ inputs.project || github.event.inputs.project || 'svc.plus' }}/${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' && 'uat' || ((startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/tags/v')) && 'prod' || 'sit')) || inputs.vault_env_path || github.event.inputs.vault_env_path || 'sit' }}/${{ inputs.cloud_provider || github.event.inputs.cloud_provider || 'aws-cloud' }}
+  CONFIG_DIR: gitops/${{ inputs.project || github.event.inputs.project || 'svc.plus' }}/${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' && 'uat' || ((startsWith(github.ref, 'refs/heads/release/v') || startsWith(github.ref, 'refs/tags/v')) && 'prod' || 'sit')) || inputs.vault_env_path || github.event.inputs.vault_env_path || 'sit' }}/${{ inputs.cloud_provider || github.event.inputs.cloud_provider || 'aws-cloud' }}
   GITOPS_REPO_ROOT: gitops
   AWS_REGION: ap-northeast-1
   AWS_ROLE_ARN: arn:aws:iam::950604983695:role/GithubAction_IAC_Deploy_Role

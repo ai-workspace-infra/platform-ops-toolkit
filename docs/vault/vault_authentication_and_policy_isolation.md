@@ -17,8 +17,13 @@
 | 目标环境 (Env) | Vault JWT Role 名称 | 允许请求的 Git 分支 / Tag (`bound_claims` / `ref`) | 用途说明 |
 | --- | --- | --- | --- |
 | **`sit`** | `github-actions-platform-ops-toolkit-sit` | **`refs/pull/*/merge`**、**`refs/heads/*`** | Pull Request 验证，以及从分支发起的 `workflow_dispatch`。ref 仍然较宽，真正的收敛来自 `job_workflow_ref` 白名单。 |
-| **`uat`** | `github-actions-platform-ops-toolkit-uat` | **`refs/heads/main`**、**`refs/heads/release/*`** | `main` 与 `release/*` 的 push 都路由到 uat，两者都必须放行。 |
-| **`prod`** | `github-actions-platform-ops-toolkit-prod` | **`refs/tags/v*`** | **仅限 `v*` annotated tag**。`release/*` 是任何 writer 都能创建的分支，不能作为 prod 的凭据边界。 |
+| **`uat`** | `github-actions-platform-ops-toolkit-uat` | **`refs/heads/main`**、**`refs/heads/release/*`**（生产例外见下行） | `main` 与非 `release/v*` 的 `release/*` push 路由到 UAT。 |
+| **`prod`** | `github-actions-platform-ops-toolkit-prod` | **仅 `refs/tags/v*` 或 `refs/heads/release/v*`** | 受控正式 tag 或受保护的版本发布分支。 |
+
+PROD 的 ref allowlist 是严格且封闭的：`refs/tags/v*` 与
+`refs/heads/release/v*` 之外的任何 ref 都必须拒绝。`main`、非 `release/v*`
+分支、`daily-build-*`、`uat-daily-build-*`、`sit-*`、`snapshot-*`、`prod-*`
+和其他 tag/branch 不得通过生产 role。
 
 > **注**：在 `platform-ops.yaml` 流水线中，环境变量会通过逻辑计算自动映射：  
 > `VAULT_ROLE: github-actions-platform-ops-toolkit-${{ env.DEPLOY_ENV }}`
@@ -34,7 +39,9 @@
 | `token_no_default_policy` | `true` | 不附加 `default` policy，最小权限。 |
 | `token_type` / `token_ttl` | `batch` / `20m` | 一次部署用不了 1 小时；batch token 不可续期。 |
 
-> ⚠️ **行为变更**：`prod` 现在只能由 `v*` tag 触发。`workflow_dispatch` 选 `prod` 会认证失败——这是刻意的，与分支规范「生产部署只经 annotated tag」一致。
+> ⚠️ **行为变更**：`prod` 现在只能由 `refs/tags/v*` 或
+> `refs/heads/release/v*` 触发。workflow 的 `prod` 输入、tag 名称或脚本推断都不能
+> 放宽该限制；其他来源必须在换取生产 token 前失败。
 >
 > 已删除的死角色：`github-actions-platform-ops-toolkit-prod-tags` 从未被任何 workflow 请求过，职责已并入 `-prod`。
 

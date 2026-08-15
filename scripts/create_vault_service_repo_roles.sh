@@ -219,14 +219,14 @@ write_role sit github-actions-platform-ops-toolkit-sit '["refs/pull/*/merge", "r
 echo "  Creating UAT role..."
 write_role uat github-actions-platform-ops-toolkit-uat '["refs/heads/main", "refs/heads/release/*", "refs/heads/bugfix/*", "refs/heads/daily-build-*", "refs/tags/daily-build-*"]'
 echo "  Creating PROD role..."
-write_role prod github-actions-platform-ops-toolkit-prod '["refs/tags/v*", "refs/heads/main"]'
+write_role prod github-actions-platform-ops-toolkit-prod '["refs/tags/v*", "refs/heads/release/v*"]'
 
 echo "  Creating Playbooks SIT role..."
 write_playbooks_role sit github-actions-platform-ops-toolkit-sit '["refs/pull/*/merge", "refs/heads/*"]'
 echo "  Creating Playbooks UAT role..."
 write_playbooks_role uat github-actions-platform-ops-toolkit-uat '["refs/heads/main", "refs/heads/release/*", "refs/heads/bugfix/*", "refs/heads/daily-build-*", "refs/tags/daily-build-*"]'
 echo "  Creating Playbooks PROD role..."
-write_playbooks_role prod github-actions-platform-ops-toolkit-prod '["refs/tags/v*", "refs/heads/main"]'
+write_playbooks_role prod github-actions-platform-ops-toolkit-prod '["refs/tags/v*", "refs/heads/release/v*"]'
 
 # -----------------------------------------------------------------------------
 # Business Service Repository Roles & Policies
@@ -282,7 +282,7 @@ process_service_repo() {
     "${repo}" "${workflow}"
 
   write_service_role "${service}" prod \
-    '["refs/tags/v*", "refs/tags/prod-*"]' \
+    '["refs/tags/v*", "refs/heads/release/v*"]' \
     "${repo}" "${workflow}"
 }
 
@@ -293,7 +293,7 @@ process_gitops_service_repo() {
   write_service_policy gitops
   write_service_role gitops sit '"refs/pull/*/merge"' "${repo}" "${workflow}"
   write_service_role gitops uat '"refs/heads/main"' "${repo}" "${workflow}"
-  write_service_role gitops prod '"refs/tags/v*"' "${repo}" "${workflow}"
+  write_service_role gitops prod '["refs/tags/v*", "refs/heads/release/v*"]' "${repo}" "${workflow}"
 }
 
 process_artifacts_service_repo() {
@@ -325,7 +325,7 @@ EOF
     "${repo}" "${workflow}"
 
   write_service_role artifacts prod \
-    '["refs/tags/v*", "refs/tags/prod-*"]' \
+    '["refs/tags/v*", "refs/heads/release/v*"]' \
     "${repo}" "${workflow}"
 }
 

@@ -54,8 +54,8 @@ docs/
 | 环境 (Env) | Vault 策略 / JWT 角色 | 绑定的 Git Ref (`bound_claims.ref`) |
 | :--- | :--- | :--- |
 | **SIT** | `github-actions-platform-ops-toolkit-sit` | `refs/pull/*/merge`、`refs/heads/*`（PR 验证与分支 dispatch） |
-| **UAT** | `github-actions-platform-ops-toolkit-uat` | `refs/heads/main`、`refs/heads/release/*` |
-| **PROD** | `github-actions-platform-ops-toolkit-prod` | **仅 `refs/tags/v*`** |
+| **UAT** | `github-actions-platform-ops-toolkit-uat` | `refs/heads/main`、`refs/heads/release/*`（不含 `refs/heads/release/v*` 的 PROD 运行） |
+| **PROD** | `github-actions-platform-ops-toolkit-prod` | **仅 `refs/tags/v*` 或 `refs/heads/release/v*`** |
 
 三个角色另有三项通用约束：`user_claim` 用 `sub`（绑定到工作负载而非触发者用户名）、
 `job_workflow_ref` 钉死到本仓库使用 Vault 的 workflow 白名单、`token_no_default_policy`
@@ -65,8 +65,9 @@ docs/
 > 一个 workflow 文件来换取 token」，钉死文件名才能拦住。新增使用这些角色的 workflow 时，
 > 必须同步更新 `vault_auth_split.sh` 里的白名单，否则换不到 token。
 
-> ⚠️ **PROD 只能由 `v*` annotated tag 触发**，`workflow_dispatch` 选 `prod` 会认证失败。
-> 这是刻意设计，与「生产部署只经 annotated tag」的分支规范一致。
+> ⚠️ **PROD 只接受 `refs/tags/v*` 或 `refs/heads/release/v*`**。
+> `main`、其他 `release/*` 分支、daily/UAT/SIT/prod 快照 tag 以及其他来源均禁止进入
+> PROD；`workflow_dispatch` 的环境输入不能覆盖这一 ref allowlist。
 
 KV 路径按三层隔离（公共服务共读只读 / 基础凭据按环境只读 / 环境业务密钥按环境读写），
 详见 [Vault KV 三层模型](vault/kv_tier_model.md) 与
