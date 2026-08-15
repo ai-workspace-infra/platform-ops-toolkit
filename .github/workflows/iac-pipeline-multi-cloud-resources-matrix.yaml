@@ -147,28 +147,47 @@ jobs:
         .github/scripts/iac-pipeline-multi-cloud-resources-matrix_terraform_setup-terraform-cli-args.sh
 
     - name: Init
-      working-directory: ${{ env.BASE_DIR }}/${{ matrix.component }}
-      run: .github/scripts/common_terraform.sh init
+      uses: ./.github/actions/terraform-command
+      with:
+        command: init
+        config_dir: ${{ env.CONFIG_DIR }}
+        working_directory: ${{ env.BASE_DIR }}/${{ matrix.component }}
 
     - name: Plan
-      working-directory: ${{ env.BASE_DIR }}/${{ matrix.component }}
-      run: .github/scripts/common_terraform.sh plan
+      uses: ./.github/actions/terraform-command
+      with:
+        command: plan
+        config_dir: ${{ env.CONFIG_DIR }}
+        working_directory: ${{ env.BASE_DIR }}/${{ matrix.component }}
 
     - name: Apply
-      working-directory: ${{ env.BASE_DIR }}/${{ matrix.component }}
       if: ${{ env.DEPLOY_ACTION == 'apply' }}
-      run: .github/scripts/common_terraform.sh apply
+      uses: ./.github/actions/terraform-command
+      with:
+        command: apply
+        config_dir: ${{ env.CONFIG_DIR }}
+        working_directory: ${{ env.BASE_DIR }}/${{ matrix.component }}
 
     - name: Destroy
-      working-directory: ${{ env.BASE_DIR }}/${{ matrix.component }}
       if: ${{ env.DEPLOY_ACTION == 'destroy' }}
-      run: .github/scripts/common_terraform.sh destroy
+      uses: ./.github/actions/terraform-command
+      with:
+        command: destroy
+        config_dir: ${{ env.CONFIG_DIR }}
+        working_directory: ${{ env.BASE_DIR }}/${{ matrix.component }}
 
     - name: Skip Apply/Destroy
       if: ${{ env.DEPLOY_ACTION != 'apply' && env.DEPLOY_ACTION != 'destroy' }}
-      run: .github/scripts/common_terraform_skip_apply_destroy.sh
+      uses: ./.github/actions/terraform-command
+      with:
+        command: skip
+        config_dir: ${{ env.CONFIG_DIR }}
+        working_directory: ${{ env.BASE_DIR }}/${{ matrix.component }}
 
     - name: Output
-      working-directory: ${{ env.BASE_DIR }}/${{ matrix.component }}
       if: ${{ env.DEPLOY_ACTION == 'apply' }}
-      run: .github/scripts/common_terraform.sh output
+      uses: ./.github/actions/terraform-command
+      with:
+        command: output
+        config_dir: ${{ env.CONFIG_DIR }}
+        working_directory: ${{ env.BASE_DIR }}/${{ matrix.component }}

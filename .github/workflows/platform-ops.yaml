@@ -551,17 +551,6 @@ jobs:
     - name: Load optional web-saas secrets
       run: ${{ github.workspace }}/.github/scripts/platform-ops_deploy_base_load-optional-web-saas.sh
 
-    - name: Configure SSH Key
-      env:
-        VAULT_ANSIBLE_SSH_KEY_B64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
-      run: |-
-        ${{ github.workspace }}/.github/scripts/common_configure_ssh_key.sh
-
-    - name: Wait for host SSH
-      run: |-
-        ${{ github.workspace }}/.github/scripts/common_wait_for_host_ssh.sh
-
-
     # SSH 可达不等于机器可用。新 VPS 此时通常还在跑 cloud-init 与
     # unattended-upgrades, 它们持有 dpkg 前端锁 —— 后续任何 apt 任务撞上
     # 就会中止整个部署(r8 即因此在 vector 安装处断掉, 结果 agent-proxy 上
@@ -570,8 +559,6 @@ jobs:
     # 在 bootstrap 阶段等一次, 就是 deploy_base "把基础条件准备就绪" 的含义:
     # 后面每个 job 面对的都是首次启动已收敛的机器, 而不是靠每个 apt 任务
     # 各自挂一个长超时去兜底。
-    - name: Wait for host first-boot package work
-      run: ${{ github.workspace }}/.github/scripts/common_wait_for_host_init.sh
     - name: Cache pip packages
       uses: actions/cache@v4
       with:
@@ -580,8 +567,14 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-pip-
 
-    - name: Install Ansible
-      run: ${{ github.workspace }}/.github/scripts/common_install_ansible.sh
+    - name: Setup deployment runner
+      uses: ./.github/actions/setup-deployment-runner
+      with:
+        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+        matrix_host: ${{ matrix.host }}
+        wait_for_ssh: 'true'
+        wait_for_package_init: 'true'
+        install_ansible: 'true'
 
     # 证书持久化。主机重建会把 caddy_data 卷一起丢掉, 于是每次重建都重新签发,
     # 撞上 Let's Encrypt "同一组域名 5 次/周" 的限流 —— 2026-07-28 console-uat
@@ -850,14 +843,6 @@ jobs:
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
           ${{ env.VAULT_KV }} ROOT_BOOTSTRAP_PASSWORD | ROOT_BOOTSTRAP_PASSWORD ;
 
-    - name: Configure SSH Key
-      env:
-        VAULT_ANSIBLE_SSH_KEY_B64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
-      run: ${{ github.workspace }}/.github/scripts/common_configure_ssh_key.sh
-
-    - name: Wait for host SSH
-      run: ${{ github.workspace }}/.github/scripts/common_wait_for_host_ssh.sh
-
     # Doco-CD owns the Compose stack. Before DB Init starts to create roles,
     # require the pull-only reconciler to have actually started PostgreSQL.
     # The external helper emits read-only Doco-CD/Compose diagnostics on
@@ -873,17 +858,17 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-pip-
 
-    - name: Install Ansible
-      run: ${{ github.workspace }}/.github/scripts/common_install_ansible.sh
-
-    # 0 主机命中仍 exit 0 是本仓 workplan 的陷阱 #12。守卫脚本一直躺在
-    # .github/scripts/里但没有任何 workflow 引用它, 于是这一步 2026-07-28
-    # 在 run 30339933681 里报绿而一个库都没建。
-    - name: Assert the Ansible target resolves to a reachable host
-      working-directory: playbooks
-      run: >-
-        ${{ github.workspace }}/.github/scripts/common_assert_ansible_host.sh
-        ../cmdb/inventory.ini "${MATRIX_HOST}"
+    # 0 主机命中仍 exit 0 是本仓 workplan 的陷阱 #12。setup-deployment-runner
+    # 内置的 Ansible target assertion 在这里阻断该类假绿。
+    - name: Setup deployment runner
+      uses: ./.github/actions/setup-deployment-runner
+      with:
+        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+        matrix_host: ${{ matrix.host }}
+        wait_for_ssh: 'true'
+        install_ansible: 'true'
+        assert_ansible_target: 'true'
+        ansible_inventory: cmdb/inventory.ini
 
     # 这一步此前跑的是 deploy_accounts_svc_plus.yml —— 那是"部署 accounts
     # 服务"的 playbook, 与步骤名(建库建角色)对不上, 而且容器栈本就该由
@@ -1017,10 +1002,10 @@ jobs:
         secrets: |
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64
 
-    - name: Configure SSH Key
-      env:
-        VAULT_ANSIBLE_SSH_KEY_B64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
-      run: ${{ github.workspace }}/.github/scripts/common_configure_ssh_key.sh
+    - name: Configure deployment SSH
+      uses: ./.github/actions/setup-deployment-runner
+      with:
+        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
 
     # DNS is deliberately not updated yet.  Prove that Doco-CD has started
     # the target node's internal services over SSH; public ingress is verified
@@ -1081,9 +1066,6 @@ jobs:
         ref: ${{ needs.provision.outputs.playbooks_ref }}
         path: playbooks
 
-    - name: Install Ansible
-      run: ${{ github.workspace }}/.github/scripts/common_install_ansible.sh
-
     - name: Load Vault secrets for DNS
       id: vault
       uses: hashicorp/vault-action@v4
@@ -1098,10 +1080,11 @@ jobs:
           ${{ env.VAULT_KV }} CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN ;
           ${{ env.VAULT_KV_AGENT_PROXY }} xray_uuid | XRAY_UUID
 
-    - name: Configure SSH Key for post-DNS cleanup
-      env:
-        VAULT_ANSIBLE_SSH_KEY_B64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
-      run: ${{ github.workspace }}/.github/scripts/common_configure_ssh_key.sh
+    - name: Setup DNS deployment runner
+      uses: ./.github/actions/setup-deployment-runner
+      with:
+        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+        install_ansible: 'true'
 
     - name: Switch Cloudflare DNS Records
       env:
@@ -1219,11 +1202,11 @@ jobs:
           https://bridge-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/api/ping
       run: bash playbooks/.github/scripts/domain-cd-observe-endpoints.sh
 
-    - name: Configure SSH Key for certificate backup
+    - name: Configure SSH for certificate backup
       if: ${{ !cancelled() }}
-      env:
-        VAULT_ANSIBLE_SSH_KEY_B64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
-      run: ${{ github.workspace }}/.github/scripts/common_configure_ssh_key.sh
+      uses: ./.github/actions/setup-deployment-runner
+      with:
+        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
 
     - name: Back up verified Caddy certificates to Vault
       if: ${{ !cancelled() }}
@@ -1324,14 +1307,6 @@ jobs:
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
           ${{ env.VAULT_KV_WEB_SAAS }} INTERNAL_SERVICE_TOKEN | INTERNAL_SERVICE_TOKEN
 
-    - name: Configure SSH Key
-      env:
-        VAULT_ANSIBLE_SSH_KEY_B64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
-      run: ${{ github.workspace }}/.github/scripts/common_configure_ssh_key.sh
-
-    - name: Wait for host SSH
-      run: ${{ github.workspace }}/.github/scripts/common_wait_for_host_ssh.sh
-
     - name: Cache pip packages
       uses: actions/cache@v4
       with:
@@ -1340,14 +1315,15 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-pip-
 
-    - name: Install Ansible
-      run: ${{ github.workspace }}/.github/scripts/common_install_ansible.sh
-
-    - name: Assert the Ansible target resolves to a reachable host
-      working-directory: playbooks
-      run: >-
-        ${{ github.workspace }}/.github/scripts/common_assert_ansible_host.sh
-        ../cmdb/inventory.ini "${MATRIX_HOST}"
+    - name: Setup deployment runner
+      uses: ./.github/actions/setup-deployment-runner
+      with:
+        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+        matrix_host: ${{ matrix.host }}
+        wait_for_ssh: 'true'
+        install_ansible: 'true'
+        assert_ansible_target: 'true'
+        ansible_inventory: cmdb/inventory.ini
 
     - name: Resolve Xray Exporter image
       id: xray_exporter
@@ -1481,16 +1457,6 @@ jobs:
           kv/data/CICD/observability user | VECTOR_AUTH_USER ;
           kv/data/CICD/observability password | VECTOR_AUTH_PASSWORD
 
-    - name: Configure SSH Key
-      env:
-        VAULT_ANSIBLE_SSH_KEY_B64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
-      run: |-
-        ${{ github.workspace }}/.github/scripts/common_configure_ssh_key.sh
-
-    - name: Wait for host SSH
-      run: |-
-        ${{ github.workspace }}/.github/scripts/common_wait_for_host_ssh.sh
-
     - name: Cache pip packages
       uses: actions/cache@v4
       with:
@@ -1499,8 +1465,13 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-pip-
 
-    - name: Install Ansible
-      run: ${{ github.workspace }}/.github/scripts/common_install_ansible.sh
+    - name: Setup deployment runner
+      uses: ./.github/actions/setup-deployment-runner
+      with:
+        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+        matrix_host: ${{ matrix.host }}
+        wait_for_ssh: 'true'
+        install_ansible: 'true'
 
     - name: Deploy Observability Agent
       working-directory: playbooks

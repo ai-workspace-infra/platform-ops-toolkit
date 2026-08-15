@@ -76,10 +76,6 @@ on:
         type: string
         required: false
         default: main
-    secrets:
-      SMTP_PASSWORD:
-        required: false
-
 permissions:
   id-token: write
   contents: read
@@ -125,7 +121,9 @@ jobs:
           kv/data/CICD TF_STATE_BUCKET | TF_STATE_BUCKET ;
           kv/data/CICD TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
           kv/data/CICD TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
-          kv/data/CICD TF_STATE_REGION | TF_STATE_REGION
+          kv/data/CICD TF_STATE_REGION | TF_STATE_REGION ;
+          kv/data/CICD/${{ env.DEPLOY_ENV }} SMTP_USERNAME | SMTP_USERNAME ;
+          kv/data/CICD/${{ env.DEPLOY_ENV }} SMTP_PASSWORD | SMTP_PASSWORD
 
     - name: Setup IaC Environment
       uses: ./.github/actions/setup-iac-env
@@ -137,7 +135,6 @@ jobs:
         aws_role_arn: ${{ env.AWS_ROLE_ARN }}
 
     - name: Terraform Init (LandingZone)
-      working-directory: ${{ env.TF_WORKDIR }}
       env:
         TF_CLI_ARGS_init: >-
           -backend-config="endpoint=${{ steps.vault.outputs.TF_STATE_ENDPOINT }}"
@@ -150,7 +147,11 @@ jobs:
           -backend-config="skip_metadata_api_check=true"
           -backend-config="skip_region_validation=true"
           -backend-config="use_path_style=true"
-      run: .github/scripts/common_terraform.sh init
+      uses: ./.github/actions/terraform-command
+      with:
+        command: init
+        config_dir: ${{ env.CONFIG_DIR }}
+        working_directory: ${{ env.TF_WORKDIR }}
 
     - name: Terraform Plan (LandingZone)
       id: tfplan
@@ -166,8 +167,11 @@ jobs:
 
     - name: Terraform Apply (LandingZone)
       if: env.DEPLOY_ACTION == 'apply'
-      working-directory: ${{ env.TF_WORKDIR }}
-      run: .github/scripts/common_terraform.sh apply
+      uses: ./.github/actions/terraform-command
+      with:
+        command: apply
+        config_dir: ${{ env.CONFIG_DIR }}
+        working_directory: ${{ env.TF_WORKDIR }}
 
     - name: Run Validation Checks
       if: env.DEPLOY_ACTION == 'apply'
@@ -177,7 +181,7 @@ jobs:
     - name: Notify
       if: env.DEPLOY_ACTION == 'apply'
       env:
-        SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-        SMTP_USERNAME: "manbuzhe2009@qq.com"
+        SMTP_PASSWORD: ${{ steps.vault.outputs.SMTP_PASSWORD }}
+        SMTP_USERNAME: ${{ steps.vault.outputs.SMTP_USERNAME }}
       run: |-
         .github/scripts/iac-pipeline-multi-cloud-landingzone-baseline_landingzone_notify.sh

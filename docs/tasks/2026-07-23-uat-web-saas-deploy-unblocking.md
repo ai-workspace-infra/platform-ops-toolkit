@@ -21,7 +21,7 @@
 
 | # | 缺陷 | 症状 | 修复 |
 |---|---|---|---|
-| 0 | deploy 脚本相对路径错，`ansible` 0 主机命中仍 exit 0 | **假绿**：job ✓ 但什么都没部署 | 还原按服务序列 + `common_assert_ansible_host.sh` |
+| 0 | deploy 脚本相对路径错，`ansible` 0 主机命中仍 exit 0 | **假绿**：job ✓ 但什么都没部署 | 还原按服务序列 + `setup-deployment-runner` Ansible target assertion |
 | 1 | 9 处 `if: >-` 折叠标量在 `${{ }}` 内保留换行 | 表达式永不求值，全部 job skip | #88 统一缩进 |
 | 2 | skip 沿 `needs` 链传递，`deploy_base` 缺 `always()` | 条件每个操作数都成立，job 仍 skip | #90 |
 | 3 | 2 个脚本 git mode `100644`，被 `run:` 裸调用 | exit 126 Permission denied，日志只有 env 块 | #93 |

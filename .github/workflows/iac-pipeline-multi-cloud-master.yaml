@@ -91,7 +91,6 @@ jobs:
       cloud_provider: ${{ inputs.cloud_provider }}
       gitops_repo_name: ${{ inputs.gitops_repo_name || 'https://github.com/cloud-neutral-workshop/gitops.git' }}
       gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
-    secrets: inherit
 
   account:
     needs: [landingzone, prepare-matrix]

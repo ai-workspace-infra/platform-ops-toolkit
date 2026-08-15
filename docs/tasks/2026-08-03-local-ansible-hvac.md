@@ -25,7 +25,7 @@ UAT or production host and stores no credentials.
 
 ## Verification
 
-- `bash -n .github/scripts/common_install_ansible.sh`
+- `bash -n .github/actions/setup-deployment-runner/scripts/setup.sh`
 - `python3 -c 'import hvac'` is performed by the installer itself.
 - Rerun the same UAT parameters after merge: r6, 2C4G, `web-saas + agent-proxy`,
   DNS takeover enabled.

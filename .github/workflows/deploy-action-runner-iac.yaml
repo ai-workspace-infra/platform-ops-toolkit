@@ -195,20 +195,13 @@ jobs:
             ${{ env.VAULT_KV_ACTION_RUNNER }} GITHUB_RUNNER_TOKEN | GITHUB_RUNNER_TOKEN ;
             ${{ env.VAULT_KV_ACTION_RUNNER }} GITEA_RUNNER_TOKEN | GITEA_RUNNER_TOKEN
 
-      - name: Configure SSH Key
-        env:
-          VAULT_ANSIBLE_SSH_KEY_B64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
-        run: |-
-          ${{ github.workspace }}/.github/scripts/common_configure_ssh_key.sh
-
-      - name: Wait for host SSH
-        env:
-          MATRIX_HOST: ${{ matrix.host }}
-        run: |-
-          ${{ github.workspace }}/.github/scripts/common_wait_for_host_ssh.sh
-
-      - name: Install Ansible
-        run: ${{ github.workspace }}/.github/scripts/common_install_ansible.sh
+      - name: Setup deployment runner
+        uses: ./.github/actions/setup-deployment-runner
+        with:
+          ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+          matrix_host: ${{ matrix.host }}
+          wait_for_ssh: 'true'
+          install_ansible: 'true'
 
       - name: Deploy Action Runner
         working-directory: playbooks

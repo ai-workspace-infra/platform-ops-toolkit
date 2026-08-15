@@ -1,0 +1,37 @@
+name: Terraform Command
+description: Run a standard Terraform make target or report an intentionally skipped mutation.
+
+inputs:
+  command:
+    description: "Terraform make target: init, plan, apply, destroy, output, or skip."
+    required: true
+  config_dir:
+    description: GitOps configuration directory consumed by the Terraform Makefile.
+    required: true
+  working_directory:
+    description: Terraform component directory.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Run Terraform command
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      env:
+        ACTION_TERRAFORM_COMMAND: ${{ inputs.command }}
+        ACTION_TERRAFORM_CONFIG_DIR: ${{ inputs.config_dir }}
+      run: |
+        set -euo pipefail
+        case "${ACTION_TERRAFORM_COMMAND}" in
+          init|plan|apply|destroy|output)
+            make "${ACTION_TERRAFORM_COMMAND}" "CONFIG_DIR=../../../../../${ACTION_TERRAFORM_CONFIG_DIR}"
+            ;;
+          skip)
+            echo 'Action set to plan → skipping apply/destroy steps.'
+            ;;
+          *)
+            echo "::error::Unsupported Terraform command: ${ACTION_TERRAFORM_COMMAND}" >&2
+            exit 1
+            ;;
+        esac

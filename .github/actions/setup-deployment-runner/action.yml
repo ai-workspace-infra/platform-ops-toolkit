@@ -1,0 +1,52 @@
+name: Setup Deployment Runner
+description: Configure optional SSH access, wait for a target host, and install the Ansible runtime.
+
+inputs:
+  ssh_key_b64:
+    description: Base64-encoded deploy SSH private key.
+    required: false
+    default: ''
+  matrix_host:
+    description: CMDB host name used for SSH readiness and Ansible assertions.
+    required: false
+    default: ''
+  cmdb_file:
+    description: CMDB JSON file containing host-to-IP mappings.
+    required: false
+    default: cmdb/cmdb.json
+  wait_for_ssh:
+    description: Wait for SSH readiness on matrix_host.
+    required: false
+    default: 'false'
+  wait_for_package_init:
+    description: Wait for first-boot package activity to settle on matrix_host.
+    required: false
+    default: 'false'
+  install_ansible:
+    description: Install Ansible and its controller-side Vault dependency.
+    required: false
+    default: 'false'
+  assert_ansible_target:
+    description: Fail if matrix_host is not reachable through ansible_inventory.
+    required: false
+    default: 'false'
+  ansible_inventory:
+    description: Inventory used when assert_ansible_target is true.
+    required: false
+    default: cmdb/inventory.ini
+
+runs:
+  using: composite
+  steps:
+    - name: Prepare deployment runner
+      shell: bash
+      env:
+        ACTION_SSH_KEY_B64: ${{ inputs.ssh_key_b64 }}
+        ACTION_MATRIX_HOST: ${{ inputs.matrix_host }}
+        ACTION_CMDB_FILE: ${{ inputs.cmdb_file }}
+        ACTION_WAIT_FOR_SSH: ${{ inputs.wait_for_ssh }}
+        ACTION_WAIT_FOR_PACKAGE_INIT: ${{ inputs.wait_for_package_init }}
+        ACTION_INSTALL_ANSIBLE: ${{ inputs.install_ansible }}
+        ACTION_ASSERT_ANSIBLE_TARGET: ${{ inputs.assert_ansible_target }}
+        ACTION_ANSIBLE_INVENTORY: ${{ inputs.ansible_inventory }}
+      run: ${{ github.action_path }}/scripts/setup.sh
