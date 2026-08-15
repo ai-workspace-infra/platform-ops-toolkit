@@ -71,10 +71,11 @@ assert_contains "$(cat "${xray_output}")" "version=v1.2.3"
 rm -f "${xray_output}"
 
 default_xray_output="$(mktemp)"
-GITHUB_OUTPUT="${default_xray_output}" DEPLOYMENT_ENV=uat DEPLOY_TAG=uat-daily-build-2026.08.12-r14 \
+GITHUB_OUTPUT="${default_xray_output}" DEPLOYMENT_ENV=uat DEPLOY_TAG=uat-daily-build-2026.08.15-r1 \
+  XRAY_EXPORTER_RELEASES_JSON='[{"tag_name":"uat-daily-build-2026.08.14-r1"},{"tag_name":"uat-daily-build-2026.08.14-r2"}]' \
   "${xray_script}"
 assert_contains "$(cat "${default_xray_output}")" "repository=ai-workspace-xstream/xray-exporter"
-assert_contains "$(cat "${default_xray_output}")" "version=uat-daily-build-2026.08.12-r14"
+assert_contains "$(cat "${default_xray_output}")" "version=uat-daily-build-2026.08.14-r2"
 rm -f "${default_xray_output}"
 
 daily_alias_output="$(mktemp)"
