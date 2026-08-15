@@ -1,0 +1,47 @@
+name: Weekly Git Reference Cleanup
+
+on:
+  schedule:
+    # Sunday 02:30 UTC; the script uses an explicit candidate list and API
+    # deletion, while stable release refs fail closed.
+    - cron: '30 2 * * 0'
+  workflow_dispatch:
+    inputs:
+      retention_days:
+        description: 'Recent tag/branch retention window in days'
+        required: true
+        default: '7'
+        type: string
+      dry_run:
+        description: 'Audit and publish candidates without deleting refs'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: weekly-reference-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RETENTION_DAYS: ${{ inputs.retention_days || '7' }}
+      DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Audit and clean explicit candidates
+        run: .github/scripts/maintenance/weekly_reference_cleanup.sh
