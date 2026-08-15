@@ -32,7 +32,10 @@ load_release_tags() {
   # asset because that is the only artifact this VPS deployment can consume.
   release_tags="$(jq -r '
     .[]
-    | select(.tag_name | startswith("uat-daily-build-"))
+    | select(
+        (.tag_name | startswith("daily-build-")) or
+        (.tag_name | startswith("uat-daily-build-"))
+      )
     | select((.assets | type != "array") or any(.assets[]?.name; . == "xray-exporter-linux-amd64"))
     | .tag_name
   ' <<<"${release_json}" | sort -V)"
@@ -56,25 +59,37 @@ case "${deployment_env}" in
   uat)
     default_repository="ai-workspace-xstream/xray-exporter"
     default_version="${deploy_tag:?UAT Xray Exporter requires DEPLOY_TAG}"
-    # Application images may use either daily-build-YYYY.MM.DD or the full
-    # uat-daily-build-YYYY.MM.DD-rN tag. The exporter repository can lag the
-    # application tag, so prefer an exact release and otherwise use the latest
-    # available release not newer than the requested build.
+    # Application images may use daily-build-YYYY.MM.DD[-rN] or the full
+    # uat-daily-build-YYYY.MM.DD-rN tag. The snapshot inventory creates the
+    # same daily tag in this repository, so prefer an exact exporter release;
+    # retain the older uat-daily fallback for historical snapshots.
     if [[ -z "${INPUT_XRAY_EXPORTER_IMAGE:-}" && ( \
-      "${default_version}" =~ ^daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}$ || \
+      "${default_version}" =~ ^daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[0-9]+)?$ || \
       "${default_version}" =~ ^uat-daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}-r[0-9]+$ \
     ) ]]; then
       load_release_tags "${default_repository}"
       requested_version="${default_version}"
-      if [[ "${default_version}" =~ ^daily-build- ]]; then
+      if grep -Fxq "${default_version}" <<<"${release_tags}"; then
+        :
+      elif [[ "${default_version}" =~ ^daily-build- ]]; then
+        uat_release_tags="$(grep -E '^uat-daily-build-' <<<"${release_tags}" || true)"
         release_prefix="uat-${default_version}-r"
-        fallback_bound="uat-${default_version#daily-build-}-r999999"
-        matching_tags="$(grep -E "^${release_prefix}[0-9]+$" <<<"${release_tags}" || true)"
-        default_version="$(latest_release_at_or_before "" "${matching_tags}")"
+        if [[ "${default_version}" =~ -r[0-9]+$ ]]; then
+          translated_version="uat-${default_version}"
+          if grep -Fxq "${translated_version}" <<<"${uat_release_tags}"; then
+            default_version="${translated_version}"
+          else
+            default_version="$(latest_release_at_or_before "${translated_version}" "${uat_release_tags}")"
+          fi
+        else
+          fallback_bound="uat-${default_version#daily-build-}-r999999"
+          matching_tags="$(grep -E "^${release_prefix}[0-9]+$" <<<"${uat_release_tags}" || true)"
+          default_version="$(latest_release_at_or_before "" "${matching_tags}")"
+        fi
         # If this date has no exporter build yet, fall back to the latest
         # exporter release available before the application build date.
         if [[ -z "${default_version}" ]]; then
-          default_version="$(latest_release_at_or_before "${fallback_bound}")"
+          default_version="$(latest_release_at_or_before "${fallback_bound:-${translated_version:-}}" "${uat_release_tags}")"
         fi
       else
         if grep -Fxq "${default_version}" <<<"${release_tags}"; then

@@ -49,6 +49,13 @@
         "push_latest": "false"
       },
       "artifacts": ["image", "chart", "release-manifest"]
+    },
+    {
+      "repository": "ai-workspace-xstream/xray-exporter",
+      "workflow": "build-release-deploy.yml",
+      "trigger": "push",
+      "environments": ["sit", "uat"],
+      "artifacts": ["release-assets", "xray-exporter-linux-amd64"]
     }
   ]
 }
