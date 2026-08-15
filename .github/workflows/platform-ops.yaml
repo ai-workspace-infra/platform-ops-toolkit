@@ -928,8 +928,8 @@ jobs:
   # deploy_web_saas (stateless containers) 和 initialize_web_saas_databases (DB init)
   # 并行运行。两者都必须等 GitOps tag 更新完成，随后 DB Init 由 playbook
   # 等待 Doco-CD 拉起 PostgreSQL，避免在旧版本尚未收敛时提前探测容器。
-  # switch_dns 等待两者都完成才切流量(最后一步流量门)。
-  # observe 在 switch_dns 之后的 deploy_web_saas 中完成(DNS 此时已就位)。
+  # switch_dns 负责 DNS 更新；更新完成后，Web SaaS 与 Agent Proxy 的最终
+  # 状态检查以两个并列 matrix job 运行，最后由 deployment_summary 汇总结果。
   deploy_web_saas:
     name: "[2] Web SaaS | ${{ matrix.host }}"
     needs: [provision, deploy_base, update_gitops_tags]
@@ -953,88 +953,17 @@ jobs:
       target_host: ${{ matrix.host }}
       deploy_env: ${{ needs.provision.outputs.deployment_env }}
       deploy_tag: ${{ needs.provision.outputs.deploy_tag }}
-      # observe_urls 留空: 此时容器可能还没被 Doco-CD 拉起, 且 DNS 未必指向
-      # 本次这台机器。真正的验收由下面的 observe_web_saas 做(把域名钉到本次
-      # 部署的 IP 上, 不依赖 DNS 是否已切)。
+      # Deployment only. The final DNS stage performs public endpoint checks
+      # after reconciliation/cutover.
       observe_urls: ''
 
-  # 每次部署都必须验收, 不能只在切流量时验收。
-  #
-  # switch_dns 里那个 observe 挂在 confirm_dns_switch == 'true' 上, 而这个输入
-  # default: false 且描述写着"仅真实灾备启用" —— 也就是常规部署里 switch_dns
-  # 整个被 skip, 那个 observe 一次都不会跑。结果是 playbooks#200 想堵的假绿在
-  # 最常见的路径上又回来了: 容器没起来, 流水线照样全绿。
-  #
-  # 这个 job 不看 confirm_dns_switch, 只要部署跑了就验收; 并用
-  # OBSERVE_RESOLVE_IP 把域名钉到本次部署的主机, 这样 DNS 还没切(或者还指着
-  # 一台已经销毁的老机器)时, 量到的依然是"我刚部署的这台"。
-  observe_web_saas:
-    name: "[3] Observe | ${{ matrix.host }}"
-    # deploy_web_saas and DB Init are the preceding stage. deploy_base is
-    # already an upstream dependency of both and need not be repeated here.
-    needs: [provision, deploy_web_saas, initialize_web_saas_databases]
-    if: >-
-      ${{ !cancelled() &&
-      needs.provision.result == 'success' &&
-      needs.deploy_web_saas.result == 'success' &&
-      needs.initialize_web_saas_databases.result == 'success' &&
-      needs.provision.outputs.run_application_deploy == 'true' &&
-      needs.provision.outputs.terraform_action == 'apply' &&
-      needs.provision.outputs.count != '0' &&
-      contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
-      needs.provision.outputs.hosts_web_saas != '[]' &&
-      needs.provision.outputs.hosts_web_saas != '' }}
-    runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        host: ${{ fromJSON(needs.provision.outputs.hosts_web_saas) }}
-    env:
-      MATRIX_HOST: ${{ matrix.host }}
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        ref: ${{ github.sha }}
-
-    - name: Download CMDB
-      uses: actions/download-artifact@v8
-      with:
-        name: platform-ops-toolkit-cmdb
-        path: cmdb
-
-    - name: Load Vault secrets
-      id: vault
-      uses: hashicorp/vault-action@v4
-      with:
-        url: ${{ env.VAULT_ADDR }}
-        method: jwt
-        role: ${{ env.VAULT_ROLE }}
-        jwtGithubAudience: vault
-        exportToken: true
-        secrets: |
-          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64
-
-    - name: Configure deployment SSH
-      uses: ./.github/actions/setup-deployment-runner
-      with:
-        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
-
-    # DNS is deliberately not updated yet.  Prove that Doco-CD has started
-    # the target node's internal services over SSH; public ingress is verified
-    # only after the UAT DNS reconcile or production DNS gate.
-    - name: Wait for Web SaaS internal containers
-      env:
-        CMDB_FILE: cmdb/cmdb.json
-      run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_observe-web-saas-containers.sh
-
   switch_dns:
-    name: "[3] DNS Gate | switch + observe"
-    # 只等待每个领域的最终完成信号。Web SaaS 的 observe 已经汇聚
-    # deploy_web_saas、DB Init 和内部容器就绪；不重复等待它们的中间 job。
+    name: "[3] DNS Update"
+    # This stage only reconciles DNS. Service validation runs in the two
+    # parallel matrix jobs after this job succeeds.
     needs: [
       provision,
-      observe_web_saas,
+      deploy_web_saas,
       deploy_infra_platform,
       deploy_agent_proxy,
       deploy_ai_workspace
@@ -1042,20 +971,23 @@ jobs:
     if: >-
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
-      (needs.observe_web_saas.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
+      (needs.deploy_web_saas.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       (needs.deploy_infra_platform.result == 'success' || !contains(fromJSON('["all","infra-platform"]'), needs.provision.outputs.target_domains)) &&
       (needs.deploy_agent_proxy.result == 'success' || !contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       (needs.deploy_ai_workspace.result == 'success' || !contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.target_domains)) &&
       needs.provision.outputs.terraform_action == 'apply' &&
-      needs.provision.outputs.dns_mode == 'prod-cutover' }}
+      contains(fromJSON('["prod-cutover","uat-records"]'), needs.provision.outputs.dns_mode) }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
-    environment: production
     env:
       PROVISION_TARGET_DOMAIN_BASE:  ${{ needs.provision.outputs.target_domain_base }}
       PROVISION_SOURCE_DOMAIN_BASE:  ${{ needs.provision.outputs.source_domain_base }}
       INPUT_RUN_INFRASTRUCTURE:      ${{ needs.provision.outputs.run_infrastructure }}
       DEPLOY_ENV:                    ${{ needs.provision.outputs.deployment_env }}
       DNS_SERVICE_NAMES:             console accounts billing
+      VAULT_ADDR:                    https://vault.svc.plus
+      VAULT_ROLE:                    github-actions-platform-ops-toolkit-${{ needs.provision.outputs.vault_env_path }}
+      VAULT_KV:                      kv/data/CICD
+      CMDB_FILE:                     cmdb/cmdb.json
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
@@ -1090,8 +1022,7 @@ jobs:
         ignoreNotFound: true
         secrets: |
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
-          ${{ env.VAULT_KV }} CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN ;
-          ${{ env.VAULT_KV_AGENT_PROXY }} xray_uuid | XRAY_UUID
+          ${{ env.VAULT_KV }} CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN
 
     - name: Setup DNS deployment runner
       uses: ./.github/actions/setup-deployment-runner
@@ -1099,11 +1030,21 @@ jobs:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         install_ansible: 'true'
 
-    - name: Switch Cloudflare DNS Records
+    - name: Switch production Cloudflare DNS records
+      if: ${{ needs.provision.outputs.dns_mode == 'prod-cutover' }}
       env:
         CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops/dns/platform-ops_switch_dns_switch-cloudflare-dns-records.sh
+
+    - name: Reconcile UAT DNS records
+      if: ${{ needs.provision.outputs.dns_mode == 'uat-records' }}
+      env:
+        CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
+        SOURCE_DOMAIN_BASE: ${{ needs.provision.outputs.source_domain_base }}
+        TARGET_DOMAIN_BASE: ${{ needs.provision.outputs.target_domain_base }}
+        DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/dns/platform-ops_uat_dns_reconcile.sh
 
     - name: Remove temporary agent controller host pin
       if: >-
@@ -1111,8 +1052,71 @@ jobs:
         needs.provision.outputs.target_domains) }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops/dns/platform-ops_switch_dns_remove-temporary-agent-controller-host.sh
 
-    - name: Observe Web SaaS endpoints (post-DNS)
-      # DNS 已切换, 现在轮询公网 URL 验证服务真正可达。
+  observe_web_saas_after_dns:
+    name: "[4] Web SaaS status | ${{ matrix.host }}"
+    needs: [provision, switch_dns]
+    if: >-
+      ${{ always() && !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.switch_dns.result == 'success' &&
+      contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
+      needs.provision.outputs.hosts_web_saas != '[]' &&
+      needs.provision.outputs.hosts_web_saas != '' }}
+    runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host: ${{ fromJSON(needs.provision.outputs.hosts_web_saas) }}
+    env:
+      MATRIX_HOST: ${{ matrix.host }}
+      ANSIBLE_HOST_KEY_CHECKING: "False"
+      ANSIBLE_SSH_ARGS: "-o ControlMaster=auto -o ControlPersist=60s -o IdentityFile=~/.ssh/id_deploy -o StrictHostKeyChecking=no"
+      VAULT_ENV_PATH: ${{ needs.provision.outputs.vault_env_path }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ needs.provision.outputs.toolkit_ref }}
+
+    - name: Checkout playbooks
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/playbooks
+        ref: ${{ needs.provision.outputs.playbooks_ref }}
+        path: playbooks
+
+    - name: Download CMDB
+      uses: actions/download-artifact@v8
+      with:
+        name: platform-ops-toolkit-cmdb
+        path: cmdb
+
+    - name: Load deployment SSH key from Vault
+      id: vault
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        method: jwt
+        role: ${{ env.VAULT_ROLE }}
+        jwtGithubAudience: vault
+        secrets: |
+          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64
+
+    - name: Setup deployment runner
+      uses: ./.github/actions/setup-deployment-runner
+      with:
+        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+        matrix_host: ${{ matrix.host }}
+        wait_for_ssh: 'true'
+        assert_ansible_target: 'true'
+        ansible_inventory: cmdb/inventory.ini
+
+    - name: Verify Web SaaS service status
+      env:
+        CMDB_FILE: cmdb/cmdb.json
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_observe-web-saas-containers.sh
+
+    - name: Verify Web SaaS public endpoints after DNS
       env:
         DOMAIN: web-saas
         DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
@@ -1122,49 +1126,24 @@ jobs:
           https://bridge-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/api/ping
       run: bash playbooks/.github/scripts/domain-cd-observe-endpoints.sh
 
-    - name: Back up verified Caddy certificates to Vault
-      if: ${{ !cancelled() }}
-      continue-on-error: true
-      env:
-        VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
-        CMDB_FILE: cmdb/cmdb.json
-      run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_observe_backup-caddy-certs.sh
-
-  update_uat_dns:
-    name: Reconcile UAT DNS Records & Observe
-    # This job is deliberately separate from the production cutover job. The
-    # route script and the reconciler both enforce the UAT-only boundary.
-    # Wait only for the final jobs of the preceding deployment stage. The
-    # provision job remains here solely because this job consumes its resolved
-    # routing outputs; the intermediate jobs are already in those chains.
-    needs: [
-      provision,
-      observe_web_saas,
-      deploy_infra_platform,
-      deploy_agent_proxy,
-      deploy_ai_workspace
-    ]
+  observe_agent_proxy_after_dns:
+    name: "[4] Agent Proxy status | ${{ matrix.host }}"
+    needs: [provision, switch_dns]
     if: >-
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
-      needs.provision.outputs.dns_mode == 'uat-records' &&
-      (needs.observe_web_saas.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
-      needs.deploy_infra_platform.result != 'failure' &&
-      (needs.deploy_agent_proxy.result == 'success' || !contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
-      needs.deploy_ai_workspace.result != 'failure' &&
-      needs.provision.outputs.deployment_env == 'uat' &&
-      needs.provision.outputs.terraform_action == 'apply' }}
+      needs.switch_dns.result == 'success' &&
+      contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
+      needs.provision.outputs.hosts_agent_proxy != '[]' &&
+      needs.provision.outputs.hosts_agent_proxy != '' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host: ${{ fromJSON(needs.provision.outputs.hosts_agent_proxy) }}
     env:
-      # Keep the DNS reconciler UAT-only, but render the zone and names from
-      # the resolved deployment parameters instead of pinning onwalk.net.
-      VAULT_ADDR: https://vault.svc.plus
-      VAULT_ROLE: github-actions-platform-ops-toolkit-uat
-      VAULT_KV: kv/data/CICD
-      DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
-      SOURCE_DOMAIN_BASE: ${{ needs.provision.outputs.source_domain_base }}
-      TARGET_DOMAIN_BASE: ${{ needs.provision.outputs.target_domain_base }}
-      CMDB_FILE: cmdb/cmdb.json
+      MATRIX_HOST: ${{ matrix.host }}
+      VAULT_ENV_PATH: ${{ needs.provision.outputs.vault_env_path }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
@@ -1177,14 +1156,7 @@ jobs:
         name: platform-ops-toolkit-cmdb
         path: cmdb
 
-    - name: Checkout playbooks for endpoint observation
-      uses: actions/checkout@v7
-      with:
-        repository: ai-workspace-infra/playbooks
-        ref: ${{ needs.provision.outputs.playbooks_ref }}
-        path: playbooks
-
-    - name: Load UAT DNS and SSH secrets from Vault
+    - name: Load deployment SSH key from Vault
       id: vault
       uses: hashicorp/vault-action@v4
       with:
@@ -1192,42 +1164,57 @@ jobs:
         method: jwt
         role: ${{ env.VAULT_ROLE }}
         jwtGithubAudience: vault
-        ignoreNotFound: true
         secrets: |
-          ${{ env.VAULT_KV }} CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN ;
-          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
+          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64
 
-    - name: Reconcile parameterized UAT DNS records
-      id: uat_dns
-      env:
-        CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
-      run: ${{ github.workspace }}/.github/scripts/platform-ops/dns/platform-ops_uat_dns_reconcile.sh
-
-    - name: Observe UAT Web SaaS endpoints
-      env:
-        DOMAIN: web-saas
-        DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
-        OBSERVE_RESOLVE_IP: ${{ steps.uat_dns.outputs.web_saas_ip }}
-        OBSERVE_URLS: >-
-          https://billing-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
-          https://console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
-          https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
-          https://bridge-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/api/ping
-      run: bash playbooks/.github/scripts/domain-cd-observe-endpoints.sh
-
-    - name: Configure SSH for certificate backup
-      if: ${{ !cancelled() }}
+    - name: Setup deployment runner
       uses: ./.github/actions/setup-deployment-runner
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+        matrix_host: ${{ matrix.host }}
+        wait_for_ssh: 'true'
+        assert_ansible_target: 'true'
+        ansible_inventory: cmdb/inventory.ini
 
-    - name: Back up verified Caddy certificates to Vault
-      if: ${{ !cancelled() }}
-      continue-on-error: true
+    - name: Verify Agent Proxy service status
       env:
-        VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
         CMDB_FILE: cmdb/cmdb.json
-      run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_observe_backup-caddy-certs.sh
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_observe-agent-proxy.sh
+
+  deployment_summary:
+    name: "[5] Deployment summary"
+    needs: [
+      provision,
+      deploy_web_saas,
+      initialize_web_saas_databases,
+      deploy_agent_proxy,
+      switch_dns,
+      observe_web_saas_after_dns,
+      observe_agent_proxy_after_dns,
+      trigger_data_migration
+    ]
+    if: ${{ always() }}
+    runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ needs.provision.outputs.toolkit_ref || github.sha }}
+
+    - name: Write deployment summary
+      env:
+        PROVISION_RESULT: ${{ needs.provision.result }}
+        WEB_SAAS_DEPLOY_RESULT: ${{ needs.deploy_web_saas.result }}
+        DB_INIT_RESULT: ${{ needs.initialize_web_saas_databases.result }}
+        AGENT_PROXY_DEPLOY_RESULT: ${{ needs.deploy_agent_proxy.result }}
+        DNS_UPDATE_RESULT: ${{ needs.switch_dns.result }}
+        WEB_SAAS_STATUS_RESULT: ${{ needs.observe_web_saas_after_dns.result }}
+        AGENT_PROXY_STATUS_RESULT: ${{ needs.observe_agent_proxy_after_dns.result }}
+        DATA_MIGRATION_RESULT: ${{ needs.trigger_data_migration.result }}
+        DEPLOYMENT_ENV: ${{ needs.provision.outputs.deployment_env }}
+        TARGET_DOMAINS: ${{ needs.provision.outputs.target_domains }}
+        DEPLOY_TAG: ${{ needs.provision.outputs.deploy_tag }}
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_deployment-summary.sh
 
   deploy_infra_platform:
     name: "[2] Infra | ${{ matrix.host }}"
@@ -1254,17 +1241,14 @@ jobs:
 
   deploy_agent_proxy:
     name: "[3] Agent Proxy | ${{ matrix.host }}"
-    # A fresh agent needs Accounts to be serving before its first sync can
-    # generate the Xray runtime configs. A skipped observe is valid only for
-    # an agent-only delivery; a combined Web SaaS + Agent Proxy delivery must
-    # have completed the Web SaaS observe gate successfully.
-    # observe_web_saas is the preceding stage for the combined web-saas path;
-    # it already includes the base/bootstrap dependency transitively.
-    needs: [provision, observe_web_saas]
+    # Agent installation is parallel with the other post-bootstrap deployment
+    # jobs. Its controller may still be behind DNS at this point, so runtime
+    # configuration and service readiness are checked by the final DNS gate.
+    needs: [provision, deploy_base]
     if: >-
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
-      (needs.observe_web_saas.result == 'success' || (!contains(fromJSON('["all","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && needs.observe_web_saas.result == 'skipped')) &&
+      needs.deploy_base.result == 'success' &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -1380,15 +1364,8 @@ jobs:
         -e xray_exporter_hosts=agent_proxy
         -e agent_svc_plus_manage_source_checkout=true
         -e agent_svc_plus_build_on_target=true
+        -e agent_svc_plus_wait_for_runtime_config=false
         -e agent_billing_enabled="${AGENT_BILLING_ENABLED}"
-
-    - name: Verify native agent-proxy services
-      working-directory: playbooks
-      run: >-
-        ansible agent_proxy -i ../cmdb/inventory.ini --limit "${MATRIX_HOST}"
-        -m ansible.builtin.shell
-        -a "systemctl is-active caddy agent-svc-plus xray xray-tcp xray-exporter-xhttp xray-exporter-tcp"
-        --become
 
   deploy_ai_workspace:
     name: "[2] AI Workspace | ${{ matrix.host }}"

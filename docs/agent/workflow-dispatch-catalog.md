@@ -93,11 +93,10 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
 7. `concurrency.group: deploy-env-migration` + `cancel-in-progress: false` → 全局串行
    排队。派发后长时间停在 `queued` 是正常现象，不要当作卡死去重新派发（重复派发只会
    排更久的队）。
-8. `switch_dns` job 挂 `environment: production`（需要 GitHub Environment 审批）且要求
-   `confirm_dns_switch == 'true'`；而常规的 `observe_web_saas` job **不看**
-   `confirm_dns_switch`，用 `OBSERVE_RESOLVE_IP` 把域名钉到本次部署的 IP 上做验收，
-   DNS 没切也能跑通。**默认不要替用户勾选 `confirm_dns_switch`**——它是"接管生产流量"，
-   不是"验证部署成功"。
+8. 最后的交付阶段按固定顺序执行：`switch_dns` 只负责 DNS 更新；随后
+   `observe_web_saas_after_dns` 与 `observe_agent_proxy_after_dns` 两个 matrix job
+   并列检查服务状态和公网端点；最后 `deployment_summary` 汇总部署、DNS、服务状态和
+   数据迁移结果。服务验收不再在 DNS 更新前执行。
 
 ### 3.2 危险字段清单（派发前必须让用户对该字段本身给出明确确认）
 
