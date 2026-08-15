@@ -80,12 +80,10 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
    `ai-workspace-infra/gitops` 的 `compose/web-saas/.env.uat`（契约见该仓
    `docs/domains/IMAGE-TAG-CONTRACT.md`）。**Agent 派发前应先确认 `deploy_tag` 是否已被
    gitops pin**，而不是等 20 分钟后的 CI 失败去发现。
-5. `instance_plan` 只真正作用于 web-saas 主机。`agent-proxy.yaml` 的 host plan 是
-   **硬编码 `vc2-1c-2gb`**，完全不读 `INSTANCE_PLAN_API`。
-   `.github/scripts/platform-ops/provision/platform-ops_provision_map-instance-plan.sh` 里"agent-proxy 默认
-   1C2G"的特判只在 `target_domains == "agent-proxy"` 且 `instance_plan == "4C8G"` 时
-   触发，选 `"web-saas + agent-proxy"` 不会走到这条特判——但结果恰好也是 1C2G，只是
-   路径不同，agent 不要把这两件事记混。
+5. `instance_plan` 只真正作用于 web-saas 主机。Agent Proxy 使用独立的
+   `agent_proxy_plan` 输入，默认 `1C1G`，可显式选择 `1C2G`；它通过
+   `AGENT_PROXY_PLAN_API` 注入对应云厂商的资源声明，不再硬编码到
+   `agent-proxy.yaml`，也不会被 Web SaaS 规格意外覆盖。
 6. `target_domains="web-saas + agent-proxy"` 走 `rf="web-saas-agent-proxy"`，Terraform
    workspace 是 `uat-vultr-vps-platform-ops-toolkit-web-saas-agent-proxy`，state key 是
    `uat/vultr-vps/platform-ops-toolkit/web-saas-agent-proxy.tfstate`——**与 `all` /
@@ -119,7 +117,8 @@ run_infrastructure=true, run_application_deploy=true,
 target_domain_base=onwalk.net, deploy_tag=<gitops 已 pin 的值>,
 confirm_dns_switch=false
 ```
-结果：web-saas 主机 `vc2-2c-4gb`（2C4G）、agent-proxy 主机 `vc2-1c-2gb`（1C2G），
+结果：web-saas 主机 `vc2-2c-4gb`（2C4G）、agent-proxy 主机默认 `vc2-1c-1gb`（1C1G）；
+如需兼容旧规格，在 dispatch 时把 `agent_proxy_plan` 设为 `1C2G`。
 两台都是新建（独立 state），DNS 只做 observe、不切流量。
 
 ---
