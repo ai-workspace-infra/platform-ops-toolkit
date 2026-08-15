@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Pre-DNS readiness gate for the web-saas domain.
+# Internal Web SaaS service-status gate.
 #
-# DNS has not been switched at this point, so a public HTTPS probe cannot tell
-# whether the new node is healthy.  Inspect the Doco-CD managed containers on
-# the CMDB address instead.  The post-DNS jobs remain responsible for testing
-# the public ingress, TLS, redirects, and endpoint responses.
+# The workflow invokes this script after DNS reconciliation.  It checks the
+# Doco-CD managed containers over SSH, while the calling job separately checks
+# public ingress, TLS, redirects, and endpoint responses.
 
 . "$(dirname "${BASH_SOURCE[0]}")/../provision/common_require_env.sh"
 require_env MATRIX_HOST
