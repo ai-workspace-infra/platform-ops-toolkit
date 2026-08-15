@@ -104,6 +104,14 @@ assert_contains "$(cat "${daily_alias_output}")" "repository=ai-workspace-xstrea
 assert_contains "$(cat "${daily_alias_output}")" "version=uat-daily-build-2026.08.14-r2"
 rm -f "${daily_alias_output}"
 
+daily_retry_output="$(mktemp)"
+GITHUB_OUTPUT="${daily_retry_output}" DEPLOYMENT_ENV=uat DEPLOY_TAG=daily-build-2026.08.15-r3 \
+  XRAY_EXPORTER_RELEASES_JSON='[{"tag_name":"daily-build-2026.08.15-r3","assets":[{"name":"xray-exporter-linux-amd64"}]}]' \
+  "${xray_script}"
+assert_contains "$(cat "${daily_retry_output}")" "repository=ai-workspace-xstream/xray-exporter"
+assert_contains "$(cat "${daily_retry_output}")" "version=daily-build-2026.08.15-r3"
+rm -f "${daily_retry_output}"
+
 invalid_output="$(mktemp)"
 if GITHUB_OUTPUT="${invalid_output}" DEPLOYMENT_ENV=uat DEPLOY_TAG=uat-daily-build-2026.08.12-r14 \
   INPUT_XRAY_EXPORTER_IMAGE='missing-separator' "${xray_script}" >/dev/null 2>&1; then

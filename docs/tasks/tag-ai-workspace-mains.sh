@@ -26,6 +26,7 @@ declare -A BUILD_WORKFLOWS=(
   [ai-workspace-services/portal]="ci-pipeline.yml"
   [ai-workspace-lab/xworkmate-bridge]="pipeline.yml"
   [ai-workspace-services/postgresql.svc.plus]="ci-pipeline.yml"
+  [ai-workspace-xstream/xray-exporter]="build-release-deploy.yml"
 )
 
 record_status() {
@@ -132,6 +133,12 @@ dispatch_build_workflow() {
     ai-workspace-services/accounts)
       gh workflow run "${workflow}" --repo "${repo}" --ref "${tag}" \
         -f "deploy_env=${deploy_env}" \
+        >/dev/null
+      ;;
+    ai-workspace-xstream/xray-exporter)
+      gh workflow run "${workflow}" --repo "${repo}" --ref "${tag}" \
+        -f "release_tag=${tag}" \
+        -f "source_ref=${tag}" \
         >/dev/null
       ;;
     *)

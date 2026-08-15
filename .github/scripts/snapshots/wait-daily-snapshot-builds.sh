@@ -11,10 +11,15 @@ declare -A BUILD_WORKFLOWS=(
   [ai-workspace-services/portal]=ci-pipeline.yml
   [ai-workspace-lab/xworkmate-bridge]=pipeline.yml
   [ai-workspace-services/postgresql.svc.plus]=ci-pipeline.yml
+  [ai-workspace-xstream/xray-exporter]=build-release-deploy.yml
 )
 
 declare -A RELEASE_MANIFEST_REQUIRED=(
   [ai-workspace-lab/xworkmate-bridge]=false
+)
+
+declare -A RELEASE_ASSET_REQUIRED=(
+  [ai-workspace-xstream/xray-exporter]=xray-exporter-linux-amd64
 )
 
 timeout_seconds="${BUILD_TIMEOUT_SECONDS:-1800}"
@@ -96,7 +101,16 @@ for repo in "${repos[@]}"; do
       break
     fi
 
-    if [[ "${RELEASE_MANIFEST_REQUIRED[$repo]:-true}" == "false" ]]; then
+    if [[ -n "${RELEASE_ASSET_REQUIRED[$repo]:-}" ]]; then
+      assets="$(gh release view "$SNAPSHOT_TAG" -R "$repo" --json assets --jq '[.assets[].name]' 2>/dev/null || printf '[]')"
+      required_asset="${RELEASE_ASSET_REQUIRED[$repo]}"
+      if jq -e --arg asset "${required_asset}" 'index($asset) != null' <<< "$assets" >/dev/null; then
+        release_url="$(gh release view "$SNAPSHOT_TAG" -R "$repo" --json url --jq .url 2>/dev/null || true)"
+        record "$repo" "build_succeeded" "$run_sha" "CI run ${run_id}; release asset ${required_asset} ${release_url}"
+      else
+        record "$repo" "asset_missing" "$run_sha" "CI run ${run_id} succeeded but ${required_asset} is missing from the GitHub Release"
+      fi
+    elif [[ "${RELEASE_MANIFEST_REQUIRED[$repo]:-true}" == "false" ]]; then
       record "$repo" "build_succeeded" "$run_sha" "CI run ${run_id} completed"
     else
       assets="$(gh release view "$SNAPSHOT_TAG" -R "$repo" --json assets --jq '[.assets[].name]' 2>/dev/null || printf '[]')"

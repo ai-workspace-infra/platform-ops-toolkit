@@ -72,7 +72,15 @@ snapshot_organization="${SNAPSHOT_ORGS:-}"
   exit 2
 }
 
-configured_repos="$(jq -r '.repositories[].repository' "${build_config}")"
+# The exporter is a UAT/SIT build input. It must not receive a production
+# release tag because PROD consumes the upstream compatibility binary instead.
+# Keep environment eligibility in the canonical inventory so an explicit
+# repository filter cannot accidentally bypass it.
+configured_repos="$(jq -r --arg env "${DEPLOY_ENV}" '
+  .repositories[]
+  | select(((.environments // ["sit", "uat", "prod"]) | index($env)) != null)
+  | .repository
+' "${build_config}")"
 build_repos="$(awk -F/ -v org="${snapshot_organization}" '$1 == org' <<< "${configured_repos}")"
 
 if [[ -n "${SNAPSHOT_REPOS:-}" ]]; then
@@ -80,14 +88,16 @@ if [[ -n "${SNAPSHOT_REPOS:-}" ]]; then
   build_repos="$(comm -12 \
     <(sort -u <<< "${build_repos}") \
     <(sort -u <<< "${requested_repos}"))"
-  tag_repos="$(awk -F/ -v org="${snapshot_organization}" '$1 == org' <<< "${requested_repos}")"
+  # Explicit selection narrows the canonical inventory; it must never widen
+  # it past the environment-eligible repositories.
+  tag_repos="${build_repos}"
 else
   tag_repos="${build_repos}"
 fi
 
-# Infra and xstream currently own no active daily-build target.  Leave an
-# empty status artifact so the matrix summary remains deterministic, but do
-# not enumerate and tag all of their repositories.
+# Infra currently owns no active daily-build target. Leave an empty status
+# artifact so the matrix summary remains deterministic, but do not enumerate
+# and tag all of its repositories.
 if [[ -z "${tag_repos}" ]]; then
   echo "No active snapshot repositories for ${snapshot_organization}; skipping tag and CI wait."
   exit 0
