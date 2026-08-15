@@ -46,7 +46,6 @@ validate_deploy_tag_policy() {
 if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   deployment_env="${INPUT_VAULT_ENV_PATH:-uat}"
   target_domains="${INPUT_TARGET_DOMAINS:-all}"
-  validate_deploy_tag_policy "${deployment_env}" "${INPUT_DEPLOY_TAG:-${INPUT_DEPLOY_REF:-}}"
   
   if [ "${deployment_env}" = "sit" ]; then
     rf="all-in-one"
@@ -70,6 +69,12 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   # workflow 中重复拼接相互矛盾的开关条件。
   operation="${INPUT_OPERATION:-plan}"
   deploy_ref="${INPUT_DEPLOY_REF:-${INPUT_DEPLOY_TAG:-}}"
+
+  # Destroy is infrastructure-only and must not be blocked by a stale
+  # application tag left in a reused workflow-dispatch form.
+  if [ "${operation}" != "destroy" ]; then
+    validate_deploy_tag_policy "${deployment_env}" "${INPUT_DEPLOY_TAG:-${INPUT_DEPLOY_REF:-}}"
+  fi
 
   case "${operation}" in
     plan)
@@ -130,25 +135,37 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   target_domain_base="${INPUT_TARGET_DOMAIN_BASE}"
   cloud_provider="${INPUT_CLOUD_PROVIDER:-vultr-vps}"
   dns_mode="${INPUT_DNS_MODE:-none}"
-  case "${dns_mode}" in
-    none)
-      confirm_dns_switch=false; uat_dns_update=false
-      ;;
-    uat-records)
-      confirm_dns_switch=false; uat_dns_update=true
-      ;;
-    prod-cutover)
-      if [ "${INPUT_CONFIRM_DNS_SWITCH:-false}" != "true" ]; then
-        echo "::error::dns_mode=prod-cutover requires confirm_dns_switch=true." >&2
+  if [ "${operation}" = "destroy" ]; then
+    # Destroy has no deployment or DNS side effects. Treat a stale UI value
+    # such as uat-records/prod-cutover as inert instead of applying the
+    # deploy-only DNS preflight to the Terraform destroy path.
+    if [ "${dns_mode}" != "none" ] || [ "${INPUT_CONFIRM_DNS_SWITCH:-false}" = "true" ]; then
+      echo "::notice::Ignoring dns_mode=${dns_mode} and confirm_dns_switch for destroy; DNS updates are disabled." >&2
+    fi
+    dns_mode=none
+    confirm_dns_switch=false
+    uat_dns_update=false
+  else
+    case "${dns_mode}" in
+      none)
+        confirm_dns_switch=false; uat_dns_update=false
+        ;;
+      uat-records)
+        confirm_dns_switch=false; uat_dns_update=true
+        ;;
+      prod-cutover)
+        if [ "${INPUT_CONFIRM_DNS_SWITCH:-false}" != "true" ]; then
+          echo "::error::dns_mode=prod-cutover requires confirm_dns_switch=true." >&2
+          exit 1
+        fi
+        confirm_dns_switch=true; uat_dns_update=false
+        ;;
+      *)
+        echo "::error::Unsupported dns_mode '${dns_mode}'." >&2
         exit 1
-      fi
-      confirm_dns_switch=true; uat_dns_update=false
-      ;;
-    *)
-      echo "::error::Unsupported dns_mode '${dns_mode}'." >&2
-      exit 1
-      ;;
-  esac
+        ;;
+    esac
+  fi
 else
   GITHUB_EVENT_NAME="${GITHUB_EVENT_NAME:-}"
   if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
@@ -259,7 +276,11 @@ fi
 # 现已将 UI 统一收敛为 deploy_tag 作为主入口，
 # 此处直接读取即可，后续会强制拦截 main/latest 等动态 ref，确保镜像不可变性。
 if [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; then
-  deploy_tag="${INPUT_DEPLOY_TAG:-${deploy_ref}}"
+  if [ "${operation:-}" = "destroy" ]; then
+    deploy_tag=""
+  else
+    deploy_tag="${INPUT_DEPLOY_TAG:-${deploy_ref}}"
+  fi
 else
   case "${deployment_env}" in
     prod)

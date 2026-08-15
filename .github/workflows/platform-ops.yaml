@@ -119,7 +119,7 @@ on:
         - 1C1G
         - 1C2G
       dns_mode:
-        description: "DNS 行为：none 不发布；uat-records 仅更新 UAT 固定记录；prod-cutover 接管生产流量（仍须确认）"
+        description: "DNS 行为：none 不发布；uat-records 仅更新 UAT 固定记录；prod-cutover 接管生产流量（仍须确认）；destroy 操作始终忽略 DNS 输入"
         required: true
         default: "none"
         type: choice

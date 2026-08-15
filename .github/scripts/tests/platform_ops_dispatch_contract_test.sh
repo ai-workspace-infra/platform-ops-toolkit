@@ -52,6 +52,18 @@ assert_contains "${plan_output}" "run_infrastructure=true"
 assert_contains "${plan_output}" "run_application_deploy=false"
 assert_contains "${plan_output}" "terraform_action=plan"
 
+destroy_output="$(run_route env INPUT_OPERATION=destroy INPUT_DNS_MODE=uat-records)"
+assert_contains "${destroy_output}" "run_infrastructure=true"
+assert_contains "${destroy_output}" "run_application_deploy=false"
+assert_contains "${destroy_output}" "terraform_action=destroy"
+assert_contains "${destroy_output}" "dns_mode=none"
+assert_contains "${destroy_output}" "deploy_tag="
+
+destroy_prod_dns_output="$(run_route env GITHUB_REF=refs/heads/release/v2026.08 INPUT_VAULT_ENV_PATH=prod INPUT_OPERATION=destroy INPUT_DNS_MODE=prod-cutover INPUT_CONFIRM_DNS_SWITCH=true)"
+assert_contains "${destroy_prod_dns_output}" "terraform_action=destroy"
+assert_contains "${destroy_prod_dns_output}" "dns_mode=none"
+assert_contains "${destroy_prod_dns_output}" "deploy_tag="
+
 uat_dns_output="$(run_route env INPUT_OPERATION=deploy INPUT_DNS_MODE=uat-records)"
 assert_contains "${uat_dns_output}" "dns_mode=uat-records"
 
