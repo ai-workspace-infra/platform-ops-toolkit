@@ -60,7 +60,7 @@ if run_route env INPUT_OPERATION=deploy INPUT_DNS_MODE=prod-cutover >/dev/null 2
   exit 1
 fi
 
-prod_dns_output="$(run_route env INPUT_VAULT_ENV_PATH=prod INPUT_OPERATION=deploy INPUT_DNS_MODE=prod-cutover INPUT_CONFIRM_DNS_SWITCH=true)"
+prod_dns_output="$(run_route env GITHUB_REF=refs/heads/release/v2026.08 INPUT_VAULT_ENV_PATH=prod INPUT_OPERATION=deploy INPUT_DNS_MODE=prod-cutover INPUT_CONFIRM_DNS_SWITCH=true)"
 assert_contains "${prod_dns_output}" "dns_mode=prod-cutover"
 
 xray_output="$(mktemp)"

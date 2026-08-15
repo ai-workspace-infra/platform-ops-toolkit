@@ -84,6 +84,16 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
       exit 1
       ;;
   esac
+
+  if [ "${deployment_env}" = "prod" ]; then
+    case "${GITHUB_REF:-}" in
+      refs/tags/v*|refs/heads/release/v*) ;;
+      *)
+        echo "::error::prod accepts only refs/tags/v* or refs/heads/release/v*; select the workflow from an allowed release ref." >&2
+        exit 1
+        ;;
+    esac
+  fi
   
   source_ref="${INPUT_SOURCE_REF:-}"
   infra_ref="${source_ref:-main}"
@@ -131,7 +141,7 @@ else
     source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-sit; confirm_dns_switch=false
   else
     case "${GITHUB_REF}" in
-      refs/heads/main|refs/heads/release/*)
+      refs/heads/main)
         deployment_env=uat; resource_file=uat/web-saas; terraform_workspace=uat-vultr-vps-platform-ops-toolkit-web-saas
         resource_files_full="config/resources/uat/web-saas.yaml"
         state_key=uat/vultr-vps/platform-ops-toolkit/web-saas.tfstate; target_domains=web-saas
@@ -141,7 +151,7 @@ else
         cloud_provider="vultr-vps"
         source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-uat; confirm_dns_switch=false
         ;;
-      refs/tags/v*)
+      refs/heads/release/v*|refs/tags/v*)
         deployment_env=prod; resource_file=prod/web-saas; terraform_workspace=prod-vultr-vps-platform-ops-toolkit-web-saas
         resource_files_full="config/resources/prod/web-saas.yaml"
         state_key=prod/vultr-vps/platform-ops-toolkit/web-saas.tfstate; target_domains=web-saas
@@ -159,6 +169,15 @@ else
         terraform_action=plan; toolkit_action=none; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
         cloud_provider="vultr-vps"
         source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=""; confirm_dns_switch=false
+        ;;
+      refs/heads/release/*)
+        deployment_env=uat; resource_file=uat/web-saas; terraform_workspace=uat-vultr-vps-platform-ops-toolkit-web-saas
+        resource_files_full="config/resources/uat/web-saas.yaml"
+        state_key=uat/vultr-vps/platform-ops-toolkit/web-saas.tfstate; target_domains=web-saas
+        run_infrastructure=true; run_application_deploy=false
+        terraform_action=plan; toolkit_action=none; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
+        cloud_provider="vultr-vps"
+        source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-uat; confirm_dns_switch=false
         ;;
       *)
         deployment_env=sit; resource_file=sit/all-in-one; terraform_workspace=sit-vultr-vps-platform-ops-toolkit-all-in-one
@@ -222,9 +241,9 @@ else
   case "${deployment_env}" in
     prod)
       case "${GITHUB_REF:-}" in
-        refs/tags/v*) deploy_tag="${GITHUB_REF_NAME}" ;;
+        refs/heads/release/v*|refs/tags/v*) deploy_tag="${GITHUB_REF_NAME}" ;;
         *)
-          echo "::error::prod deploy_tag must come from a v* tag on non-dispatch triggers." >&2
+          echo "::error::prod deploy_tag must come from refs/tags/v* or refs/heads/release/v* on non-dispatch triggers." >&2
           exit 1
           ;;
       esac
@@ -245,7 +264,7 @@ fi
 # destroy). Keep the guard for missing assignment without requiring a value.
 : "${deploy_tag+x}"
 
-# docker tag 里 '/' 非法, 所以 release/1.4 的镜像实际叫 release-1.4
+# docker tag 里 '/' 非法, 所以 release/v1.4 的镜像实际叫 release-v1.4
 # (docker/metadata-action 自己就这么转)。这里不转的话, CD 会去 pull 一个
 # 从来没有被推送过的 tag。规则见 docs/domains/IMAGE-TAG-CONTRACT.md。
 deploy_tag="${deploy_tag//\//-}"

@@ -159,11 +159,11 @@ env:
   VAULT_ADDR: ${{ github.event.inputs.vault_addr || 'https://vault.svc.plus' }}
   # Branches select a complete deployment profile:
   # - pull_request -> sit
-  # - main / release/* -> uat
+  # - main / release/* -> uat, except release/v* -> prod
   # - tags (v*) -> prod
-  DEPLOY_ENV: ${{ github.event_name == 'pull_request' && 'sit' || startsWith(github.ref, 'refs/tags/v') && 'prod' || github.event.inputs.vault_env_path || 'uat' }}
-  VAULT_ENV_PATH: ${{ github.event_name == 'pull_request' && 'sit' || startsWith(github.ref, 'refs/tags/v') && 'prod' || github.event.inputs.vault_env_path || 'uat' }}
-  VAULT_ROLE: github-actions-platform-ops-toolkit-${{ github.event_name == 'pull_request' && 'sit' || startsWith(github.ref, 'refs/tags/v') && 'prod' || github.event.inputs.vault_env_path || 'uat' }}
+  DEPLOY_ENV: ${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || github.event.inputs.vault_env_path || 'uat' }}
+  VAULT_ENV_PATH: ${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || github.event.inputs.vault_env_path || 'uat' }}
+  VAULT_ROLE: github-actions-platform-ops-toolkit-${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || github.event.inputs.vault_env_path || 'uat' }}
   # 公共服务 secret: 三个环境共读、只读不可改 (GHCR 镜像拉取凭据等)。
   # 拉的是同一批镜像, 不存在环境维度, 不拆分。
   VAULT_KV: kv/data/CICD
@@ -171,7 +171,7 @@ env:
   # VULTR_API_KEY / TF_STATE_* / SSH_PRIVATE_DEPLOY_KEY_B64 授予的是"控制基础
   # 设施"和"登录主机"的能力, 是提权的实际载体, 必须隔离 —— sit 失陷不应拿到
   # prod 的云账号与主机私钥。
-  VAULT_KV_BASE: kv/data/CICD/${{ github.event_name == 'pull_request' && 'sit' || startsWith(github.ref, 'refs/tags/v') && 'prod' || github.event.inputs.vault_env_path || 'uat' }}
+  VAULT_KV_BASE: kv/data/CICD/${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || github.event.inputs.vault_env_path || 'uat' }}
   VAULT_KV_OPENCLAW: kv/data/openclaw
   VAULT_KV_WEB_SAAS: kv/data/WEB_SAAS
   # 计费域密钥按环境隔离, 与 databases / agent-proxy 同形。此前是共享的
@@ -179,9 +179,9 @@ env:
   # KV v2 的读权限是整份 secret 粒度, 那样 uat 角色必然连 PROD_STRIPE_SECRET_KEY
   # 一起读到, 而那把密钥能对真实客户扣款退款。拆开之后, 既有的
   # kv/data/<env>/* 规则天然完成隔离, 不需要任何额外 policy。
-  VAULT_KV_BILLING: kv/data/${{ github.event_name == 'pull_request' && 'sit' || startsWith(github.ref, 'refs/tags/v') && 'prod' || github.event.inputs.vault_env_path || 'uat' }}/billing-service
-  VAULT_KV_DATABASES: kv/data/${{ github.event_name == 'pull_request' && 'sit' || startsWith(github.ref, 'refs/tags/v') && 'prod' || github.event.inputs.vault_env_path || 'uat' }}/databases
-  VAULT_KV_AGENT_PROXY: kv/data/${{ github.event_name == 'pull_request' && 'sit' || startsWith(github.ref, 'refs/tags/v') && 'prod' || github.event.inputs.vault_env_path || 'uat' }}/agent-proxy
+  VAULT_KV_BILLING: kv/data/${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || github.event.inputs.vault_env_path || 'uat' }}/billing-service
+  VAULT_KV_DATABASES: kv/data/${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || github.event.inputs.vault_env_path || 'uat' }}/databases
+  VAULT_KV_AGENT_PROXY: kv/data/${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || github.event.inputs.vault_env_path || 'uat' }}/agent-proxy
   VPS_ROOT: infra/iac_modules/terraform-hcl-standard/${{ github.event.inputs.cloud_provider || 'vultr-vps' }}
   # 指向 platform-ops-toolkit 的 Terraform 目录
   ENV_DIR: infra/iac_modules/terraform-hcl-standard/${{ github.event.inputs.cloud_provider || 'vultr-vps' }}/envs/platform-ops-toolkit

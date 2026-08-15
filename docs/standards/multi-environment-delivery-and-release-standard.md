@@ -10,9 +10,10 @@ When triggered, `platform-ops.yaml` automatically routes to the appropriate deli
 | Trigger Event / Source | Target Environment | Resource Declaration | State Key / Workspace |
 |---|---|---|---|
 | `pull_request` | `sit` | `sit/all-in-one.yaml` | `sit/vultr-vps/platform-ops-toolkit/all-in-one.tfstate` |
-| `main` / `release/*` push | `uat` | `uat/web-saas-uat.yaml` | `uat/vultr-vps/platform-ops-toolkit/web-saas.tfstate` |
-| `vMAJOR.MINOR.PATCH` tag | `prod` | `prod/web-saas-prod.yaml` | `prod/vultr-vps/platform-ops-toolkit/web-saas.tfstate` |
-| `workflow_dispatch` | User selected | `[env]/web-saas-[env].yaml` | Environment specific |
+| `refs/heads/main` or `refs/heads/release/*` except `refs/heads/release/v*` | `uat` | `uat/web-saas-uat.yaml` | `uat/vultr-vps/platform-ops-toolkit/web-saas.tfstate` |
+| `refs/heads/release/v*` push | `prod` | `prod/web-saas-prod.yaml` | `prod/vultr-vps/platform-ops-toolkit/web-saas.tfstate` |
+| `refs/tags/v*` push | `prod` | `prod/web-saas-prod.yaml` | `prod/vultr-vps/platform-ops-toolkit/web-saas.tfstate` |
+| `workflow_dispatch` | User selected, subject to the same ref allowlist | `[env]/web-saas-[env].yaml` | Environment specific |
 
 State keys MUST follow `<env>/<cloud>/<project>/<resource-set>.tfstate`.
 The Terraform workspace uses the same dimensions as `<env>-<cloud>-<project>-<resource-set>`.
@@ -27,7 +28,7 @@ selector; an existing tag is never moved or overwritten.
 | Combination | Meaning | Policy |
 |---|---|---|
 | `main + uat` | Normal continuous delivery | Default branch delivery path; safe default for routine changes |
-| `main + prod` | Controlled production operation | Manual/emergency path only; must be explicitly approved and must not be inferred from an ordinary `main` push |
+| `release/v* + prod` | Controlled production operation | The only production branch route; must be explicitly approved and protected |
 | `main + sit` | Low-frequency validation | Manual verification only; not a scheduled delivery path |
 | `v*` tag | Controlled stable production release | Manually selected release tag only; immutable, never moved/overwritten/deleted, and never used as an automatic build tag |
 | `daily-build-*` tag | Daily automatic build snapshot | Scheduled daily build artifact path for UAT/build verification |
@@ -42,9 +43,31 @@ workflow. Daily automatic builds use `daily-build-*`; `uat-daily-build-*` is
 also allowed for explicit UAT retries and validation. This prevents a daily
 build from being routed into production.
 
-The formal production route remains a manually selected, annotated `v*` tag.
-`main + prod` is a separate controlled exception for operational workflows and
-must use its own approval and Vault authorization boundary.
+Production is fail-closed to exactly two Git refs: `refs/tags/v*` and
+`refs/heads/release/v*`. `main`, other `release/*` branches, and all daily
+snapshot tags are not production sources. A manually selected `v*` tag and a
+`release/v*` branch use the same production policy boundary; the source ref is
+recorded in the deployment evidence.
+
+### 1.2 PROD source allowlist (mandatory)
+
+The only refs that may target `prod` are:
+
+- `refs/tags/v*`
+- `refs/heads/release/v*`
+
+The following are explicitly forbidden as PROD sources, even when a workflow
+input or tag prefix appears to request `prod`:
+
+- `refs/heads/main`, feature/bugfix/hotfix branches, and any other branch;
+- `refs/heads/release/*` except `refs/heads/release/v*`;
+- `refs/tags/daily-build-*`, `refs/tags/uat-daily-build-*`, `refs/tags/sit-*`,
+  `refs/tags/snapshot-*`, and `refs/tags/prod-*`;
+- pull-request refs and a `workflow_dispatch` run from any non-allowlisted ref.
+
+An environment input, deploy tag, Vault role name, or helper-script inference
+must not widen this allowlist. A ref that is not allowlisted must fail closed
+before production credentials or production deployment steps are used.
 
 ### State 演进与迁移治理
 
@@ -82,7 +105,7 @@ chmod +x docs/tasks/vault_auth_split.sh
 This script will automatically create:
 - Three environment-specific policies: `github-actions-platform-ops-toolkit-sit`, `-uat`, `-prod`
 - Three OIDC JWT authentication roles: `github-actions-platform-ops-toolkit-sit`, `-uat`, `-prod`
-- **Security constraints**: For example, the `prod` role is strictly bound to only accept requests triggered by `v*` release tags, preventing hijacking from regular branches or PRs.
+- **Security constraints**: The `prod` role is strictly bound to only accept `refs/tags/v*` or `refs/heads/release/v*`, preventing hijacking from `main`, other branches, daily tags, or PRs.
 
 ## 3. Branch Roles and Delivery Lifecycle
 
@@ -91,21 +114,25 @@ We adhere strictly to the following branch roles, inherited from the application
 | Ref | Role | Typical Lifetime | Lands Into |
 |---|---|---|---|
 | `main` | Main timeline / trunk (Triggers `uat` env) | Long-lived | Receives `feature/*`, `bugfix/*`, `cherry-pick/*` |
-| `release/*` | LTS maintenance line (Triggers `uat` env) | Long-lived, version-scoped | Receives `hotfix/*` and intentional `backport/*` |
+| `release/*` | LTS maintenance line (Triggers `uat`, except `release/v*`) | Long-lived, version-scoped | Receives `hotfix/*` and intentional `backport/*` |
 | `feature/*` | New feature work (Triggers `sit` via PR) | Short-lived | `main` |
 | `bugfix/*` | Normal bug fix work for trunk | Short-lived | `main` |
 | `hotfix/*` | Urgent fix for a published release line | Short-lived | `release/*` |
 | `tag` (`v*`) | Published release snapshot (Triggers `prod` env) | Immutable | Marks a release point |
 
 ### Allowed Paths and Pull Requests
-- All changes must be made via Pull Requests. Direct pushes to `main` and `release/*` are prohibited by branch protection rules.
+- All changes must be made via Pull Requests. Direct pushes to `main` and `release/*` are prohibited by branch protection rules; `release/v*` also requires the production release approval path.
 - `feature/*`, `bugfix/*` PRs must target `main` and be squash-merged.
 - `hotfix/*` PRs must target `release/*`.
 
 ### Release Cut and Publishing
 1. A `release/vMAJOR.MINOR` branch is cut from a stable `main` commit.
-2. Production is deployed **only** when an annotated tag (e.g., `v1.2.0`) is pushed to an intentional release point.
-3. Every production artifact and infrastructure state must be traceable to one unique release tag.
+2. Production is deployed **only** from an approved `refs/heads/release/v*`
+   branch push or an annotated `refs/tags/v*` tag pushed to an intentional
+   release point.
+3. Every production artifact and infrastructure state must be traceable to the
+   exact source ref and immutable artifact digest recorded in deployment
+   evidence.
 
 ## 4. Emergency Secret Incident Flow
 
