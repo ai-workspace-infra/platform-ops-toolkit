@@ -36,16 +36,19 @@ workflow 会从各仓库当时的 `main` SHA 创建不可变的
 构建等待会同时按 tag 名和 SHA 匹配，避免误用同名历史运行。
 
 稳定发布 tag 与日常构建 tag 共用同一个跨仓库打标脚本，区别只在 tag
-值和路由语义：`v*` 是正式 PROD 发布，`daily-build-*` 是 UAT 日常构建，
-`sit-*` 是低频 SIT 验证。Daily Snapshot 只能使用 `daily-build-*`，不能把
-`v*` 作为 `snapshot_tag`；否则服务 CI 和平台路由会把日常构建误判为正式发布。
+值和路由语义：`daily-build-*` 是每日自动构建，`uat-daily-build-*` 是允许的
+UAT 构建/重试 tag，`v*` 是受控手动选择的正式 PROD 发布，`sit-*` 是低频
+SIT 验证。Daily Snapshot 不能把 `v*` 作为 `snapshot_tag`；否则服务 CI 和
+平台路由会把日常构建误判为正式发布。
 
 路由组合约定：
 
 - `main + uat`：常规交付默认路径。
 - `main + prod`：仅受控手动/应急操作，不由普通 `main` push 推断。
 - `main + sit`：低频手动验证，基本不参与日常调度。
-- `v*`：正式稳定发布入口，tag 不可移动、覆盖或删除。
+- `daily-build-*`：每日自动构建入口。
+- `uat-daily-build-*`：允许的 UAT 构建、重试与验证入口。
+- `v*`：受控手动选择的正式稳定发布入口，tag 不可移动、覆盖或删除。
 
 手工创建重试快照 tag 时可执行：
 
