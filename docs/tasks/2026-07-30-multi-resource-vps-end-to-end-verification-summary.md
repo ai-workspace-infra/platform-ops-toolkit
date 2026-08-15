@@ -9,7 +9,7 @@
    - 在内存中动态合并 `hosts`、`ssh_keys` 及 `global` 配置，直接生成单一的 `generated_hosts.tf`。彻底删除了硬编码的合并文件，消除了配置冗余。
 
 2. **高复用泛型脚本重构 (High Reusability)**：
-   - 提取并新建了通用的 Ansible 运行脚本 `common_run_ansible.sh` 与 Terraform 运行脚本 `common_terraform.sh`。
+   - 通用 Ansible/Terraform 初始化已收敛为 Composite Actions；领域脚本继续保留独立诊断边界。
    - 清理删除了 35+ 个功能单一且冗余的特定脚本，将 `.github/scripts/` 脚本数量从 85 个大幅精简压缩至 51 个。
 
 3. **DAG 依赖树与 Job 级解耦提速**：

@@ -45,7 +45,7 @@ python3 scripts/ci/workflow_gating_verify.py    # exit 0 = 通过
 
 | # | 陷阱 | 症状 | 修法 |
 |---|---|---|---|
-| 12 | **ansible 0 主机命中仍 exit 0** | 假绿：job ✓ 但什么都没部署 | `common_assert_ansible_host.sh`（ping 断言） |
+| 12 | **ansible 0 主机命中仍 exit 0** | 假绿：job ✓ 但什么都没部署 | `setup-deployment-runner`（ping 断言） |
 | 13 | role 依赖写 `docker` 会命中 `roles/docker/`（**命名空间目录，不是角色**） | 展开 2 个任务而非 20 个，**不报错** | 写全 `vhosts/docker`；用 `--list-tasks` 验证任务数与顺序 |
 | 14 | **bind mount 源路径不存在时 Docker 自动创建目录** | `/root/.docker/config.json: is a directory`；私有镜像静默拉不动，容器仍 healthy | mount 前先确保文件存在（`docker login`），并断言 `stat.isdir == false` |
 | 15 | Jinja 默认 `Undefined` 不抛错，缺键渲染成空串 | `console-uat.` 这类"看起来已渲染"的值 | 渲染器入口对必需变量显式断言；本地用 `StrictUndefined` 复核模板 |

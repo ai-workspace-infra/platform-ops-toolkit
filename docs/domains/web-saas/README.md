@@ -231,7 +231,7 @@ Install Ansible
 
 ### 5.4 假绿防护
 
-`common_assert_ansible_host.sh` 接在首个改机步骤（步骤 12 bootstrap）头部，
+`setup-deployment-runner` 的 Ansible target assertion 接在首个改机步骤（步骤 12 bootstrap）头部，
   断言目标主机在 inventory 中可解析且可达，0 主机命中时**直接 fail red**。
   一道断言保护整条序列。
 

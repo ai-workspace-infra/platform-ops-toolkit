@@ -267,11 +267,11 @@ jobs:
         secrets: |
           kv/data/CICD/${{ inputs.vault_env_path || 'sit' }} SSH_PRIVATE_DEPLOY_KEY_B64 | VAULT_ANSIBLE_SSH_KEY_B64 ;
 
-    - name: Configure SSH Key
+    - name: Configure migration SSH
       if: ${{ (inputs.accounts_transport || 'ssh') == 'ssh' }}
-      env:
-        VAULT_ANSIBLE_SSH_KEY_B64: ${{ steps.vault_ssh.outputs.VAULT_ANSIBLE_SSH_KEY_B64 }}
-      run: .github/scripts/platform-ops_data_migration_configure-ssh-key.sh
+      uses: ./.github/actions/setup-deployment-runner
+      with:
+        ssh_key_b64: ${{ steps.vault_ssh.outputs.VAULT_ANSIBLE_SSH_KEY_B64 }}
 
     # CMDB carries the authoritative host -> IP mapping produced by this run's
     # provision stage. The migration script uses it to connect by address
@@ -360,8 +360,10 @@ jobs:
         ref: ${{ inputs.infra_ref || 'main' }}
         path: playbooks
 
-    - name: Install Ansible
-      run: ${{ github.workspace }}/.github/scripts/common_install_ansible.sh
+    - name: Install Ansible runtime
+      uses: ./.github/actions/setup-deployment-runner
+      with:
+        install_ansible: 'true'
 
     - name: Load Vault secrets for SSH
       id: vault
@@ -380,9 +382,10 @@ jobs:
           ${{ env.VAULT_KV_BASE }} TF_STATE_REGION     | MIGRATION_S3_REGION ;
           ${{ env.VAULT_KV_BASE }} TF_STATE_ENDPOINT   | MIGRATION_S3_ENDPOINT ;
 
-    - name: Configure SSH Key
-      run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops_data_migration_configure-ssh-key.sh
+    - name: Configure migration SSH
+      uses: ./.github/actions/setup-deployment-runner
+      with:
+        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
 
     - name: Export migration credentials
       run: |

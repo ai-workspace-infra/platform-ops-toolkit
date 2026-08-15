@@ -10,7 +10,7 @@
 ## 修复边界
 
 - apt 背景任务与锁等待修复位于 `ai-workspace-infra/playbooks#241`，只影响 Docker 主机初始化，不永久关闭系统 timer，也不手工修改 UAT 主机。
-- Runner 依赖修复位于本仓库：`common_install_ansible.sh` 将 `hvac` 与 Ansible 一次安装，避免到 `[3] Agent Proxy` 阶段才失败。
+- Runner 依赖修复位于本仓库：`setup-deployment-runner` 将 `hvac` 与 Ansible 一次安装，避免到 `[3] Agent Proxy` 阶段才失败。
 
 ## 验收标准
 

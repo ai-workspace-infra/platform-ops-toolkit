@@ -23,7 +23,7 @@ host_ip="$(jq -r --arg host "${MATRIX_HOST}" '.[$host].ip // empty' "${cmdb_file
   exit 2
 }
 
-# common_configure_ssh_key.sh writes the deploy key to a non-default filename,
+# setup-deployment-runner writes the deploy key to a non-default filename,
 # so ssh never picks it up implicitly. Without an explicit -i every connection
 # below fails with "Permission denied (publickey)".
 ssh_opts=(

@@ -138,7 +138,7 @@ echo "[SAFEGUARD-CHECK] Direction verified: PROD source -> UAT target."
 # repointed at the real web-saas host.
 #
 # Every other host-facing step in this pipeline already takes its address from
-# cmdb/cmdb.json (see common_wait_for_host_ssh.sh); this script was the one
+# cmdb/cmdb.json (also used by setup-deployment-runner); this script was the one
 # exception. Reading the same source makes it immune to DNS state, so job
 # ordering can no longer produce a wrong-host connection.
 #

@@ -157,7 +157,7 @@ Caddy 版本或 issuer 目录命名，恢复出来的东西就可能对不上，
 
 > **落地动作**：给多 job 的 workflow 加一个 CI 检查，从 `needs:` 提取依赖
 > 图并检测环（DAG 校验）。本仓库已经为“0 主机命中仍 exit 0”这类问题写了
-> `common_assert_ansible_host.sh` 守卫（见
+> `setup-deployment-runner` 的 Ansible target assertion 守卫（见
 > [`2026-07-25-delivery-chain-workplan.md`](../../tasks/2026-07-25-delivery-chain-workplan.md)
 > 陷阱 #12），依赖环检测应该是同一优先级的守卫。
 
