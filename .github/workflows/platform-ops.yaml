@@ -1042,14 +1042,11 @@ jobs:
 
   switch_dns:
     name: "[3] DNS Gate | switch + observe"
-    # 等核心业务 job 都完成才切流量 —— 这是流量门。
+    # 只等待每个领域的最终完成信号。Web SaaS 的 observe 已经汇聚
+    # deploy_web_saas、DB Init 和内部容器就绪；不重复等待它们的中间 job。
     needs: [
       provision,
-      deploy_base,
-      deploy_web_saas,
-      initialize_web_saas_databases,
       observe_web_saas,
-      update_gitops_tags,
       deploy_infra_platform,
       deploy_agent_proxy,
       deploy_ai_workspace
@@ -1057,14 +1054,10 @@ jobs:
     if: >-
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
-      needs.deploy_base.result == 'success' &&
-      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
-      (needs.deploy_web_saas.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
-      (needs.initialize_web_saas_databases.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       (needs.observe_web_saas.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
-      needs.deploy_infra_platform.result != 'failure' &&
+      (needs.deploy_infra_platform.result == 'success' || !contains(fromJSON('["all","infra-platform"]'), needs.provision.outputs.target_domains)) &&
       (needs.deploy_agent_proxy.result == 'success' || !contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
-      needs.deploy_ai_workspace.result != 'failure' &&
+      (needs.deploy_ai_workspace.result == 'success' || !contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.target_domains)) &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.dns_mode == 'prod-cutover' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
