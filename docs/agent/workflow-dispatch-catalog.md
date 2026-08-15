@@ -52,6 +52,10 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
     其余一律兜底 `uat`）推断部署环境，从而决定换哪个 Vault role。**默认让 `snapshot_tag`
     留空、用 workflow 自带的默认值**；只有需要加入新 commit 时才指定带 revision 后缀的 tag（如 `uat-daily-build-2026.08.15-r6`）。
 - **tag 不可变性**：快照 tag 不会移动或覆盖已存在的 git tag。若 main 分支有新代码需构建，必须使用新的 revision 后缀（`-r2`, `-r3` 等）。
+- **tag 废弃与忽略准则（禁止物理删除）**：
+  - 若某个 tag（如 `v2026.08.15` 或 `uat-daily-build-*`）因打错、严重缺陷或路由错误被废弃，**严禁从远端物理删除 tag**（保留审计历史与构建痕迹）。
+  - **Release 废弃操作**：通过 `gh release edit <tag>` 将标题标记为 `[DEPRECATED] <tag>`，状态降级为 `Pre-release`，并在 Notes 顶部添加包含替代版本的 `> [!CAUTION]` 警示公告。
+  - **GitOps 与部署隔离**：环境配置文件（`.env.uat` / `.env.prod`）中禁止引用被废弃的 tag；修复必须以全新的 revision 或 patch tag 发布。
 - 矩阵横跨 4 个 org，但每个 job 只处理归属本 org 的构建清单仓库；infra、xstream 当前
   没有清单目标，会直接跳过。每个仓库有独立等待预算，某个仓没有 run 不会把后续仓库
   已完成的构建误判为超时。`xworkmate-bridge` 不接收 daily tag push，而是在 tag 创建后
