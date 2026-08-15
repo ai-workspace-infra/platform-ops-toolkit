@@ -55,13 +55,31 @@ assert_contains "${plan_output}" "terraform_action=plan"
 uat_dns_output="$(run_route env INPUT_OPERATION=deploy INPUT_DNS_MODE=uat-records)"
 assert_contains "${uat_dns_output}" "dns_mode=uat-records"
 
+uat_stable_error="$(mktemp)"
+if run_route env INPUT_OPERATION=deploy INPUT_DEPLOY_TAG=v2026.08.15.3 INPUT_DNS_MODE=none >"${uat_stable_error}" 2>&1; then
+  rm -f "${uat_stable_error}"
+  echo "UAT stable release tag unexpectedly entered the deployment route" >&2
+  exit 1
+fi
+grep -Fq "v* release tags are PROD-only" "${uat_stable_error}"
+rm -f "${uat_stable_error}"
+
 if run_route env INPUT_OPERATION=deploy INPUT_DNS_MODE=prod-cutover >/dev/null 2>&1; then
   echo "prod-cutover without confirmation unexpectedly succeeded" >&2
   exit 1
 fi
 
-prod_dns_output="$(run_route env GITHUB_REF=refs/heads/release/v2026.08 INPUT_VAULT_ENV_PATH=prod INPUT_OPERATION=deploy INPUT_DNS_MODE=prod-cutover INPUT_CONFIRM_DNS_SWITCH=true)"
+prod_dns_output="$(run_route env GITHUB_REF=refs/heads/release/v2026.08 INPUT_VAULT_ENV_PATH=prod INPUT_OPERATION=deploy INPUT_DEPLOY_TAG=v2026.08 INPUT_DNS_MODE=prod-cutover INPUT_CONFIRM_DNS_SWITCH=true)"
 assert_contains "${prod_dns_output}" "dns_mode=prod-cutover"
+
+prod_daily_error="$(mktemp)"
+if run_route env GITHUB_REF=refs/heads/release/v2026.08 INPUT_VAULT_ENV_PATH=prod INPUT_OPERATION=deploy INPUT_DEPLOY_TAG=uat-daily-build-2026.08.15-r1 INPUT_DNS_MODE=none >"${prod_daily_error}" 2>&1; then
+  rm -f "${prod_daily_error}"
+  echo "PROD daily snapshot tag unexpectedly entered the deployment route" >&2
+  exit 1
+fi
+grep -Fq "PROD application deployments accept only v* deploy tags" "${prod_daily_error}"
+rm -f "${prod_daily_error}"
 
 xray_output="$(mktemp)"
 GITHUB_OUTPUT="${xray_output}" DEPLOYMENT_ENV=uat DEPLOY_TAG=uat-daily-build-2026.08.12-r14 \

@@ -18,12 +18,35 @@ STATE_PROJECT="platform-ops-toolkit"
 dns_mode=none
 confirm_dns_switch=false
 uat_dns_update=false
+
+validate_deploy_tag_policy() {
+  local environment="$1"
+  local tag="$2"
+
+  # Infrastructure-only operations may intentionally omit an application tag.
+  [[ -z "${tag}" ]] && return 0
+
+  case "${environment}:${tag}" in
+    prod:v*)
+      ;;
+    prod:*)
+      echo "::error::PROD application deployments accept only v* deploy tags; daily and UAT snapshot tags are not production sources." >&2
+      exit 1
+      ;;
+    uat:v*|sit:v*)
+      echo "::error::v* release tags are PROD-only; UAT and SIT require daily-build-* or uat-daily-build-* tags." >&2
+      exit 1
+      ;;
+  esac
+}
+
 # Defaults are intentionally safe: no branch deployment reads a host
 # variable. Terraform creates the host and its CMDB is the only deploy
 # inventory for that run.
 if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   deployment_env="${INPUT_VAULT_ENV_PATH:-uat}"
   target_domains="${INPUT_TARGET_DOMAINS:-all}"
+  validate_deploy_tag_policy "${deployment_env}" "${INPUT_DEPLOY_TAG:-${INPUT_DEPLOY_REF:-}}"
   
   if [ "${deployment_env}" = "sit" ]; then
     rf="all-in-one"
@@ -263,6 +286,7 @@ fi
 # An empty deploy_tag is valid for infrastructure-only dispatches (including
 # destroy). Keep the guard for missing assignment without requiring a value.
 : "${deploy_tag+x}"
+validate_deploy_tag_policy "${deployment_env}" "${deploy_tag}"
 
 # docker tag 里 '/' 非法, 所以 release/v1.4 的镜像实际叫 release-v1.4
 # (docker/metadata-action 自己就这么转)。这里不转的话, CD 会去 pull 一个
