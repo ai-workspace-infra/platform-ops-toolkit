@@ -181,7 +181,7 @@ write_subset() {
     --slurpfile current "$existing_data" \
     --argjson allowed "$allowed_json" \
     --argjson force "$FORCE" \
-    '$allowed | map(select($force == 1 or (($current[0] | has(.)) | not)))' \
+    '$allowed | map(. as $key | select($force == 1 or (($current[0] | has($key)) | not)))' \
     > "$keys_file"
 
   if [[ "$(jq 'length' "$keys_file")" == "0" ]]; then
