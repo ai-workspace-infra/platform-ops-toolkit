@@ -11,12 +11,9 @@ export SNAPSHOT_TAG="${tag}"
   echo "::error::Invalid snapshot tag: ${tag}" >&2
   exit 2
 }
-[[ "${DEPLOY_ENV}" =~ ^(sit|uat)$ ]] || {
-  echo "::error::Daily Snapshot supports only sit or uat (got: ${DEPLOY_ENV}); use a controlled v* release tag for prod." >&2
-  exit 2
-}
-
-# 快照 tag 必须是 daily-build-* 或 uat-daily-build-*。两件事都挂在它上面:
+# 自动 schedule 使用 daily-build-*；人工 workflow_dispatch 也允许
+# uat-daily-build-* 和受控 v* release tag。tag 与环境必须配对:
+# daily/uat tag -> sit|uat, v* -> prod.
 #
 # 1. 各 service 仓 CI 的 release job 条件是
 #      contains(github.ref, 'daily-build-')
@@ -30,11 +27,25 @@ export SNAPSHOT_TAG="${tag}"
 #    唯一的原因是 gitops/compose/web-saas/.env.prod 不存在。一次 UAT 快照不该
 #    有任何机会碰到生产, 更不该靠一个缺失的文件兜底。
 #
-# 默认值本来就满足这条; 这里挡的是显式传参绕过默认值的情况。
-[[ "${tag}" =~ ^(daily-build|uat-daily-build)-[A-Za-z0-9._/-]+$ ]] || {
-  echo "::error::Snapshot tag must match daily-build-* or uat-daily-build-* (got: ${tag}). Use a controlled v* tag for a production release." >&2
-  exit 2
-}
+# 默认值本来就满足 daily-build-*; 这里挡的是显式传参绕过规则的情况。
+case "${tag}" in
+  v[0-9A-Za-z._/-]*)
+    [[ "${DEPLOY_ENV}" == prod ]] || {
+      echo "::error::v* release tags require deploy_env=prod; release publication is manually controlled." >&2
+      exit 2
+    }
+    ;;
+  daily-build-[0-9A-Za-z._/-]*|uat-daily-build-[0-9A-Za-z._/-]*)
+    [[ "${DEPLOY_ENV}" =~ ^(sit|uat)$ ]] || {
+      echo "::error::daily-build-* and uat-daily-build-* require deploy_env=sit or uat; use v* with prod for a release." >&2
+      exit 2
+    }
+    ;;
+  *)
+    echo "::error::Snapshot tag must match daily-build-*, uat-daily-build-*, or a controlled v* release tag." >&2
+    exit 2
+    ;;
+esac
 
 echo "Creating main snapshot ${tag} for ${DEPLOY_ENV}."
 if [[ -n "${SNAPSHOT_STATUS_FILE:-}" ]]; then

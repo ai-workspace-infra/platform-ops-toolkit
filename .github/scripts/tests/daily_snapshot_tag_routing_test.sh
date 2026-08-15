@@ -16,6 +16,6 @@ assert_rejected() {
   grep -Fq "${expected}" "${workdir}/out"
 }
 
-assert_rejected "v2026.08.15.1" uat "daily-build-* or uat-daily-build-*"
-assert_rejected "daily-build-2026.08.15-r1" prod "supports only sit or uat"
+assert_rejected "v2026.08.15.1" uat "v* release tags require deploy_env=prod"
+assert_rejected "daily-build-2026.08.15-r1" prod "require deploy_env=sit or uat"
 echo "daily snapshot tag routing safeguards passed"
