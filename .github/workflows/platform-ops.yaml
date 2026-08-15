@@ -1004,19 +1004,10 @@ jobs:
     env:
       MATRIX_HOST: ${{ matrix.host }}
     steps:
-    # 本仓的脚本(证书备份 / SSH key)在 workspace 根, playbooks 的 observe 脚本
-    # 在 playbooks/ 子目录 —— 两个都要 checkout。
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
         ref: ${{ github.sha }}
-
-    - name: Checkout playbooks
-      uses: actions/checkout@v7
-      with:
-        repository: ai-workspace-infra/playbooks
-        ref: ${{ needs.provision.outputs.playbooks_ref }}
-        path: playbooks
 
     - name: Download CMDB
       uses: actions/download-artifact@v8
@@ -1036,57 +1027,18 @@ jobs:
         secrets: |
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64
 
-    # CMDB 是本次 provision 产出的, 里面的 IP 一定是这次部署的那台机器 ——
-    # 比 dig 域名可靠, 因为域名可能还没切过来。
-    - name: Resolve host IP from CMDB
-      id: hostip
-      run: |
-        set -euo pipefail
-        ip="$(jq -r --arg h "${MATRIX_HOST}" '.[$h].ip // empty' cmdb/cmdb.json)"
-        if [ -z "${ip}" ]; then
-          echo "::error::host '${MATRIX_HOST}' has no ip in cmdb/cmdb.json" >&2
-          exit 1
-        fi
-        echo "ip=${ip}" >> "$GITHUB_OUTPUT"
-        echo "Observing ${MATRIX_HOST} at ${ip}"
-
-    - name: Observe Web SaaS endpoints
-      env:
-        DOMAIN: web-saas
-        DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
-        OBSERVE_RESOLVE_IP: ${{ steps.hostip.outputs.ip }}
-        OBSERVE_URLS: >-
-          https://console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
-          https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
-          https://bridge-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/api/ping
-      run: bash playbooks/.github/scripts/domain-cd-observe-endpoints.sh
-
-    # 备份排在 observe 之后, 因为此刻证书要么是恢复来的、要么是本轮新签的,
-    # observe 刚刚用它握过手 —— 优先存一份验证过的。
-    #
-    # 但**不能**只在 observe 成功时才备份, 否则这套持久化永远启动不了:
-    #   证书不在 Vault -> Caddy 只能找 ACME 签 -> 撞 429 拿不到证书
-    #   -> observe 因为没有 TLS 而失败 -> 备份被 skip -> 证书还是不在 Vault
-    # 这是个自锁的环, 2026-07-31 run 30617227887 就卡在这里: Caddy 明明已经
-    # 从 staging 拿到过证书, 却因为 observe 红了而一次都没存进 Vault。
-    #
-    # 所以只要主机上有证书就存, 与站点是否已经健康无关 —— 那是两件事:
-    # "证书能不能复用" 和 "服务起没起来"。备份脚本自己会判断有没有东西可存、
-    # 以及是不是已经过期, 失败也只 warning, 不会把 job 拖红。
     - name: Configure SSH Key
-      if: ${{ !cancelled() }}
       env:
         VAULT_ANSIBLE_SSH_KEY_B64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
       run: ${{ github.workspace }}/.github/scripts/common_configure_ssh_key.sh
 
-    - name: Back up Caddy certificates to Vault
-      if: ${{ !cancelled() }}
-      continue-on-error: true
+    # DNS is deliberately not updated yet.  Prove that Doco-CD has started
+    # the target node's internal services over SSH; public ingress is verified
+    # only after the UAT DNS reconcile or production DNS gate.
+    - name: Wait for Web SaaS internal containers
       env:
-        VAULT_ROLE: ${{ env.VAULT_ROLE }}
-        VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
         CMDB_FILE: cmdb/cmdb.json
-      run: ${{ github.workspace }}/.github/scripts/platform-ops_observe_backup-caddy-certs.sh
+      run: ${{ github.workspace }}/.github/scripts/platform-ops_observe-web-saas-containers.sh
 
   switch_dns:
     name: "[3] DNS Gate | switch + observe"
@@ -1191,6 +1143,14 @@ jobs:
           https://bridge-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/api/ping
       run: bash playbooks/.github/scripts/domain-cd-observe-endpoints.sh
 
+    - name: Back up verified Caddy certificates to Vault
+      if: ${{ !cancelled() }}
+      continue-on-error: true
+      env:
+        VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
+        CMDB_FILE: cmdb/cmdb.json
+      run: ${{ github.workspace }}/.github/scripts/platform-ops_observe_backup-caddy-certs.sh
+
   update_uat_dns:
     name: Reconcile UAT DNS Records & Observe
     # This job is deliberately separate from the production cutover job. The
@@ -1250,7 +1210,7 @@ jobs:
         ref: ${{ needs.provision.outputs.playbooks_ref }}
         path: playbooks
 
-    - name: Load UAT DNS token from Vault
+    - name: Load UAT DNS and SSH secrets from Vault
       id: vault
       uses: hashicorp/vault-action@v4
       with:
@@ -1261,6 +1221,7 @@ jobs:
         ignoreNotFound: true
         secrets: |
           ${{ env.VAULT_KV }} CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN ;
+          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
 
     - name: Reconcile parameterized UAT DNS records
       id: uat_dns
@@ -1279,6 +1240,20 @@ jobs:
           https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
           https://bridge-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/api/ping
       run: bash playbooks/.github/scripts/domain-cd-observe-endpoints.sh
+
+    - name: Configure SSH Key for certificate backup
+      if: ${{ !cancelled() }}
+      env:
+        VAULT_ANSIBLE_SSH_KEY_B64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+      run: ${{ github.workspace }}/.github/scripts/common_configure_ssh_key.sh
+
+    - name: Back up verified Caddy certificates to Vault
+      if: ${{ !cancelled() }}
+      continue-on-error: true
+      env:
+        VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
+        CMDB_FILE: cmdb/cmdb.json
+      run: ${{ github.workspace }}/.github/scripts/platform-ops_observe_backup-caddy-certs.sh
 
   deploy_infra_platform:
     name: "[2] Infra | ${{ matrix.host }}"
@@ -1570,14 +1545,15 @@ jobs:
 
   trigger_data_migration:
     name: "[3] Post-deploy | Data Migration"
-    needs: [provision, deploy_base, deploy_web_saas, deploy_agent_proxy, deploy_monitor_agent]
+    # Data migration uses the CMDB address and the local PostgreSQL container.
+    # It is independent of Agent Proxy and observability, and can begin as
+    # soon as the database bootstrap/schema job completes.
+    needs: [provision, deploy_base, initialize_web_saas_databases]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
-      needs.deploy_web_saas.result == 'success' &&
-      (needs.deploy_agent_proxy.result == 'success' || needs.deploy_agent_proxy.result == 'skipped') &&
-      (needs.deploy_monitor_agent.result == 'success' || needs.deploy_monitor_agent.result == 'skipped') &&
+      needs.initialize_web_saas_databases.result == 'success' &&
       needs.provision.outputs.toolkit_action == 'deploy+migrate' }}
     uses: ./.github/workflows/data-migration.yaml
     with:
