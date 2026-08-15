@@ -1116,6 +1116,11 @@ jobs:
         CMDB_FILE: cmdb/cmdb.json
       run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_observe-web-saas-containers.sh
 
+    - name: Diagnose Web SaaS ingress before public probe
+      env:
+        CMDB_FILE: cmdb/cmdb.json
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_observe-web-saas-ingress.sh
+
     - name: Verify Web SaaS public endpoints after DNS
       env:
         DOMAIN: web-saas
