@@ -14,9 +14,15 @@
 | 触发 | 环境 | CI 必须产出的镜像 tag |
 |---|---|---|
 | push tag `v*` | PROD | `v1.2.3`（原样，不加前缀） |
-| push branch `release/*` | PROD | `release-1.4`（`/` 在 docker tag 中非法，规范化为 `-`） |
+| push branch `release/v*` | PROD | `release-1.4`（`/` 在 docker tag 中非法，规范化为 `-`） |
+| push branch `release/*`（不含 `release/v*`） | UAT | 仅作为 UAT 发布源，不得产出 PROD 发布制品 |
 | 显式日快照 | UAT | `daily-build-YYYY.MM.DD-rN`（跨仓同名快照） |
 | **任意一次构建** | SIT / 可追溯构建 | `sha-<40 位 full sha>` |
+
+PROD 发布源是严格白名单：**仅** `refs/tags/v*` 与
+`refs/heads/release/v*`。`main`、其他 `release/*` 分支、daily/UAT/SIT/snapshot/prod
+标签以及其他 branch/tag/ref 均禁止进入 PROD；`deploy_env`、镜像 tag 名称、workflow
+输入或脚本推断不能扩大这份白名单。日快照只服务 SIT/UAT，不得伪装成 PROD 发布。
 
 最后一行是无条件的：**每一次构建都必须额外产出 `sha-<full>`**。SIT 的
 `deploy_tag` 是「用户定义」，用户能定义的前提是存在一个稳定、可寻址、
@@ -39,7 +45,8 @@
 
 - `type=ref,event=tag` 让 `v1.2.3` 原样成为镜像 tag，与 PROD 的 `deploy_tag` 完全一致。
 - `type=ref,event=branch` 只在 `release/*` 上启用；metadata-action 会自行把 `/` 换成 `-`。
-  不加 `enable` 的话 main 上会多产出一个 `main` tag；`main` 不是可部署的镜像版本。
+  其中只有 `release/v*` 可作为 PROD 发布源，其他 `release/*` 仅用于 UAT；不加
+  `enable` 的话 main 上会多产出一个 `main` tag，`main` 不是 PROD 发布源。
 - `type=sha,format=long` 产出 `sha-<40 位>`（`sha-` 是 metadata-action 的默认前缀）。
 
 触发范围也必须统一，否则 tag 规则写得再对也不会执行：
@@ -67,8 +74,10 @@ on:
 
 新增或修改任何服务仓的构建 workflow 后，按此清单自查：
 
-1. push 一个 `v*` tag，确认 GHCR 上出现同名 tag；
-2. 生成日快照时，确认每个受管服务都出现同名 `daily-build-*` tag；
-3. 任取一次构建，确认存在 `sha-<40位>`；
-4. 同一服务的所有版本别名必须指向同一个 digest —— 它们是同一个镜像的别名，
+1. push 一个 `v*` tag，确认 GHCR 上出现同名 tag，且来源 ref 是 `refs/tags/v*`；
+2. 从 `release/v*` 构建时，确认出现规范化的 `release-*` tag；从其他 `release/*`
+   构建时，确认不得被当作 PROD 发布源；
+3. 生成日快照时，确认每个受管服务都出现同名 `daily-build-*` tag，且只用于 SIT/UAT；
+4. 任取一次构建，确认存在 `sha-<40位>`；
+5. 同一服务的所有版本别名必须指向同一个 digest —— 它们是同一个镜像的别名，
    不是四次独立构建。

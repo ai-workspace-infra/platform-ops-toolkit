@@ -15,14 +15,11 @@
 
 `workflow_dispatch:` 没有任何 inputs，派发体只需要 `ref`。
 
-- `VAULT_ROLE: github-actions-platform-ops-toolkit-prod`。`docs/tasks/vault_auth_split.sh`
-  （2026-07-29 改动 `3f30381d`）里该 role 绑定的是
-  `["refs/tags/v*", "refs/heads/main"]`，**从 `main` 派发理论上可以通过 Vault 认证**。
-  ⚠️ **但 `docs/README.md` 里 2026-07-22 写的"PROD 只能由 `v*` tag 触发，
-  workflow_dispatch 选 prod 会认证失败"这条说明比脚本改动更早、没有同步更新**——
-  两处目前互相矛盾。脚本是实际配置 Vault 的操作代码，理应更权威，但没有对 Vault
-  实例做过运行时校验。**派发前如果对认证结果没有把握，先跑一次空推验证（或让运维确认
-  当前 Vault 里的 role 绑定），不要直接假定二者中的任意一个成立。**
+- `VAULT_ROLE: github-actions-platform-ops-toolkit-prod`。PROD role 的来源白名单必须
+  严格限制为 `refs/tags/v*` 与 `refs/heads/release/v*`。若 Vault role、workflow 或
+  运行时脚本仍允许 `main`、其他 `release/*`、daily/UAT/SIT/snapshot/prod 标签或其他
+  来源，这是安全漂移，不构成合法的 PROD 路由；文档不能把漂移行为视为允许项。派发前
+  应核对实际 Vault role 绑定和 run 的 `github.ref`，并按失败关闭处理。
 - 没有参数，agent 侧价值全在验收：run 结论为 success 不代表证书真的换了。
 
 **验收**：不要只看 run 结论。查实际证书有效期/签发时间。已知故障模式——
@@ -37,7 +34,7 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
 |---|---|---|
 | `snapshot_tag` | string | 留空 → `daily-build-$(date -u +%Y.%m.%d)` |
 | `snapshot_source_ref` | string | 留空使用 `main`；也可指定明确的 source ref |
-| `deploy_env` | choice：sit / uat / prod | 默认 `uat` |
+| `deploy_env` | choice：sit / uat / prod | 默认 `uat`；选择 `prod` 也不能绕过 PROD 来源白名单 |
 | `repositories` | string，逗号分隔 | 留空 → 仅当前构建清单中的 6 个仓（accounts / billing-service / content-service / portal / postgresql.svc.plus / xworkmate-bridge） |
 
 - **`snapshot_source_ref` 已生效**：该值会作为 `SNAPSHOT_REF` 传给打 tag 脚本；新 tag
@@ -49,8 +46,11 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
     2. `v*` tag 会被多环境路由规则直接路由给生产（`prod`）环境，产生灾难性误投产风险。
   - `docs/tasks/tag-ai-workspace-mains.sh` 的 `infer_deploy_env_from_tag()` 按前缀
     （`v*`→prod，`release/*`→uat，`sit-*`/`snapshot-*`→sit，`uat-*`→uat，`prod-*`→prod，
-    其余一律兜底 `uat`）推断部署环境，从而决定换哪个 Vault role。**默认让 `snapshot_tag`
-    留空、用 workflow 自带的默认值**；只有需要加入新 commit 时才指定带 revision 后缀的 tag（如 `uat-daily-build-2026.08.15-r6`）。
+    其余一律兜底 `uat`）推断部署环境，从而决定换哪个 Vault role；这只是实现细节，不能
+    取代来源 ref 白名单。PROD **仅**允许 `refs/tags/v*` 或 `refs/heads/release/v*`，
+    `prod-*`、daily-build、uat-daily-build、sit、snapshot 及其他 branch/tag 均不得获得
+    PROD 权限。**默认让 `snapshot_tag` 留空、用 workflow 自带的默认值**；只有需要加入新
+    commit 时才指定带 revision 后缀的 tag（如 `uat-daily-build-2026.08.15-r6`）。
 - **tag 不可变性**：快照 tag 不会移动或覆盖已存在的 git tag。若 main 分支有新代码需构建，必须使用新的 revision 后缀（`-r2`, `-r3` 等）。
 - **tag 废弃与忽略准则（禁止物理删除）**：
   - 若某个 tag（如 `v2026.08.15` 或 `uat-daily-build-*`）因打错、严重缺陷或路由错误被废弃，**严禁从远端物理删除 tag**（保留审计历史与构建痕迹）。
@@ -109,7 +109,7 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
 
 - `action=destroy`
 - `confirm_dns_switch=true`
-- `vault_env_path=prod`
+- `vault_env_path=prod`（仅允许来源 ref 为 `refs/tags/v*` 或 `refs/heads/release/v*`）
 - `run_full_stack=true`（会连带打开上面两条）
 
 ### 3.3 三个目标任务对应的参数（2026-08-02 已核实的具体案例）
