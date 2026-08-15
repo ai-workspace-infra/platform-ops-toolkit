@@ -121,9 +121,7 @@ jobs:
           kv/data/CICD TF_STATE_BUCKET | TF_STATE_BUCKET ;
           kv/data/CICD TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
           kv/data/CICD TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
-          kv/data/CICD TF_STATE_REGION | TF_STATE_REGION ;
-          kv/data/CICD/${{ env.DEPLOY_ENV }} SMTP_USERNAME | SMTP_USERNAME ;
-          kv/data/CICD/${{ env.DEPLOY_ENV }} SMTP_PASSWORD | SMTP_PASSWORD
+          kv/data/CICD TF_STATE_REGION | TF_STATE_REGION
 
     - name: Setup IaC Environment
       uses: ./.github/actions/setup-iac-env
@@ -178,10 +176,23 @@ jobs:
       run: |-
         .github/scripts/iac-pipeline-multi-cloud-landingzone-baseline_landingzone_run-validation-checks.sh
 
+    - name: Load SMTP notification credentials from Vault
+      id: smtp
+      if: env.DEPLOY_ACTION == 'apply'
+      uses: hashicorp/vault-action@v4
+      with:
+        url: https://vault.svc.plus
+        method: jwt
+        role: github-actions-platform-ops-toolkit-${{ env.DEPLOY_ENV }}
+        jwtGithubAudience: vault
+        secrets: |
+          kv/data/CICD/${{ env.DEPLOY_ENV }} SMTP_USERNAME | SMTP_USERNAME ;
+          kv/data/CICD/${{ env.DEPLOY_ENV }} SMTP_PASSWORD | SMTP_PASSWORD
+
     - name: Notify
       if: env.DEPLOY_ACTION == 'apply'
       env:
-        SMTP_PASSWORD: ${{ steps.vault.outputs.SMTP_PASSWORD }}
-        SMTP_USERNAME: ${{ steps.vault.outputs.SMTP_USERNAME }}
+        SMTP_PASSWORD: ${{ steps.smtp.outputs.SMTP_PASSWORD }}
+        SMTP_USERNAME: ${{ steps.smtp.outputs.SMTP_USERNAME }}
       run: |-
         .github/scripts/iac-pipeline-multi-cloud-landingzone-baseline_landingzone_notify.sh
