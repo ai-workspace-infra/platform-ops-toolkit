@@ -572,7 +572,7 @@ jobs:
     # 后面每个 job 面对的都是首次启动已收敛的机器, 而不是靠每个 apt 任务
     # 各自挂一个长超时去兜底。
     - name: Cache pip packages
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-ansible-v1
@@ -694,7 +694,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout playbook scripts
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/playbooks
           ref: main
@@ -719,7 +719,7 @@ jobs:
           owner: ai-workspace-infra
 
       - name: Checkout GitOps repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/gitops
           ref: ${{ needs.provision.outputs.gitops_ref }}
@@ -876,7 +876,7 @@ jobs:
       run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_base_wait-for-web-saas-postgres.sh
 
     - name: Cache pip packages
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-ansible-v1
@@ -1317,7 +1317,7 @@ jobs:
           ${{ env.VAULT_KV_WEB_SAAS }} INTERNAL_SERVICE_TOKEN | INTERNAL_SERVICE_TOKEN
 
     - name: Cache pip packages
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-ansible-v1
@@ -1461,7 +1461,7 @@ jobs:
           kv/data/CICD/observability password | VECTOR_AUTH_PASSWORD
 
     - name: Cache pip packages
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-ansible-v1

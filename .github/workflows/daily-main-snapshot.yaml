@@ -48,7 +48,7 @@ jobs:
           - ai-workspace-xstream
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Load GitHub App private key from Vault
         id: vault
@@ -91,7 +91,7 @@ jobs:
 
       - name: Upload snapshot status
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: daily-snapshot-status-${{ matrix.organization }}
           path: ${{ runner.temp }}/daily-snapshot-status/${{ matrix.organization }}.jsonl
@@ -104,10 +104,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download all organization snapshot status artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: daily-snapshot-status-*
           path: ${{ runner.temp }}/daily-snapshot-status

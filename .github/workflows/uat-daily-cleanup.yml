@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Run UAT Teardown Script
         run: ./.github/scripts/platform-ops/deploy/uat_cleanup_runner.sh

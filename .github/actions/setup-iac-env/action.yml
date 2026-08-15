@@ -58,7 +58,7 @@ runs:
         echo "repo=$repo" >> "$GITHUB_OUTPUT"
 
     - name: Checkout GitOps config
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         repository: ${{ steps.gitops_repo.outputs.repo }}
         path: ${{ inputs.gitops_target_path }}
