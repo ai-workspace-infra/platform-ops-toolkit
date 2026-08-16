@@ -169,7 +169,9 @@ fi
 
 if [ -n "${SCHEMA_FILE}" ]; then
   command -v psql >/dev/null 2>&1 || { echo "psql is required with --schema-file" >&2; exit 2; }
-  schema_uri="${DIRECT_URI:-${SESSION_URI}}"
+  # GitHub-hosted runners are IPv4-only in the common case. Session pooler
+  # keeps psql/DDL reachable there; use Direct only when no session URI exists.
+  schema_uri="${SESSION_URI:-${DIRECT_URI}}"
   connection_json="$(printf '%s' "${schema_uri}" | python3 -c 'import json, sys; from urllib.parse import unquote, urlsplit; u = urlsplit(sys.stdin.read()); print(json.dumps({"host": u.hostname or "", "port": u.port or 5432, "user": unquote(u.username or ""), "database": (u.path or "/postgres").lstrip("/") or "postgres", "password": unquote(u.password or "")}))')"
   db_host="$(printf '%s' "${connection_json}" | jq -r .host)"
   db_port="$(printf '%s' "${connection_json}" | jq -r .port)"

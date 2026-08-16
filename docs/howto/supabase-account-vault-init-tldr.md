@@ -95,8 +95,9 @@ bash scripts/serverless_uat/init_supabase_account_db.sh \
 ```
 
 结果已合并写入 `kv/uat/databases`。由于目标已有 `account_pg_password`，脚本默认保留
-原值，没有覆盖它；本次命令也没有执行 Terraform init 或 schema migration。执行数据库
-初始化时，schema 会优先使用 `DATABASE_DIRECT_URL`。
+原值，没有覆盖它；本次命令也没有执行 Terraform init 或 schema migration。schema 初始化
+优先使用 IPv4 可达的 `DATABASE_SESSION_POOLER_URL`，没有 Session URI 时才使用
+`DATABASE_DIRECT_URL`。
 
 ## Workflow 验证
 

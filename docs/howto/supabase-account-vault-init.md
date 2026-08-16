@@ -54,7 +54,8 @@ VAULT_ADDR=https://vault.svc.plus \
 ```
 
 如需灌入 Accounts 基线 schema，额外传入 schema 文件；脚本会使用 Vault URI 建立
-连接，不会把 URI 放到命令参数或日志中：
+连接，不会把 URI 放到命令参数或日志中。IPv4-only 的 GitHub-hosted runner 会优先
+使用 `DATABASE_SESSION_POOLER_URL`，没有 Session URI 时才回退到 `DATABASE_DIRECT_URL`：
 
 ```bash
 ./scripts/serverless_uat/init_supabase_account_db.sh \
