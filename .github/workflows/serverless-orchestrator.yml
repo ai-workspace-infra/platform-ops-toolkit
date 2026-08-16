@@ -8,32 +8,37 @@ on:
   workflow_dispatch:
     inputs:
       initialize_supabase:
-        description: 'Initialize Supabase Accounts schema only'
+        description: 'Initialize the Supabase Accounts schema before selected deployments'
         required: true
         default: false
         type: boolean
       vault_env_path:
-        description: 'Vault environment path (dev, uat, prod)'
+        description: 'Target environment'
         required: true
         default: 'uat'
         type: choice
         options:
-          - dev
+          - sit
           - uat
           - prod
       image_tag:
         description: 'Image tag to deploy to Cloud Run'
         required: false
         default: 'latest'
-      deploy_portal_frontend:
-        description: 'Build and deploy portal static Pages and OpenNext Worker targets'
+      deploy_cloudflare:
+        description: 'Deploy Cloudflare Pages and the portal OpenNext Worker'
         required: true
-        default: false
+        default: true
         type: boolean
-      frontend_only:
-        description: 'Only validate the portal Cloudflare frontend; skip Cloud Run, gateway, and Supabase steps'
+      deploy_cloud_run:
+        description: 'Deploy selected backend services to GCP Cloud Run'
         required: true
-        default: false
+        default: true
+        type: boolean
+      verify_supabase:
+        description: 'Validate the selected Supabase connection contract from Vault'
+        required: true
+        default: true
         type: boolean
       portal_repository:
         description: 'Portal repository to check out for frontend deployment'
@@ -45,14 +50,11 @@ on:
         required: true
         default: 'main'
         type: string
-  schedule:
-    # 每个工作日 09:00 (UTC 01:00) 自动拉起临时 Serverless 计算环境
-    - cron: '0 1 * * 1-5'
-
 jobs:
-  deploy_uat:
-    name: Provision Serverless Stack
-    if: ${{ inputs.initialize_supabase != true }}
+  deploy_serverless:
+    name: Deploy and verify selected Serverless components
+    needs: initialize_supabase
+    if: ${{ always() && (needs.initialize_supabase.result == 'success' || needs.initialize_supabase.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -69,7 +71,7 @@ jobs:
           node-version: 24
 
       - name: Checkout portal source
-        if: ${{ inputs.deploy_portal_frontend == true }}
+        if: ${{ inputs.deploy_cloudflare == true }}
         uses: actions/checkout@v7
         with:
           repository: ${{ inputs.portal_repository }}
@@ -85,16 +87,31 @@ jobs:
           role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
           jwtGithubAudience: vault
           exportToken: true
+          secrets: |
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_WORKLOAD_IDENTITY_PROVIDER | GCP_WORKLOAD_IDENTITY_PROVIDER ;
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL
 
-      - name: Run UAT Orchestrator Script
+      - name: Authenticate to Google Cloud
+        if: ${{ inputs.deploy_cloud_run == true }}
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ steps.vault.outputs.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ steps.vault.outputs.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Set up Google Cloud SDK
+        if: ${{ inputs.deploy_cloud_run == true }}
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Run Serverless Orchestrator
         run: ./.github/scripts/platform-ops/deploy/uat_orchestrator_runner.sh
         env:
           VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
           VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
           DEPLOY_ENV: ${{ inputs.vault_env_path || 'uat' }}
           IMAGE_TAG: ${{ github.event.inputs.image_tag || 'latest' }}
-          DEPLOY_PORTAL_FRONTEND: ${{ inputs.deploy_portal_frontend || false }}
-          FRONTEND_ONLY: ${{ inputs.frontend_only || false }}
+          DEPLOY_CLOUDFLARE: ${{ inputs.deploy_cloudflare || true }}
+          DEPLOY_CLOUD_RUN: ${{ inputs.deploy_cloud_run || true }}
+          VERIFY_SUPABASE: ${{ inputs.verify_supabase || true }}
           PORTAL_DIR: ${{ github.workspace }}/portal
           PORTAL_REF: ${{ inputs.portal_ref || 'main' }}
           CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}

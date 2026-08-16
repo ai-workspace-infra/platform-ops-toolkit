@@ -25,8 +25,9 @@ if VAULT_ENV_PATH not in {"dev", "sit", "uat", "prod"}:
 SERVERLESS_BASE_PATH = os.environ.get(
     "VAULT_SERVERLESS_PATH", f"kv/data/{VAULT_ENV_PATH}/serverless"
 ).strip().rstrip("/")
-DEPLOY_PORTAL_FRONTEND = os.environ.get("DEPLOY_PORTAL_FRONTEND", "false").lower() == "true"
-FRONTEND_ONLY = os.environ.get("FRONTEND_ONLY", "false").lower() == "true"
+DEPLOY_CLOUDFLARE = os.environ.get("DEPLOY_CLOUDFLARE", "true").lower() == "true"
+DEPLOY_CLOUD_RUN = os.environ.get("DEPLOY_CLOUD_RUN", "true").lower() == "true"
+VERIFY_SUPABASE = os.environ.get("VERIFY_SUPABASE", "true").lower() == "true"
 
 def log(msg: str):
     print(f"==> [UAT Orchestrator] {msg}", flush=True)
@@ -64,11 +65,18 @@ def require_supabase_secret(secrets: dict) -> tuple[str, str]:
             "Vault Supabase secret must contain PROJECT_REF and DATABASE_PASSWORD "
             "or DATABASE_DIRECT_URL"
         )
+    if not str(
+        secrets.get("DATABASE_SESSION_POOLER_URL", secrets.get("DATABASE_POOLER_URL", secrets.get("DATABASE_DIRECT_URL", "")))
+    ).strip():
+        raise SystemExit(
+            "Vault Supabase secret must contain DATABASE_SESSION_POOLER_URL, "
+            "DATABASE_POOLER_URL, or DATABASE_DIRECT_URL"
+        )
     return project_ref, database_password
 
-def deploy_portal_frontend(script_dir: str, env_context: dict) -> None:
-    if not DEPLOY_PORTAL_FRONTEND:
-        log("Portal Cloudflare frontend deployment is disabled.")
+def deploy_cloudflare(script_dir: str, env_context: dict) -> None:
+    if not DEPLOY_CLOUDFLARE:
+        log("Cloudflare deployment is disabled.")
         return
 
     for script_name in ("deploy_portal_opennext_worker.sh", "deploy_cloudflare_pages.sh"):
@@ -81,31 +89,23 @@ def deploy_portal_frontend(script_dir: str, env_context: dict) -> None:
 def main():
     log(f"Starting serverless orchestration deployment for environment {VAULT_ENV_PATH}...")
 
-    # 1. 从 Vault 获取凭据
-    cf_secrets = fetch_vault_secret("cloudflare")
-    if FRONTEND_ONLY and not DEPLOY_PORTAL_FRONTEND:
-        raise SystemExit("FRONTEND_ONLY requires DEPLOY_PORTAL_FRONTEND=true")
+    if not any((DEPLOY_CLOUDFLARE, DEPLOY_CLOUD_RUN, VERIFY_SUPABASE)):
+        raise SystemExit("Select at least one component: Cloudflare, Cloud Run, or Supabase")
 
-    if FRONTEND_ONLY:
-        deploy_portal_frontend(script_dir=os.path.dirname(os.path.abspath(__file__)), env_context={
-            "CLOUDFLARE_ACCOUNT_ID": cf_secrets.get("CLOUDFLARE_ACCOUNT_ID", os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")),
-            "CLOUDFLARE_API_TOKEN": cf_secrets.get("CLOUDFLARE_API_TOKEN", os.environ.get("CLOUDFLARE_API_TOKEN", "")),
-        })
-        log("✅ [Success] Portal Cloudflare frontend deployed and validated.")
-        return
+    cf_secrets = fetch_vault_secret("cloudflare") if DEPLOY_CLOUDFLARE else {}
+    gcp_secrets = fetch_vault_secret("gcp") if DEPLOY_CLOUD_RUN else {}
+    supabase_secrets = fetch_vault_secret("supabase") if (DEPLOY_CLOUD_RUN or VERIFY_SUPABASE) else {}
+    app_secrets = fetch_vault_secret("app-secrets") if DEPLOY_CLOUD_RUN else {}
 
-    gcp_secrets = fetch_vault_secret("gcp")
-    supabase_secrets = fetch_vault_secret("supabase")
-    app_secrets = fetch_vault_secret("app-secrets")
-    supabase_project_ref, supabase_database_password = require_supabase_secret(supabase_secrets)
+    if DEPLOY_CLOUD_RUN or VERIFY_SUPABASE:
+        require_supabase_secret(supabase_secrets)
+        log("Supabase connection contract validated from Vault.")
 
     env_context = {
         "CLOUDFLARE_ACCOUNT_ID": cf_secrets.get("CLOUDFLARE_ACCOUNT_ID", os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")),
         "CLOUDFLARE_API_TOKEN": cf_secrets.get("CLOUDFLARE_API_TOKEN", os.environ.get("CLOUDFLARE_API_TOKEN", "")),
         "GCP_PROJECT_ID": gcp_secrets.get("GCP_PROJECT_ID", os.environ.get("GCP_PROJECT_ID", "")),
         "GCP_REGION": gcp_secrets.get("GCP_REGION", os.environ.get("GCP_REGION", "asia-east1")),
-        "SUPABASE_PROJECT_REF": supabase_project_ref,
-        "SUPABASE_DATABASE_PASSWORD": supabase_database_password,
         "DATABASE_URL": supabase_secrets.get(
             "DATABASE_SESSION_POOLER_URL",
             supabase_secrets.get("DATABASE_POOLER_URL", os.environ.get("DATABASE_URL", "")),
@@ -115,24 +115,17 @@ def main():
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # 2. 部署 GCP Cloud Run 微服务
+    # Deploy selected GCP Cloud Run microservices.
     cloudrun_script = os.path.join(script_dir, "deploy_cloudrun_services.sh")
-    if os.path.exists(cloudrun_script):
+    if DEPLOY_CLOUD_RUN and os.path.exists(cloudrun_script):
         if not run_command([cloudrun_script], env_context):
             log("Error: Cloud Run deployment failed")
             sys.exit(1)
 
-    # 3. 部署 Cloudflare Worker 网关
-    cf_worker_script = os.path.join(script_dir, "deploy_cloudflare_worker.sh")
-    if os.path.exists(cf_worker_script):
-        if not run_command([cf_worker_script], env_context):
-            log("Error: Cloudflare Worker deployment failed")
-            sys.exit(1)
+    # Deploy selected Cloudflare Pages and portal OpenNext Worker targets.
+    deploy_cloudflare(script_dir, env_context)
 
-    # 4. 可选部署 portal 的 Cloudflare Pages 与 OpenNext Worker。
-    deploy_portal_frontend(script_dir, env_context)
-
-    log("✅ [Success] All UAT Serverless components deployed successfully.")
+    log("✅ [Success] Selected Serverless components deployed successfully.")
 
 if __name__ == "__main__":
     main()
