@@ -25,6 +25,8 @@ if VAULT_ENV_PATH not in {"dev", "sit", "uat", "prod"}:
 SERVERLESS_BASE_PATH = os.environ.get(
     "VAULT_SERVERLESS_PATH", f"kv/data/{VAULT_ENV_PATH}/serverless"
 ).strip().rstrip("/")
+DEPLOY_PORTAL_FRONTEND = os.environ.get("DEPLOY_PORTAL_FRONTEND", "false").lower() == "true"
+FRONTEND_ONLY = os.environ.get("FRONTEND_ONLY", "false").lower() == "true"
 
 def log(msg: str):
     print(f"==> [UAT Orchestrator] {msg}", flush=True)
@@ -64,11 +66,34 @@ def require_supabase_secret(secrets: dict) -> tuple[str, str]:
         )
     return project_ref, database_password
 
+def deploy_portal_frontend(script_dir: str, env_context: dict) -> None:
+    if not DEPLOY_PORTAL_FRONTEND:
+        log("Portal Cloudflare frontend deployment is disabled.")
+        return
+
+    for script_name in ("deploy_portal_opennext_worker.sh", "deploy_cloudflare_pages.sh"):
+        script = os.path.join(script_dir, script_name)
+        if not os.path.exists(script):
+            raise SystemExit(f"Required portal deployment script is missing: {script}")
+        if not run_command([script], env_context):
+            raise SystemExit(f"Portal Cloudflare deployment failed: {script_name}")
+
 def main():
     log(f"Starting serverless orchestration deployment for environment {VAULT_ENV_PATH}...")
 
     # 1. 从 Vault 获取凭据
     cf_secrets = fetch_vault_secret("cloudflare")
+    if FRONTEND_ONLY and not DEPLOY_PORTAL_FRONTEND:
+        raise SystemExit("FRONTEND_ONLY requires DEPLOY_PORTAL_FRONTEND=true")
+
+    if FRONTEND_ONLY:
+        deploy_portal_frontend(script_dir=os.path.dirname(os.path.abspath(__file__)), env_context={
+            "CLOUDFLARE_ACCOUNT_ID": cf_secrets.get("CLOUDFLARE_ACCOUNT_ID", os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")),
+            "CLOUDFLARE_API_TOKEN": cf_secrets.get("CLOUDFLARE_API_TOKEN", os.environ.get("CLOUDFLARE_API_TOKEN", "")),
+        })
+        log("✅ [Success] Portal Cloudflare frontend deployed and validated.")
+        return
+
     gcp_secrets = fetch_vault_secret("gcp")
     supabase_secrets = fetch_vault_secret("supabase")
     app_secrets = fetch_vault_secret("app-secrets")
@@ -104,12 +129,8 @@ def main():
             log("Error: Cloudflare Worker deployment failed")
             sys.exit(1)
 
-    # 4. 部署 Cloudflare Pages 前端控制台
-    cf_pages_script = os.path.join(script_dir, "deploy_cloudflare_pages.sh")
-    if os.path.exists(cf_pages_script):
-        if not run_command([cf_pages_script], env_context):
-            log("Error: Cloudflare Pages deployment failed")
-            sys.exit(1)
+    # 4. 可选部署 portal 的 Cloudflare Pages 与 OpenNext Worker。
+    deploy_portal_frontend(script_dir, env_context)
 
     log("✅ [Success] All UAT Serverless components deployed successfully.")
 

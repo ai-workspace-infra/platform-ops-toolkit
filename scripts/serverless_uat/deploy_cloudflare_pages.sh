@@ -5,19 +5,23 @@ set -euo pipefail
 # UAT Cloudflare Pages 前端控制台部署脚本
 # -----------------------------------------------------------------------------
 
-PORTAL_DIR="${PORTAL_DIR:-/Users/shenlan/workspaces/ai-workspace-service/portal}"
+PORTAL_DIR="${PORTAL_DIR:?PORTAL_DIR must point to a checked-out portal repository}"
 PAGES_PROJECT="${PAGES_PROJECT_NAME:-ai-workspace-portal-uat}"
+PAGES_BRANCH="${PAGES_BRANCH:-uat}"
+
+if [[ -z "${CLOUDFLARE_API_TOKEN:-}" || -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
+  echo "CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are required" >&2
+  exit 1
+fi
 
 echo "==> [Cloudflare Pages UAT] Deploying portal frontend to project: ${PAGES_PROJECT}..."
 
-if [[ -d "${PORTAL_DIR}" ]]; then
-  pushd "${PORTAL_DIR}" > /dev/null
-  if command -v npx > /dev/null 2>&1 && [[ -d "out" || -d ".next" ]]; then
-    npx wrangler pages deploy "${PORTAL_DIR}/out" --project-name="${PAGES_PROJECT}" --branch="uat" || true
-  fi
-  popd > /dev/null
-else
-  echo "Warning: Portal directory ${PORTAL_DIR} not found locally, skipping direct Pages upload"
-fi
+test -f "${PORTAL_DIR}/package.json"
+pushd "${PORTAL_DIR}" > /dev/null
+corepack enable
+yarn install --immutable
+yarn build:static-dashboard
+yarn exec wrangler pages deploy static-dashboard/out --project-name="${PAGES_PROJECT}" --branch="${PAGES_BRANCH}"
+popd > /dev/null
 
 echo "==> [Cloudflare Pages UAT] Portal deployment finished."
