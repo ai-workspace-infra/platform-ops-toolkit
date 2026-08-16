@@ -42,18 +42,24 @@ for svc in "${SERVICES[@]}"; do
   env_vars=(
     "APP_ENV=${DEPLOY_ENV}"
     "ENV=${DEPLOY_ENV}"
+    # Cloud Run uses the Supabase connection URI directly.  DATABASE_URL plus
+    # DB_TLS_HOST/DB_TLS_PORT is the legacy VPS/stunnel contract and must not
+    # be emitted by this deployment path.
     "SUPABASE_CONNECT_URI=${SUPABASE_CONNECT_URI}"
     "INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN}"
   )
   case "${svc}" in
     accounts)
       env_vars+=(
-        # The image still contains a legacy localhost readiness probe. A
-        # non-local marker keeps Cloud Run on SUPABASE_CONNECT_URI and avoids
-        # starting or waiting for the optional stunnel path.
-        "DB_HOST=supabase-session-pooler"
-        "DB_PORT=5432"
         "CONFIG_TEMPLATE=${CONFIG_TEMPLATE:-/app/config/account.cloudrun.yaml}"
+        "ROOT_BOOTSTRAP_EMAIL=${ROOT_BOOTSTRAP_EMAIL:?ROOT_BOOTSTRAP_EMAIL is required}"
+        "ROOT_BOOTSTRAP_PASSWORD=${ROOT_BOOTSTRAP_PASSWORD:?ROOT_BOOTSTRAP_PASSWORD is required from Vault}"
+        "AUTH_TOKEN_PUBLIC_TOKEN=${AUTH_TOKEN_PUBLIC_TOKEN:?AUTH_TOKEN_PUBLIC_TOKEN is required from Vault}"
+        "AUTH_TOKEN_REFRESH_SECRET=${AUTH_TOKEN_REFRESH_SECRET:?AUTH_TOKEN_REFRESH_SECRET is required from Vault}"
+        "AUTH_TOKEN_ACCESS_SECRET=${AUTH_TOKEN_ACCESS_SECRET:?AUTH_TOKEN_ACCESS_SECRET is required from Vault}"
+        "XWORKMATE_SHARED_TENANT_DOMAIN=${XWORKMATE_SHARED_TENANT_DOMAIN:?XWORKMATE_SHARED_TENANT_DOMAIN is required}"
+        "XWORKMATE_SHARED_TENANT_DOMAINS=${XWORKMATE_SHARED_TENANT_DOMAINS:-${XWORKMATE_SHARED_TENANT_DOMAIN}}"
+        "XWORKMATE_BRIDGE_SERVER_URL=${XWORKMATE_BRIDGE_SERVER_URL:?XWORKMATE_BRIDGE_SERVER_URL is required}"
         "SMTP_HOST=${SMTP_HOST:-smtp.qq.com}"
         "SMTP_PORT=${SMTP_PORT:-587}"
         "SMTP_FROM=${SMTP_FROM:-XControl Account <no-reply@example.com>}"

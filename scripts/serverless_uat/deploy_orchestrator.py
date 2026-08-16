@@ -186,6 +186,7 @@ def main():
     gcp_secrets = fetch_vault_secret("gcp") if DEPLOY_CLOUD_RUN else {}
     supabase_secrets = fetch_vault_secret("supabase") if (DEPLOY_CLOUD_RUN or VERIFY_SUPABASE) else {}
     runtime_secrets = fetch_vault_path("kv/data/WEB_SAAS") if DEPLOY_CLOUD_RUN else {}
+    cicd_secrets = fetch_vault_path("kv/data/CICD") if DEPLOY_CLOUD_RUN else {}
 
     if DEPLOY_CLOUD_RUN or VERIFY_SUPABASE:
         require_supabase_secret(supabase_secrets)
@@ -204,6 +205,34 @@ def main():
         if DEPLOY_CLOUD_RUN
         else ""
     )
+    root_bootstrap_password = (
+        require_runtime_secret(cicd_secrets, "ROOT_BOOTSTRAP_PASSWORD")
+        if DEPLOY_CLOUD_RUN
+        else ""
+    )
+    auth_token_secrets = {
+        key: require_runtime_secret(runtime_secrets, key)
+        for key in (
+            "AUTH_TOKEN_PUBLIC_TOKEN",
+            "AUTH_TOKEN_REFRESH_SECRET",
+            "AUTH_TOKEN_ACCESS_SECRET",
+        )
+    } if DEPLOY_CLOUD_RUN else {}
+    shared_tenant_domain = (
+        str(runtime_secrets.get("XWORKMATE_SHARED_TENANT_DOMAIN", "onwalk.net")).strip()
+        if DEPLOY_CLOUD_RUN
+        else ""
+    )
+    bridge_server_url = (
+        str(
+            runtime_secrets.get(
+                "XWORKMATE_BRIDGE_SERVER_URL",
+                f"https://bridge-{VAULT_ENV_PATH}.onwalk.net",
+            )
+        ).strip()
+        if DEPLOY_CLOUD_RUN
+        else ""
+    )
     env_context = {
         "CLOUDFLARE_ACCOUNT_ID": cf_secrets.get("CLOUDFLARE_ACCOUNT_ID", os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")),
         "CLOUDFLARE_API_TOKEN": cf_secrets.get("CLOUDFLARE_API_TOKEN", os.environ.get("CLOUDFLARE_API_TOKEN", "")),
@@ -216,6 +245,16 @@ def main():
             "KNOWLEDGE_REPO_URL", "https://github.com/ai-workspace-services/knowledge.git"
         ),
         "KNOWLEDGE_REPO_REF": runtime_secrets.get("KNOWLEDGE_REPO_REF", "main"),
+        "ROOT_BOOTSTRAP_EMAIL": cicd_secrets.get(
+            "ROOT_BOOTSTRAP_EMAIL", "admin@svc.plus"
+        ),
+        "ROOT_BOOTSTRAP_PASSWORD": root_bootstrap_password,
+        **auth_token_secrets,
+        "XWORKMATE_SHARED_TENANT_DOMAIN": shared_tenant_domain,
+        "XWORKMATE_SHARED_TENANT_DOMAINS": runtime_secrets.get(
+            "XWORKMATE_SHARED_TENANT_DOMAINS", shared_tenant_domain
+        ),
+        "XWORKMATE_BRIDGE_SERVER_URL": bridge_server_url,
         "JWT_SECRET": os.environ.get("JWT_SECRET", "uat-jwt-secret-default"),
         "CONFIG_TEMPLATE": "/app/config/account.cloudrun.yaml",
         "SMTP_HOST": runtime_secrets.get("SMTP_HOST", "smtp.qq.com"),
