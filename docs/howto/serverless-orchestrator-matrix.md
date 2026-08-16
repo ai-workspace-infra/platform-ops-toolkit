@@ -11,15 +11,15 @@ Supabase / xworktech
 Cloud Run / accounts, content-service, billing-service
         │
         ▼
-Cloudflare / edge-worker, dashboard, edge-gateway（可选）
+Cloudflare / dashboard (Pages), edge-worker（可选）, edge-gateway（可选）
         │
         ▼
 Verify / Summary
 ```
 
 任务依赖按从左到右排列为 `Supabase → Cloud Run → Cloudflare → Verify / Summary`。
-Cloudflare 矩阵名称为 `edge-worker`（原 page-worker）和 `dashboard`（原 page）；
-`edge-gateway` 是独立可选 job，默认 skipped。Verify job 会校验 Supabase 连接契约，并把
+Cloudflare 前端部署以 `dashboard`（Cloudflare Pages 静态控制台）为主发布路径，部署前自动创建 Pages 项目（`ai-workspace-portal-<env>`）；
+`edge-worker`（portal OpenNext Worker）与 `edge-gateway` 为独立可选 job，默认 skipped。Verify job 会校验 Supabase 连接契约，并把
 各阶段结果写入 GitHub Step Summary。
 
 ## 输入建议
@@ -30,12 +30,15 @@ UAT 常用值：
 vault_env_path=uat
 image_tag=<不可变 daily-build-* 快照>
 deploy_cloudflare=true
+deploy_edge_worker=false
 deploy_edge_gateway=false
 deploy_cloud_run=true
 verify_supabase=true
 ```
 
-`deploy_edge_gateway=true` 时，还需要填写可被 GitHub Actions 访问的
+- `deploy_cloudflare=true` 会构建并发布 portal 的静态控制台到 Cloudflare Pages。
+- `deploy_edge_worker=true` 时，会执行 OpenNext 完整服务端 Worker 发布（依赖 Cloudflare 付费套餐规格支持大体积 Worker）。
+- `deploy_edge_gateway=true` 时，还需要填写可被 GitHub Actions 访问的
 `edge_gateway_repository` 和 `edge_gateway_ref`。该任务会检出 edge-gateway 仓库，执行
 Cloudflare Worker 发布；本地开发机路径不会被带入 CI。
 
