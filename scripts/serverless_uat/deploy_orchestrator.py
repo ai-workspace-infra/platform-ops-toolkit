@@ -28,6 +28,8 @@ SERVERLESS_BASE_PATH = os.environ.get(
 DEPLOY_CLOUDFLARE = os.environ.get("DEPLOY_CLOUDFLARE", "true").lower() == "true"
 DEPLOY_CLOUD_RUN = os.environ.get("DEPLOY_CLOUD_RUN", "true").lower() == "true"
 VERIFY_SUPABASE = os.environ.get("VERIFY_SUPABASE", "true").lower() == "true"
+CLOUD_RUN_SERVICE = os.environ.get("CLOUD_RUN_SERVICE", "").strip()
+CLOUDFLARE_TARGET = os.environ.get("CLOUDFLARE_TARGET", "").strip()
 
 def log(msg: str):
     print(f"==> [UAT Orchestrator] {msg}", flush=True)
@@ -79,11 +81,27 @@ def deploy_cloudflare(script_dir: str, env_context: dict) -> None:
         log("Cloudflare deployment is disabled.")
         return
 
-    for script_name in ("deploy_portal_opennext_worker.sh", "deploy_cloudflare_pages.sh"):
+    target_scripts = {
+        "edge-worker": "deploy_portal_opennext_worker.sh",
+        "page-worker": "deploy_portal_opennext_worker.sh",
+        "dashboard": "deploy_cloudflare_pages.sh",
+        "pages": "deploy_cloudflare_pages.sh",
+        "edge-gateway": "deploy_cloudflare_worker.sh",
+    }
+    if CLOUDFLARE_TARGET and CLOUDFLARE_TARGET not in target_scripts:
+        raise SystemExit(f"Unsupported Cloudflare target: {CLOUDFLARE_TARGET}")
+    script_names = [target_scripts[CLOUDFLARE_TARGET]] if CLOUDFLARE_TARGET else [
+        "deploy_portal_opennext_worker.sh",
+        "deploy_cloudflare_pages.sh",
+    ]
+
+    for script_name in script_names:
         script = os.path.join(script_dir, script_name)
         if not os.path.exists(script):
             raise SystemExit(f"Required portal deployment script is missing: {script}")
-        if not run_command([script], env_context):
+        target_context = dict(env_context)
+        target_context["CLOUDFLARE_TARGET"] = CLOUDFLARE_TARGET
+        if not run_command([script], target_context):
             raise SystemExit(f"Portal Cloudflare deployment failed: {script_name}")
 
 def main():
@@ -118,7 +136,9 @@ def main():
     # Deploy selected GCP Cloud Run microservices.
     cloudrun_script = os.path.join(script_dir, "deploy_cloudrun_services.sh")
     if DEPLOY_CLOUD_RUN and os.path.exists(cloudrun_script):
-        if not run_command([cloudrun_script], env_context):
+        cloudrun_context = dict(env_context)
+        cloudrun_context["CLOUD_RUN_SERVICE"] = CLOUD_RUN_SERVICE
+        if not run_command([cloudrun_script], cloudrun_context):
             log("Error: Cloud Run deployment failed")
             sys.exit(1)
 
