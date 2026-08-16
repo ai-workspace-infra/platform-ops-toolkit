@@ -97,3 +97,18 @@ bash scripts/serverless_uat/init_supabase_account_db.sh \
 结果已合并写入 `kv/uat/databases`。由于目标已有 `account_pg_password`，脚本默认保留
 原值，没有覆盖它；本次命令也没有执行 Terraform init 或 schema migration。执行数据库
 初始化时，schema 会优先使用 `DATABASE_DIRECT_URL`。
+
+## Workflow 验证
+
+`.github/workflows/uat-serverless-orchestrator.yml` 增加了显式的
+`initialize_supabase=true` 分支。该分支只 checkout Accounts schema、读取 Vault 并执行
+schema 初始化，不会同时触发 Cloud Run 部署；默认值为 `false`，定时任务行为不变。
+
+手动验证：
+
+```bash
+gh workflow run uat-serverless-orchestrator.yml \
+  --ref main \
+  -f initialize_supabase=true \
+  -f vault_env_path=uat
+```
