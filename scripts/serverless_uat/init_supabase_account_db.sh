@@ -89,10 +89,10 @@ if [ -n "${SCHEMA_FILE}" ] && ! [ -f "${SCHEMA_FILE}" ]; then
   exit 2
 fi
 
-vault token lookup >/dev/null 2>&1 || {
-  echo "no authenticated Vault CLI session is available" >&2
+if [ -z "${VAULT_TOKEN:-}" ]; then
+  echo "VAULT_TOKEN is required for the Vault CLI" >&2
   exit 1
-}
+fi
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/.supabase-account-vault.XXXXXX")"
 chmod 700 "${tmp_dir}"
