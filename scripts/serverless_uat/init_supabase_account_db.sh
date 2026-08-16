@@ -109,11 +109,11 @@ get_secret() {
   jq -r --arg key "${key}" '.data.data[$key] // empty' "${tmp_dir}/server.json"
 }
 
-# Some Supabase connection-string views wrap the hostname in brackets even
-# when it is a DNS name. Python's urlsplit() correctly rejects that form
-# because brackets are reserved for IPv6 literals. Normalize only bracketed
-# DNS hostnames; valid IPv4/IPv6 literals remain unchanged. The URI travels
-# through stdin so the helper never exposes credentials as process arguments.
+# Some Supabase connection-string views use `[YOUR-PASSWORD]` as a password
+# placeholder, and some views wrap a DNS hostname in brackets. Python's
+# urlsplit() rejects both forms in a netloc; normalize them before parsing.
+# Valid IPv4/IPv6 host literals remain unchanged. The URI travels through
+# stdin so the helper never exposes credentials as process arguments.
 normalize_postgres_uri() {
   python3 -c '
 import ipaddress
@@ -121,6 +121,14 @@ import re
 import sys
 
 value = sys.stdin.read()
+
+# Brackets in the userinfo are a Supabase UI placeholder, not an IPv6 host.
+value = re.sub(
+    r"^([^?#]*://)([^@]*)@",
+    lambda match: match.group(1) + match.group(2).replace("[", "").replace("]", "") + "@",
+    value,
+    count=1,
+)
 
 def normalize(match):
     host = match.group(1)
@@ -132,6 +140,31 @@ def normalize(match):
 
 sys.stdout.write(re.sub(r"@\[([^]]+)\](?:(:\d+))?", normalize, value))
 '
+}
+
+materialize_postgres_uri() {
+  python3 -c '
+import re
+import sys
+from urllib.parse import quote
+
+uri, password = sys.stdin.buffer.read().split(b"\0", 1)
+uri = uri.decode()
+password = password.decode()
+match = re.match(r"^([^?#]*://)([^@]*)@(.*)$", uri)
+if match:
+    prefix, userinfo, host_and_path = match.groups()
+    if ":" in userinfo:
+        username, uri_password = userinfo.rsplit(":", 1)
+        if re.search(r"your[-_ ]password", uri_password, re.IGNORECASE):
+            userinfo = username + ":" + quote(password, safe="")
+            uri = prefix + userinfo + "@" + host_and_path
+sys.stdout.write(uri)
+'
+}
+
+is_placeholder_password() {
+  python3 -c 'import re, sys; sys.exit(0 if re.search(r"your[-_ ]password", sys.stdin.read(), re.IGNORECASE) else 1)'
 }
 
 PROJECT_REF="$(get_secret "${PROJECT_REF_KEY}")"
@@ -158,12 +191,24 @@ if [ -z "${DATABASE_PASSWORD}" ]; then
   echo "Unable to obtain a database password from Vault source: ${SERVER_PATH}" >&2
   exit 1
 fi
+if printf '%s' "${DATABASE_PASSWORD}" | is_placeholder_password; then
+  echo "Vault source contains a Supabase password placeholder; provide a real ${PASSWORD_KEY}" >&2
+  exit 1
+fi
 if [ -z "${SESSION_URI}" ]; then
   SESSION_URI="${DIRECT_URI}"
 fi
 if [ -z "${SESSION_URI}" ]; then
   echo "Vault source is missing both ${SESSION_URI_KEY} and ${DIRECT_URI_KEY}: ${SERVER_PATH}" >&2
   exit 1
+fi
+SESSION_URI="$(printf '%s' "${SESSION_URI}" | normalize_postgres_uri)"
+if [ -n "${DIRECT_URI}" ]; then
+  DIRECT_URI="$(printf '%s' "${DIRECT_URI}" | normalize_postgres_uri)"
+fi
+SESSION_URI="$(printf '%s\0%s' "${SESSION_URI}" "${DATABASE_PASSWORD}" | materialize_postgres_uri)"
+if [ -n "${DIRECT_URI}" ]; then
+  DIRECT_URI="$(printf '%s\0%s' "${DIRECT_URI}" "${DATABASE_PASSWORD}" | materialize_postgres_uri)"
 fi
 if [ -z "${ACCOUNT_USERNAME}" ]; then
   ACCOUNT_USERNAME="$(printf '%s' "${SESSION_URI}" | normalize_postgres_uri | python3 -c 'import sys; from urllib.parse import unquote, urlsplit; print(unquote(urlsplit(sys.stdin.read()).username or ""))')"
@@ -197,14 +242,12 @@ if [ -n "${SCHEMA_FILE}" ]; then
   # GitHub-hosted runners are IPv4-only in the common case. Session pooler
   # keeps psql/DDL reachable there; use Direct only when no session URI exists.
   schema_uri="${SESSION_URI:-${DIRECT_URI}}"
-  connection_json="$(printf '%s' "${schema_uri}" | normalize_postgres_uri | python3 -c 'import json, sys; from urllib.parse import unquote, urlsplit; u = urlsplit(sys.stdin.read()); print(json.dumps({"host": u.hostname or "", "port": u.port or 5432, "user": unquote(u.username or ""), "database": (u.path or "/postgres").lstrip("/") or "postgres", "password": unquote(u.password or "")}))')"
+  connection_json="$(printf '%s' "${schema_uri}" | normalize_postgres_uri | python3 -c 'import json, sys; from urllib.parse import unquote, urlsplit; u = urlsplit(sys.stdin.read()); print(json.dumps({"host": u.hostname or "", "port": u.port or 5432, "user": unquote(u.username or ""), "database": (u.path or "/postgres").lstrip("/") or "postgres"}))')"
   db_host="$(printf '%s' "${connection_json}" | jq -r .host)"
   db_port="$(printf '%s' "${connection_json}" | jq -r .port)"
   db_user="$(printf '%s' "${connection_json}" | jq -r .user)"
   db_name="$(printf '%s' "${connection_json}" | jq -r .database)"
-  uri_password="$(printf '%s' "${connection_json}" | jq -r .password)"
   [ -n "${db_host}" ] && [ -n "${db_user}" ] || { echo "invalid Supabase connection URI from Vault" >&2; exit 1; }
-  if [ -n "${uri_password}" ]; then DATABASE_PASSWORD="${uri_password}"; fi
   echo "==> initialize Accounts schema in ${ENV_NAME} Supabase database"
   PGPASSWORD="${DATABASE_PASSWORD}" psql \
     -h "${db_host}" -p "${db_port}" -U "${db_user}" -d "${db_name}" \
