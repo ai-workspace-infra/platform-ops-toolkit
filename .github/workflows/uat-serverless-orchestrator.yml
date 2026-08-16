@@ -3,6 +3,11 @@ name: UAT Serverless Orchestrator
 on:
   workflow_dispatch:
     inputs:
+      initialize_supabase:
+        description: 'Initialize Supabase Accounts schema only'
+        required: true
+        default: false
+        type: boolean
       vault_env_path:
         description: 'Vault environment path (dev, uat, prod)'
         required: true
@@ -23,6 +28,7 @@ on:
 jobs:
   deploy_uat:
     name: Provision UAT Serverless Stack
+    if: ${{ inputs.initialize_supabase != true }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -46,3 +52,42 @@ jobs:
           VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
           DEPLOY_ENV: ${{ inputs.vault_env_path || 'uat' }}
           IMAGE_TAG: ${{ github.event.inputs.image_tag || 'latest' }}
+
+  initialize_supabase:
+    name: Initialize Supabase Accounts schema
+    if: ${{ inputs.initialize_supabase == true }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Checkout Accounts schema
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-services/accounts
+          ref: main
+          path: accounts
+          sparse-checkout: |
+            sql/schema.sql
+
+      - name: Install Vault CLI
+        run: |
+          set -euo pipefail
+          VAULT_VERSION=1.21.3
+          wget -qO vault.zip "https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip"
+          unzip -o vault.zip
+          sudo mv vault /usr/local/bin/vault
+          rm -f vault.zip
+          vault version
+
+      - name: Initialize Supabase Accounts database
+        env:
+          VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+          VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
+        run: |
+          set -euo pipefail
+          bash scripts/serverless_uat/init_supabase_account_db.sh \
+            --env "${VAULT_ENV_PATH}" \
+            --schema-file "${GITHUB_WORKSPACE}/accounts/sql/schema.sql" \
+            --write-account-password
