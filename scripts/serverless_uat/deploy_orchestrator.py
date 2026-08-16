@@ -15,7 +15,7 @@ import subprocess
 import sys
 import urllib.request
 import urllib.error
-from urllib.parse import urlsplit, unquote
+from urllib.parse import quote, urlsplit, unquote
 
 VAULT_ADDR = os.environ.get("VAULT_ADDR", "https://vault.svc.plus").rstrip("/")
 VAULT_TOKEN = os.environ.get("VAULT_TOKEN", "")
@@ -35,10 +35,13 @@ def log(msg: str):
     print(f"==> [UAT Orchestrator] {msg}", flush=True)
 
 def fetch_vault_secret(subpath: str) -> dict:
+    return fetch_vault_path(f"{SERVERLESS_BASE_PATH}/{subpath}")
+
+def fetch_vault_path(path: str) -> dict:
     if not VAULT_TOKEN:
-        log(f"Warning: VAULT_TOKEN not set, skipping Vault fetch for {subpath}")
+        log(f"Warning: VAULT_TOKEN not set, skipping Vault fetch for {path}")
         return {}
-    url = f"{VAULT_ADDR}/v1/{SERVERLESS_BASE_PATH}/{subpath}"
+    url = f"{VAULT_ADDR}/v1/{path.lstrip('/')}"
     req = urllib.request.Request(url, headers={"X-Vault-Token": VAULT_TOKEN})
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -47,6 +50,38 @@ def fetch_vault_secret(subpath: str) -> dict:
     except Exception as e:
         log(f"Failed to fetch Vault secret at {url}: {e}")
         return {}
+
+def normalize_runtime_database_uri(secrets: dict) -> str:
+    """Return a URL-safe Supabase runtime URI.
+
+    Vault may contain a pooler URI whose password was copied without URL
+    encoding. Rebuild the user-info from the discrete Vault fields so special
+    characters in the password cannot make the Go services reject the URI.
+    """
+    raw = str(
+        secrets.get(
+            "SUPABASE_CONNECT_URI",
+            secrets.get(
+                "DATABASE_SESSION_POOLER_URL",
+                secrets.get("DATABASE_POOLER_URL", secrets.get("DATABASE_DIRECT_URL", "")),
+            ),
+        )
+    ).strip()
+    password = str(secrets.get("DATABASE_PASSWORD", "")).strip()
+    if not raw or not password or "://" not in raw or "@" not in raw:
+        return raw
+
+    scheme, authority_path = raw.split("://", 1)
+    userinfo, host_path = authority_path.rsplit("@", 1)
+    username = str(secrets.get("DATABASE_USERNAME", "")).strip()
+    if not username:
+        username = userinfo.rsplit(":", 1)[0]
+    if not username:
+        return raw
+    return (
+        f"{scheme}://{quote(username, safe='')}:{quote(password, safe='')}"
+        f"@{host_path}"
+    )
 
 def run_command(cmd: list, env_vars: dict = None) -> bool:
     env = os.environ.copy()
@@ -60,21 +95,44 @@ def require_supabase_secret(secrets: dict) -> tuple[str, str]:
     project_ref = str(secrets.get("PROJECT_REF", "")).strip()
     database_password = str(secrets.get("DATABASE_PASSWORD", "")).strip()
     if not database_password:
-        direct_uri = str(secrets.get("DATABASE_DIRECT_URL", "")).strip()
-        database_password = unquote(urlsplit(direct_uri).password or "")
+        for uri_key in (
+            "SUPABASE_CONNECT_URI",
+            "DATABASE_SESSION_POOLER_URL",
+            "DATABASE_POOLER_URL",
+            "DATABASE_DIRECT_URL",
+        ):
+            uri = str(secrets.get(uri_key, "")).strip()
+            if uri:
+                database_password = unquote(urlsplit(uri).password or "")
+                if database_password:
+                    break
     if not project_ref or not database_password:
         raise SystemExit(
-            "Vault Supabase secret must contain PROJECT_REF and DATABASE_PASSWORD "
-            "or DATABASE_DIRECT_URL"
+            "Vault Supabase secret must contain PROJECT_REF and a password in "
+            "DATABASE_PASSWORD or SUPABASE_CONNECT_URI"
         )
     if not str(
-        secrets.get("DATABASE_SESSION_POOLER_URL", secrets.get("DATABASE_POOLER_URL", secrets.get("DATABASE_DIRECT_URL", "")))
+        secrets.get(
+            "SUPABASE_CONNECT_URI",
+            secrets.get(
+                "DATABASE_SESSION_POOLER_URL",
+                secrets.get("DATABASE_POOLER_URL", secrets.get("DATABASE_DIRECT_URL", "")),
+            ),
+        )
     ).strip():
         raise SystemExit(
-            "Vault Supabase secret must contain DATABASE_SESSION_POOLER_URL, "
-            "DATABASE_POOLER_URL, or DATABASE_DIRECT_URL"
+            "Vault Supabase secret must contain SUPABASE_CONNECT_URI or "
+            "DATABASE_SESSION_POOLER_URL"
         )
     return project_ref, database_password
+
+
+def require_runtime_secret(secrets: dict, key: str) -> str:
+    value = str(secrets.get(key, "")).strip()
+    if not value:
+        raise SystemExit(f"Vault runtime secret must contain {key}")
+    return value
+
 
 def deploy_cloudflare(script_dir: str, env_context: dict) -> None:
     if not DEPLOY_CLOUDFLARE:
@@ -113,22 +171,44 @@ def main():
     cf_secrets = fetch_vault_secret("cloudflare") if DEPLOY_CLOUDFLARE else {}
     gcp_secrets = fetch_vault_secret("gcp") if DEPLOY_CLOUD_RUN else {}
     supabase_secrets = fetch_vault_secret("supabase") if (DEPLOY_CLOUD_RUN or VERIFY_SUPABASE) else {}
-    app_secrets = fetch_vault_secret("app-secrets") if DEPLOY_CLOUD_RUN else {}
+    runtime_secrets = fetch_vault_path("kv/data/WEB_SAAS") if DEPLOY_CLOUD_RUN else {}
 
     if DEPLOY_CLOUD_RUN or VERIFY_SUPABASE:
         require_supabase_secret(supabase_secrets)
         log("Supabase connection contract validated from Vault.")
 
+    database_uri = normalize_runtime_database_uri(supabase_secrets)
+    if DEPLOY_CLOUD_RUN and not database_uri:
+        raise SystemExit("Vault Supabase secret must provide SUPABASE_CONNECT_URI")
+    internal_service_token = (
+        require_runtime_secret(runtime_secrets, "INTERNAL_SERVICE_TOKEN")
+        if DEPLOY_CLOUD_RUN
+        else ""
+    )
+    knowledge_repo_path = (
+        require_runtime_secret(runtime_secrets, "KNOWLEDGE_REPO_PATH")
+        if DEPLOY_CLOUD_RUN
+        else ""
+    )
     env_context = {
         "CLOUDFLARE_ACCOUNT_ID": cf_secrets.get("CLOUDFLARE_ACCOUNT_ID", os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")),
         "CLOUDFLARE_API_TOKEN": cf_secrets.get("CLOUDFLARE_API_TOKEN", os.environ.get("CLOUDFLARE_API_TOKEN", "")),
         "GCP_PROJECT_ID": gcp_secrets.get("GCP_PROJECT_ID", os.environ.get("GCP_PROJECT_ID", "")),
         "GCP_REGION": gcp_secrets.get("GCP_REGION", os.environ.get("GCP_REGION", "asia-east1")),
-        "DATABASE_URL": supabase_secrets.get(
-            "DATABASE_SESSION_POOLER_URL",
-            supabase_secrets.get("DATABASE_POOLER_URL", os.environ.get("DATABASE_URL", "")),
+        "SUPABASE_CONNECT_URI": database_uri,
+        "INTERNAL_SERVICE_TOKEN": internal_service_token,
+        "KNOWLEDGE_REPO_PATH": knowledge_repo_path,
+        "KNOWLEDGE_REPO_URL": runtime_secrets.get(
+            "KNOWLEDGE_REPO_URL", "https://github.com/ai-workspace-services/knowledge.git"
         ),
-        "JWT_SECRET": app_secrets.get("JWT_SECRET", os.environ.get("JWT_SECRET", "uat-jwt-secret-default")),
+        "KNOWLEDGE_REPO_REF": runtime_secrets.get("KNOWLEDGE_REPO_REF", "main"),
+        "JWT_SECRET": os.environ.get("JWT_SECRET", "uat-jwt-secret-default"),
+        "CONFIG_TEMPLATE": "/app/config/account.cloudrun.yaml",
+        "SMTP_HOST": runtime_secrets.get("SMTP_HOST", "smtp.qq.com"),
+        "SMTP_PORT": runtime_secrets.get("SMTP_PORT", "587"),
+        "SMTP_FROM": runtime_secrets.get(
+            "SMTP_FROM", "XControl Account <no-reply@example.com>"
+        ),
     }
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
