@@ -16,12 +16,13 @@ python3 "${ORCHESTRATOR}"
   echo "| --- | --- |"
   echo "| Supabase | ${SUPABASE_RESULT:-unknown} |"
   echo "| Cloud Run | ${CLOUD_RUN_RESULT:-unknown} |"
-  echo "| Cloudflare | ${CLOUDFLARE_RESULT:-unknown} |"
-  echo "| Edge gateway | ${EDGE_GATEWAY_RESULT:-unknown} |"
-  echo "| Verify | success |"
+echo "| Cloudflare | ${CLOUDFLARE_RESULT:-unknown} |"
+echo "| Edge gateway | ${EDGE_GATEWAY_RESULT:-unknown} |"
+echo "| Static Pages | ${STATIC_PAGES_RESULT:-unknown} |"
+echo "| Verify | success |"
 } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
-for result in "${SUPABASE_RESULT:-}" "${CLOUD_RUN_RESULT:-}" "${CLOUDFLARE_RESULT:-}" "${EDGE_GATEWAY_RESULT:-}"; do
+for result in "${SUPABASE_RESULT:-}" "${CLOUD_RUN_RESULT:-}" "${CLOUDFLARE_RESULT:-}" "${EDGE_GATEWAY_RESULT:-}" "${STATIC_PAGES_RESULT:-}"; do
   case "${result}" in
     failure|cancelled)
       exit 1

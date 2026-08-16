@@ -31,11 +31,6 @@ on:
         required: true
         default: true
         type: boolean
-      deploy_edge_gateway:
-        description: 'Also deploy the optional edge-gateway Worker'
-        required: true
-        default: false
-        type: boolean
       deploy_cloud_run:
         description: 'Deploy backend services to GCP Cloud Run'
         required: true
@@ -57,12 +52,12 @@ on:
         default: 'main'
         type: string
       edge_gateway_repository:
-        description: 'Optional edge-gateway repository'
+        description: 'Required edge-gateway repository'
         required: true
         default: 'ai-workspace-services/edge-gateway'
         type: string
       edge_gateway_ref:
-        description: 'Optional edge-gateway source ref'
+        description: 'Required edge-gateway source ref'
         required: true
         default: 'main'
         type: string
@@ -157,8 +152,8 @@ jobs:
           VERIFY_SUPABASE: 'false'
           CLOUD_RUN_SERVICE: ${{ matrix.service }}
 
-  cloudflare:
-    name: Cloudflare / ${{ matrix.target }}
+  cloudflare_ssr:
+    name: Cloudflare / SSR / ${{ matrix.target }}
     needs: cloud_run
     if: ${{ always() && inputs.deploy_cloudflare == true && (needs.cloud_run.result == 'success' || needs.cloud_run.result == 'skipped') }}
     runs-on: ubuntu-latest
@@ -167,7 +162,6 @@ jobs:
       matrix:
         target:
           - ssr
-          - static-pages
     steps:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
@@ -207,13 +201,19 @@ jobs:
           CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
           PAGES_BRANCH: ${{ inputs.vault_env_path || 'uat' }}
           PORTAL_DIR: ${{ github.workspace }}/portal
-          WORKER_DIR: ${{ github.workspace }}/edge-gateway
 
   edge_gateway:
-    name: Cloudflare / edge-gateway (optional)
-    needs: cloud_run
-    if: ${{ always() && inputs.deploy_cloudflare == true && inputs.deploy_edge_gateway == true && (needs.cloud_run.result == 'success' || needs.cloud_run.result == 'skipped') }}
+    name: Cloudflare / edge-gateway / ${{ matrix.boundary }}
+    needs: cloudflare_ssr
+    if: ${{ always() && inputs.deploy_cloudflare == true && (needs.cloudflare_ssr.result == 'success') }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        boundary:
+          - auth
+          - admin
+          - core
     steps:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
@@ -246,13 +246,58 @@ jobs:
         run: ./.github/scripts/serverless/run_cloudflare_target.sh
         env:
           CLOUDFLARE_TARGET: edge-gateway
+          EDGE_GATEWAY_BOUNDARY: ${{ matrix.boundary }}
           CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
           WORKER_DIR: ${{ github.workspace }}/edge-gateway
 
+  static_pages:
+    name: Cloudflare / static-pages
+    needs: edge_gateway
+    if: ${{ always() && inputs.deploy_cloudflare == true && needs.edge_gateway.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Validate Cloudflare boundary contract
+        run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
+
+      - name: Checkout portal source
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.portal_repository }}
+          ref: ${{ inputs.portal_ref }}
+          path: portal
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Authenticate to Vault with GitHub OIDC
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
+          jwtGithubAudience: vault
+          exportToken: true
+          secrets: |
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN
+
+      - name: Deploy static Pages assets
+        run: ./.github/scripts/serverless/run_cloudflare_target.sh
+        env:
+          CLOUDFLARE_TARGET: static-pages
+          CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
+          PAGES_BRANCH: ${{ inputs.vault_env_path || 'uat' }}
+          PORTAL_DIR: ${{ github.workspace }}/portal
+
   verify:
     name: Verify / Summary
-    needs: [supabase, cloud_run, cloudflare, edge_gateway]
-    if: ${{ always() && inputs.verify_supabase == true && needs.supabase.result != 'cancelled' && needs.cloud_run.result != 'cancelled' && needs.cloudflare.result != 'cancelled' && needs.edge_gateway.result != 'cancelled' }}
+    needs: [supabase, cloud_run, cloudflare_ssr, edge_gateway, static_pages]
+    if: ${{ always() && inputs.verify_supabase == true && needs.supabase.result != 'cancelled' && needs.cloud_run.result != 'cancelled' && needs.cloudflare_ssr.result != 'cancelled' && needs.edge_gateway.result != 'cancelled' && needs.static_pages.result != 'cancelled' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout platform toolkit
@@ -272,7 +317,8 @@ jobs:
         env:
           VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
           VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
-          CLOUDFLARE_RESULT: ${{ needs.cloudflare.result }}
+          CLOUDFLARE_RESULT: ${{ needs.cloudflare_ssr.result }}
           EDGE_GATEWAY_RESULT: ${{ needs.edge_gateway.result }}
+          STATIC_PAGES_RESULT: ${{ needs.static_pages.result }}
           CLOUD_RUN_RESULT: ${{ needs.cloud_run.result }}
           SUPABASE_RESULT: ${{ needs.supabase.result }}

@@ -11,17 +11,21 @@ Supabase / xworktech
 Cloud Run / accounts, content-service, billing-service
         │
         ▼
-Cloudflare / ssr, static-pages, edge-gateway（可选）
+Cloudflare / SSR（多个）
+        │
+        ▼
+edge-gateway / auth, admin, core（必选）
+        │
+        ▼
+Cloudflare / static-pages
         │
         ▼
 Verify / Summary
 ```
 
-任务依赖按从左到右排列为 `Supabase → Cloud Run → Cloudflare → Verify / Summary`。
-Cloudflare 矩阵名称为 `ssr`（`frontend-server-edge-uat`）和 `static-pages`
-（`ai-workspace-portal-uat`）；
-`edge-gateway` 是独立可选 job，默认 skipped。Verify job 会校验 Supabase 连接契约，并把
-各阶段结果写入 GitHub Step Summary。
+任务依赖按从左到右排列为：
+`Supabase → Cloud Run → Cloudflare SSR → edge-gateway → static-pages → Verify / Summary`。
+`edge-gateway` 不再是可选 job，必须成功后才发布静态 Pages 资源。
 
 ## Cloudflare UAT 边界
 
@@ -29,15 +33,15 @@ Cloudflare 矩阵名称为 `ssr`（`frontend-server-edge-uat`）和 `static-page
 
 | 层 | Worker / Pages | 路径边界 | 当前状态 |
 |---|---|---|---|
-| SSR 页面 | `frontend-server-edge-uat` | `/`、`/panel/*`、`/_next/*` | 已接入现有 OpenNext 部署 |
-| API 鉴权 | `frontend-api-auth-uat` | `/api/auth/*` | 需要独立轻量 API Worker 入口 |
-| API 管理 | `frontend-api-admin-uat` | `/api/admin/*` | 需要独立轻量 API Worker 入口 |
-| API 核心 | `frontend-api-core-uat` | `/api/*` 兜底 | 需要独立轻量 API Worker 入口 |
+| SSR 页面 | `frontend-server-edge-uat` | `/`、`/panel/*`、`/_next/*` | SSR 矩阵部署 |
+| API 鉴权 | `frontend-api-auth-uat` | `/api/auth/*` | 独立轻量 Worker |
+| API 管理 | `frontend-api-admin-uat` | `/api/admin/*` | 独立轻量 Worker |
+| API 核心 | `frontend-api-core-uat` | `/api/*` 兜底 | 独立轻量 Worker |
 | 静态资源 | `ai-workspace-portal-uat` | `/static/*`、`/assets/*` | Pages 部署 |
 
 这里的拆分是源代码级拆分：不能仅复制 `wrangler` 名称，否则每个 Worker 仍会打包整套
 OpenNext 应用，无法解决 Cloudflare Worker 3 MiB 限制。API 三个 Worker 需要在 portal
-或 edge-gateway 仓库中提供独立入口后，再开启对应路径的 Cloudflare Routes。
+或 edge-gateway 仓库中提供独立入口，并通过对应 `wrangler.*.toml` 开启 Cloudflare Routes。
 
 ## 输入建议
 
@@ -47,14 +51,13 @@ UAT 常用值：
 vault_env_path=uat
 image_tag=<不可变 daily-build-* 快照>
 deploy_cloudflare=true
-deploy_edge_gateway=false
 deploy_cloud_run=true
 verify_supabase=true
 ```
 
-`deploy_edge_gateway=true` 时，还需要填写可被 GitHub Actions 访问的
-`edge_gateway_repository` 和 `edge_gateway_ref`。该任务会检出 edge-gateway 仓库，执行
-Cloudflare Worker 发布；本地开发机路径不会被带入 CI。
+`edge_gateway_repository` 和 `edge_gateway_ref` 为必填的源码来源。任务会检出
+edge-gateway 仓库，并以 `auth/admin/core` 三项矩阵独立发布三个 Worker；本地开发机路径不会
+被带入 CI。
 
 ## Cloud Run 镜像契约
 

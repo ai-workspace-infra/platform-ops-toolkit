@@ -12,6 +12,7 @@ case "${CLOUDFLARE_TARGET:-}" in
     bash "${SCRIPT_DIR}/deploy_cloudflare_pages.sh"
     ;;
   edge-gateway)
+    : "${EDGE_GATEWAY_BOUNDARY:?EDGE_GATEWAY_BOUNDARY must be auth, admin, or core}"
     bash "${SCRIPT_DIR}/deploy_cloudflare_worker.sh"
     ;;
   *)
