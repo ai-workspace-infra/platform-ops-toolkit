@@ -63,6 +63,9 @@ VAULT_ADDR=https://vault.svc.plus \
   --schema-file /path/to/accounts/sql/schema.sql
 ```
 
+如果 URI 是从 Supabase Connect 页面直接复制、仍包含 `[YOUR-PASSWORD]` 占位符，脚本会使用同一路径的
+`DATABASE_PASSWORD` 在内存中补全密码；占位符不会写入最终的 `account_database_uri`。如果没有真实密码，脚本会直接失败。
+
 脚本将 Supabase URI 中的实际数据库名写入 `account_database_name`（通常为 `postgres`），
 将 `account` 作为 Accounts 服务的逻辑数据库契约。Supabase Cloud 单项目并不支持把项目默认数据库随意改名为
 `account`；如果必须满足 `account_user` 最小权限模型，应在 Supabase 数据库中另行执行

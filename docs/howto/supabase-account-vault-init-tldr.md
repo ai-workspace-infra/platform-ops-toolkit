@@ -99,6 +99,9 @@ bash scripts/serverless_uat/init_supabase_account_db.sh \
 优先使用 IPv4 可达的 `DATABASE_SESSION_POOLER_URL`，没有 Session URI 时才使用
 `DATABASE_DIRECT_URL`。
 
+从 Supabase Connect 页面复制的 URI 若仍带 `[YOUR-PASSWORD]`，脚本会用 Vault 中的
+`DATABASE_PASSWORD` 临时补全；真实密码缺失时会拒绝初始化，避免把占位符写入连接契约。
+
 ## Workflow 验证
 
 `.github/workflows/uat-serverless-orchestrator.yml` 增加了显式的
