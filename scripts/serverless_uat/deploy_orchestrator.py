@@ -68,7 +68,11 @@ def normalize_runtime_database_uri(secrets: dict) -> str:
         )
     ).strip()
     password = str(secrets.get("DATABASE_PASSWORD", "")).strip()
-    if not raw or not password or "://" not in raw or "@" not in raw:
+    if not raw or "://" not in raw or "@" not in raw:
+        return raw
+    if not password:
+        password = unquote(urlsplit(raw).password or "")
+    if not password:
         return raw
 
     scheme, authority_path = raw.split("://", 1)
@@ -78,6 +82,16 @@ def normalize_runtime_database_uri(secrets: dict) -> str:
         username = userinfo.rsplit(":", 1)[0]
     if not username:
         return raw
+    project_ref = str(secrets.get("PROJECT_REF", "")).strip()
+    host_name = host_path.split("/", 1)[0].rsplit(":", 1)[0]
+    if (
+        username == "postgres"
+        and project_ref
+        and host_name.endswith(".pooler.supabase.com")
+    ):
+        # Supavisor uses the project ref in the PostgreSQL username as the
+        # tenant identifier when connecting through the Session pooler.
+        username = f"postgres.{project_ref}"
     return (
         f"{scheme}://{quote(username, safe='')}:{quote(password, safe='')}"
         f"@{host_path}"
