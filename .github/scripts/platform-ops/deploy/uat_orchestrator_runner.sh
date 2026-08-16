@@ -5,7 +5,8 @@ set -euo pipefail
 # GitHub Actions UAT Orchestration Runner
 # -----------------------------------------------------------------------------
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts/serverless_uat" && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
+SCRIPT_DIR="${REPO_ROOT}/scripts/serverless_uat"
 
 echo "==> [CI Runner] Running UAT Serverless Orchestration..."
 
