@@ -51,6 +51,11 @@ for svc in "${SERVICES[@]}"; do
   case "${svc}" in
     accounts)
       env_vars+=(
+        # The image still contains a legacy localhost readiness probe. A
+        # non-local marker keeps Cloud Run on SUPABASE_CONNECT_URI and avoids
+        # starting or waiting for the optional stunnel path.
+        "DB_HOST=supabase-session-pooler"
+        "DB_PORT=5432"
         "CONFIG_TEMPLATE=${CONFIG_TEMPLATE:-/app/config/account.cloudrun.yaml}"
         "ROOT_BOOTSTRAP_EMAIL=${ROOT_BOOTSTRAP_EMAIL:?ROOT_BOOTSTRAP_EMAIL is required}"
         "ROOT_BOOTSTRAP_PASSWORD=${ROOT_BOOTSTRAP_PASSWORD:?ROOT_BOOTSTRAP_PASSWORD is required from Vault}"
