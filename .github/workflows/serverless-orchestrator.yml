@@ -159,34 +159,25 @@ jobs:
 
   cloudflare:
     name: Cloudflare / ${{ matrix.target }}
-    needs: supabase
-    if: ${{ always() && inputs.deploy_cloudflare == true && (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') }}
+    needs: cloud_run
+    if: ${{ always() && inputs.deploy_cloudflare == true && (needs.cloud_run.result == 'success' || needs.cloud_run.result == 'skipped') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         target:
-          - page-worker
-          - pages
+          - edge-worker
+          - dashboard
     steps:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
 
       - name: Checkout portal source
-        if: ${{ matrix.target != 'edge-gateway' }}
         uses: actions/checkout@v7
         with:
           repository: ${{ inputs.portal_repository }}
           ref: ${{ inputs.portal_ref }}
           path: portal
-
-      - name: Checkout edge-gateway source
-        if: ${{ matrix.target == 'edge-gateway' && inputs.deploy_edge_gateway == true }}
-        uses: actions/checkout@v7
-        with:
-          repository: ${{ inputs.edge_gateway_repository }}
-          ref: ${{ inputs.edge_gateway_ref }}
-          path: edge-gateway
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -217,8 +208,8 @@ jobs:
 
   edge_gateway:
     name: Cloudflare / edge-gateway (optional)
-    needs: supabase
-    if: ${{ always() && inputs.deploy_cloudflare == true && inputs.deploy_edge_gateway == true && (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') }}
+    needs: cloud_run
+    if: ${{ always() && inputs.deploy_cloudflare == true && inputs.deploy_edge_gateway == true && (needs.cloud_run.result == 'success' || needs.cloud_run.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout platform toolkit
@@ -254,3 +245,31 @@ jobs:
           CLOUDFLARE_TARGET: edge-gateway
           CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
           WORKER_DIR: ${{ github.workspace }}/edge-gateway
+
+  verify:
+    name: Verify / Summary
+    needs: [supabase, cloud_run, cloudflare, edge_gateway]
+    if: ${{ always() && inputs.verify_supabase == true }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Authenticate to Vault with GitHub OIDC
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
+          jwtGithubAudience: vault
+          exportToken: true
+
+      - name: Verify Supabase and publish summary
+        run: ./.github/scripts/serverless/verify_summary.sh
+        env:
+          VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
+          CLOUDFLARE_RESULT: ${{ needs.cloudflare.result }}
+          EDGE_GATEWAY_RESULT: ${{ needs.edge_gateway.result }}
+          CLOUD_RUN_RESULT: ${{ needs.cloud_run.result }}
+          SUPABASE_RESULT: ${{ needs.supabase.result }}

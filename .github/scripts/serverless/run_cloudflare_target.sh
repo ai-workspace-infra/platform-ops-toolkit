@@ -5,10 +5,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 SCRIPT_DIR="${REPO_ROOT}/scripts/serverless_uat"
 
 case "${CLOUDFLARE_TARGET:-}" in
-  page-worker)
+  edge-worker|page-worker)
     bash "${SCRIPT_DIR}/deploy_portal_opennext_worker.sh"
     ;;
-  pages)
+  dashboard|pages)
     bash "${SCRIPT_DIR}/deploy_cloudflare_pages.sh"
     ;;
   edge-gateway)
