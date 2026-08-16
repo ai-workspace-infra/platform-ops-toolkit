@@ -65,7 +65,25 @@ for svc in "${SERVICES[@]}"; do
       env_vars+=("BILLING_INGEST_MODE=${BILLING_INGEST_MODE:-push}")
       ;;
   esac
-  env_vars_joined="$(IFS='@'; printf '%s' "${env_vars[*]}")"
+  env_delimiter=""
+  for candidate in '|' ';' '%' '~' '^' '+' ':'; do
+    candidate_used=false
+    for env_var in "${env_vars[@]}"; do
+      if [[ "${env_var}" == *"${candidate}"* ]]; then
+        candidate_used=true
+        break
+      fi
+    done
+    if [[ "${candidate_used}" == false ]]; then
+      env_delimiter="${candidate}"
+      break
+    fi
+  done
+  if [[ -z "${env_delimiter}" ]]; then
+    echo "Unable to choose a safe gcloud env-var delimiter" >&2
+    exit 1
+  fi
+  env_vars_joined="$(IFS="${env_delimiter}"; printf '%s' "${env_vars[*]}")"
 
   echo "==> [Cloud Run] Deploying ${SERVICE_NAME} (min=0, max=2)..."
   
@@ -80,7 +98,7 @@ for svc in "${SERVICES[@]}"; do
     --max-instances=2 \
     --cpu=1 \
     --memory=512Mi \
-    --set-env-vars="^@^${env_vars_joined}" \
+    --set-env-vars="^${env_delimiter}^${env_vars_joined}" \
     --quiet
 done
 
