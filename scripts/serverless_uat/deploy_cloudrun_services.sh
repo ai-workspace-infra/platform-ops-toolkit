@@ -8,16 +8,27 @@ set -euo pipefail
 
 GCP_PROJECT="${GCP_PROJECT_ID:-ai-workspace-uat-project}"
 GCP_REGION="${GCP_REGION:-asia-east1}"
+GCP_ARTIFACT_REGISTRY_REGION="${GCP_ARTIFACT_REGISTRY_REGION:-${GCP_REGION}}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 DEPLOY_ENV="${DEPLOY_ENV:-uat}"
 
 SERVICES=("accounts" "billing-service" "content-service")
+if [[ -n "${CLOUD_RUN_SERVICE:-}" ]]; then
+  SERVICES=("${CLOUD_RUN_SERVICE}")
+fi
+
+for svc in "${SERVICES[@]}"; do
+  case "${svc}" in
+    accounts|billing-service|content-service) ;;
+    *) echo "Unsupported Cloud Run service: ${svc}" >&2; exit 2 ;;
+  esac
+done
 
 echo "==> [Cloud Run] Deploying backend microservices to GCP project: ${GCP_PROJECT} (region: ${GCP_REGION}, environment: ${DEPLOY_ENV})..."
 
 for svc in "${SERVICES[@]}"; do
   SERVICE_NAME="${DEPLOY_ENV}-${svc}"
-  IMAGE_URI="asia-east1-docker.pkg.dev/${GCP_PROJECT}/serverless/${svc}:${IMAGE_TAG}"
+  IMAGE_URI="${GCP_ARTIFACT_REGISTRY_REGION}-docker.pkg.dev/${GCP_PROJECT}/serverless/${svc}:${IMAGE_TAG}"
 
   echo "==> [Cloud Run] Deploying ${SERVICE_NAME} (min=0, max=2)..."
   

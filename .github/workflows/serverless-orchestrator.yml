@@ -31,8 +31,13 @@ on:
         required: true
         default: true
         type: boolean
+      deploy_edge_gateway:
+        description: 'Also deploy the optional edge-gateway Worker'
+        required: true
+        default: false
+        type: boolean
       deploy_cloud_run:
-        description: 'Deploy selected backend services to GCP Cloud Run'
+        description: 'Deploy backend services to GCP Cloud Run'
         required: true
         default: true
         type: boolean
@@ -47,39 +52,76 @@ on:
         default: 'ai-workspace-services/portal'
         type: string
       portal_ref:
-        description: 'Portal source ref: immutable release tag, commit SHA, or branch (for example daily-build-2026.08.16-r1)'
+        description: 'Portal source ref: immutable release tag, commit SHA, or branch'
         required: true
         default: 'main'
         type: string
+      edge_gateway_repository:
+        description: 'Optional edge-gateway repository'
+        required: true
+        default: 'ai-workspace-service/edge-gateway.svc.plus'
+        type: string
+      edge_gateway_ref:
+        description: 'Optional edge-gateway source ref'
+        required: true
+        default: 'main'
+        type: string
+
 jobs:
-  deploy_serverless:
-    name: Deploy and verify selected Serverless components
-    needs: initialize_supabase
-    # Explicit Supabase initialization is an init-only operation. Keep the
-    # normal deployment path available when the input is false or omitted.
-    if: ${{ always() && inputs.initialize_supabase != true && (needs.initialize_supabase.result == 'success' || needs.initialize_supabase.result == 'skipped') }}
+  supabase:
+    name: Supabase / xworktech
+    if: ${{ inputs.initialize_supabase == true || inputs.verify_supabase == true }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout platform toolkit
         uses: actions/checkout@v7
 
-      - name: Setup Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.11'
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24
-
-      - name: Checkout portal source
-        if: ${{ inputs.deploy_cloudflare == true }}
+      - name: Checkout Accounts schema
+        if: ${{ inputs.initialize_supabase == true }}
         uses: actions/checkout@v7
         with:
-          repository: ${{ inputs.portal_repository }}
-          ref: ${{ inputs.portal_ref }}
-          path: portal
+          repository: ai-workspace-services/accounts
+          ref: main
+          path: accounts
+          sparse-checkout: |
+            sql/schema.sql
+
+      - name: Install Vault CLI
+        run: ./.github/scripts/serverless/install_vault_cli.sh
+
+      - name: Authenticate to Vault with GitHub OIDC
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
+          jwtGithubAudience: vault
+          exportToken: true
+
+      - name: Run Supabase task
+        run: ./.github/scripts/serverless/run_supabase_task.sh
+        env:
+          VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
+          INITIALIZE_SUPABASE: ${{ inputs.initialize_supabase }}
+          VERIFY_SUPABASE: ${{ inputs.verify_supabase }}
+          ACCOUNT_SCHEMA_FILE: ${{ github.workspace }}/accounts/sql/schema.sql
+
+  cloud_run:
+    name: Cloud Run / ${{ matrix.service }}
+    needs: supabase
+    if: ${{ always() && inputs.deploy_cloud_run == true && (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - accounts
+          - content-service
+          - billing-service
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
 
       - name: Authenticate to Vault with GitHub OIDC
         id: vault
@@ -95,57 +137,62 @@ jobs:
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL
 
       - name: Authenticate to Google Cloud
-        if: ${{ inputs.deploy_cloud_run == true }}
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ steps.vault.outputs.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ steps.vault.outputs.GCP_SERVICE_ACCOUNT_EMAIL }}
 
       - name: Set up Google Cloud SDK
-        if: ${{ inputs.deploy_cloud_run == true }}
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Run Serverless Orchestrator
+      - name: Deploy Cloud Run service
         run: ./.github/scripts/platform-ops/deploy/uat_orchestrator_runner.sh
         env:
           VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
           VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
           DEPLOY_ENV: ${{ inputs.vault_env_path || 'uat' }}
-          IMAGE_TAG: ${{ github.event.inputs.image_tag || 'latest' }}
-          DEPLOY_CLOUDFLARE: ${{ inputs.deploy_cloudflare }}
-          DEPLOY_CLOUD_RUN: ${{ inputs.deploy_cloud_run }}
-          VERIFY_SUPABASE: ${{ inputs.verify_supabase }}
-          PORTAL_DIR: ${{ github.workspace }}/portal
-          PORTAL_REF: ${{ inputs.portal_ref || 'main' }}
-          CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
-          PAGES_BRANCH: ${{ inputs.vault_env_path || 'uat' }}
+          IMAGE_TAG: ${{ inputs.image_tag || 'latest' }}
+          DEPLOY_CLOUDFLARE: 'false'
+          DEPLOY_CLOUD_RUN: 'true'
+          VERIFY_SUPABASE: 'false'
+          CLOUD_RUN_SERVICE: ${{ matrix.service }}
 
-  initialize_supabase:
-    name: Initialize Supabase Accounts schema
-    if: ${{ inputs.initialize_supabase == true }}
+  cloudflare:
+    name: Cloudflare / ${{ matrix.target }}
+    needs: supabase
+    if: ${{ always() && inputs.deploy_cloudflare == true && (matrix.target != 'edge-gateway' || inputs.deploy_edge_gateway == true) && (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - page-worker
+          - pages
+          - edge-gateway
     steps:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
 
-      - name: Checkout Accounts schema
+      - name: Checkout portal source
+        if: ${{ matrix.target != 'edge-gateway' }}
         uses: actions/checkout@v7
         with:
-          repository: ai-workspace-services/accounts
-          ref: main
-          path: accounts
-          sparse-checkout: |
-            sql/schema.sql
+          repository: ${{ inputs.portal_repository }}
+          ref: ${{ inputs.portal_ref }}
+          path: portal
 
-      - name: Install Vault CLI
-        run: |
-          set -euo pipefail
-          VAULT_VERSION=1.21.3
-          wget -qO vault.zip "https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip"
-          unzip -o vault.zip
-          sudo mv vault /usr/local/bin/vault
-          rm -f vault.zip
-          vault version
+      - name: Checkout edge-gateway source
+        if: ${{ matrix.target == 'edge-gateway' && inputs.deploy_edge_gateway == true }}
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.edge_gateway_repository }}
+          ref: ${{ inputs.edge_gateway_ref }}
+          path: edge-gateway
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
 
       - name: Authenticate to Vault with GitHub OIDC
         id: vault
@@ -156,14 +203,15 @@ jobs:
           role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
           jwtGithubAudience: vault
           exportToken: true
+          secrets: |
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN
 
-      - name: Initialize Supabase Accounts database
+      - name: Deploy Cloudflare target
+        run: ./.github/scripts/serverless/run_cloudflare_target.sh
         env:
-          VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
-          VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
-        run: |
-          set -euo pipefail
-          bash scripts/serverless_uat/init_supabase_account_db.sh \
-            --env "${VAULT_ENV_PATH}" \
-            --schema-file "${GITHUB_WORKSPACE}/accounts/sql/schema.sql" \
-            --write-account-password
+          CLOUDFLARE_TARGET: ${{ matrix.target }}
+          CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
+          PAGES_BRANCH: ${{ inputs.vault_env_path || 'uat' }}
+          PORTAL_DIR: ${{ github.workspace }}/portal
+          WORKER_DIR: ${{ github.workspace }}/edge-gateway
