@@ -233,11 +233,6 @@ on:
         required: false
         default: ""
         type: string
-      supabase_source_dsn_key:
-        description: "源 PostgreSQL Vault 中的 DSN key"
-        required: false
-        default: "MIGRATION_SOURCE_DSN"
-        type: string
       accounts_source_host:
         description: "ssh 传输：PROD 源主机"
         required: false
