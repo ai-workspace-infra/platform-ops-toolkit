@@ -101,6 +101,7 @@ bash scripts/serverless_uat/init_supabase_account_db.sh \
 
 从 Supabase Connect 页面复制的 URI 若仍带 `[YOUR-PASSWORD]`，脚本会用 Vault 中的
 `DATABASE_PASSWORD` 临时补全；真实密码缺失时会拒绝初始化，避免把占位符写入连接契约。
+目标 Vault key 已存在时仍保持幂等；仅检测到 `YOUR-PASSWORD` 占位符才会自动修复，真实值不会被覆盖。
 
 ## Workflow 验证
 

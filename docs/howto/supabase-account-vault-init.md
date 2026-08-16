@@ -31,6 +31,7 @@ kv/<env>/databases
 
 已有 `account_pg_password` 默认不会被覆盖；只有显式指定
 `--write-account-password` 才会把 Supabase 密码同步到这个兼容键。
+目标值若仍是 `YOUR-PASSWORD` 占位符，会被视为未完成并自动补全；其他已有真实值默认保留。
 
 `<env>` 由 `--env dev|sit|uat|prod` 或 `VAULT_ENV_PATH` 传入。用户可见的 serverless
 workflow 当前提供 `dev|uat|prod`，保留 `sit` 是为了兼容平台现有 Vault policy。

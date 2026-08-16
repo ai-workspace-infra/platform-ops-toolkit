@@ -283,7 +283,12 @@ fi
 jq -n \
   --slurpfile current "${tmp_dir}/current.json" \
   --slurpfile incoming "${tmp_dir}/incoming.json" --argjson force "${FORCE}" \
-  '$incoming[0] | with_entries(select($force == 1 or (.key as $key | ($current[0] | has($key) | not))))' \
+  'def incomplete: type == "string" and test("your[-_ ]password"; "i");
+   $incoming[0] | with_entries(select(
+     $force == 1 or
+     (.key as $key | (($current[0] | has($key)) | not)) or
+     (.key as $key | (($current[0][$key] // null) | incomplete))
+   ))' \
   > "${tmp_dir}/to-write.json"
 if [ "$(jq -c . "${tmp_dir}/to-write.json")" = "{}" ]; then
   echo "skip ${DATABASES_PATH}: account Supabase keys already exist (use --force to replace)"
