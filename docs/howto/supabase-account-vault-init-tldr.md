@@ -20,8 +20,10 @@ kv/dev/serverless/supabase
 已初始化以下 key：
 
 ```text
-PROJECT_REF
-DATABASE_PASSWORD
+  PROJECT_REF
+  PROJECT_URL
+  REGION
+  DATABASE_PASSWORD
 DATABASE_USERNAME
 DATABASE_NAME
 DATABASE_SESSION_POOLER_URL
@@ -32,6 +34,8 @@ DATABASE_DIRECT_URL
 
 ```text
 PROJECT_REF       ✅
+PROJECT_URL       ✅ https://iqkxspmhcfqmhkbjdoms.supabase.co
+REGION            ✅ ap-northeast-1
 DATABASE_USERNAME ✅ postgres
 DATABASE_NAME     ✅ postgres
 ```
