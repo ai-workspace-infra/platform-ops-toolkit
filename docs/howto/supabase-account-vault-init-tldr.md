@@ -112,3 +112,6 @@ gh workflow run uat-serverless-orchestrator.yml \
   -f initialize_supabase=true \
   -f vault_env_path=uat
 ```
+
+Workflow 使用 GitHub OIDC + `hashicorp/vault-action` 获取临时 Vault token，不依赖
+`secrets.VAULT_TOKEN`。
