@@ -156,8 +156,10 @@ def deploy_cloudflare(script_dir: str, env_context: dict) -> None:
     target_scripts = {
         "edge-worker": "deploy_portal_opennext_worker.sh",
         "page-worker": "deploy_portal_opennext_worker.sh",
+        "ssr": "deploy_portal_opennext_worker.sh",
         "dashboard": "deploy_cloudflare_pages.sh",
         "pages": "deploy_cloudflare_pages.sh",
+        "static-pages": "deploy_cloudflare_pages.sh",
         "edge-gateway": "deploy_cloudflare_worker.sh",
     }
     if CLOUDFLARE_TARGET and CLOUDFLARE_TARGET not in target_scripts:

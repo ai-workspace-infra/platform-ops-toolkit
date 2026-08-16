@@ -11,16 +11,33 @@ Supabase / xworktech
 Cloud Run / accounts, content-service, billing-service
         │
         ▼
-Cloudflare / edge-worker, dashboard, edge-gateway（可选）
+Cloudflare / ssr, static-pages, edge-gateway（可选）
         │
         ▼
 Verify / Summary
 ```
 
 任务依赖按从左到右排列为 `Supabase → Cloud Run → Cloudflare → Verify / Summary`。
-Cloudflare 矩阵名称为 `edge-worker`（原 page-worker）和 `dashboard`（原 page）；
+Cloudflare 矩阵名称为 `ssr`（`frontend-server-edge-uat`）和 `static-pages`
+（`ai-workspace-portal-uat`）；
 `edge-gateway` 是独立可选 job，默认 skipped。Verify job 会校验 Supabase 连接契约，并把
 各阶段结果写入 GitHub Step Summary。
+
+## Cloudflare UAT 边界
+
+边界清单位于 `.github/serverless/cloudflare-boundaries.json`：
+
+| 层 | Worker / Pages | 路径边界 | 当前状态 |
+|---|---|---|---|
+| SSR 页面 | `frontend-server-edge-uat` | `/`、`/panel/*`、`/_next/*` | 已接入现有 OpenNext 部署 |
+| API 鉴权 | `frontend-api-auth-uat` | `/api/auth/*` | 需要独立轻量 API Worker 入口 |
+| API 管理 | `frontend-api-admin-uat` | `/api/admin/*` | 需要独立轻量 API Worker 入口 |
+| API 核心 | `frontend-api-core-uat` | `/api/*` 兜底 | 需要独立轻量 API Worker 入口 |
+| 静态资源 | `ai-workspace-portal-uat` | `/static/*`、`/assets/*` | Pages 部署 |
+
+这里的拆分是源代码级拆分：不能仅复制 `wrangler` 名称，否则每个 Worker 仍会打包整套
+OpenNext 应用，无法解决 Cloudflare Worker 3 MiB 限制。API 三个 Worker 需要在 portal
+或 edge-gateway 仓库中提供独立入口后，再开启对应路径的 Cloudflare Routes。
 
 ## 输入建议
 

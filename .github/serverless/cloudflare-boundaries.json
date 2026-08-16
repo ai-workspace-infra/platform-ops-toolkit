@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "environment": "uat",
+  "host": "console-uat.onwalk.net",
+  "boundaries": [
+    {
+      "id": "ssr",
+      "kind": "worker",
+      "name": "frontend-server-edge-uat",
+      "source": "ai-workspace-services/portal",
+      "routes": ["/", "/panel/*", "/_next/*"]
+    },
+    {
+      "id": "api-auth",
+      "kind": "worker",
+      "name": "frontend-api-auth-uat",
+      "source": "ai-workspace-services/edge-gateway",
+      "routes": ["/api/auth/*"]
+    },
+    {
+      "id": "api-admin",
+      "kind": "worker",
+      "name": "frontend-api-admin-uat",
+      "source": "ai-workspace-services/edge-gateway",
+      "routes": ["/api/admin/*"]
+    },
+    {
+      "id": "api-core",
+      "kind": "worker",
+      "name": "frontend-api-core-uat",
+      "source": "ai-workspace-services/edge-gateway",
+      "routes": ["/api/*"]
+    },
+    {
+      "id": "static",
+      "kind": "pages",
+      "name": "ai-workspace-portal-uat",
+      "source": "ai-workspace-services/portal",
+      "routes": ["/static/*", "/assets/*"]
+    }
+  ]
+}

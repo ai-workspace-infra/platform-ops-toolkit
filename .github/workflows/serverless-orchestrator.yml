@@ -27,7 +27,7 @@ on:
         required: false
         default: 'latest'
       deploy_cloudflare:
-        description: 'Deploy Cloudflare Pages and the portal OpenNext Worker'
+        description: 'Deploy Cloudflare SSR Worker and Pages static assets'
         required: true
         default: true
         type: boolean
@@ -166,11 +166,14 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - edge-worker
-          - dashboard
+          - ssr
+          - static-pages
     steps:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
+
+      - name: Validate Cloudflare boundary contract
+        run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
 
       - name: Checkout portal source
         uses: actions/checkout@v7
