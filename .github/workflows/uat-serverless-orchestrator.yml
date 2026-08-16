@@ -1,5 +1,9 @@
 name: UAT Serverless Orchestrator
 
+permissions:
+  id-token: write
+  contents: read
+
 on:
   workflow_dispatch:
     inputs:
@@ -44,11 +48,20 @@ jobs:
         with:
           node-version: 20
 
+      - name: Authenticate to Vault with GitHub OIDC
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
+          jwtGithubAudience: vault
+          exportToken: true
+
       - name: Run UAT Orchestrator Script
         run: ./.github/scripts/platform-ops/deploy/uat_orchestrator_runner.sh
         env:
           VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
-          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
           VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
           DEPLOY_ENV: ${{ inputs.vault_env_path || 'uat' }}
           IMAGE_TAG: ${{ github.event.inputs.image_tag || 'latest' }}
@@ -80,10 +93,19 @@ jobs:
           rm -f vault.zip
           vault version
 
+      - name: Authenticate to Vault with GitHub OIDC
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
+          jwtGithubAudience: vault
+          exportToken: true
+
       - name: Initialize Supabase Accounts database
         env:
           VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
-          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
           VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
         run: |
           set -euo pipefail
