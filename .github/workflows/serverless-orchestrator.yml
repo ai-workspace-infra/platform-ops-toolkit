@@ -112,9 +112,9 @@ jobs:
           VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
           DEPLOY_ENV: ${{ inputs.vault_env_path || 'uat' }}
           IMAGE_TAG: ${{ github.event.inputs.image_tag || 'latest' }}
-          DEPLOY_CLOUDFLARE: ${{ inputs.deploy_cloudflare || true }}
-          DEPLOY_CLOUD_RUN: ${{ inputs.deploy_cloud_run || true }}
-          VERIFY_SUPABASE: ${{ inputs.verify_supabase || true }}
+          DEPLOY_CLOUDFLARE: ${{ inputs.deploy_cloudflare }}
+          DEPLOY_CLOUD_RUN: ${{ inputs.deploy_cloud_run }}
+          VERIFY_SUPABASE: ${{ inputs.verify_supabase }}
           PORTAL_DIR: ${{ github.workspace }}/portal
           PORTAL_REF: ${{ inputs.portal_ref || 'main' }}
           CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
