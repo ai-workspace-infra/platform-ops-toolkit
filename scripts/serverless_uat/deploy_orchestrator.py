@@ -155,20 +155,19 @@ def deploy_cloudflare(script_dir: str, env_context: dict) -> None:
         return
 
     target_scripts = {
+        "ssr": "deploy_portal_opennext_worker.sh",
         "edge-worker": "deploy_portal_opennext_worker.sh",
         "page-worker": "deploy_portal_opennext_worker.sh",
+        "static-pages": "deploy_cloudflare_pages.sh",
         "dashboard": "deploy_cloudflare_pages.sh",
         "pages": "deploy_cloudflare_pages.sh",
         "edge-gateway": "deploy_cloudflare_worker.sh",
     }
-    if CLOUDFLARE_TARGET:
-        if CLOUDFLARE_TARGET not in target_scripts:
-            raise SystemExit(f"Unsupported Cloudflare target: {CLOUDFLARE_TARGET}")
-        script_names = [target_scripts[CLOUDFLARE_TARGET]]
-    else:
-        script_names = ["deploy_cloudflare_pages.sh"]
-        if DEPLOY_EDGE_WORKER:
-            script_names.insert(0, "deploy_portal_opennext_worker.sh")
+    if not CLOUDFLARE_TARGET:
+        raise SystemExit("CLOUDFLARE_TARGET is required for direct Cloudflare deployment")
+    if CLOUDFLARE_TARGET not in target_scripts:
+        raise SystemExit(f"Unsupported Cloudflare target: {CLOUDFLARE_TARGET}")
+    script_names = [target_scripts[CLOUDFLARE_TARGET]]
 
     for script_name in script_names:
         script = os.path.join(script_dir, script_name)

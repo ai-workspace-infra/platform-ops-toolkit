@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "environment": "uat",
+  "host": "console-uat.onwalk.net",
+  "boundaries": [
+    {
+      "id": "ssr-public",
+      "kind": "worker",
+      "name": "frontend-ssr-public-uat",
+      "source": "ai-workspace-services/portal",
+      "routes": ["/*", "/_edge/public/*"]
+    },
+    {
+      "id": "ssr-content",
+      "kind": "worker",
+      "name": "frontend-ssr-content-uat",
+      "source": "ai-workspace-services/portal",
+      "routes": ["/blogs*", "/docs*", "/download*", "/_edge/content/*"]
+    },
+    {
+      "id": "ssr-auth",
+      "kind": "worker",
+      "name": "frontend-ssr-auth-uat",
+      "source": "ai-workspace-services/portal",
+      "routes": ["/login*", "/register*", "/email-verification*", "/logout*", "/_edge/auth/*"]
+    },
+    {
+      "id": "ssr-console",
+      "kind": "worker",
+      "name": "frontend-ssr-console-uat",
+      "source": "ai-workspace-services/portal",
+      "routes": ["/panel*", "/dashboard*", "/_edge/console/*"]
+    },
+    {
+      "id": "ssr-workspace",
+      "kind": "worker",
+      "name": "frontend-ssr-workspace-uat",
+      "source": "ai-workspace-services/portal",
+      "routes": ["/ai-workspace*", "/cloud_iac*", "/editor*", "/support*", "/xworkmate*", "/_edge/workspace/*"]
+    },
+    {
+      "id": "api-auth",
+      "kind": "worker",
+      "name": "frontend-api-auth-uat",
+      "source": "ai-workspace-services/edge-gateway",
+      "routes": ["/api/auth/*"]
+    },
+    {
+      "id": "api-admin",
+      "kind": "worker",
+      "name": "frontend-api-admin-uat",
+      "source": "ai-workspace-services/edge-gateway",
+      "routes": ["/api/admin/*"]
+    },
+    {
+      "id": "api-core",
+      "kind": "worker",
+      "name": "frontend-api-core-uat",
+      "source": "ai-workspace-services/edge-gateway",
+      "routes": ["/api/*"]
+    },
+    {
+      "id": "static",
+      "kind": "pages",
+      "name": "ai-workspace-portal-uat",
+      "source": "ai-workspace-services/portal",
+      "routes": ["/static/*", "/assets/*"]
+    }
+  ]
+}
