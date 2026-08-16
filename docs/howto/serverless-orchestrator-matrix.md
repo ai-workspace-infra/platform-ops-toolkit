@@ -6,17 +6,21 @@
 
 ```text
 Supabase / xworktech
-├── Cloud Run / accounts
-├── Cloud Run / content-service
-├── Cloud Run / billing-service
-├── Cloudflare / page-worker
-├── Cloudflare / pages
-└── Cloudflare / edge-gateway（独立可选 job，默认跳过）
+        │
+        ▼
+Cloud Run / accounts, content-service, billing-service
+        │
+        ▼
+Cloudflare / edge-worker, dashboard, edge-gateway（可选）
+        │
+        ▼
+Verify / Summary
 ```
 
-Cloud Run 和 Cloudflare 两个矩阵都依赖 `Supabase / xworktech`。Supabase 初始化或
-连接契约校验失败时，后续部署不会执行；当两个 Supabase 输入都关闭时，依赖任务会显示
-为 skipped，部署矩阵仍可继续。
+任务依赖按从左到右排列为 `Supabase → Cloud Run → Cloudflare → Verify / Summary`。
+Cloudflare 矩阵名称为 `edge-worker`（原 page-worker）和 `dashboard`（原 page）；
+`edge-gateway` 是独立可选 job，默认 skipped。Verify job 会校验 Supabase 连接契约，并把
+各阶段结果写入 GitHub Step Summary。
 
 ## 输入建议
 
