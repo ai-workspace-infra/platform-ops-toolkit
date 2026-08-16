@@ -26,6 +26,7 @@ SERVERLESS_BASE_PATH = os.environ.get(
     "VAULT_SERVERLESS_PATH", f"kv/data/{VAULT_ENV_PATH}/serverless"
 ).strip().rstrip("/")
 DEPLOY_CLOUDFLARE = os.environ.get("DEPLOY_CLOUDFLARE", "true").lower() == "true"
+DEPLOY_EDGE_WORKER = os.environ.get("DEPLOY_EDGE_WORKER", "false").lower() == "true"
 DEPLOY_CLOUD_RUN = os.environ.get("DEPLOY_CLOUD_RUN", "true").lower() == "true"
 VERIFY_SUPABASE = os.environ.get("VERIFY_SUPABASE", "true").lower() == "true"
 CLOUD_RUN_SERVICE = os.environ.get("CLOUD_RUN_SERVICE", "").strip()
@@ -160,12 +161,14 @@ def deploy_cloudflare(script_dir: str, env_context: dict) -> None:
         "pages": "deploy_cloudflare_pages.sh",
         "edge-gateway": "deploy_cloudflare_worker.sh",
     }
-    if CLOUDFLARE_TARGET and CLOUDFLARE_TARGET not in target_scripts:
-        raise SystemExit(f"Unsupported Cloudflare target: {CLOUDFLARE_TARGET}")
-    script_names = [target_scripts[CLOUDFLARE_TARGET]] if CLOUDFLARE_TARGET else [
-        "deploy_portal_opennext_worker.sh",
-        "deploy_cloudflare_pages.sh",
-    ]
+    if CLOUDFLARE_TARGET:
+        if CLOUDFLARE_TARGET not in target_scripts:
+            raise SystemExit(f"Unsupported Cloudflare target: {CLOUDFLARE_TARGET}")
+        script_names = [target_scripts[CLOUDFLARE_TARGET]]
+    else:
+        script_names = ["deploy_cloudflare_pages.sh"]
+        if DEPLOY_EDGE_WORKER:
+            script_names.insert(0, "deploy_portal_opennext_worker.sh")
 
     for script_name in script_names:
         script = os.path.join(script_dir, script_name)
