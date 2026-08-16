@@ -109,6 +109,31 @@ get_secret() {
   jq -r --arg key "${key}" '.data.data[$key] // empty' "${tmp_dir}/server.json"
 }
 
+# Some Supabase connection-string views wrap the hostname in brackets even
+# when it is a DNS name. Python's urlsplit() correctly rejects that form
+# because brackets are reserved for IPv6 literals. Normalize only bracketed
+# DNS hostnames; valid IPv4/IPv6 literals remain unchanged. The URI travels
+# through stdin so the helper never exposes credentials as process arguments.
+normalize_postgres_uri() {
+  python3 -c '
+import ipaddress
+import re
+import sys
+
+value = sys.stdin.read()
+
+def normalize(match):
+    host = match.group(1)
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return "@" + host + (match.group(2) or "")
+    return match.group(0)
+
+sys.stdout.write(re.sub(r"@\[([^]]+)\](?:(:\d+))?", normalize, value))
+'
+}
+
 PROJECT_REF="$(get_secret "${PROJECT_REF_KEY}")"
 DIRECT_URI="$(get_secret "${DIRECT_URI_KEY}")"
 SESSION_URI="$(get_secret "${SESSION_URI_KEY}")"
@@ -127,7 +152,7 @@ fi
 if [ -z "${DATABASE_PASSWORD}" ]; then
   # Existing deployments keep the password inside the Vault URI. Extract it
   # through stdin so it never becomes a process argument or a log line.
-  DATABASE_PASSWORD="$(printf '%s' "${DIRECT_URI}" | python3 -c 'import sys; from urllib.parse import unquote, urlsplit; value = urlsplit(sys.stdin.read()).password; print(unquote(value or ""))')"
+  DATABASE_PASSWORD="$(printf '%s' "${DIRECT_URI}" | normalize_postgres_uri | python3 -c 'import sys; from urllib.parse import unquote, urlsplit; value = urlsplit(sys.stdin.read()).password; print(unquote(value or ""))')"
 fi
 if [ -z "${DATABASE_PASSWORD}" ]; then
   echo "Unable to obtain a database password from Vault source: ${SERVER_PATH}" >&2
@@ -141,10 +166,10 @@ if [ -z "${SESSION_URI}" ]; then
   exit 1
 fi
 if [ -z "${ACCOUNT_USERNAME}" ]; then
-  ACCOUNT_USERNAME="$(printf '%s' "${SESSION_URI}" | python3 -c 'import sys; from urllib.parse import unquote, urlsplit; print(unquote(urlsplit(sys.stdin.read()).username or ""))')"
+  ACCOUNT_USERNAME="$(printf '%s' "${SESSION_URI}" | normalize_postgres_uri | python3 -c 'import sys; from urllib.parse import unquote, urlsplit; print(unquote(urlsplit(sys.stdin.read()).username or ""))')"
 fi
 if [ -z "${ACCOUNT_DATABASE_NAME}" ]; then
-  ACCOUNT_DATABASE_NAME="$(printf '%s' "${SESSION_URI}" | python3 -c 'import sys; from urllib.parse import unquote, urlsplit; print(unquote((urlsplit(sys.stdin.read()).path or "/postgres").lstrip("/") or "postgres"))')"
+  ACCOUNT_DATABASE_NAME="$(printf '%s' "${SESSION_URI}" | normalize_postgres_uri | python3 -c 'import sys; from urllib.parse import unquote, urlsplit; print(unquote((urlsplit(sys.stdin.read()).path or "/postgres").lstrip("/") or "postgres"))')"
 fi
 if [ -z "${ACCOUNT_USERNAME}" ] || [ -z "${ACCOUNT_DATABASE_NAME}" ]; then
   echo "Vault source must provide ${USERNAME_KEY}/${DATABASE_NAME_KEY} or a URI with user/database: ${SERVER_PATH}" >&2
@@ -172,7 +197,7 @@ if [ -n "${SCHEMA_FILE}" ]; then
   # GitHub-hosted runners are IPv4-only in the common case. Session pooler
   # keeps psql/DDL reachable there; use Direct only when no session URI exists.
   schema_uri="${SESSION_URI:-${DIRECT_URI}}"
-  connection_json="$(printf '%s' "${schema_uri}" | python3 -c 'import json, sys; from urllib.parse import unquote, urlsplit; u = urlsplit(sys.stdin.read()); print(json.dumps({"host": u.hostname or "", "port": u.port or 5432, "user": unquote(u.username or ""), "database": (u.path or "/postgres").lstrip("/") or "postgres", "password": unquote(u.password or "")}))')"
+  connection_json="$(printf '%s' "${schema_uri}" | normalize_postgres_uri | python3 -c 'import json, sys; from urllib.parse import unquote, urlsplit; u = urlsplit(sys.stdin.read()); print(json.dumps({"host": u.hostname or "", "port": u.port or 5432, "user": unquote(u.username or ""), "database": (u.path or "/postgres").lstrip("/") or "postgres", "password": unquote(u.password or "")}))')"
   db_host="$(printf '%s' "${connection_json}" | jq -r .host)"
   db_port="$(printf '%s' "${connection_json}" | jq -r .port)"
   db_user="$(printf '%s' "${connection_json}" | jq -r .user)"
