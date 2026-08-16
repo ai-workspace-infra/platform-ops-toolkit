@@ -11,7 +11,7 @@ Supabase / xworktech
 ├── Cloud Run / billing-service
 ├── Cloudflare / page-worker
 ├── Cloudflare / pages
-└── Cloudflare / edge-gateway（可选，默认跳过）
+└── Cloudflare / edge-gateway（独立可选 job，默认跳过）
 ```
 
 Cloud Run 和 Cloudflare 两个矩阵都依赖 `Supabase / xworktech`。Supabase 初始化或
