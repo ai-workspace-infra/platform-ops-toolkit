@@ -137,6 +137,14 @@ def main():
     cloudrun_script = os.path.join(script_dir, "deploy_cloudrun_services.sh")
     if DEPLOY_CLOUD_RUN and os.path.exists(cloudrun_script):
         cloudrun_context = dict(env_context)
+        # Pass the workflow-selected immutable tag explicitly.  The child shell
+        # script must never fall back to a historical snapshot tag from a
+        # runner/environment default.
+        cloudrun_context["IMAGE_TAG"] = os.environ.get("IMAGE_TAG", "latest").strip() or "latest"
+        cloudrun_context["GCP_ARTIFACT_REGISTRY_REGION"] = os.environ.get(
+            "GCP_ARTIFACT_REGISTRY_REGION", cloudrun_context["GCP_REGION"]
+        )
+        cloudrun_context["DEPLOY_ENV"] = VAULT_ENV_PATH
         cloudrun_context["CLOUD_RUN_SERVICE"] = CLOUD_RUN_SERVICE
         if not run_command([cloudrun_script], cloudrun_context):
             log("Error: Cloud Run deployment failed")
