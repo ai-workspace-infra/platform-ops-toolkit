@@ -54,7 +54,9 @@ jobs:
   deploy_serverless:
     name: Deploy and verify selected Serverless components
     needs: initialize_supabase
-    if: ${{ always() && (needs.initialize_supabase.result == 'success' || needs.initialize_supabase.result == 'skipped') }}
+    # Explicit Supabase initialization is an init-only operation. Keep the
+    # normal deployment path available when the input is false or omitted.
+    if: ${{ always() && inputs.initialize_supabase != true && (needs.initialize_supabase.result == 'success' || needs.initialize_supabase.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
