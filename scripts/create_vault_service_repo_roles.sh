@@ -50,7 +50,8 @@ read -r -d '' ALLOWED_WORKFLOWS <<EOF || true
     "${WF_PREFIX}/iac-pipeline-multi-cloud-landingzone-baseline.yaml@*",
     "${WF_PREFIX}/cron-rotate-domain-tls-certs.yaml@*",
     "${WF_PREFIX}/data-migration.yaml@*",
-    "${WF_PREFIX}/k6-performance-test.yaml@*"
+    "${WF_PREFIX}/k6-performance-test.yaml@*",
+    "${WF_PREFIX}/uat-serverless-orchestrator.yml@*"
 EOF
 
 PLAYBOOKS_WF_PREFIX="${PLAYBOOKS_REPO}/.github/workflows"
