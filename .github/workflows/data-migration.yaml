@@ -48,6 +48,51 @@ on:
         required: false
         default: "ssh"
         type: string
+      accounts_target_backend:
+        description: "accounts target backend: vps keeps the existing self-hosted flow; supabase is the one-way database target"
+        required: false
+        default: "vps"
+        type: string
+      accounts_migration_mode:
+        description: "accounts migration mode: data for VPS; metadata or metadata_and_data for one-way Supabase migration"
+        required: false
+        default: "data"
+        type: string
+      supabase_project_ref:
+        description: "Supabase project ref expected by the metadata migration"
+        required: false
+        default: "rbjnksmfzkjheiwpkaem"
+        type: string
+      supabase_metadata_dry_run:
+        description: "Supabase metadata migration: dump and preflight only, never write the target"
+        required: false
+        default: true
+        type: boolean
+      supabase_vault_path:
+        description: "Vault KV v2 path containing Supabase connection URL(s) and PROJECT_REF"
+        required: false
+        default: ""
+        type: string
+      supabase_target_dsn_key:
+        description: "Vault key containing the Supabase PostgreSQL DSN; session pooler is the IPv4 default, direct is also supported"
+        required: false
+        default: "DATABASE_SESSION_POOLER_URL"
+        type: string
+      supabase_target_connection_mode:
+        description: "Supabase target connection: session_pooler for IPv4 persistent connections, direct when IPv6/IPv4 add-on is available"
+        required: false
+        default: "session_pooler"
+        type: string
+      supabase_source_vault_path:
+        description: "Vault KV v2 path containing the source PostgreSQL DSN"
+        required: false
+        default: ""
+        type: string
+      supabase_source_dsn_key:
+        description: "Vault key containing the source PostgreSQL DSN"
+        required: false
+        default: "MIGRATION_SOURCE_DSN"
+        type: string
       accounts_source_host:
         description: "ssh transport: PROD source host"
         required: false
@@ -145,6 +190,54 @@ on:
         default: "ssh"
         type: choice
         options: [ssh, direct]
+      accounts_target_backend:
+        description: "accounts 目标后端：vps 保留现有自建 PostgreSQL；supabase 执行单向元数据+业务数据迁移"
+        required: false
+        default: "vps"
+        type: choice
+        options: [vps, supabase]
+      accounts_migration_mode:
+        description: "accounts 迁移模式：data=现有 VPS 数据迁移；metadata=Supabase 元数据预检；metadata_and_data=元数据+业务数据单向迁移"
+        required: false
+        default: "data"
+        type: choice
+        options: [data, metadata, metadata_and_data]
+      supabase_project_ref:
+        description: "Supabase Cloud 项目 ref"
+        required: false
+        default: "rbjnksmfzkjheiwpkaem"
+        type: string
+      supabase_metadata_dry_run:
+        description: "Supabase 元数据迁移：只导出/预检，不写入目标库"
+        required: false
+        default: true
+        type: boolean
+      supabase_vault_path:
+        description: "Supabase Vault 路径（留空使用 kv/data/<env>/serverless/supabase）"
+        required: false
+        default: ""
+        type: string
+      supabase_target_dsn_key:
+        description: "Supabase Vault 中的 DSN key；默认使用 Session pooler，禁止使用 Transaction pooler"
+        required: false
+        default: "DATABASE_SESSION_POOLER_URL"
+        type: string
+      supabase_target_connection_mode:
+        description: "Supabase 目标连接：session_pooler（IPv4 默认）或 direct"
+        required: false
+        default: "session_pooler"
+        type: choice
+        options: [session_pooler, direct]
+      supabase_source_vault_path:
+        description: "源 PostgreSQL Vault 路径（留空使用 kv/data/<env>/accounts-migration）"
+        required: false
+        default: ""
+        type: string
+      supabase_source_dsn_key:
+        description: "源 PostgreSQL Vault 中的 DSN key"
+        required: false
+        default: "MIGRATION_SOURCE_DSN"
+        type: string
       accounts_source_host:
         description: "ssh 传输：PROD 源主机"
         required: false
@@ -198,6 +291,22 @@ env:
   VAULT_ADDR: https://vault.svc.plus
 
 jobs:
+  validate_accounts_migration_target:
+    name: Validate Accounts Migration Target
+    if: ${{ (inputs.migration_scope || 'accounts') == 'accounts' }}
+    runs-on: ${{ inputs.runner_type || 'ubuntu-latest' }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.toolkit_ref || 'main' }}
+    - name: Validate target/backend combination
+      env:
+        ACCOUNTS_TARGET_BACKEND: ${{ inputs.accounts_target_backend || 'vps' }}
+        ACCOUNTS_MIGRATION_MODE: ${{ inputs.accounts_migration_mode || 'data' }}
+        SUPABASE_PROJECT_REF: ${{ inputs.supabase_project_ref || 'rbjnksmfzkjheiwpkaem' }}
+      run: .github/scripts/data-migration/validate_accounts_migration_target.sh
+
   # ---------------------------------------------------------------------------
   # accounts scope: the migratectl one-way incremental migration described in
   # docs/data_migration/accounts_prod_to_uat_migration_guide.md
@@ -215,7 +324,8 @@ jobs:
   # ---------------------------------------------------------------------------
   accounts_data_migration:
     name: Migrate Accounts Data (PROD -> UAT)
-    if: ${{ (inputs.migration_scope || 'accounts') == 'accounts' }}
+    needs: validate_accounts_migration_target
+    if: ${{ (inputs.migration_scope || 'accounts') == 'accounts' && (inputs.accounts_target_backend || 'vps') == 'vps' && (inputs.accounts_migration_mode || 'data') == 'data' }}
     runs-on: ${{ inputs.runner_type || 'ubuntu-latest' }}
     env:
       VAULT_ROLE: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'sit' }}
@@ -330,6 +440,47 @@ jobs:
         SNAPSHOT_FILE: ${{ runner.temp }}/account-prod-snapshot.yaml
         DRY_RUN: ${{ inputs.accounts_dry_run && 'true' || 'false' }}
       run: .github/scripts/data-migration/accounts_data_migration.sh
+
+  supabase_metadata_migration:
+    name: Migrate PostgreSQL Metadata to Supabase Cloud
+    needs: validate_accounts_migration_target
+    if: ${{ (inputs.migration_scope || 'accounts') == 'accounts' && (inputs.accounts_target_backend || 'vps') == 'supabase' && contains(fromJSON('["metadata","metadata_and_data"]'), inputs.accounts_migration_mode || 'data') }}
+    runs-on: ${{ inputs.runner_type || 'ubuntu-latest' }}
+    env:
+      VAULT_ROLE: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'sit' }}
+      SUPABASE_EXPECTED_PROJECT_REF: ${{ inputs.supabase_project_ref || 'rbjnksmfzkjheiwpkaem' }}
+      SUPABASE_METADATA_DRY_RUN: ${{ inputs.supabase_metadata_dry_run && 'true' || 'false' }}
+      SUPABASE_VAULT_PATH: ${{ inputs.supabase_vault_path || format('kv/data/{0}/serverless/supabase', inputs.vault_env_path || 'sit') }}
+      SUPABASE_SOURCE_VAULT_PATH: ${{ inputs.supabase_source_vault_path || format('kv/data/{0}/accounts-migration', inputs.vault_env_path || 'sit') }}
+      SUPABASE_TARGET_DSN_KEY: ${{ inputs.supabase_target_dsn_key || 'DATABASE_SESSION_POOLER_URL' }}
+      SUPABASE_TARGET_CONNECTION_MODE: ${{ inputs.supabase_target_connection_mode || 'session_pooler' }}
+      SUPABASE_SOURCE_DSN_KEY: ${{ inputs.supabase_source_dsn_key || 'MIGRATION_SOURCE_DSN' }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.toolkit_ref || 'main' }}
+
+    - name: Load source and Supabase direct DSNs from Vault
+      id: vault
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        role: ${{ env.VAULT_ROLE }}
+        method: jwt
+        jwtGithubAudience: vault
+        secrets: |
+          ${{ env.SUPABASE_SOURCE_VAULT_PATH }} ${{ env.SUPABASE_SOURCE_DSN_KEY }} | MIGRATION_SOURCE_DSN ;
+          ${{ env.SUPABASE_VAULT_PATH }} ${{ env.SUPABASE_TARGET_DSN_KEY }} | SUPABASE_TARGET_DSN ;
+          ${{ env.SUPABASE_VAULT_PATH }} PROJECT_REF | SUPABASE_VAULT_PROJECT_REF ;
+
+    - name: Run Supabase one-way database migration (mode=${{ inputs.accounts_migration_mode }}, dry_run=${{ inputs.supabase_metadata_dry_run }})
+      env:
+        MIGRATION_SOURCE_DSN: ${{ steps.vault.outputs.MIGRATION_SOURCE_DSN }}
+        SUPABASE_TARGET_DSN: ${{ steps.vault.outputs.SUPABASE_TARGET_DSN }}
+        SUPABASE_VAULT_PROJECT_REF: ${{ steps.vault.outputs.SUPABASE_VAULT_PROJECT_REF }}
+        SUPABASE_MIGRATION_MODE: ${{ inputs.accounts_migration_mode || 'data' }}
+      run: .github/scripts/data-migration/supabase_metadata_migration.sh
 
   data_migration:
     name: Migrate Site Data (Source -> Target)
