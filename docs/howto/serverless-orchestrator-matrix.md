@@ -40,8 +40,9 @@ Verify / Summary
 | 静态资源 | `ai-workspace-portal-uat` | `/static/*`、`/assets/*` | Pages 部署 |
 
 这里的拆分是源代码级拆分：不能仅复制 `wrangler` 名称，否则每个 Worker 仍会打包整套
-OpenNext 应用，无法解决 Cloudflare Worker 3 MiB 限制。API 三个 Worker 需要在 portal
-或 edge-gateway 仓库中提供独立入口，并通过对应 `wrangler.*.toml` 开启 Cloudflare Routes。
+OpenNext 应用，无法解决 Cloudflare Worker 3 MiB 限制。API 三个独立入口已经在
+`ai-workspace-services/edge-gateway` 中提供，并通过 `wrangler.auth.toml`、
+`wrangler.admin.toml`、`wrangler.core.toml` 开启对应 Cloudflare Routes。
 
 ## 输入建议
 
