@@ -160,7 +160,7 @@ jobs:
   cloudflare:
     name: Cloudflare / ${{ matrix.target }}
     needs: supabase
-    if: ${{ always() && inputs.deploy_cloudflare == true && (matrix.target != 'edge-gateway' || inputs.deploy_edge_gateway == true) && (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') }}
+    if: ${{ always() && inputs.deploy_cloudflare == true && (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -168,7 +168,6 @@ jobs:
         target:
           - page-worker
           - pages
-          - edge-gateway
     steps:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
@@ -214,4 +213,44 @@ jobs:
           CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
           PAGES_BRANCH: ${{ inputs.vault_env_path || 'uat' }}
           PORTAL_DIR: ${{ github.workspace }}/portal
+          WORKER_DIR: ${{ github.workspace }}/edge-gateway
+
+  edge_gateway:
+    name: Cloudflare / edge-gateway (optional)
+    needs: supabase
+    if: ${{ always() && inputs.deploy_cloudflare == true && inputs.deploy_edge_gateway == true && (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Checkout edge-gateway source
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.edge_gateway_repository }}
+          ref: ${{ inputs.edge_gateway_ref }}
+          path: edge-gateway
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Authenticate to Vault with GitHub OIDC
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
+          jwtGithubAudience: vault
+          exportToken: true
+          secrets: |
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN
+
+      - name: Deploy edge-gateway Worker
+        run: ./.github/scripts/serverless/run_cloudflare_target.sh
+        env:
+          CLOUDFLARE_TARGET: edge-gateway
+          CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
           WORKER_DIR: ${{ github.workspace }}/edge-gateway
