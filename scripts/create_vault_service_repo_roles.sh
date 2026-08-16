@@ -159,7 +159,7 @@ EOF
 }
 
 echo "=== Provisioning Platform-Ops Policies ==="
-for env in sit uat prod; do
+for env in dev sit uat prod; do
   echo "  Writing policy github-actions-platform-ops-toolkit-${env}..."
   emit_env_policy "${env}" | vault policy write "github-actions-platform-ops-toolkit-${env}" -
 done
@@ -218,6 +218,8 @@ EOF
 echo "=== Provisioning Platform-Ops & Playbooks Roles ==="
 echo "  Creating SIT role..."
 write_role sit github-actions-platform-ops-toolkit-sit '["refs/pull/*/merge", "refs/heads/*"]'
+echo "  Creating DEV role..."
+write_role dev github-actions-platform-ops-toolkit-dev '["refs/heads/main", "refs/heads/dev/*", "refs/heads/feature/*", "refs/pull/*/merge"]'
 echo "  Creating UAT role..."
 write_role uat github-actions-platform-ops-toolkit-uat '["refs/heads/main", "refs/heads/release/*", "refs/heads/bugfix/*", "refs/heads/daily-build-*", "refs/tags/daily-build-*"]'
 echo "  Creating PROD role..."
