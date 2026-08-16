@@ -12,8 +12,8 @@ GCP_ARTIFACT_REGISTRY_REGION="${GCP_ARTIFACT_REGISTRY_REGION:-${GCP_REGION}}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 DEPLOY_ENV="${DEPLOY_ENV:-uat}"
 
-if [[ -z "${DATABASE_URL:-}" ]]; then
-  echo "DATABASE_URL is required for Cloud Run deployment" >&2
+if [[ -z "${SUPABASE_CONNECT_URI:-}" ]]; then
+  echo "SUPABASE_CONNECT_URI is required for Cloud Run deployment" >&2
   exit 1
 fi
 if [[ -z "${INTERNAL_SERVICE_TOKEN:-}" ]]; then
@@ -42,8 +42,7 @@ for svc in "${SERVICES[@]}"; do
   env_vars=(
     "APP_ENV=${DEPLOY_ENV}"
     "ENV=${DEPLOY_ENV}"
-    "DATABASE_URL=${DATABASE_URL}"
-    "SUPABASE_CONNECT_URI=${SUPABASE_CONNECT_URI:-${DATABASE_URL}}"
+    "SUPABASE_CONNECT_URI=${SUPABASE_CONNECT_URI}"
     "INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN}"
   )
   case "${svc}" in
@@ -57,8 +56,8 @@ for svc in "${SERVICES[@]}"; do
       ;;
     content-service)
       env_vars+=(
-        "KNOWLEDGE_REPO_PATH=${KNOWLEDGE_REPO_PATH:-/knowledge}"
-        "KNOWLEDGE_REPO_URL=${KNOWLEDGE_REPO_URL:-https://github.com/haitaopanhq/knowledge.git}"
+        "KNOWLEDGE_REPO_PATH=${KNOWLEDGE_REPO_PATH:?KNOWLEDGE_REPO_PATH is required from Vault}"
+        "KNOWLEDGE_REPO_URL=${KNOWLEDGE_REPO_URL:-https://github.com/ai-workspace-services/knowledge.git}"
         "KNOWLEDGE_REPO_REF=${KNOWLEDGE_REPO_REF:-main}"
       )
       ;;

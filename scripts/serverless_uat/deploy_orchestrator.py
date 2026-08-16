@@ -60,8 +60,11 @@ def normalize_runtime_database_uri(secrets: dict) -> str:
     """
     raw = str(
         secrets.get(
-            "DATABASE_SESSION_POOLER_URL",
-            secrets.get("DATABASE_POOLER_URL", secrets.get("DATABASE_DIRECT_URL", "")),
+            "SUPABASE_CONNECT_URI",
+            secrets.get(
+                "DATABASE_SESSION_POOLER_URL",
+                secrets.get("DATABASE_POOLER_URL", secrets.get("DATABASE_DIRECT_URL", "")),
+            ),
         )
     ).strip()
     password = str(secrets.get("DATABASE_PASSWORD", "")).strip()
@@ -92,21 +95,44 @@ def require_supabase_secret(secrets: dict) -> tuple[str, str]:
     project_ref = str(secrets.get("PROJECT_REF", "")).strip()
     database_password = str(secrets.get("DATABASE_PASSWORD", "")).strip()
     if not database_password:
-        direct_uri = str(secrets.get("DATABASE_DIRECT_URL", "")).strip()
-        database_password = unquote(urlsplit(direct_uri).password or "")
+        for uri_key in (
+            "SUPABASE_CONNECT_URI",
+            "DATABASE_SESSION_POOLER_URL",
+            "DATABASE_POOLER_URL",
+            "DATABASE_DIRECT_URL",
+        ):
+            uri = str(secrets.get(uri_key, "")).strip()
+            if uri:
+                database_password = unquote(urlsplit(uri).password or "")
+                if database_password:
+                    break
     if not project_ref or not database_password:
         raise SystemExit(
-            "Vault Supabase secret must contain PROJECT_REF and DATABASE_PASSWORD "
-            "or DATABASE_DIRECT_URL"
+            "Vault Supabase secret must contain PROJECT_REF and a password in "
+            "DATABASE_PASSWORD or SUPABASE_CONNECT_URI"
         )
     if not str(
-        secrets.get("DATABASE_SESSION_POOLER_URL", secrets.get("DATABASE_POOLER_URL", secrets.get("DATABASE_DIRECT_URL", "")))
+        secrets.get(
+            "SUPABASE_CONNECT_URI",
+            secrets.get(
+                "DATABASE_SESSION_POOLER_URL",
+                secrets.get("DATABASE_POOLER_URL", secrets.get("DATABASE_DIRECT_URL", "")),
+            ),
+        )
     ).strip():
         raise SystemExit(
-            "Vault Supabase secret must contain DATABASE_SESSION_POOLER_URL, "
-            "DATABASE_POOLER_URL, or DATABASE_DIRECT_URL"
+            "Vault Supabase secret must contain SUPABASE_CONNECT_URI or "
+            "DATABASE_SESSION_POOLER_URL"
         )
     return project_ref, database_password
+
+
+def require_runtime_secret(secrets: dict, key: str) -> str:
+    value = str(secrets.get(key, "")).strip()
+    if not value:
+        raise SystemExit(f"Vault runtime secret must contain {key}")
+    return value
+
 
 def deploy_cloudflare(script_dir: str, env_context: dict) -> None:
     if not DEPLOY_CLOUDFLARE:
@@ -152,19 +178,28 @@ def main():
         log("Supabase connection contract validated from Vault.")
 
     database_uri = normalize_runtime_database_uri(supabase_secrets)
+    if DEPLOY_CLOUD_RUN and not database_uri:
+        raise SystemExit("Vault Supabase secret must provide SUPABASE_CONNECT_URI")
+    internal_service_token = (
+        require_runtime_secret(runtime_secrets, "INTERNAL_SERVICE_TOKEN")
+        if DEPLOY_CLOUD_RUN
+        else ""
+    )
+    knowledge_repo_path = (
+        require_runtime_secret(runtime_secrets, "KNOWLEDGE_REPO_PATH")
+        if DEPLOY_CLOUD_RUN
+        else ""
+    )
     env_context = {
         "CLOUDFLARE_ACCOUNT_ID": cf_secrets.get("CLOUDFLARE_ACCOUNT_ID", os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")),
         "CLOUDFLARE_API_TOKEN": cf_secrets.get("CLOUDFLARE_API_TOKEN", os.environ.get("CLOUDFLARE_API_TOKEN", "")),
         "GCP_PROJECT_ID": gcp_secrets.get("GCP_PROJECT_ID", os.environ.get("GCP_PROJECT_ID", "")),
         "GCP_REGION": gcp_secrets.get("GCP_REGION", os.environ.get("GCP_REGION", "asia-east1")),
-        "DATABASE_URL": database_uri or os.environ.get("DATABASE_URL", ""),
-        "SUPABASE_CONNECT_URI": database_uri or os.environ.get("SUPABASE_CONNECT_URI", ""),
-        "INTERNAL_SERVICE_TOKEN": runtime_secrets.get(
-            "INTERNAL_SERVICE_TOKEN", os.environ.get("INTERNAL_SERVICE_TOKEN", "")
-        ),
-        "KNOWLEDGE_REPO_PATH": runtime_secrets.get("KNOWLEDGE_REPO_PATH", "/knowledge"),
+        "SUPABASE_CONNECT_URI": database_uri,
+        "INTERNAL_SERVICE_TOKEN": internal_service_token,
+        "KNOWLEDGE_REPO_PATH": knowledge_repo_path,
         "KNOWLEDGE_REPO_URL": runtime_secrets.get(
-            "KNOWLEDGE_REPO_URL", "https://github.com/haitaopanhq/knowledge.git"
+            "KNOWLEDGE_REPO_URL", "https://github.com/ai-workspace-services/knowledge.git"
         ),
         "KNOWLEDGE_REPO_REF": runtime_secrets.get("KNOWLEDGE_REPO_REF", "main"),
         "JWT_SECRET": os.environ.get("JWT_SECRET", "uat-jwt-secret-default"),
