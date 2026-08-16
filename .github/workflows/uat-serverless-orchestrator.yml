@@ -3,6 +3,15 @@ name: UAT Serverless Orchestrator
 on:
   workflow_dispatch:
     inputs:
+      vault_env_path:
+        description: 'Vault environment path (dev, uat, prod)'
+        required: true
+        default: 'uat'
+        type: choice
+        options:
+          - dev
+          - uat
+          - prod
       image_tag:
         description: 'Image tag to deploy to Cloud Run UAT'
         required: false
@@ -34,4 +43,6 @@ jobs:
         env:
           VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
           VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+          VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
+          DEPLOY_ENV: ${{ inputs.vault_env_path || 'uat' }}
           IMAGE_TAG: ${{ github.event.inputs.image_tag || 'latest' }}
