@@ -29,15 +29,19 @@ Supabase Cloud（直连 target DSN）
 ```text
 kv/data/<env>/serverless/supabase
   PROJECT_REF          = rbjnksmfzkjheiwpkaem
-  DATABASE_DIRECT_URL  = postgres://...@db.rbjnksmfzkjheiwpkaem.supabase.co:5432/postgres
+  DATABASE_SESSION_POOLER_URL = postgres://postgres.rbjnksmfzkjheiwpkaem:...@aws-0-<region>.pooler.supabase.com:5432/postgres
+  DATABASE_DIRECT_URL         = postgres://postgres:...@db.rbjnksmfzkjheiwpkaem.supabase.co:5432/postgres
 
 kv/data/<env>/accounts-migration
   MIGRATION_SOURCE_DSN = postgres://readonly:...@<vps-postgres-host>/account
 ```
 
-`DATABASE_POOLER_URL` 仅供应用运行时连接；迁移必须使用 `DATABASE_DIRECT_URL`。
-目标 DSN 会被脚本强制校验为 Supabase 直连端点，并拒绝 `svc.plus`、Pooler 和同源
-目标。`PROJECT_REF` 必须与 workflow input 一致。
+Session pooler（`pooler.supabase.com:5432`）适合当前 IPv4 VPS 和迁移 runner，也可以
+用于 `pg_dump/psql`。Transaction pooler（端口 `6543`）仅适合短请求应用流量，迁移脚本
+会拒绝它。若目标网络可用 IPv6 或已购买 IPv4 add-on，可将
+`supabase_target_connection_mode=direct` 并切换到 `DATABASE_DIRECT_URL`。
+目标 DSN 会被脚本强制校验为 Supabase 端点，并拒绝 `svc.plus`、Transaction pooler
+和同源目标；`PROJECT_REF` 必须与 workflow input 一致。
 
 ## 执行顺序
 
@@ -53,4 +57,6 @@ Content 表；它接入 Supabase 运行时时继续保持数据库可选。
 
 业务数据可能包含密码哈希、session、MFA secret 等敏感字段，正式执行前必须完成数据
 分类确认。若 GitHub hosted runner 无法访问 VPS PostgreSQL，使用 `runner_type=self-hosted`，
-并确保 runner 同时可达源 VPS 和 Supabase 直连端点。
+并确保 runner 同时可达源 VPS 和 Supabase 目标端点。VPS 的 Accounts/Billing 运行时
+建议使用 Session pooler；只有在应用明确兼容 transaction pooling（关闭 prepared
+statement/session state 依赖）时，才考虑 `6543` Transaction pooler。

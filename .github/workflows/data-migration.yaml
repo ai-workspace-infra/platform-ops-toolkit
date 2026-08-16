@@ -69,14 +69,19 @@ on:
         default: true
         type: boolean
       supabase_vault_path:
-        description: "Vault KV v2 path containing Supabase DATABASE_DIRECT_URL and PROJECT_REF"
+        description: "Vault KV v2 path containing Supabase connection URL(s) and PROJECT_REF"
         required: false
         default: ""
         type: string
       supabase_target_dsn_key:
-        description: "Vault key containing the Supabase direct PostgreSQL DSN (migrations must not use the pooler URL)"
+        description: "Vault key containing the Supabase PostgreSQL DSN; session pooler is the IPv4 default, direct is also supported"
         required: false
-        default: "DATABASE_DIRECT_URL"
+        default: "DATABASE_SESSION_POOLER_URL"
+        type: string
+      supabase_target_connection_mode:
+        description: "Supabase target connection: session_pooler for IPv4 persistent connections, direct when IPv6/IPv4 add-on is available"
+        required: false
+        default: "session_pooler"
         type: string
       supabase_source_vault_path:
         description: "Vault KV v2 path containing the source PostgreSQL DSN"
@@ -213,10 +218,16 @@ on:
         default: ""
         type: string
       supabase_target_dsn_key:
-        description: "Supabase Vault 中的直连 DSN key；迁移禁止使用 Pooler URL"
+        description: "Supabase Vault 中的 DSN key；默认使用 Session pooler，禁止使用 Transaction pooler"
         required: false
-        default: "DATABASE_DIRECT_URL"
+        default: "DATABASE_SESSION_POOLER_URL"
         type: string
+      supabase_target_connection_mode:
+        description: "Supabase 目标连接：session_pooler（IPv4 默认）或 direct"
+        required: false
+        default: "session_pooler"
+        type: choice
+        options: [session_pooler, direct]
       supabase_source_vault_path:
         description: "源 PostgreSQL Vault 路径（留空使用 kv/data/<env>/accounts-migration）"
         required: false
@@ -441,7 +452,8 @@ jobs:
       SUPABASE_METADATA_DRY_RUN: ${{ inputs.supabase_metadata_dry_run && 'true' || 'false' }}
       SUPABASE_VAULT_PATH: ${{ inputs.supabase_vault_path || format('kv/data/{0}/serverless/supabase', inputs.vault_env_path || 'sit') }}
       SUPABASE_SOURCE_VAULT_PATH: ${{ inputs.supabase_source_vault_path || format('kv/data/{0}/accounts-migration', inputs.vault_env_path || 'sit') }}
-      SUPABASE_TARGET_DSN_KEY: ${{ inputs.supabase_target_dsn_key || 'DATABASE_DIRECT_URL' }}
+      SUPABASE_TARGET_DSN_KEY: ${{ inputs.supabase_target_dsn_key || 'DATABASE_SESSION_POOLER_URL' }}
+      SUPABASE_TARGET_CONNECTION_MODE: ${{ inputs.supabase_target_connection_mode || 'session_pooler' }}
       SUPABASE_SOURCE_DSN_KEY: ${{ inputs.supabase_source_dsn_key || 'MIGRATION_SOURCE_DSN' }}
     steps:
     - name: Checkout repository

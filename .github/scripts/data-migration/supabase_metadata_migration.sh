@@ -5,8 +5,8 @@ set -euo pipefail
 # business rows to the configured Supabase project. This is deliberately
 # separate from migratectl: migratectl moves Accounts rows between VPS hosts,
 # while this path is the one-way VPS -> Supabase database cutover path.
-# The target must use Supabase's direct database endpoint, never a transaction
-# pooler URL, because pg_dump/DDL need a stable session.
+# The target must use Supabase's direct endpoint or session pooler, never a
+# transaction pooler URL, because pg_dump/DDL need a stable session.
 
 SOURCE_DSN="${MIGRATION_SOURCE_DSN:-}"
 TARGET_DSN="${SUPABASE_TARGET_DSN:-}"
@@ -14,6 +14,7 @@ EXPECTED_REF="${SUPABASE_EXPECTED_PROJECT_REF:-}"
 VAULT_REF="${SUPABASE_VAULT_PROJECT_REF:-}"
 DRY_RUN="${SUPABASE_METADATA_DRY_RUN:-true}"
 MODE="${SUPABASE_MIGRATION_MODE:-metadata}"
+CONNECTION_MODE="${SUPABASE_TARGET_CONNECTION_MODE:-session_pooler}"
 DUMP_DIR="${SUPABASE_METADATA_DUMP_DIR:-${RUNNER_TEMP:-/tmp}/supabase-metadata-migration}"
 SCHEMA_FILE="${DUMP_DIR}/public-schema.sql"
 DATA_FILE="${DUMP_DIR}/public-data.sql"
@@ -40,8 +41,24 @@ if [[ "${TARGET_DSN}" != *"supabase.com"* ]]; then
   echo "ERROR: target DSN is not a Supabase endpoint; refusing to write." >&2
   exit 1
 fi
-if [[ "${TARGET_DSN}" == *"pooler.supabase.com"* ]]; then
-  echo "ERROR: target DSN is a Supabase pooler URL. Use DATABASE_DIRECT_URL for DDL." >&2
+if [[ "${CONNECTION_MODE}" != "session_pooler" && "${CONNECTION_MODE}" != "direct" ]]; then
+  echo "ERROR: SUPABASE_TARGET_CONNECTION_MODE must be session_pooler or direct." >&2
+  exit 1
+fi
+if [[ "${TARGET_DSN}" == *"sslmode=disable"* ]]; then
+  echo "ERROR: Supabase target connection must use TLS." >&2
+  exit 1
+fi
+if [[ "${TARGET_DSN}" =~ :6543([/?]|$) ]]; then
+  echo "ERROR: transaction pooler (port 6543) is not supported for pg_dump/DDL." >&2
+  exit 1
+fi
+if [[ "${CONNECTION_MODE}" == "session_pooler" && "${TARGET_DSN}" != *"pooler.supabase.com"* ]]; then
+  echo "ERROR: session_pooler mode requires a Supavisor session-pooler DSN." >&2
+  exit 1
+fi
+if [[ "${CONNECTION_MODE}" == "direct" && "${TARGET_DSN}" == *"pooler.supabase.com"* ]]; then
+  echo "ERROR: direct mode cannot use a Supabase pooler DSN." >&2
   exit 1
 fi
 if [[ "${TARGET_DSN}" == *"svc.plus"* || "${TARGET_DSN}" == "${SOURCE_DSN}" ]]; then
@@ -71,6 +88,7 @@ echo "Supabase one-way database migration"
 echo "  source: $(redact_dsn "${SOURCE_DSN}")"
 echo "  target: $(redact_dsn "${TARGET_DSN}")"
 echo "  project: ${EXPECTED_REF}"
+echo "  connection: ${CONNECTION_MODE}"
 echo "  mode: ${MODE}"
 echo "  dry-run: ${DRY_RUN}"
 
