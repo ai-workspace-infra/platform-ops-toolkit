@@ -41,7 +41,7 @@ on:
         default: 'ai-workspace-services/portal'
         type: string
       portal_ref:
-        description: 'Portal branch, tag, or commit SHA to deploy'
+        description: 'Portal source ref: immutable release tag, commit SHA, or branch (for example daily-build-2026.08.16-r1)'
         required: true
         default: 'main'
         type: string
@@ -97,7 +97,8 @@ jobs:
           FRONTEND_ONLY: ${{ inputs.frontend_only || false }}
           PORTAL_DIR: ${{ github.workspace }}/portal
           PORTAL_REF: ${{ inputs.portal_ref || 'main' }}
-          CLOUDFLARE_ENV: uat
+          CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
+          PAGES_BRANCH: ${{ inputs.vault_env_path || 'uat' }}
 
   initialize_supabase:
     name: Initialize Supabase Accounts schema
