@@ -59,7 +59,7 @@ on:
       edge_gateway_repository:
         description: 'Optional edge-gateway repository'
         required: true
-        default: 'ai-workspace-service/edge-gateway.svc.plus'
+        default: 'ai-workspace-services/edge-gateway'
         type: string
       edge_gateway_ref:
         description: 'Optional edge-gateway source ref'
