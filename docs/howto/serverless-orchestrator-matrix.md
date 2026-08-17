@@ -42,24 +42,26 @@ workflow owns the request-level selfhost→Cloud Run failover.
 
 ## Deployment stages and dependencies
 
-Deployment order is intentionally separate from request topology:
+Deployment execution is intentionally separate from request topology. After preflight, independent
+compute and edge components run in parallel; the readiness barrier begins only after every enabled
+component has completed:
 
 ```text
-Supabase / xworktech
+Validate / Dispatch inputs
         │
-        ▼
-Cloud Run / accounts, content-service, billing-service
-        │
-        ▼
-Cloudflare / SSR / public, content, auth, console, workspace
-        │
-        ▼
-edge-gateway / auth, admin, core
-        │
-        ▼
-Cloudflare Pages / static assets
-        │
-        ▼
+        ├── Supabase / xworktech
+        ├── Cloud Run / accounts, content-service, billing-service
+        ├── Cloudflare / SSR / public, content, auth, console, workspace
+        ├── edge-gateway / auth, admin, core
+        └── Cloudflare Pages / static assets
+                    │
+                    ▼
+Readiness / custom domains and public CORS chain
+                    │
+                    ▼
+Data Migration / Supabase (migrate and deploy+migrate only)
+                    │
+                    ▼
 Verify / Summary
 ```
 

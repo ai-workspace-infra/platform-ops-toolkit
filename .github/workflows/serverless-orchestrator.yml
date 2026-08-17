@@ -158,8 +158,8 @@ jobs:
 
   cloud_run:
     name: Cloud Run / ${{ matrix.service }}
-    needs: [preflight, supabase]
-    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloud_run == true && (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') }}
+    needs: preflight
+    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloud_run == true }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -208,8 +208,8 @@ jobs:
 
   cloudflare_ssr:
     name: Cloudflare / SSR / ${{ matrix.boundary }}
-    needs: [preflight, cloud_run]
-    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true && (inputs.deploy_cloud_run == false || needs.cloud_run.result == 'success') }}
+    needs: preflight
+    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -284,8 +284,8 @@ jobs:
 
   edge_gateway:
     name: Cloudflare / edge-gateway / ${{ matrix.boundary }}
-    needs: [preflight, cloudflare_ssr]
-    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true && needs.cloudflare_ssr.result == 'success' }}
+    needs: preflight
+    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -357,8 +357,8 @@ jobs:
 
   static_pages:
     name: Cloudflare / static-pages
-    needs: [preflight, edge_gateway]
-    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true && needs.edge_gateway.result == 'success' }}
+    needs: preflight
+    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout platform toolkit
@@ -422,12 +422,14 @@ jobs:
           PORTAL_DIR: ${{ github.workspace }}/portal
 
   serverless_domains:
-    name: Cloudflare / custom domains and public CORS chain
-    needs: [preflight, cloudflare_ssr, edge_gateway, static_pages]
+    name: Readiness / custom domains and public CORS chain
+    needs: [preflight, supabase, cloud_run, cloudflare_ssr, edge_gateway, static_pages]
     if: >-
       ${{ always() && needs.preflight.result == 'success' &&
       contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) &&
       inputs.deploy_cloudflare == true &&
+      needs.supabase.result == 'success' &&
+      (inputs.deploy_cloud_run == false || needs.cloud_run.result == 'success') &&
       needs.cloudflare_ssr.result == 'success' &&
       needs.edge_gateway.result == 'success' &&
       needs.static_pages.result == 'success' }}

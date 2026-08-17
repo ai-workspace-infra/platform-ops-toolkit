@@ -40,6 +40,29 @@ if [[ -e "${repo_root}/.github/workflows/serverless-supabase-schema-init.yml" ]]
   exit 1
 fi
 
+assert_parallel_preflight_dependency() {
+  local job="$1"
+  local needs_line
+  needs_line="$(awk -v job="${job}" '
+    $0 == "  " job ":" { in_job = 1; next }
+    in_job && /^    needs:/ { sub(/^    /, ""); print; exit }
+    in_job && /^  [a-z_]+:/ { exit }
+  ' "${workflow}")"
+  if [[ "${needs_line}" != 'needs: preflight' ]]; then
+    echo "${job} must run in parallel after preflight, found: ${needs_line:-missing}" >&2
+    exit 1
+  fi
+}
+
+for parallel_job in supabase cloud_run cloudflare_ssr edge_gateway static_pages; do
+  assert_parallel_preflight_dependency "${parallel_job}"
+done
+
+if ! grep -Fq 'needs: [preflight, supabase, cloud_run, cloudflare_ssr, edge_gateway, static_pages]' "${workflow}"; then
+  echo "Readiness barrier must wait for all parallel serverless components" >&2
+  exit 1
+fi
+
 REQUESTED_OPERATION=deploy+migrate python3 - "${validator}" <<'PY'
 import importlib.util
 import sys
