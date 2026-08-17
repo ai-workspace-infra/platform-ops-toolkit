@@ -66,6 +66,22 @@ Verify / Summary
 when `spec.runtime.mode` is `hybrid`; `serverless` routes directly to Cloud Run and `selfhost` is
 served by the VPS Full Stack through DNS.
 
+The five SSR Workers, three edge-gateway Workers, and Pages project remain separate deployment
+units because the Cloudflare Worker artifact must stay below 3 MiB. The GitOps manifest is the
+source of truth for these names and routes:
+
+| Boundary | Name | Route contract |
+| --- | --- | --- |
+| SSR public | `frontend-ssr-public-uat` | `/*`, `/_edge/public/*` |
+| SSR content | `frontend-ssr-content-uat` | `/blogs*`, `/docs*`, `/download*` |
+| SSR identity | `frontend-ssr-auth-uat` | `/login*`, `/register*`, etc. |
+| SSR console | `frontend-ssr-console-uat` | `/panel*`, `/dashboard*` |
+| SSR workspace | `frontend-ssr-workspace-uat` | `/ai-workspace*`, `/editor*`, etc. |
+| API auth | `edge-gateway-auth-uat` | `accounts-cloudflare-uat.onwalk.net/api/auth/*` |
+| API admin | `edge-gateway-admin-uat` | `accounts-cloudflare-uat.onwalk.net/api/admin/*` |
+| API core | `edge-gateway-core-uat` | `accounts-cloudflare-uat.onwalk.net/api/*` fallback |
+| Static assets | `ai-workspace-portal-uat` | `/static/*`, `/assets/*` |
+
 ## GitOps boundary contract
 
 The workflow checks out GitOps `main`, renders the environment YAML, and passes the temporary

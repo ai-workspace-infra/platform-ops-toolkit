@@ -118,6 +118,26 @@ def main() -> int:
         ids.add(boundary_id)
         names.add(name)
 
+    boundary_by_id = {boundary["id"]: boundary for boundary in boundaries}
+    required_routes = {
+        "ssr-public": ("frontend-ssr-public-" + environment, {"/*", "/_edge/public/*"}),
+        "ssr-content": ("frontend-ssr-content-" + environment, {"/blogs*", "/docs*", "/download*", "/_edge/content/*"}),
+        "ssr-auth": ("frontend-ssr-auth-" + environment, {"/login*", "/register*", "/email-verification*", "/logout*", "/_edge/auth/*"}),
+        "ssr-console": ("frontend-ssr-console-" + environment, {"/panel*", "/dashboard*", "/_edge/console/*"}),
+        "ssr-workspace": ("frontend-ssr-workspace-" + environment, {"/ai-workspace*", "/cloud_iac*", "/editor*", "/support*", "/xworkmate*", "/_edge/workspace/*"}),
+        "api-auth": ("edge-gateway-auth-" + environment, {"/api/auth/*"}),
+        "api-admin": ("edge-gateway-admin-" + environment, {"/api/admin/*"}),
+        "api-core": ("edge-gateway-core-" + environment, {"/api/*"}),
+        "static": (spec.get("cloudflare", {}).get("pages_project", ""), {"/static/*", "/assets/*"}),
+    }
+    for boundary_id, (expected_name, expected_routes) in required_routes.items():
+        boundary = boundary_by_id[boundary_id]
+        if boundary["name"] != expected_name:
+            raise SystemExit(f"{boundary_id} must use worker/project name {expected_name!r}")
+        missing_routes = expected_routes - set(boundary["routes"])
+        if missing_routes:
+            raise SystemExit(f"{boundary_id} is missing routes: {', '.join(sorted(missing_routes))}")
+
     required = {"ssr-public", "ssr-content", "ssr-auth", "ssr-console", "ssr-workspace", "api-auth", "api-admin", "api-core", "static"}
     missing = required - ids
     if missing:
