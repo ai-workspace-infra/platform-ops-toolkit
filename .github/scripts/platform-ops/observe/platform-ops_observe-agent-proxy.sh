@@ -47,7 +47,7 @@ check_host() {
 
   ssh "${ssh_opts[@]}" "root@${host_ip}" 'bash -s' <<'REMOTE'
 set -u
-services=(caddy agent-svc-plus xray xray-tcp xray-exporter-xhttp xray-exporter-tcp)
+services=(caddy agent-proxy xray xray-tcp xray-exporter-xhttp xray-exporter-tcp)
 files=(/usr/local/etc/xray/config.json /usr/local/etc/xray/tcp-config.json)
 
 for file in "${files[@]}"; do
@@ -80,11 +80,11 @@ diagnose_host() {
   ssh "${ssh_opts[@]}" "root@${host_ip}" '
     set +e
     echo "--- service states ---"
-    systemctl is-active caddy agent-svc-plus xray xray-tcp xray-exporter-xhttp xray-exporter-tcp 2>&1 || true
+    systemctl is-active caddy agent-proxy xray xray-tcp xray-exporter-xhttp xray-exporter-tcp 2>&1 || true
     echo "--- agent service status ---"
-    systemctl status agent-svc-plus --no-pager -l 2>&1 || true
+    systemctl status agent-proxy --no-pager -l 2>&1 || true
     echo "--- agent service journal ---"
-    journalctl -u agent-svc-plus -n 120 --no-pager 2>&1 || true
+    journalctl -u agent-proxy -n 120 --no-pager 2>&1 || true
     echo "--- runtime config files ---"
     ls -l /usr/local/etc/xray/config.json /usr/local/etc/xray/tcp-config.json 2>&1 || true
   ' 2>&1 | sed -E \
