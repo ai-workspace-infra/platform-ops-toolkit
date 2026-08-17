@@ -9,6 +9,14 @@ PORTAL_DIR="${PORTAL_DIR:?PORTAL_DIR must point to a checked-out portal reposito
 CLOUDFLARE_ENV="${CLOUDFLARE_ENV:-uat}"
 PAGES_PROJECT="${PAGES_PROJECT_NAME:-ai-workspace-portal-${CLOUDFLARE_ENV}}"
 PAGES_BRANCH="${PAGES_BRANCH:-${CLOUDFLARE_ENV}}"
+CONFIG_FILE="${CLOUDFLARE_BOUNDARY_CONFIG:-}"
+
+if [[ -n "${CONFIG_FILE}" && -f "${CONFIG_FILE}" ]]; then
+  if jq -e '.kind == "EdgeRoutingConfig"' "${CONFIG_FILE}" >/dev/null; then
+    PAGES_PROJECT="$(jq -er '.spec.cloudflare.pages_project' "${CONFIG_FILE}")"
+    PAGES_BRANCH="$(jq -er '.spec.cloudflare.pages_branch' "${CONFIG_FILE}")"
+  fi
+fi
 
 if [[ -z "${CLOUDFLARE_API_TOKEN:-}" || -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
   echo "CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are required" >&2

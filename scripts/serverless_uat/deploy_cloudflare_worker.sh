@@ -6,6 +6,8 @@ set -euo pipefail
 # -----------------------------------------------------------------------------
 
 WORKER_DIR="${WORKER_DIR:?WORKER_DIR must point to a checked-out edge-gateway repository}"
+EDGE_GATEWAY_CONFIG_FILE="${EDGE_GATEWAY_CONFIG_FILE:-${CLOUDFLARE_BOUNDARY_CONFIG:-}}"
+export EDGE_GATEWAY_CONFIG_FILE
 
 case "${EDGE_GATEWAY_BOUNDARY:-}" in
   auth|admin|core) ;;

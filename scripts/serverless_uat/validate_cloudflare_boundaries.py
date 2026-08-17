@@ -4,21 +4,57 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
 
 def main() -> int:
-    manifest_path = Path(__file__).resolve().parents[2] / ".github/serverless/cloudflare-boundaries.json"
+    manifest_path = Path(
+        os.environ.get(
+            "CLOUDFLARE_BOUNDARY_CONFIG",
+            str(Path(__file__).resolve().parents[2] / ".github/serverless/cloudflare-boundaries.json"),
+        )
+    )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    boundaries = manifest.get("boundaries", [])
-    hosts = manifest.get("hosts", {})
+    if manifest.get("kind") == "EdgeRoutingConfig":
+        spec = manifest.get("spec", {})
+        configured_hosts = spec.get("hosts", {})
+        hosts = {
+            "console": configured_hosts.get("console_cloudflare", ""),
+            "accounts": configured_hosts.get("accounts_cloudflare", ""),
+        }
+        boundaries = []
+        for item in spec.get("ssr", []):
+            boundaries.append({
+                "id": f"ssr-{item['id']}",
+                "kind": "worker",
+                "name": item["worker_name"],
+                "host": "console",
+                "routes": item["route_suffixes"],
+            })
+        for item in spec.get("edge_gateway", {}).get("boundaries", []):
+            boundaries.append({
+                "id": f"api-{item['id']}",
+                "kind": "worker",
+                "name": item["worker_name"],
+                "host": "accounts",
+                "routes": [item["route"]],
+            })
+        boundaries.append({
+            "id": "static",
+            "kind": "pages",
+            "name": spec.get("cloudflare", {}).get("pages_project", ""),
+            "host": "console",
+            "routes": ["/static/*", "/assets/*"],
+        })
+    else:
+        boundaries = manifest.get("boundaries", [])
+        hosts = manifest.get("hosts", {})
     if not boundaries:
         raise SystemExit("Cloudflare boundary manifest must define at least one boundary")
-    if hosts.get("console") != "console-cloudflare-uat.onwalk.net":
-        raise SystemExit("Cloudflare boundary manifest must define the console Cloudflare host")
-    if hosts.get("accounts") != "accounts-cloudflare-uat.onwalk.net":
-        raise SystemExit("Cloudflare boundary manifest must define the accounts Cloudflare host")
+    if not hosts.get("console") or not hosts.get("accounts"):
+        raise SystemExit("Cloudflare boundary manifest must define console and accounts Cloudflare hosts")
 
     ids: set[str] = set()
     names: set[str] = set()

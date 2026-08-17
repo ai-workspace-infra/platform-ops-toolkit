@@ -61,6 +61,16 @@ on:
         required: true
         default: 'main'
         type: string
+      gitops_repository:
+        description: 'GitOps repository containing the environment routing config'
+        required: true
+        default: 'ai-workspace-infra/gitops'
+        type: string
+      gitops_ref:
+        description: 'GitOps config ref'
+        required: true
+        default: 'main'
+        type: string
 
 jobs:
   supabase:
@@ -170,8 +180,19 @@ jobs:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
 
+      - name: Checkout GitOps routing config
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.gitops_repository }}
+          ref: ${{ inputs.gitops_ref }}
+          path: gitops
+          sparse-checkout: |
+            resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/cloudflare/edge-routing.json
+
       - name: Validate Cloudflare boundary contract
         run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
+        env:
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/cloudflare/edge-routing.json
 
       - name: Checkout portal source
         uses: actions/checkout@v7
@@ -204,6 +225,7 @@ jobs:
           CLOUDFLARE_TARGET: ssr
           PORTAL_SSR_BOUNDARY: ${{ matrix.boundary }}
           CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/cloudflare/edge-routing.json
           PORTAL_DIR: ${{ github.workspace }}/portal
 
   edge_gateway:
@@ -221,6 +243,15 @@ jobs:
     steps:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
+
+      - name: Checkout GitOps routing config
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.gitops_repository }}
+          ref: ${{ inputs.gitops_ref }}
+          path: gitops
+          sparse-checkout: |
+            resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/cloudflare/edge-routing.json
 
       - name: Checkout edge-gateway source
         uses: actions/checkout@v7
@@ -252,6 +283,7 @@ jobs:
           CLOUDFLARE_TARGET: edge-gateway
           EDGE_GATEWAY_BOUNDARY: ${{ matrix.boundary }}
           CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/cloudflare/edge-routing.json
           WORKER_DIR: ${{ github.workspace }}/edge-gateway
 
   static_pages:
@@ -263,8 +295,19 @@ jobs:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
 
+      - name: Checkout GitOps routing config
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.gitops_repository }}
+          ref: ${{ inputs.gitops_ref }}
+          path: gitops
+          sparse-checkout: |
+            resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/cloudflare/edge-routing.json
+
       - name: Validate Cloudflare boundary contract
         run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
+        env:
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/cloudflare/edge-routing.json
 
       - name: Checkout portal source
         uses: actions/checkout@v7
@@ -296,6 +339,7 @@ jobs:
           CLOUDFLARE_TARGET: static-pages
           CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
           PAGES_BRANCH: ${{ inputs.vault_env_path || 'uat' }}
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/cloudflare/edge-routing.json
           PORTAL_DIR: ${{ github.workspace }}/portal
 
   verify:
