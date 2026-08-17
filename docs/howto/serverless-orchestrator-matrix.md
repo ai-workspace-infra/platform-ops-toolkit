@@ -118,6 +118,7 @@ The manual dispatch uses one explicit operation:
 
 ```text
 operation=plan             # only validate GitOps and dispatch inputs
+operation=init-schema      # initialize and verify the Supabase Accounts schema only
 operation=deploy           # deploy the selected serverless application targets
 operation=migrate          # migrate VPS PostgreSQL data to Supabase
 operation=deploy+migrate  # deploy first, then migrate
@@ -138,9 +139,9 @@ control-plane authority that selects whether the migration job runs. GitOps decl
 topology and migration constraints (strategy, single-writer, lag, and quiesce requirements), but
 does not authorize or select an individual workflow run.
 
-Supabase account-schema initialization has an isolated manual entry point:
-`serverless-supabase-schema-init.yml`. It is intentionally not an `operation` of the application
-orchestrator, so schema writes cannot be coupled to a deployment selection.
+Supabase account-schema initialization uses the same manual workflow with
+`operation=init-schema`. It is a separate job from application deployment, so it only runs the
+schema initialization and verification path.
 
 `tag_ref` is the single immutable version for Cloud Run images, Portal SSR, and edge-gateway.
 The three repositories and the GitOps repository are fixed workflow dependencies, so their

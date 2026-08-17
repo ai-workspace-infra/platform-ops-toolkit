@@ -16,6 +16,7 @@ run_case() {
 }
 
 run_case plan
+run_case init-schema
 run_case migrate
 run_case deploy daily-build-2026.08.17-r1
 run_case deploy+migrate daily-build-2026.08.17-r1

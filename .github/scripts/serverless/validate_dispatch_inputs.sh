@@ -8,7 +8,7 @@ deploy_cloudflare="${DEPLOY_CLOUDFLARE:-false}"
 deploy_cloud_run="${DEPLOY_CLOUD_RUN:-false}"
 
 case "${operation}" in
-  plan|migrate|destroy)
+  plan|init-schema|migrate|destroy)
     ;;
   deploy|deploy+migrate)
     if [[ -z "${tag_ref}" ]]; then
@@ -17,7 +17,7 @@ case "${operation}" in
     fi
     ;;
   *)
-    echo "OPERATION must be one of: plan, deploy, migrate, deploy+migrate, destroy" >&2
+    echo "OPERATION must be one of: plan, init-schema, deploy, migrate, deploy+migrate, destroy" >&2
     exit 2
     ;;
 esac

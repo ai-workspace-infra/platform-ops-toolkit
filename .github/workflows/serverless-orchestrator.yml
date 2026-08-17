@@ -8,12 +8,13 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: '执行范围：plan 仅校验；deploy 部署应用；migrate 迁移；deploy+migrate 部署+迁移；destroy 销毁'
+        description: '执行范围：plan 仅校验；init-schema 初始化 Supabase schema；deploy 部署应用；migrate 迁移；deploy+migrate 部署+迁移；destroy 销毁'
         required: true
         default: 'deploy'
         type: choice
         options:
           - plan
+          - init-schema
           - deploy
           - migrate
           - deploy+migrate
@@ -30,6 +31,11 @@ on:
       tag_ref:
         description: 'Unified immutable tag for Cloud Run images, portal, and edge-gateway (for example daily-build-2026.08.17-r1)'
         required: false
+        type: string
+      accounts_schema_ref:
+        description: 'Accounts source ref containing sql/schema.sql; used only by init-schema'
+        required: false
+        default: 'main'
         type: string
       deploy_cloudflare:
         description: 'Deploy Cloudflare SSR Workers, edge gateway, and Pages static assets'
@@ -110,6 +116,45 @@ jobs:
           VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
           INITIALIZE_SUPABASE: 'false'
           VERIFY_SUPABASE: 'true'
+
+  init_schema:
+    name: Supabase / xworktech schema initialization
+    needs: preflight
+    if: ${{ inputs.operation == 'init-schema' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Checkout Accounts schema
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-services/accounts
+          ref: ${{ inputs.accounts_schema_ref || 'main' }}
+          path: accounts
+          sparse-checkout: |
+            sql/schema.sql
+
+      - name: Install Vault CLI
+        run: ./.github/scripts/serverless/install_vault_cli.sh
+
+      - name: Authenticate to Vault with GitHub OIDC
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
+          jwtGithubAudience: vault
+          exportToken: true
+
+      - name: Initialize and verify Supabase account schema
+        run: ./.github/scripts/serverless/run_supabase_task.sh
+        env:
+          VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
+          INITIALIZE_SUPABASE: 'true'
+          VERIFY_SUPABASE: 'true'
+          ACCOUNT_SCHEMA_FILE: ${{ github.workspace }}/accounts/sql/schema.sql
 
   cloud_run:
     name: Cloud Run / ${{ matrix.service }}
