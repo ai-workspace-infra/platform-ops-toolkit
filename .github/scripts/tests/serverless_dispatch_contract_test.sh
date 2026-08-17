@@ -16,7 +16,7 @@ run_case() {
 }
 
 run_case plan
-run_case saas
+run_case init-schema
 run_case migrate
 run_case deploy daily-build-2026.08.17-r1
 run_case deploy+migrate daily-build-2026.08.17-r1
@@ -24,6 +24,11 @@ run_case destroy
 
 if OPERATION=deploy VAULT_ENV_PATH=uat TAG_REF='' DEPLOY_CLOUDFLARE=true DEPLOY_CLOUD_RUN=true "${validate_script}" >/dev/null 2>&1; then
   echo "deploy without tag_ref unexpectedly succeeded" >&2
+  exit 1
+fi
+
+if OPERATION=saas VAULT_ENV_PATH=uat TAG_REF='' DEPLOY_CLOUDFLARE=true DEPLOY_CLOUD_RUN=true "${validate_script}" >/dev/null 2>&1; then
+  echo "legacy saas operation unexpectedly succeeded" >&2
   exit 1
 fi
 
