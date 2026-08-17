@@ -305,7 +305,6 @@ jobs:
         GITOPS_ROUTING_CONFIG: ${{ runner.temp }}/selfhost-edge-routing.json
         EXPECTED_ENV: ${{ steps.route.outputs.deployment_env }}
         EXPECTED_TARGET_DOMAIN_BASE: ${{ steps.route.outputs.target_domain_base }}
-        REQUESTED_OPERATION: ${{ steps.route.outputs.toolkit_action }}
 
     - name: Load Vault secrets
       if: steps.route.outputs.run_infrastructure == 'true'
@@ -1571,8 +1570,9 @@ jobs:
 
   trigger_data_migration:
     name: "[3] Data Migration"
-    # The selected GitOps topology is validated in provision before this job is
-    # allowed to run. Migration remains closed while migration.enabled=false.
+    # The toolkit operation selects whether this execution includes migration.
+    # GitOps supplies the declarative runtime topology only; its migration
+    # capability flag is not a control-plane authorization for this run.
     # Data migration uses the CMDB address and the local PostgreSQL container.
     # It is independent of Agent Proxy and observability, and can begin as
     # soon as the database bootstrap/schema job completes.
