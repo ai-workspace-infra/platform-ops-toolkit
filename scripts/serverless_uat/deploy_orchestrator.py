@@ -158,9 +158,9 @@ def deploy_cloudflare(script_dir: str, env_context: dict) -> None:
         "ssr": "deploy_portal_opennext_worker.sh",
         "edge-worker": "deploy_portal_opennext_worker.sh",
         "page-worker": "deploy_portal_opennext_worker.sh",
-        "static-pages": "deploy_cloudflare_pages.sh",
         "dashboard": "deploy_cloudflare_pages.sh",
         "pages": "deploy_cloudflare_pages.sh",
+        "static-pages": "deploy_cloudflare_pages.sh",
         "edge-gateway": "deploy_cloudflare_worker.sh",
     }
     if not CLOUDFLARE_TARGET:

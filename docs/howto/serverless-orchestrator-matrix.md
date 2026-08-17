@@ -11,16 +11,42 @@ Supabase / xworktech
 Cloud Run / accounts, content-service, billing-service
         │
         ▼
-Cloudflare / dashboard (Pages), edge-worker（可选）, edge-gateway（可选）
+Cloudflare / SSR（多个）
+        │
+        ▼
+edge-gateway / auth, admin, core（必选）
+        │
+        ▼
+Cloudflare / static-pages
         │
         ▼
 Verify / Summary
 ```
 
-任务依赖按从左到右排列为 `Supabase → Cloud Run → Cloudflare → Verify / Summary`。
-Cloudflare 前端部署以 `dashboard`（Cloudflare Pages 静态控制台）为主发布路径，部署前自动创建 Pages 项目（`ai-workspace-portal-<env>`）；
-`edge-worker`（portal OpenNext Worker）与 `edge-gateway` 为独立可选 job，默认 skipped。Verify job 会校验 Supabase 连接契约，并把
-各阶段结果写入 GitHub Step Summary。
+任务依赖按从左到右排列为：
+`Supabase → Cloud Run → Cloudflare SSR → edge-gateway → static-pages → Verify / Summary`。
+`edge-gateway` 不再是可选 job，必须成功后才发布静态 Pages 资源。
+
+## Cloudflare UAT 边界
+
+边界清单位于 `.github/serverless/cloudflare-boundaries.json`：
+
+| 层 | Worker / Pages | 路径边界 | 当前状态 |
+|---|---|---|---|
+| SSR 公共页面 | `frontend-ssr-public-uat` | `/*`、`/_edge/public/*` | 独立轻量 Worker |
+| SSR 内容页面 | `frontend-ssr-content-uat` | `/blogs*`、`/docs*`、`/download*` | 独立轻量 Worker |
+| SSR 身份页面 | `frontend-ssr-auth-uat` | `/login*`、`/register*` 等 | 独立轻量 Worker |
+| SSR 控制台 | `frontend-ssr-console-uat` | `/panel*`、`/dashboard*` | 独立轻量 Worker |
+| SSR 工作区 | `frontend-ssr-workspace-uat` | `/ai-workspace*`、`/editor*` 等 | 独立轻量 Worker |
+| API 鉴权 | `frontend-api-auth-uat` | `/api/auth/*` | 独立轻量 Worker |
+| API 管理 | `frontend-api-admin-uat` | `/api/admin/*` | 独立轻量 Worker |
+| API 核心 | `frontend-api-core-uat` | `/api/*` 兜底 | 独立轻量 Worker |
+| 静态资源 | `ai-workspace-portal-uat` | `/static/*`、`/assets/*` | Pages 部署 |
+
+这里的拆分是源代码级拆分：不能仅复制 `wrangler` 名称，否则每个 Worker 仍会打包整套
+OpenNext 应用，无法解决 Cloudflare Worker 3 MiB 限制。API 三个独立入口已经在
+`ai-workspace-services/edge-gateway` 中提供，并通过 `wrangler.auth.toml`、
+`wrangler.admin.toml`、`wrangler.core.toml` 开启对应 Cloudflare Routes。
 
 ## 输入建议
 
@@ -30,17 +56,13 @@ UAT 常用值：
 vault_env_path=uat
 image_tag=<不可变 daily-build-* 快照>
 deploy_cloudflare=true
-deploy_edge_worker=false
-deploy_edge_gateway=false
 deploy_cloud_run=true
 verify_supabase=true
 ```
 
-- `deploy_cloudflare=true` 会构建并发布 portal 的静态控制台到 Cloudflare Pages。
-- `deploy_edge_worker=true` 时，会执行 OpenNext 完整服务端 Worker 发布（依赖 Cloudflare 付费套餐规格支持大体积 Worker）。
-- `deploy_edge_gateway=true` 时，还需要填写可被 GitHub Actions 访问的
-`edge_gateway_repository` 和 `edge_gateway_ref`。该任务会检出 edge-gateway 仓库，执行
-Cloudflare Worker 发布；本地开发机路径不会被带入 CI。
+`edge_gateway_repository` 和 `edge_gateway_ref` 为必填的源码来源。任务会检出
+edge-gateway 仓库，并以 `auth/admin/core` 三项矩阵独立发布三个 Worker；本地开发机路径不会
+被带入 CI。
 
 ## Cloud Run 镜像契约
 

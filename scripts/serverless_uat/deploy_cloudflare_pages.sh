@@ -22,8 +22,15 @@ pushd "${PORTAL_DIR}" > /dev/null
 corepack enable
 yarn install --immutable
 yarn build:static-dashboard
-# Ensure the Cloudflare Pages project exists before deploying
-yarn exec wrangler pages project create "${PAGES_PROJECT}" --production-branch="${PAGES_BRANCH}" || true
+# Pages deployments are environment-scoped.  Create the explicitly selected
+# project once when a fresh Cloudflare account has not been provisioned yet;
+# an existing project is reused without changing its configuration.
+pages_projects="$(yarn exec wrangler pages project list)"
+if ! printf '%s\n' "${pages_projects}" | grep -F -- "${PAGES_PROJECT}" >/dev/null; then
+  echo "==> [Cloudflare Pages UAT] Creating missing Pages project: ${PAGES_PROJECT}..."
+  yarn exec wrangler pages project create "${PAGES_PROJECT}" \
+    --production-branch="${PAGES_BRANCH}"
+fi
 yarn exec wrangler pages deploy static-dashboard/out --project-name="${PAGES_PROJECT}" --branch="${PAGES_BRANCH}"
 popd > /dev/null
 
