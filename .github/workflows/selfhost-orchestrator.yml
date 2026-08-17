@@ -74,7 +74,7 @@ on:
         default: ""
         type: string
       operation:
-        description: "执行范围：plan 仅校验；infra 仅基础设施；deploy 部署应用；migrate 仅迁移；deploy+migrate 部署并迁移；destroy 销毁。迁移必须由 GitOps 显式启用。"
+        description: "执行范围：plan 仅校验；infra 仅基础设施；deploy 部署应用；migrate 仅迁移；deploy+migrate 部署并迁移；destroy 销毁。迁移由此操作参数选择；GitOps 仅声明拓扑与能力。"
         required: true
         default: "deploy"
         type: choice

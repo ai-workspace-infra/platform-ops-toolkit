@@ -93,7 +93,7 @@ manifest to every Cloudflare consumer. The manifest must define:
 - Cloudflare zone and Pages project;
 - exactly five `spec.serverless.ssr` boundaries;
 - `auth`, `admin`, and `core` in `spec.serverless.edge_gateway`, with `core` owning `/api/*`;
-- both database modes and a disabled async DTS reservation under `spec.runtime.data.migration`.
+- both database modes and an async DTS reservation under `spec.runtime.data.migration`.
 
 Repository-local Cloudflare boundary JSON is not a deployment source of truth and is not used by
 the orchestrator.
@@ -134,9 +134,10 @@ deploy_cloud_run=true              # default
 deploy_cloudflare=true             # default
 ```
 
-`tag_ref` is required only for `deploy` and `deploy+migrate`. The migration operations
-remain closed unless the selected GitOps topology sets
-`spec.runtime.data.migration.enabled: true`.
+`tag_ref` is required only for `deploy` and `deploy+migrate`. The `operation` input is the
+control-plane authority that selects whether the migration job runs. GitOps declares data
+topology and migration constraints (strategy, single-writer, lag, and quiesce requirements), but
+does not authorize or select an individual workflow run.
 
 `tag_ref` is the single immutable version for Cloud Run images, Portal SSR, and edge-gateway.
 The three repositories and the GitOps repository are fixed workflow dependencies, so their

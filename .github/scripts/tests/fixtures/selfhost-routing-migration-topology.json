@@ -35,7 +35,6 @@
           "serverless": "supabase"
         },
         "migration": {
-          "enabled": false,
           "strategy": "async",
           "single_writer": true,
           "max_lag_seconds": 60,
