@@ -32,7 +32,7 @@ are
 declared in:
 
 ```text
-ai-workspace-infra/gitops/resources/svc.plus/uat/serverless/edge-routing.yaml
+ai-workspace-infra/gitops/topology/uat/serverless/runtime-topology.yaml
 ```
 
 The serverless workflow requires the serverless pre-configuration at
