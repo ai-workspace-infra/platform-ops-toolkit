@@ -4,7 +4,7 @@ The serverless orchestrator uses `ai-workspace-infra/gitops` as the single sourc
 environment routing values. For UAT the file is:
 
 ```text
-resources/svc.plus/uat/cloudflare/edge-routing.json
+resources/svc.plus/uat/cloudflare/edge-routing.yaml
 ```
 
 Each Cloudflare matrix job checks out the selected `gitops_ref`, validates the declaration,
@@ -12,6 +12,7 @@ and passes its absolute path to the portal or edge-gateway repository. Repositor
 files remain compatibility fallbacks for standalone local builds; the orchestrator does not
 use those fallbacks.
 
-The declaration owns domains, Worker names, Pages project, route boundaries, and VPS/Cloud Run
-origin policy. Secrets are still loaded from Vault through GitHub OIDC and are never committed
-to GitOps.
+The YAML declaration owns domains, Worker names, Pages project, route boundaries, and VPS/Cloud
+Run origin policy. The workflow renders it to a temporary JSON document for existing consumers;
+that generated file is never committed. Secrets are still loaded from Vault through GitHub OIDC
+and are never committed to GitOps.
