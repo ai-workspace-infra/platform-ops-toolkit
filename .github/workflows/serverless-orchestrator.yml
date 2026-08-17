@@ -71,7 +71,6 @@ jobs:
         env:
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
           REQUIRED_RUNTIME_MODE: serverless
-          REQUESTED_OPERATION: ${{ inputs.operation || 'plan' }}
 
       - name: Validate serverless dispatch
         run: ./.github/scripts/serverless/validate_dispatch_inputs.sh

@@ -9,6 +9,26 @@ import sys
 from pathlib import Path
 
 
+def validate_data_topology(data: dict[str, object]) -> None:
+    """Validate declarative data topology without selecting an operation."""
+    providers = data.get("providers", {})
+    if not isinstance(providers, dict):
+        raise SystemExit("GitOps runtime data must define database providers")
+    if providers.get("selfhost") != "self-managed-postgresql":
+        raise SystemExit("GitOps selfhost database mode must use self-managed-postgresql")
+    if providers.get("serverless") != "supabase":
+        raise SystemExit("GitOps Serverless database mode must use Supabase")
+    if data.get("primary") not in {"selfhost", "serverless"} or data.get("replica") not in {"selfhost", "serverless"}:
+        raise SystemExit("GitOps runtime data must define selfhost or serverless primary and replica modes")
+    migration = data.get("migration", {})
+    if not isinstance(migration, dict):
+        raise SystemExit("GitOps runtime data must define a migration topology")
+    if migration.get("strategy") != "async" or migration.get("single_writer") is not True:
+        raise SystemExit("GitOps runtime migration must reserve async DTS with single_writer=true")
+    if not isinstance(migration.get("enabled"), bool):
+        raise SystemExit("GitOps DTS reservation must define migration.enabled explicitly")
+
+
 def main() -> int:
     configured_path = os.environ.get("CLOUDFLARE_BOUNDARY_CONFIG")
     if not configured_path:
@@ -53,23 +73,9 @@ def main() -> int:
     if len(serverless.get("edge_gateway", {}).get("boundaries", [])) != 3:
         raise SystemExit("GitOps routing manifest must define exactly three edge-gateway boundaries")
     data = runtime.get("data", {})
-    if data.get("providers", {}).get("selfhost") != "self-managed-postgresql":
-        raise SystemExit("GitOps selfhost database mode must use self-managed-postgresql")
-    if data.get("providers", {}).get("serverless") != "supabase":
-        raise SystemExit("GitOps Serverless database mode must use Supabase")
-    if data.get("primary") not in {"selfhost", "serverless"} or data.get("replica") not in {"selfhost", "serverless"}:
-        raise SystemExit("GitOps runtime data must define selfhost or serverless primary and replica modes")
-    dts = data.get("migration", {})
-    if dts.get("strategy") != "async" or dts.get("single_writer") is not True:
-        raise SystemExit("GitOps runtime migration must reserve async DTS with single_writer=true")
-    if not isinstance(dts.get("enabled"), bool):
-        raise SystemExit("GitOps DTS reservation must define migration.enabled explicitly")
-    requested_operation = os.environ.get("REQUESTED_OPERATION", "")
-    if requested_operation in {"migrate", "deploy+migrate"} and dts.get("enabled") is not True:
-        raise SystemExit(
-            f"operation={requested_operation} requires "
-            "spec.runtime.data.migration.enabled=true in the selected GitOps topology"
-        )
+    if not isinstance(data, dict):
+        raise SystemExit("GitOps runtime must define a data topology")
+    validate_data_topology(data)
     hosts = {
         "console": serverless.get("console_host", ""),
         "accounts": serverless.get("accounts_host", ""),
