@@ -8,13 +8,22 @@ set -euo pipefail
 
 GCP_PROJECT="${GCP_PROJECT_ID:-ai-workspace-uat-project}"
 GCP_REGION="${GCP_REGION:-asia-east1}"
+DEPLOY_ENV="${DEPLOY_ENV:-uat}"
+
+case "${DEPLOY_ENV}" in
+  sit|uat|prod) ;;
+  *)
+    echo "DEPLOY_ENV must be one of: sit, uat, prod" >&2
+    exit 1
+    ;;
+esac
 
 SERVICES=("accounts" "billing-service" "content-service")
 
-echo "==> [UAT Teardown] Destroying ephemeral Cloud Run compute services in project ${GCP_PROJECT}..."
+echo "==> [${DEPLOY_ENV} Teardown] Destroying ephemeral Cloud Run compute services in project ${GCP_PROJECT}..."
 
 for svc in "${SERVICES[@]}"; do
-  SERVICE_NAME="uat-${svc}"
+  SERVICE_NAME="${DEPLOY_ENV}-${svc}"
   echo "==> [Cloud Run] Deleting ${SERVICE_NAME}..."
   gcloud run services delete "${SERVICE_NAME}" \
     --project="${GCP_PROJECT}" \
@@ -30,4 +39,4 @@ gcloud artifacts docker images list "asia-east1-docker.pkg.dev/${GCP_PROJECT}/se
   --filter="createTime < -P2D" \
   --format="value(IMAGE)" 2>/dev/null | xargs -r -n 1 gcloud artifacts docker images delete --quiet || true
 
-echo "==> [Success] Ephemeral UAT compute teardown finished. Persistent stores intact."
+echo "==> [Success] Ephemeral ${DEPLOY_ENV} compute teardown finished. Persistent stores intact."
