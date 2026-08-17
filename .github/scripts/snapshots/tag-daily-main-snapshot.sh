@@ -67,7 +67,7 @@ build_config="${GITHUB_WORKSPACE:-.}/.github/daily-snapshot-builds.json"
 # canonical scheduled-snapshot scope; it prevents unrelated/stale repositories
 # from receiving a daily tag merely because they still have a main branch.
 snapshot_organization="${SNAPSHOT_ORGS:-}"
-[[ "${snapshot_organization}" =~ ^ai-workspace-(infra|lab|services|xstream)$ ]] || {
+[[ "${snapshot_organization}" =~ ^ai-workspace-(infra|lab|service|services|xstream)$ ]] || {
   echo "::error::SNAPSHOT_ORGS must name the current matrix organization (got: ${snapshot_organization:-empty})" >&2
   exit 2
 }
