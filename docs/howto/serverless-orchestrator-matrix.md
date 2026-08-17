@@ -104,7 +104,7 @@ GitOps reserves both database endpoints under `spec.runtime.data`:
 
 - Selfhost mode: self-managed PostgreSQL;
 - Serverless mode: Supabase Cloud DB;
-- async DTS: declared but disabled by default;
+- async DTS: declared as a migration constraint; each run's `operation` selects execution;
 - one active writer only, 60-second maximum lag target, and a required quiesce window;
 - connection strings and replication credentials remain in Vault and are never committed.
 
@@ -118,7 +118,6 @@ The manual dispatch uses one explicit operation:
 
 ```text
 operation=plan             # only validate GitOps and dispatch inputs
-operation=saas             # initialize Supabase only
 operation=deploy           # deploy the selected serverless application targets
 operation=migrate          # migrate VPS PostgreSQL data to Supabase
 operation=deploy+migrate  # deploy first, then migrate
@@ -138,6 +137,10 @@ deploy_cloudflare=true             # default
 control-plane authority that selects whether the migration job runs. GitOps declares data
 topology and migration constraints (strategy, single-writer, lag, and quiesce requirements), but
 does not authorize or select an individual workflow run.
+
+Supabase account-schema initialization has an isolated manual entry point:
+`serverless-supabase-schema-init.yml`. It is intentionally not an `operation` of the application
+orchestrator, so schema writes cannot be coupled to a deployment selection.
 
 `tag_ref` is the single immutable version for Cloud Run images, Portal SSR, and edge-gateway.
 The three repositories and the GitOps repository are fixed workflow dependencies, so their

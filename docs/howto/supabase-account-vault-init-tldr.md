@@ -105,17 +105,17 @@ bash scripts/serverless_uat/init_supabase_account_db.sh \
 
 ## Workflow 验证
 
-`.github/workflows/uat-serverless-orchestrator.yml` 增加了显式的
-`initialize_supabase=true` 分支。该分支只 checkout Accounts schema、读取 Vault 并执行
-schema 初始化，不会同时触发 Cloud Run 部署；默认值为 `false`，定时任务行为不变。
+`.github/workflows/serverless-supabase-schema-init.yml` 提供独立的
+`workflow_dispatch` 入口。该工作流只 checkout Accounts schema、读取 Vault 并执行
+schema 初始化和连通性校验；不会同时触发 Cloud Run 或 Cloudflare 部署。
 
 手动验证：
 
 ```bash
-gh workflow run uat-serverless-orchestrator.yml \
+gh workflow run serverless-supabase-schema-init.yml \
   --ref main \
-  -f initialize_supabase=true \
-  -f vault_env_path=uat
+  -f vault_env_path=uat \
+  -f accounts_ref=main
 ```
 
 Workflow 使用 GitHub OIDC + `hashicorp/vault-action` 获取临时 Vault token，不依赖

@@ -53,6 +53,7 @@ read -r -d '' ALLOWED_WORKFLOWS <<EOF || true
     "${WF_PREFIX}/k6-performance-test.yaml@*",
     "${WF_PREFIX}/uat-serverless-orchestrator.yml@*",
     "${WF_PREFIX}/serverless-orchestrator.yml@*",
+    "${WF_PREFIX}/serverless-supabase-schema-init.yml@*",
     "${WF_PREFIX}/hybrid-orchestrator.yml@*"
 EOF
 

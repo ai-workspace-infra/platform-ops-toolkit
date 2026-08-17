@@ -8,13 +8,12 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: '执行范围：plan 仅校验；saas 仅初始化；deploy 部署应用；migrate 迁移；deploy+migrate 部署+迁移；destroy 销毁'
+        description: '执行范围：plan 仅校验；deploy 部署应用；migrate 迁移；deploy+migrate 部署+迁移；destroy 销毁'
         required: true
         default: 'deploy'
         type: choice
         options:
           - plan
-          - saas
           - deploy
           - migrate
           - deploy+migrate
@@ -84,21 +83,13 @@ jobs:
   supabase:
     name: Supabase / xworktech
     needs: preflight
-    if: ${{ inputs.operation == 'saas' || inputs.operation == 'deploy' }}
+    # Deployment paths verify the existing Supabase service before Cloud Run
+    # and migration start. Schema initialization is a separate manual workflow.
+    if: ${{ contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
-
-      - name: Checkout Accounts schema
-        if: ${{ inputs.operation == 'saas' }}
-        uses: actions/checkout@v7
-        with:
-          repository: ai-workspace-services/accounts
-          ref: main
-          path: accounts
-          sparse-checkout: |
-            sql/schema.sql
 
       - name: Install Vault CLI
         run: ./.github/scripts/serverless/install_vault_cli.sh
@@ -117,9 +108,8 @@ jobs:
         env:
           VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
           VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
-          INITIALIZE_SUPABASE: ${{ inputs.operation == 'saas' }}
-          VERIFY_SUPABASE: ${{ inputs.operation == 'deploy' }}
-          ACCOUNT_SCHEMA_FILE: ${{ github.workspace }}/accounts/sql/schema.sql
+          INITIALIZE_SUPABASE: 'false'
+          VERIFY_SUPABASE: 'true'
 
   cloud_run:
     name: Cloud Run / ${{ matrix.service }}
