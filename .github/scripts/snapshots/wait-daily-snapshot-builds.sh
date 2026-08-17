@@ -9,6 +9,7 @@ declare -A BUILD_WORKFLOWS=(
   [ai-workspace-services/billing-service]=ci-pipeline.yml
   [ai-workspace-services/content-service]=ci-pipeline.yml
   [ai-workspace-services/portal]=ci-pipeline.yml
+  [ai-workspace-service/edge-gateway.svc.plus]=deploy.yml
   [ai-workspace-lab/xworkmate-bridge]=pipeline.yml
   [ai-workspace-services/postgresql.svc.plus]=ci-pipeline.yml
   [ai-workspace-xstream/xray-exporter]=build-release-deploy.yml
@@ -16,6 +17,7 @@ declare -A BUILD_WORKFLOWS=(
 
 declare -A RELEASE_MANIFEST_REQUIRED=(
   [ai-workspace-lab/xworkmate-bridge]=false
+  [ai-workspace-service/edge-gateway.svc.plus]=false
 )
 
 declare -A RELEASE_ASSET_REQUIRED=(
@@ -25,7 +27,7 @@ declare -A RELEASE_ASSET_REQUIRED=(
 timeout_seconds="${BUILD_TIMEOUT_SECONDS:-1800}"
 poll_seconds="${BUILD_POLL_SECONDS:-15}"
 snapshot_organization="${SNAPSHOT_ORGANIZATION:-}"
-[[ -z "${snapshot_organization}" || "${snapshot_organization}" =~ ^ai-workspace-(infra|lab|services|xstream)$ ]] || {
+[[ -z "${snapshot_organization}" || "${snapshot_organization}" =~ ^ai-workspace-(infra|lab|service|services|xstream)$ ]] || {
   echo "::error::Invalid snapshot organization: ${snapshot_organization}" >&2
   exit 2
 }
