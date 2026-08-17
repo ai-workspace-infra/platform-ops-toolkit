@@ -89,6 +89,10 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
       run_infrastructure=true; run_application_deploy=true
       terraform_action=apply; toolkit_action=deploy
       ;;
+    migrate)
+      run_infrastructure=false; run_application_deploy=false
+      terraform_action=none; toolkit_action=migrate
+      ;;
     deploy+migrate)
       run_infrastructure=true; run_application_deploy=true
       terraform_action=apply; toolkit_action=deploy+migrate
@@ -102,6 +106,17 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
       exit 1
       ;;
   esac
+
+  if [[ "${operation}" == "migrate" || "${operation}" == "deploy+migrate" ]]; then
+    case "${deployment_env}:${target_domains}" in
+      uat:all|uat:web-saas|"uat:web-saas + agent-proxy")
+        ;;
+      *)
+        echo "::error::Data migration is currently wired only for the UAT web-saas target. Use vault_env_path=uat and target_domains=all, web-saas, or web-saas + agent-proxy." >&2
+        exit 1
+        ;;
+    esac
+  fi
 
   case "${deployment_env}" in
     sit) env_suffix=-sit ;;
