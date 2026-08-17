@@ -52,6 +52,18 @@ assert_contains "${plan_output}" "run_infrastructure=true"
 assert_contains "${plan_output}" "run_application_deploy=false"
 assert_contains "${plan_output}" "terraform_action=plan"
 
+migrate_output="$(run_route env INPUT_OPERATION=migrate INPUT_DNS_MODE=none)"
+assert_contains "${migrate_output}" "run_infrastructure=false"
+assert_contains "${migrate_output}" "run_application_deploy=false"
+assert_contains "${migrate_output}" "terraform_action=none"
+assert_contains "${migrate_output}" "toolkit_action=migrate"
+
+deploy_migrate_output="$(run_route env INPUT_OPERATION=deploy+migrate INPUT_DNS_MODE=none)"
+assert_contains "${deploy_migrate_output}" "run_infrastructure=true"
+assert_contains "${deploy_migrate_output}" "run_application_deploy=true"
+assert_contains "${deploy_migrate_output}" "terraform_action=apply"
+assert_contains "${deploy_migrate_output}" "toolkit_action=deploy+migrate"
+
 destroy_output="$(run_route env INPUT_OPERATION=destroy INPUT_DNS_MODE=uat-records)"
 assert_contains "${destroy_output}" "run_infrastructure=true"
 assert_contains "${destroy_output}" "run_application_deploy=false"

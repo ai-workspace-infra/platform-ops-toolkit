@@ -47,8 +47,12 @@ def main() -> int:
         fail(f"metadata.environment must be {expected_environment}")
 
     expected_target_zone = os.environ.get("EXPECTED_TARGET_DOMAIN_BASE", "")
-    if expected_target_zone and expected_target_zone != "onwalk.net":
-        fail("selfhost UAT routing requires target_domain_base=onwalk.net")
+    expected_environment_zone = "svc.plus" if expected_environment == "prod" else "onwalk.net"
+    if expected_target_zone and expected_target_zone != expected_environment_zone:
+        fail(
+            f"selfhost {expected_environment} routing requires "
+            f"target_domain_base={expected_environment_zone}"
+        )
 
     if dns.get("control_plane") != "cloudflare-dns":
         fail("runtime.routing.dns.control_plane must be cloudflare-dns")
@@ -74,22 +78,31 @@ def main() -> int:
         fail("runtime.data.providers.selfhost must be self-managed-postgresql")
     if data.get("providers", {}).get("serverless") != "supabase":
         fail("runtime.data.providers.serverless must be supabase")
-    if migration.get("enabled") is not False:
-        fail("runtime.data.migration.enabled must remain false")
+    if not isinstance(migration.get("enabled"), bool):
+        fail("runtime.data.migration.enabled must be an explicit boolean")
     if migration.get("strategy") != "async" or migration.get("single_writer") is not True:
         fail("runtime.data.migration must reserve async single-writer handover")
     if migration.get("max_lag_seconds") != 60 or migration.get("require_quiesce_for_cutover") is not True:
         fail("runtime.data.migration must retain the 60-second lag and quiesce requirements")
-    if os.environ.get("REQUESTED_OPERATION") == "deploy+migrate":
-        fail("operation=deploy+migrate is forbidden while GitOps migration.enabled=false")
+    requested_operation = os.environ.get("REQUESTED_OPERATION", "")
+    if requested_operation in {"migrate", "deploy+migrate"} and migration.get("enabled") is not True:
+        fail(
+            f"operation={requested_operation} requires "
+            "runtime.data.migration.enabled=true in the selected GitOps topology"
+        )
 
+    env_suffix = "" if expected_environment == "prod" else f"-{expected_environment}"
+    expected_host_zone = expected_environment_zone
     canonical_records = dns.get("canonical_records", {})
     expected_records = {
-        "console-uat.onwalk.net": "console-vps-uat.onwalk.net",
-        "accounts-uat.onwalk.net": "accounts-vps-uat.onwalk.net",
+        f"console{env_suffix}.{expected_host_zone}": f"console-vps-{expected_environment}.{expected_host_zone}",
+        f"accounts{env_suffix}.{expected_host_zone}": f"accounts-vps-{expected_environment}.{expected_host_zone}",
     }
     if canonical_records != expected_records:
-        fail("canonical_records must select the declared UAT selfhost VPS targets")
+        fail(
+            f"canonical_records must select the declared {expected_environment} "
+            "selfhost VPS targets"
+        )
 
     domains = spec.get("domains", {})
     for canonical, target in expected_records.items():
@@ -102,9 +115,11 @@ def main() -> int:
     if vps.get("services") != ["console", "accounts", "content", "billing"]:
         fail("spec.vps.services must declare the four web-saas services")
 
+    migration_state = "enabled" if migration.get("enabled") else "disabled"
     print(
         "GitOps selfhost contract valid: "
-        "UAT -> VPS Full Stack, DNS-only, selfhost=100, PostgreSQL primary, migration disabled"
+        f"{expected_environment} -> VPS Full Stack, DNS-only, selfhost=100, "
+        f"PostgreSQL primary, migration {migration_state}"
     )
     return 0
 
