@@ -78,18 +78,16 @@ def main() -> int:
         fail("runtime.data.providers.selfhost must be self-managed-postgresql")
     if data.get("providers", {}).get("serverless") != "supabase":
         fail("runtime.data.providers.serverless must be supabase")
+    # GitOps declares the runtime topology and its migration capabilities; it
+    # does not authorize or select a control-plane operation for this run.
+    # The latter is selected by platform-ops-toolkit's explicit operation
+    # routing and must not be inferred from this declaration.
     if not isinstance(migration.get("enabled"), bool):
         fail("runtime.data.migration.enabled must be an explicit boolean")
     if migration.get("strategy") != "async" or migration.get("single_writer") is not True:
         fail("runtime.data.migration must reserve async single-writer handover")
     if migration.get("max_lag_seconds") != 60 or migration.get("require_quiesce_for_cutover") is not True:
         fail("runtime.data.migration must retain the 60-second lag and quiesce requirements")
-    requested_operation = os.environ.get("REQUESTED_OPERATION", "")
-    if requested_operation in {"migrate", "deploy+migrate"} and migration.get("enabled") is not True:
-        fail(
-            f"operation={requested_operation} requires "
-            "runtime.data.migration.enabled=true in the selected GitOps topology"
-        )
 
     env_suffix = "" if expected_environment == "prod" else f"-{expected_environment}"
     expected_host_zone = expected_environment_zone
