@@ -201,6 +201,12 @@ def main() -> int:
         raise SystemExit(f"Cloudflare boundary contract is missing: {', '.join(sorted(missing))}")
     if "/api/*" not in next(boundary["routes"] for boundary in boundaries if boundary["id"] == "api-core"):
         raise SystemExit("api-core must retain the catch-all /api/* boundary")
+    core_topology = next(
+        item for item in serverless.get("edge_gateway", {}).get("boundaries", [])
+        if item.get("id") == "core"
+    )
+    if mode == "serverless" and core_topology.get("display_name") != "Edge Gateway Router Core":
+        raise SystemExit("GitOps api-core display_name must be Edge Gateway Router Core")
     for boundary_id in ("api-auth", "api-admin", "api-core"):
         boundary = next(boundary for boundary in boundaries if boundary["id"] == boundary_id)
         if boundary["host"] != "accounts":

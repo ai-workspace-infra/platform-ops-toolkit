@@ -124,14 +124,20 @@ jobs:
           CLOUD_RUN_SERVICE: ${{ matrix.service }}
 
   edge_gateway_failover:
-    name: Hybrid edge-gateway / ${{ matrix.boundary }}
+    name: Hybrid / ${{ matrix.display_name }}
     needs: [contract, cloud_run_fallback]
     if: ${{ always() && inputs.deploy_edge_gateway == true && needs.contract.result == 'success' && (needs.cloud_run_fallback.result == 'success' || needs.cloud_run_fallback.result == 'skipped') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        boundary: [auth, admin, core]
+        include:
+          - boundary: auth
+            display_name: Edge Gateway Auth
+          - boundary: admin
+            display_name: Edge Gateway Admin
+          - boundary: core
+            display_name: Edge Gateway Router Core
     steps:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7

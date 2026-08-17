@@ -346,17 +346,20 @@ jobs:
           FRONTEND_ROUTER_DIR: ${{ github.workspace }}/frontend-router
 
   edge_gateway:
-    name: Cloudflare / edge-gateway / ${{ matrix.boundary }}
+    name: Cloudflare / ${{ matrix.display_name }}
     needs: preflight
     if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        boundary:
-          - auth
-          - admin
-          - core
+        include:
+          - boundary: auth
+            display_name: Edge Gateway Auth
+          - boundary: admin
+            display_name: Edge Gateway Admin
+          - boundary: core
+            display_name: Edge Gateway Router Core
     steps:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7

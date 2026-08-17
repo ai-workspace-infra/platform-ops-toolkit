@@ -25,7 +25,7 @@ cat >"${test_dir}/routing.json" <<'EOF'
       },
       "edge_gateway": {
         "boundaries": [
-          {"id": "core", "worker_name": "edge-gateway-core-uat"}
+          {"id": "core", "display_name": "Edge Gateway Router Core", "worker_name": "edge-gateway-core-uat"}
         ]
       }
     }
