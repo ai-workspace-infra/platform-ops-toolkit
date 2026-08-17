@@ -62,8 +62,14 @@ def main() -> int:
     dts = data.get("migration", {})
     if dts.get("strategy") != "async" or dts.get("single_writer") is not True:
         raise SystemExit("GitOps runtime migration must reserve async DTS with single_writer=true")
-    if dts.get("enabled") is not False:
-        raise SystemExit("GitOps DTS reservation must remain disabled until cutover approval")
+    if not isinstance(dts.get("enabled"), bool):
+        raise SystemExit("GitOps DTS reservation must define migration.enabled explicitly")
+    requested_operation = os.environ.get("REQUESTED_OPERATION", "")
+    if requested_operation in {"migrate", "deploy+migrate"} and dts.get("enabled") is not True:
+        raise SystemExit(
+            f"operation={requested_operation} requires "
+            "spec.runtime.data.migration.enabled=true in the selected GitOps topology"
+        )
     hosts = {
         "console": serverless.get("console_host", ""),
         "accounts": serverless.get("accounts_host", ""),

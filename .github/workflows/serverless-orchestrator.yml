@@ -7,11 +7,18 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
-      initialize_supabase:
-        description: 'Initialize the Supabase Accounts schema before selected deployments'
-        required: false
-        default: false
-        type: boolean
+      operation:
+        description: '执行范围：plan 仅校验；saas 仅初始化；deploy 部署应用；migrate 迁移；deploy+migrate 部署+迁移；destroy 销毁'
+        required: true
+        default: 'deploy'
+        type: choice
+        options:
+          - plan
+          - saas
+          - deploy
+          - migrate
+          - deploy+migrate
+          - destroy
       vault_env_path:
         description: 'Target environment'
         required: false
@@ -23,7 +30,7 @@ on:
           - prod
       tag_ref:
         description: 'Unified immutable tag for Cloud Run images, portal, and edge-gateway (for example daily-build-2026.08.17-r1)'
-        required: true
+        required: false
         type: string
       deploy_cloudflare:
         description: 'Deploy Cloudflare SSR Workers, edge gateway, and Pages static assets'
@@ -35,12 +42,6 @@ on:
         required: false
         default: true
         type: boolean
-      verify_supabase:
-        description: 'Validate the selected Supabase connection contract from Vault'
-        required: false
-        default: true
-        type: boolean
-
 jobs:
   preflight:
     name: Validate / Dispatch inputs
@@ -70,27 +71,28 @@ jobs:
         env:
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
           REQUIRED_RUNTIME_MODE: serverless
+          REQUESTED_OPERATION: ${{ inputs.operation || 'plan' }}
 
       - name: Validate serverless dispatch
         run: ./.github/scripts/serverless/validate_dispatch_inputs.sh
         env:
+          OPERATION: ${{ inputs.operation || 'plan' }}
           VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
           TAG_REF: ${{ inputs.tag_ref }}
           DEPLOY_CLOUDFLARE: ${{ inputs.deploy_cloudflare }}
           DEPLOY_CLOUD_RUN: ${{ inputs.deploy_cloud_run }}
-          VERIFY_SUPABASE: ${{ inputs.verify_supabase }}
 
   supabase:
     name: Supabase / xworktech
     needs: preflight
-    if: ${{ inputs.initialize_supabase == true || inputs.verify_supabase == true }}
+    if: ${{ inputs.operation == 'saas' || inputs.operation == 'deploy' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
 
       - name: Checkout Accounts schema
-        if: ${{ inputs.initialize_supabase == true }}
+        if: ${{ inputs.operation == 'saas' }}
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-services/accounts
@@ -116,14 +118,14 @@ jobs:
         env:
           VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
           VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
-          INITIALIZE_SUPABASE: ${{ inputs.initialize_supabase }}
-          VERIFY_SUPABASE: ${{ inputs.verify_supabase }}
+          INITIALIZE_SUPABASE: ${{ inputs.operation == 'saas' }}
+          VERIFY_SUPABASE: ${{ inputs.operation == 'deploy' }}
           ACCOUNT_SCHEMA_FILE: ${{ github.workspace }}/accounts/sql/schema.sql
 
   cloud_run:
     name: Cloud Run / ${{ matrix.service }}
     needs: [preflight, supabase]
-    if: ${{ always() && needs.preflight.result == 'success' && inputs.deploy_cloud_run == true && (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') }}
+    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloud_run == true && (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -173,7 +175,7 @@ jobs:
   cloudflare_ssr:
     name: Cloudflare / SSR / ${{ matrix.boundary }}
     needs: [preflight, cloud_run]
-    if: ${{ always() && needs.preflight.result == 'success' && inputs.deploy_cloudflare == true && (inputs.deploy_cloud_run == false || needs.cloud_run.result == 'success') }}
+    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true && (inputs.deploy_cloud_run == false || needs.cloud_run.result == 'success') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -249,7 +251,7 @@ jobs:
   edge_gateway:
     name: Cloudflare / edge-gateway / ${{ matrix.boundary }}
     needs: [preflight, cloudflare_ssr]
-    if: ${{ always() && needs.preflight.result == 'success' && inputs.deploy_cloudflare == true && needs.cloudflare_ssr.result == 'success' }}
+    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true && needs.cloudflare_ssr.result == 'success' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -322,7 +324,7 @@ jobs:
   static_pages:
     name: Cloudflare / static-pages
     needs: [preflight, edge_gateway]
-    if: ${{ always() && needs.preflight.result == 'success' && inputs.deploy_cloudflare == true && needs.edge_gateway.result == 'success' }}
+    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true && needs.edge_gateway.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout platform toolkit
@@ -385,10 +387,84 @@ jobs:
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
           PORTAL_DIR: ${{ github.workspace }}/portal
 
+  trigger_data_migration:
+    name: Data Migration / Supabase
+    needs: [preflight, supabase, cloud_run, cloudflare_ssr, edge_gateway, static_pages]
+    if: >-
+      ${{ always() && !cancelled() &&
+      needs.preflight.result == 'success' &&
+      contains(fromJSON('["migrate","deploy+migrate"]'), inputs.operation) &&
+      (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') &&
+      (needs.cloud_run.result == 'success' || needs.cloud_run.result == 'skipped') &&
+      (needs.cloudflare_ssr.result == 'success' || needs.cloudflare_ssr.result == 'skipped') &&
+      (needs.edge_gateway.result == 'success' || needs.edge_gateway.result == 'skipped') &&
+      (needs.static_pages.result == 'success' || needs.static_pages.result == 'skipped') }}
+    uses: ./.github/workflows/data-migration.yaml
+    with:
+      vault_env_path: ${{ inputs.vault_env_path || 'uat' }}
+      runner_type: ubuntu-latest
+      toolkit_ref: ${{ github.sha }}
+      infra_ref: main
+      toolkit_action: migrate
+      migration_scope: accounts
+      accounts_dry_run: false
+      accounts_ref: ${{ inputs.tag_ref || 'main' }}
+      accounts_target_backend: supabase
+      accounts_migration_mode: metadata_and_data
+      supabase_metadata_dry_run: false
+
+  destroy:
+    name: Destroy / Cloud Run ephemeral compute
+    needs: preflight
+    if: ${{ always() && needs.preflight.result == 'success' && inputs.operation == 'destroy' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Load GCP deployment identity from Vault
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
+          jwtGithubAudience: vault
+          exportToken: true
+          secrets: |
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_WORKLOAD_IDENTITY_PROVIDER | GCP_WORKLOAD_IDENTITY_PROVIDER ;
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL ;
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_PROJECT_ID | GCP_PROJECT_ID ;
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_REGION | GCP_REGION
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ steps.vault.outputs.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ steps.vault.outputs.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Destroy serverless ephemeral compute
+        run: ./scripts/serverless_uat/destroy_ephemeral_compute.sh
+        env:
+          DEPLOY_ENV: ${{ inputs.vault_env_path || 'uat' }}
+          GCP_PROJECT_ID: ${{ steps.vault.outputs.GCP_PROJECT_ID }}
+          GCP_REGION: ${{ steps.vault.outputs.GCP_REGION }}
+
   verify:
     name: Verify / Summary
-    needs: [preflight, supabase, cloud_run, cloudflare_ssr, edge_gateway, static_pages]
-    if: ${{ always() && needs.preflight.result == 'success' && inputs.verify_supabase == true && needs.supabase.result != 'cancelled' && needs.cloud_run.result != 'cancelled' && needs.cloudflare_ssr.result != 'cancelled' && needs.edge_gateway.result != 'cancelled' && needs.static_pages.result != 'cancelled' }}
+    needs: [preflight, supabase, cloud_run, cloudflare_ssr, edge_gateway, static_pages, trigger_data_migration]
+    if: >-
+      ${{ always() && needs.preflight.result == 'success' &&
+      contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) &&
+      needs.supabase.result != 'cancelled' &&
+      needs.cloud_run.result != 'cancelled' &&
+      needs.cloudflare_ssr.result != 'cancelled' &&
+      needs.edge_gateway.result != 'cancelled' &&
+      needs.static_pages.result != 'cancelled' &&
+      (needs.trigger_data_migration.result == 'success' || needs.trigger_data_migration.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout platform toolkit

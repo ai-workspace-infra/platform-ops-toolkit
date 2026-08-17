@@ -114,16 +114,29 @@ overwriting or deleting DTS checkpoints.
 
 ## Manual inputs
 
-The normal UAT dispatch is:
+The manual dispatch uses one explicit operation:
+
+```text
+operation=plan             # only validate GitOps and dispatch inputs
+operation=saas             # initialize Supabase only
+operation=deploy           # deploy the selected serverless application targets
+operation=migrate          # migrate VPS PostgreSQL data to Supabase
+operation=deploy+migrate  # deploy first, then migrate
+operation=destroy          # destroy environment-scoped ephemeral Cloud Run compute
+```
+
+For an application deployment, the normal UAT dispatch is:
 
 ```text
 vault_env_path=uat                 # default
 tag_ref=daily-build-YYYY.MM.DD-rN  # required immutable snapshot
 deploy_cloud_run=true              # default
 deploy_cloudflare=true             # default
-verify_supabase=true               # default
-initialize_supabase=false          # default
 ```
+
+`tag_ref` is required only for `deploy` and `deploy+migrate`. The migration operations
+remain closed unless the selected GitOps topology sets
+`spec.runtime.data.migration.enabled: true`.
 
 `tag_ref` is the single immutable version for Cloud Run images, Portal SSR, and edge-gateway.
 The three repositories and the GitOps repository are fixed workflow dependencies, so their
