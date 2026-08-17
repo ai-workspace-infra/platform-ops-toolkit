@@ -30,6 +30,13 @@
       "artifacts": ["image", "release-manifest"]
     },
     {
+      "repository": "ai-workspace-service/edge-gateway.svc.plus",
+      "workflow": "deploy.yml",
+      "trigger": "workflow_dispatch",
+      "dispatch_inputs": {},
+      "artifacts": []
+    },
+    {
       "repository": "ai-workspace-lab/xworkmate-bridge",
       "workflow": "pipeline.yml",
       "trigger": "workflow_dispatch",

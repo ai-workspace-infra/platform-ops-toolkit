@@ -27,7 +27,7 @@ on:
         required: false
         default: 'latest'
       deploy_cloudflare:
-        description: 'Deploy Cloudflare SSR Worker and Pages static assets'
+        description: 'Deploy Cloudflare SSR Workers, edge gateway, and Pages static assets'
         required: true
         default: true
         type: boolean
@@ -153,15 +153,19 @@ jobs:
           CLOUD_RUN_SERVICE: ${{ matrix.service }}
 
   cloudflare_ssr:
-    name: Cloudflare / SSR / ${{ matrix.target }}
+    name: Cloudflare / SSR / ${{ matrix.boundary }}
     needs: cloud_run
     if: ${{ always() && inputs.deploy_cloudflare == true && (needs.cloud_run.result == 'success' || needs.cloud_run.result == 'skipped') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - ssr
+        boundary:
+          - public
+          - content
+          - auth
+          - console
+          - workspace
     steps:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
@@ -194,18 +198,18 @@ jobs:
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN
 
-      - name: Deploy Cloudflare target
+      - name: Deploy SSR Worker boundary
         run: ./.github/scripts/serverless/run_cloudflare_target.sh
         env:
-          CLOUDFLARE_TARGET: ${{ matrix.target }}
+          CLOUDFLARE_TARGET: ssr
+          PORTAL_SSR_BOUNDARY: ${{ matrix.boundary }}
           CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
-          PAGES_BRANCH: ${{ inputs.vault_env_path || 'uat' }}
           PORTAL_DIR: ${{ github.workspace }}/portal
 
   edge_gateway:
     name: Cloudflare / edge-gateway / ${{ matrix.boundary }}
     needs: cloudflare_ssr
-    if: ${{ always() && inputs.deploy_cloudflare == true && (needs.cloudflare_ssr.result == 'success') }}
+    if: ${{ always() && inputs.deploy_cloudflare == true && needs.cloudflare_ssr.result == 'success' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -242,7 +246,7 @@ jobs:
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN
 
-      - name: Deploy edge-gateway Worker
+      - name: Deploy edge-gateway Worker boundary
         run: ./.github/scripts/serverless/run_cloudflare_target.sh
         env:
           CLOUDFLARE_TARGET: edge-gateway
@@ -286,7 +290,7 @@ jobs:
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN
 
-      - name: Deploy static Pages assets
+      - name: Deploy Cloudflare Pages static assets
         run: ./.github/scripts/serverless/run_cloudflare_target.sh
         env:
           CLOUDFLARE_TARGET: static-pages

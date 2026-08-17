@@ -30,16 +30,12 @@ def main() -> int:
         ids.add(boundary_id)
         names.add(name)
 
-    api_routes = [
-        route
-        for boundary in boundaries
-        if boundary.get("kind") == "worker" and boundary.get("id", "").startswith("api-")
-        for route in boundary.get("routes", [])
-    ]
-    if "/api/*" not in api_routes:
+    required = {"ssr-public", "ssr-content", "ssr-auth", "ssr-console", "ssr-workspace", "api-auth", "api-admin", "api-core", "static"}
+    missing = required - ids
+    if missing:
+        raise SystemExit(f"Cloudflare boundary contract is missing: {', '.join(sorted(missing))}")
+    if "/api/*" not in next(boundary["routes"] for boundary in boundaries if boundary["id"] == "api-core"):
         raise SystemExit("api-core must retain the catch-all /api/* boundary")
-    if "/api/auth/*" not in api_routes or "/api/admin/*" not in api_routes:
-        raise SystemExit("api-auth and api-admin must define their explicit route boundaries")
 
     print(f"Cloudflare boundary contract valid: {len(boundaries)} boundaries")
     return 0

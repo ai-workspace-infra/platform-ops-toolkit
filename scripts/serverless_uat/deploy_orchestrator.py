@@ -26,6 +26,7 @@ SERVERLESS_BASE_PATH = os.environ.get(
     "VAULT_SERVERLESS_PATH", f"kv/data/{VAULT_ENV_PATH}/serverless"
 ).strip().rstrip("/")
 DEPLOY_CLOUDFLARE = os.environ.get("DEPLOY_CLOUDFLARE", "true").lower() == "true"
+DEPLOY_EDGE_WORKER = os.environ.get("DEPLOY_EDGE_WORKER", "false").lower() == "true"
 DEPLOY_CLOUD_RUN = os.environ.get("DEPLOY_CLOUD_RUN", "true").lower() == "true"
 VERIFY_SUPABASE = os.environ.get("VERIFY_SUPABASE", "true").lower() == "true"
 CLOUD_RUN_SERVICE = os.environ.get("CLOUD_RUN_SERVICE", "").strip()
@@ -85,13 +86,13 @@ def normalize_runtime_database_uri(secrets: dict) -> str:
     project_ref = str(secrets.get("PROJECT_REF", "")).strip()
     host_name = host_path.split("/", 1)[0].rsplit(":", 1)[0]
     if (
-        username == "postgres"
+        "." not in username
         and project_ref
         and host_name.endswith(".pooler.supabase.com")
     ):
         # Supavisor uses the project ref in the PostgreSQL username as the
         # tenant identifier when connecting through the Session pooler.
-        username = f"postgres.{project_ref}"
+        username = f"{username}.{project_ref}"
     return (
         f"{scheme}://{quote(username, safe='')}:{quote(password, safe='')}"
         f"@{host_path}"
@@ -154,20 +155,19 @@ def deploy_cloudflare(script_dir: str, env_context: dict) -> None:
         return
 
     target_scripts = {
+        "ssr": "deploy_portal_opennext_worker.sh",
         "edge-worker": "deploy_portal_opennext_worker.sh",
         "page-worker": "deploy_portal_opennext_worker.sh",
-        "ssr": "deploy_portal_opennext_worker.sh",
         "dashboard": "deploy_cloudflare_pages.sh",
         "pages": "deploy_cloudflare_pages.sh",
         "static-pages": "deploy_cloudflare_pages.sh",
         "edge-gateway": "deploy_cloudflare_worker.sh",
     }
-    if CLOUDFLARE_TARGET and CLOUDFLARE_TARGET not in target_scripts:
+    if not CLOUDFLARE_TARGET:
+        raise SystemExit("CLOUDFLARE_TARGET is required for direct Cloudflare deployment")
+    if CLOUDFLARE_TARGET not in target_scripts:
         raise SystemExit(f"Unsupported Cloudflare target: {CLOUDFLARE_TARGET}")
-    script_names = [target_scripts[CLOUDFLARE_TARGET]] if CLOUDFLARE_TARGET else [
-        "deploy_portal_opennext_worker.sh",
-        "deploy_cloudflare_pages.sh",
-    ]
+    script_names = [target_scripts[CLOUDFLARE_TARGET]]
 
     for script_name in script_names:
         script = os.path.join(script_dir, script_name)

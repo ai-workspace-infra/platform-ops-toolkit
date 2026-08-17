@@ -33,7 +33,11 @@ Verify / Summary
 
 | 层 | Worker / Pages | 路径边界 | 当前状态 |
 |---|---|---|---|
-| SSR 页面 | `frontend-server-edge-uat` | `/`、`/panel/*`、`/_next/*` | SSR 矩阵部署 |
+| SSR 公共页面 | `frontend-ssr-public-uat` | `/*`、`/_edge/public/*` | 独立轻量 Worker |
+| SSR 内容页面 | `frontend-ssr-content-uat` | `/blogs*`、`/docs*`、`/download*` | 独立轻量 Worker |
+| SSR 身份页面 | `frontend-ssr-auth-uat` | `/login*`、`/register*` 等 | 独立轻量 Worker |
+| SSR 控制台 | `frontend-ssr-console-uat` | `/panel*`、`/dashboard*` | 独立轻量 Worker |
+| SSR 工作区 | `frontend-ssr-workspace-uat` | `/ai-workspace*`、`/editor*` 等 | 独立轻量 Worker |
 | API 鉴权 | `frontend-api-auth-uat` | `/api/auth/*` | 独立轻量 Worker |
 | API 管理 | `frontend-api-admin-uat` | `/api/admin/*` | 独立轻量 Worker |
 | API 核心 | `frontend-api-core-uat` | `/api/*` 兜底 | 独立轻量 Worker |
