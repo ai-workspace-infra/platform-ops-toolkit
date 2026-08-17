@@ -5,7 +5,7 @@ This page defines the infrastructure-wide working standard for multi-environment
 
 ## 1. Environment Profile Releases and Routing Rules
 
-When triggered, `platform-ops.yaml` automatically routes to the appropriate delivery environment based on the current Git branch or tag. Terraform creates or updates the hosts first, then generates the CMDB; subsequently, Ansible will strictly use the CMDB inventory generated during that specific run.
+When triggered, `selfhost-orchestrator.yml` automatically routes selfhost infrastructure to the appropriate delivery environment based on the current Git branch or tag. Terraform creates or updates the hosts first, then generates the CMDB; subsequently, Ansible will strictly use the CMDB inventory generated during that specific run.
 
 | Trigger Event / Source | Target Environment | Resource Declaration | State Key / Workspace |
 |---|---|---|---|

@@ -22,6 +22,9 @@ def main() -> int:
     mode = runtime.get("mode")
     if mode not in {"serverless", "hybrid"}:
         raise SystemExit("Cloudflare boundary deployment requires runtime.mode=serverless or hybrid")
+    required_mode = os.environ.get("REQUIRED_RUNTIME_MODE")
+    if required_mode and mode != required_mode:
+        raise SystemExit(f"GitOps routing manifest requires runtime.mode={required_mode}, got {mode}")
     if set(runtime.get("routing", {})) != {"dns", "load-balancer", "weight"}:
         raise SystemExit("GitOps runtime routing must define dns, load-balancer, and weight")
     if set(runtime.get("services", {})) != {"console", "accounts", "content", "billing"}:
@@ -38,8 +41,8 @@ def main() -> int:
         raise SystemExit("GitOps routing manifest must define canonical console and accounts domains")
     for canonical in required_domains:
         record = domains[canonical]
-        if not record.get("vps") or not record.get("serverless"):
-            raise SystemExit(f"domain {canonical} must define vps and serverless CNAME targets")
+        if not record.get("selfhost") or not record.get("serverless"):
+            raise SystemExit(f"domain {canonical} must define selfhost and serverless CNAME targets")
 
     serverless = spec.get("serverless", {})
     if len(serverless.get("ssr", [])) != 5:
@@ -47,12 +50,12 @@ def main() -> int:
     if len(serverless.get("edge_gateway", {}).get("boundaries", [])) != 3:
         raise SystemExit("GitOps routing manifest must define exactly three edge-gateway boundaries")
     data = runtime.get("data", {})
-    if data.get("providers", {}).get("vps") != "self-managed-postgresql":
-        raise SystemExit("GitOps VPS database mode must use self-managed-postgresql")
+    if data.get("providers", {}).get("selfhost") != "self-managed-postgresql":
+        raise SystemExit("GitOps selfhost database mode must use self-managed-postgresql")
     if data.get("providers", {}).get("serverless") != "supabase":
         raise SystemExit("GitOps Serverless database mode must use Supabase")
-    if data.get("primary") not in {"vps", "serverless"} or data.get("replica") not in {"vps", "serverless"}:
-        raise SystemExit("GitOps runtime data must define vps or serverless primary and replica modes")
+    if data.get("primary") not in {"selfhost", "serverless"} or data.get("replica") not in {"selfhost", "serverless"}:
+        raise SystemExit("GitOps runtime data must define selfhost or serverless primary and replica modes")
     dts = data.get("migration", {})
     if dts.get("strategy") != "async" or dts.get("single_writer") is not True:
         raise SystemExit("GitOps runtime migration must reserve async DTS with single_writer=true")

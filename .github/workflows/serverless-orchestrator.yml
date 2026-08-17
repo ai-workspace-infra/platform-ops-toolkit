@@ -172,6 +172,7 @@ jobs:
         run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
         env:
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          REQUIRED_RUNTIME_MODE: serverless
 
       - name: Checkout portal source
         uses: actions/checkout@v7
@@ -305,6 +306,7 @@ jobs:
         run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
         env:
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          REQUIRED_RUNTIME_MODE: serverless
 
       - name: Checkout portal source
         uses: actions/checkout@v7

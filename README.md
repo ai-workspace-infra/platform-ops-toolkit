@@ -14,7 +14,7 @@ If you are using this repository for the first time, follow these four steps:
 The entry workflow is:
 
 ```text
-.github/workflows/platform-ops.yaml
+.github/workflows/selfhost-orchestrator.yml
 ```
 
 This is an **orchestration repository**, not the home of every configuration file. The three core configuration repositories are:
@@ -166,7 +166,7 @@ The current workflow is orchestrated for `ai-workspace-infra`. `web-saas`, `ai-w
 
 When switching projects, update at least:
 
-1. The `ai-workspace-infra/iac_modules`, `playbooks`, `gitops`, and every reusable workflow `uses:` reference in `.github/workflows/platform-ops.yaml`.
+1. The `ai-workspace-infra/iac_modules`, `playbooks`, `gitops`, and every reusable workflow `uses:` reference in `.github/workflows/selfhost-orchestrator.yml`.
 2. Service repositories, image registries, domains, and tags referenced inside `playbooks` and GitOps.
 3. `target_domains`, the Terraform host/resource matrix, job conditions, and Vault paths; remove domains that do not exist in the personal project.
 4. GitHub App installations, selected repositories, Contents/Actions permissions, and GitOps write access.
@@ -203,4 +203,4 @@ Those are reserved multi-cloud options. The business-domain delivery path is cur
 - [Vault KV tier model](docs/vault/kv_tier_model.md)
 - [Multi-environment delivery standard](docs/standards/multi-environment-delivery-and-release-standard.md)
 - [Business domain documentation](docs/domains/README.md)
-- [Entry workflow](.github/workflows/platform-ops.yaml)
+- [Selfhost entry workflow](.github/workflows/selfhost-orchestrator.yml)

@@ -14,7 +14,7 @@
 入口 workflow 文件是：
 
 ```text
-.github/workflows/platform-ops.yaml
+.github/workflows/selfhost-orchestrator.yml
 ```
 
 本仓库是**入口仓库**，不是所有配置的存放地。日常应该修改的是下面三个核心仓库：
@@ -168,7 +168,7 @@ platform-ops-toolkit
 
 切换个人项目时至少修改：
 
-1. `.github/workflows/platform-ops.yaml` 中的 `ai-workspace-infra/iac_modules`、`playbooks`、`gitops` 和所有 reusable workflow `uses:`。
+1. `.github/workflows/selfhost-orchestrator.yml` 中的 `ai-workspace-infra/iac_modules`、`playbooks`、`gitops` 和所有 reusable workflow `uses:`。
 2. `playbooks` 和 GitOps 内部引用的 service repository、镜像 registry、域名和 tag。
 3. `target_domains`、Terraform host/resource matrix、job 条件和 Vault 路径，删除个人项目不存在的业务域。
 4. GitHub App 的安装组织、selected repositories、Contents/Actions 权限，以及自动更新 GitOps 所需的写权限。
@@ -205,4 +205,4 @@ rg -n 'ai-workspace-infra|ai-workspace-xstream|compassvpn|svc\.plus|onwalk\.net'
 - [Vault KV 三层模型](docs/vault/kv_tier_model.md)
 - [多环境交付标准](docs/standards/multi-environment-delivery-and-release-standard.md)
 - [业务域文档](docs/domains/README.md)
-- [入口 workflow](.github/workflows/platform-ops.yaml)
+- [Selfhost 入口 workflow](.github/workflows/selfhost-orchestrator.yml)

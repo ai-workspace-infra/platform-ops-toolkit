@@ -6,7 +6,7 @@ UAT 是默认环境；路由、域名、Worker 名称和数据库模式统一从
 ## 三种运行模式
 
 ```text
-VPS mode
+Selfhost mode
 DNS → VPS Full Stack
     ├── Console
     ├── Accounts
@@ -23,20 +23,21 @@ DNS → Cloudflare Pages
 
 Hybrid mode
 DNS → Cloudflare edge → edge-gateway
-                    └── VPS primary → Cloud Run request-level fallback
+                    └── selfhost primary → Cloud Run request-level fallback
 ```
 
 Canonical DNS is the top-level switch. UAT uses `console-uat.onwalk.net` and
-`accounts-uat.onwalk.net`; their `vps` and `serverless` CNAME targets, TTL, and desired mode are
+`accounts-uat.onwalk.net`; their `selfhost` and `serverless` CNAME targets, TTL, and desired mode
+are
 declared in:
 
 ```text
 ai-workspace-infra/gitops/resources/svc.plus/uat/cloudflare/edge-routing.yaml
 ```
 
-The UAT declaration currently uses `spec.runtime.mode: hybrid`, with VPS weight 100 and
-Serverless weight 0. The orchestrator does not silently mutate DNS or select a hidden fallback
-mode.
+The serverless workflow requires `spec.runtime.mode: serverless`. UAT currently uses
+`spec.runtime.mode: hybrid`, with selfhost weight 100 and Serverless weight 0; the hybrid
+workflow owns the request-level selfhost→Cloud Run failover.
 
 ## Deployment stages and dependencies
 
@@ -61,17 +62,17 @@ Cloudflare Pages / static assets
 Verify / Summary
 ```
 
-`edge-gateway` is a required stage. VPS→Cloud Run request-level failover is enabled only when
-`spec.runtime.mode` is `hybrid`; `serverless` routes directly to Cloud Run and `vps` is served by
-VPS Full Stack through DNS.
+`edge-gateway` is a required stage. selfhost→Cloud Run request-level failover is enabled only
+when `spec.runtime.mode` is `hybrid`; `serverless` routes directly to Cloud Run and `selfhost` is
+served by the VPS Full Stack through DNS.
 
 ## GitOps boundary contract
 
 The workflow checks out GitOps `main`, renders the environment YAML, and passes the temporary
 manifest to every Cloudflare consumer. The manifest must define:
 
-- `spec.runtime.mode` (`vps`, `serverless`, or `hybrid`), routing, services, and data handover;
-- flat `spec.domains` entries with both `vps` and `serverless` targets;
+- `spec.runtime.mode` (`selfhost`, `serverless`, or `hybrid`), routing, services, and data handover;
+- flat `spec.domains` entries with both `selfhost` and `serverless` targets;
 - Cloudflare zone and Pages project;
 - exactly five `spec.serverless.ssr` boundaries;
 - `auth`, `admin`, and `core` in `spec.serverless.edge_gateway`, with `core` owning `/api/*`;
@@ -84,7 +85,7 @@ the orchestrator.
 
 GitOps reserves both database endpoints under `spec.runtime.data`:
 
-- VPS mode: self-managed PostgreSQL;
+- Selfhost mode: self-managed PostgreSQL;
 - Serverless mode: Supabase Cloud DB;
 - async DTS: declared but disabled by default;
 - one active writer only, 60-second maximum lag target, and a required quiesce window;

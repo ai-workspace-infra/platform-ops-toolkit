@@ -41,7 +41,7 @@ TOKEN_TTL="1h"
 # -----------------------------------------------------------------------------
 WF_PREFIX="${REPO}/.github/workflows"
 read -r -d '' ALLOWED_WORKFLOWS <<EOF || true
-    "${WF_PREFIX}/platform-ops.yaml@*",
+    "${WF_PREFIX}/selfhost-orchestrator.yml@*",
     "${WF_PREFIX}/daily-main-snapshot.yaml@*",
     "${WF_PREFIX}/resize-instance.yaml@*",
     "${WF_PREFIX}/deploy-action-runner-iac.yaml@*",
