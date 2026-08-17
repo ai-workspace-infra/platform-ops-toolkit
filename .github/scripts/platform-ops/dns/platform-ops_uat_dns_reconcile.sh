@@ -53,10 +53,31 @@ if [[ "${dns_control_plane}" != "cloudflare-dns" || "${dns_ttl}" != "60" ||
 fi
 
 cmdb_file="${CMDB_FILE:-cmdb/cmdb.json}"
+if [[ ! -f "${cmdb_file}" ]]; then
+  echo "::error::CMDB file not found: ${cmdb_file}" >&2
+  exit 1
+fi
+
+mapfile -t web_saas_hosts < <(
+  jq -r 'to_entries[] | select((.value.groups // []) | index("web_saas")) | .key' "${cmdb_file}"
+)
+if [[ "${#web_saas_hosts[@]}" -ne 1 ]]; then
+  echo "::error::UAT DNS requires exactly one web_saas host in ${cmdb_file}; found ${#web_saas_hosts[@]}." >&2
+  exit 1
+fi
+
+web_saas_ip="$(jq -er --arg host "${web_saas_hosts[0]}" '.[$host].ip // empty' "${cmdb_file}")"
+if [[ ! "${web_saas_ip}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || ! jq -n -e --arg ip "${web_saas_ip}" '
+  ($ip | split(".")) as $octets
+  | ($octets | length == 4)
+  and all($octets[]; (tonumber >= 0 and tonumber <= 255))
+' >/dev/null; then
+  echo "::error::CMDB web_saas host has an invalid IPv4 address: ${web_saas_ip}" >&2
+  exit 1
+fi
+
 mapfile -t agent_proxy_hosts < <(
-  if [[ -f "${cmdb_file}" ]]; then
-    jq -r 'to_entries[] | select((.value.groups // []) | index("agent_proxy")) | .key' "${cmdb_file}"
-  fi
+  jq -r 'to_entries[] | select((.value.groups // []) | index("agent_proxy")) | .key' "${cmdb_file}"
 )
 if [[ "${#agent_proxy_hosts[@]}" -gt 1 ]]; then
   echo "::error::UAT DNS requires at most one agent_proxy host in ${cmdb_file}; found ${#agent_proxy_hosts[@]}." >&2
@@ -170,6 +191,17 @@ reconcile_record() {
   done < <(jq -r --arg primary_id "${primary_id}" '.result[] | select(.id != $primary_id) | .id' <<<"${records_response}")
 }
 
+mapfile -t canonical_targets < <(
+  jq -r '.spec.runtime.routing.dns.canonical_records | [.[]] | unique[]' "${GITOPS_ROUTING_CONFIG}"
+)
+for record_target in "${canonical_targets[@]}"; do
+  if [[ "${record_target}" != *."${UAT_ZONE}" ]]; then
+    echo "::error::GitOps canonical target must remain inside ${UAT_ZONE}: ${record_target}" >&2
+    exit 1
+  fi
+  reconcile_record "${record_target}" A "${web_saas_ip}" "${dns_ttl}"
+done
+
 while IFS=$'\t' read -r record_name record_target; do
   [[ -n "${record_name}" && -n "${record_target}" ]] || continue
   reconcile_record "${record_name}" CNAME "${record_target}" "${dns_ttl}"
@@ -179,8 +211,8 @@ if [[ -n "${agent_proxy_ip}" ]]; then
   reconcile_record "agent-proxy.${TARGET_DOMAIN_BASE}" A "${agent_proxy_ip}" 1
 fi
 
-record_count="${canonical_count}"
+record_count=$((canonical_count + ${#canonical_targets[@]}))
 if [[ -n "${agent_proxy_ip}" ]]; then
   record_count=$((record_count + 1))
 fi
-echo "UAT DNS reconciliation completed for ${record_count} GitOps-declared records in ${UAT_ZONE}${agent_proxy_ip:+; agent-proxy ${agent_proxy_hosts[0]} (${agent_proxy_ip})}."
+echo "UAT DNS reconciliation completed for ${record_count} GitOps-declared records in ${UAT_ZONE}; web-saas ${web_saas_hosts[0]} (${web_saas_ip})${agent_proxy_ip:+, agent-proxy ${agent_proxy_hosts[0]} (${agent_proxy_ip})}."

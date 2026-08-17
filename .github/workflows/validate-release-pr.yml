@@ -43,6 +43,9 @@ jobs:
     - name: Verify Agent Proxy deployment variable contract
       run: bash .github/scripts/tests/platform_ops_agent_proxy_contract_test.sh
 
+    - name: Verify UAT DNS target records
+      run: bash .github/scripts/tests/platform_ops_uat_dns_target_records_test.sh
+
     # Same class of defect: a script committed 100644 dies with exit 126 and a
     # log that contains no searchable error text.
     - name: Verify shell scripts are executable
