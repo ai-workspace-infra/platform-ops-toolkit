@@ -9,12 +9,12 @@ on:
     inputs:
       initialize_supabase:
         description: 'Initialize the Supabase Accounts schema before selected deployments'
-        required: true
+        required: false
         default: false
         type: boolean
       vault_env_path:
         description: 'Target environment'
-        required: true
+        required: false
         default: 'uat'
         type: choice
         options:
@@ -28,34 +28,19 @@ on:
         type: string
       deploy_cloudflare:
         description: 'Deploy Cloudflare SSR Workers, edge gateway, and Pages static assets'
-        required: true
+        required: false
         default: true
         type: boolean
       deploy_cloud_run:
         description: 'Deploy backend services to GCP Cloud Run'
-        required: true
+        required: false
         default: true
         type: boolean
       verify_supabase:
         description: 'Validate the selected Supabase connection contract from Vault'
-        required: true
+        required: false
         default: true
         type: boolean
-      cleanup_legacy_pages:
-        description: 'Delete explicitly listed legacy Cloudflare Pages projects after deployment cleanup'
-        required: true
-        default: false
-        type: boolean
-      cleanup_pages_projects:
-        description: 'Comma-separated legacy Pages projects to delete'
-        required: true
-        default: 'xcontrol-panel,homepage'
-        type: string
-      cleanup_confirmation:
-        description: 'Required literal DELETE confirmation for legacy Pages cleanup'
-        required: false
-        default: ''
-        type: string
 
 jobs:
   supabase:
@@ -353,36 +338,6 @@ jobs:
           PAGES_BRANCH: ${{ inputs.vault_env_path || 'uat' }}
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
           PORTAL_DIR: ${{ github.workspace }}/portal
-
-  cleanup_legacy_pages:
-    name: Cloudflare / cleanup legacy Pages
-    if: ${{ inputs.cleanup_legacy_pages == true }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout platform toolkit
-        uses: actions/checkout@v7
-
-      - name: Authenticate to Vault with GitHub OIDC
-        id: vault
-        uses: hashicorp/vault-action@v4
-        with:
-          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
-          method: jwt
-          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
-          jwtGithubAudience: vault
-          exportToken: true
-          secrets: |
-            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
-            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN
-
-      - name: Cleanup legacy Pages projects
-        run: ./.github/scripts/serverless/cleanup_cloudflare_pages.sh
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_API_TOKEN }}
-          CLEANUP_PAGES_PROJECTS: ${{ inputs.cleanup_pages_projects }}
-          CLEANUP_CONFIRMATION: ${{ inputs.cleanup_confirmation }}
-          CLEANUP_DRY_RUN: 'false'
 
   verify:
     name: Verify / Summary
