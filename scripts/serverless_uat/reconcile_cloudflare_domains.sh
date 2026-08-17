@@ -52,6 +52,9 @@ api_request() {
   fi
   if ! response="$(curl "${curl_args[@]}" "${url}")"; then
     echo "Cloudflare API request failed: ${method} ${url}" >&2
+    if jq -e . >/dev/null 2>&1 <<<"${response}"; then
+      jq -c '{errors: (.errors // []), messages: (.messages // [])}' <<<"${response}" >&2
+    fi
     return 1
   fi
   if ! jq -e '.success == true' >/dev/null <<<"${response}"; then
@@ -66,7 +69,9 @@ zone_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones?name=${zone_name}
 zone_id="$(jq -er '.result | if length == 1 then .[0].id else error("expected exactly one active zone") end' <<<"${zone_response}")"
 
 reconcile_pages_domain() {
-  local domains_url="${CLOUDFLARE_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${pages_project}/domains?per_page=100"
+  # Cloudflare Pages documents this endpoint without query parameters. The
+  # server rejects the generic per_page query used by other list endpoints.
+  local domains_url="${CLOUDFLARE_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${pages_project}/domains"
   local domains_response
   local existing
   domains_response="$(api_request GET "${domains_url}")"

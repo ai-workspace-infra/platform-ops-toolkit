@@ -74,4 +74,5 @@ CLOUDFLARE_API_BASE_OVERRIDE="https://cloudflare.invalid/client/v4" \
 
 grep -Fq $'POST\thttps://cloudflare.invalid/client/v4/accounts/account-1/pages/projects/ai-workspace-portal-uat/domains' "${test_dir}/curl.log"
 grep -Fq $'PUT\thttps://cloudflare.invalid/client/v4/accounts/account-1/workers/domains' "${test_dir}/curl.log"
+grep -Fxq $'GET\thttps://cloudflare.invalid/client/v4/accounts/account-1/pages/projects/ai-workspace-portal-uat/domains' "${test_dir}/curl.log"
 echo "serverless_cloudflare_domains_contract_test: PASS"
