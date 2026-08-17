@@ -74,14 +74,16 @@ def main() -> int:
         fail("runtime.data.providers.selfhost must be self-managed-postgresql")
     if data.get("providers", {}).get("serverless") != "supabase":
         fail("runtime.data.providers.serverless must be supabase")
-    if migration.get("enabled") is not False:
-        fail("runtime.data.migration.enabled must remain false")
+    # GitOps declares the runtime topology and its migration capabilities; it
+    # does not authorize or select a control-plane operation for this run.
+    # The latter is selected by platform-ops-toolkit's explicit operation
+    # routing and must not be inferred from this declaration.
+    if not isinstance(migration.get("enabled"), bool):
+        fail("runtime.data.migration.enabled must be an explicit boolean")
     if migration.get("strategy") != "async" or migration.get("single_writer") is not True:
         fail("runtime.data.migration must reserve async single-writer handover")
     if migration.get("max_lag_seconds") != 60 or migration.get("require_quiesce_for_cutover") is not True:
         fail("runtime.data.migration must retain the 60-second lag and quiesce requirements")
-    if os.environ.get("REQUESTED_OPERATION") == "deploy+migrate":
-        fail("operation=deploy+migrate is forbidden while GitOps migration.enabled=false")
 
     canonical_records = dns.get("canonical_records", {})
     expected_records = {

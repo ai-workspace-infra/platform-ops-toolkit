@@ -64,6 +64,21 @@ assert_contains "${destroy_prod_dns_output}" "terraform_action=destroy"
 assert_contains "${destroy_prod_dns_output}" "dns_mode=none"
 assert_contains "${destroy_prod_dns_output}" "deploy_tag="
 
+contract_fixture="${repo_root}/.github/scripts/tests/fixtures/selfhost-routing-disabled-migration.json"
+contract_output="$(mktemp)"
+if ! GITOPS_ROUTING_CONFIG="${contract_fixture}" \
+  EXPECTED_ENV=uat \
+  EXPECTED_TARGET_DOMAIN_BASE=onwalk.net \
+  REQUESTED_OPERATION=deploy+migrate \
+  python3 "${repo_root}/.github/scripts/platform-ops/routing/validate_selfhost_contract.py" >"${contract_output}"; then
+  echo "deploy+migrate must be accepted when GitOps migration.enabled=false" >&2
+  cat "${contract_output}" >&2
+  rm -f "${contract_output}"
+  exit 1
+fi
+grep -Fq "migration disabled" "${contract_output}"
+rm -f "${contract_output}"
+
 uat_dns_output="$(run_route env INPUT_OPERATION=deploy INPUT_DNS_MODE=uat-records)"
 assert_contains "${uat_dns_output}" "dns_mode=uat-records"
 
