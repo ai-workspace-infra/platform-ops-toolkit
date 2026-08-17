@@ -9,12 +9,14 @@ declare -A BUILD_WORKFLOWS=(
   [ai-workspace-services/billing-service]=ci-pipeline.yml
   [ai-workspace-services/content-service]=ci-pipeline.yml
   [ai-workspace-services/portal]=ci-pipeline.yml
+  [ai-workspace-services/edge-gateway]=deploy.yml
   [ai-workspace-lab/xworkmate-bridge]=pipeline.yml
   [ai-workspace-services/postgresql.svc.plus]=ci-pipeline.yml
   [ai-workspace-xstream/xray-exporter]=build-release-deploy.yml
 )
 
 declare -A RELEASE_MANIFEST_REQUIRED=(
+  [ai-workspace-services/edge-gateway]=false
   [ai-workspace-lab/xworkmate-bridge]=false
 )
 
