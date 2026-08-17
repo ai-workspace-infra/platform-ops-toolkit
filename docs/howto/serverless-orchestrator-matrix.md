@@ -3,7 +3,7 @@
 `.github/workflows/serverless-orchestrator.yml` 的手动执行页只保留制品版本、环境和执行开关。
 UAT 是默认环境；路由、域名、Worker 名称和数据库模式统一从 GitOps 读取。
 
-## 两种运行模式
+## 三种运行模式
 
 ```text
 VPS mode
@@ -20,6 +20,10 @@ DNS → Cloudflare Pages
         └── edge-gateway ×3: auth / admin / core
             └── Cloud Run: accounts / content-service / billing-service
                 └── Supabase Cloud DB
+
+Hybrid mode
+DNS → Cloudflare edge → edge-gateway
+                    └── VPS primary → Cloud Run request-level fallback
 ```
 
 Canonical DNS is the top-level switch. UAT uses `console-uat.onwalk.net` and
@@ -30,8 +34,9 @@ declared in:
 ai-workspace-infra/gitops/resources/svc.plus/uat/cloudflare/edge-routing.yaml
 ```
 
-The UAT declaration defaults to `spec.mode: serverless` and uses a 60-second DNS TTL. The
-orchestrator does not silently mutate DNS or select a hidden fallback mode.
+The UAT declaration currently uses `spec.runtime.mode: hybrid`, with VPS weight 100 and
+Serverless weight 0. The orchestrator does not silently mutate DNS or select a hidden fallback
+mode.
 
 ## Deployment stages and dependencies
 
@@ -56,27 +61,28 @@ Cloudflare Pages / static assets
 Verify / Summary
 ```
 
-`edge-gateway` is a required stage. Its repository-mandated request-level VPS→Cloud Run
-failover is an emergency resilience path; it is not the DNS mode switch. The normal Serverless
-request path remains Pages → SSR → edge-gateway → Cloud Run → Supabase.
+`edge-gateway` is a required stage. VPS→Cloud Run request-level failover is enabled only when
+`spec.runtime.mode` is `hybrid`; `serverless` routes directly to Cloud Run and `vps` is served by
+VPS Full Stack through DNS.
 
 ## GitOps boundary contract
 
 The workflow checks out GitOps `main`, renders the environment YAML, and passes the temporary
 manifest to every Cloudflare consumer. The manifest must define:
 
-- `spec.mode` and flat `spec.domains` entries with both `vps` and `serverless` targets;
+- `spec.runtime.mode` (`vps`, `serverless`, or `hybrid`), routing, services, and data handover;
+- flat `spec.domains` entries with both `vps` and `serverless` targets;
 - Cloudflare zone and Pages project;
 - exactly five `spec.serverless.ssr` boundaries;
 - `auth`, `admin`, and `core` in `spec.serverless.edge_gateway`, with `core` owning `/api/*`;
-- both database modes and a disabled async DTS reservation.
+- both database modes and a disabled async DTS reservation under `spec.runtime.data.migration`.
 
 Repository-local Cloudflare boundary JSON is not a deployment source of truth and is not used by
 the orchestrator.
 
 ## Database handover and DTS reservation
 
-GitOps reserves both database endpoints:
+GitOps reserves both database endpoints under `spec.runtime.data`:
 
 - VPS mode: self-managed PostgreSQL;
 - Serverless mode: Supabase Cloud DB;
