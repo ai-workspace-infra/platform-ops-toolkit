@@ -1,14 +1,14 @@
 # GitOps serverless routing backend
 
 The serverless orchestrator uses `ai-workspace-infra/gitops` as the single source for
-environment routing values. For UAT the serverless mode file is:
+environment runtime topology values. For UAT the serverless mode file is:
 
 ```text
-resources/svc.plus/uat/serverless/edge-routing.yaml
+topology/uat/serverless/runtime-topology.yaml
 ```
 
 The selfhost and hybrid pre-configurations are kept beside it at the `selfhost/` and `hybrid/`
-paths. The mode directories intentionally sit outside a `cloudflare/` provider directory:
+paths. The mode directories intentionally sit outside a provider directory:
 these declarations describe the complete runtime mode (DNS, VPS, Cloud Run, Supabase, and
 Cloudflare boundaries), not a Cloudflare-only resource. Each Cloudflare matrix job checks out `main`, validates the declaration matching its
 pipeline mode, and passes its absolute path to the portal or edge-gateway repository.

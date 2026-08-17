@@ -41,7 +41,7 @@ jobs:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
 
-      - name: Checkout GitOps routing config
+      - name: Checkout GitOps runtime topology
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/gitops
@@ -49,12 +49,12 @@ jobs:
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/hybrid/edge-routing.yaml
+            topology/${{ inputs.vault_env_path || 'uat' }}/hybrid/runtime-topology.yaml
 
-      - name: Render GitOps routing YAML
+      - name: Render GitOps runtime topology YAML
         run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
         env:
-          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/hybrid/edge-routing.yaml
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/hybrid/runtime-topology.yaml
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
 
       - name: Validate hybrid boundary contract

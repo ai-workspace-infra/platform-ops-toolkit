@@ -18,7 +18,6 @@ on:
         default: 'uat'
         type: choice
         options:
-          - dev
           - sit
           - uat
           - prod
@@ -43,8 +42,47 @@ on:
         type: boolean
 
 jobs:
+  preflight:
+    name: Validate / Dispatch inputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Checkout GitOps serverless runtime topology
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: main
+          path: gitops
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+
+      - name: Render GitOps serverless runtime topology
+        run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+        env:
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
+
+      - name: Validate serverless GitOps contract
+        run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
+        env:
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          REQUIRED_RUNTIME_MODE: serverless
+
+      - name: Validate serverless dispatch
+        run: ./.github/scripts/serverless/validate_dispatch_inputs.sh
+        env:
+          VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
+          TAG_REF: ${{ inputs.tag_ref }}
+          DEPLOY_CLOUDFLARE: ${{ inputs.deploy_cloudflare }}
+          DEPLOY_CLOUD_RUN: ${{ inputs.deploy_cloud_run }}
+          VERIFY_SUPABASE: ${{ inputs.verify_supabase }}
+
   supabase:
     name: Supabase / xworktech
+    needs: preflight
     if: ${{ inputs.initialize_supabase == true || inputs.verify_supabase == true }}
     runs-on: ubuntu-latest
     steps:
@@ -84,8 +122,8 @@ jobs:
 
   cloud_run:
     name: Cloud Run / ${{ matrix.service }}
-    needs: supabase
-    if: ${{ always() && inputs.deploy_cloud_run == true && (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') }}
+    needs: [preflight, supabase]
+    if: ${{ always() && needs.preflight.result == 'success' && inputs.deploy_cloud_run == true && (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -134,8 +172,8 @@ jobs:
 
   cloudflare_ssr:
     name: Cloudflare / SSR / ${{ matrix.boundary }}
-    needs: cloud_run
-    if: ${{ always() && inputs.deploy_cloudflare == true && (needs.cloud_run.result == 'success' || needs.cloud_run.result == 'skipped') }}
+    needs: [preflight, cloud_run]
+    if: ${{ always() && needs.preflight.result == 'success' && inputs.deploy_cloudflare == true && (inputs.deploy_cloud_run == false || needs.cloud_run.result == 'success') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -150,22 +188,22 @@ jobs:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
 
-      - name: Checkout GitOps routing config
+      - name: Checkout GitOps runtime topology
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/gitops
-          # GitOps routing is the environment configuration source of truth;
+          # GitOps runtime topology is the environment configuration source of truth;
           # keep it on main while deployable artifacts share tag_ref.
           ref: main
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/serverless/edge-routing.yaml
+            topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
 
-      - name: Render GitOps routing YAML
+      - name: Render GitOps runtime topology YAML
         run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
         env:
-          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/serverless/edge-routing.yaml
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
 
       - name: Validate Cloudflare boundary contract
@@ -210,8 +248,8 @@ jobs:
 
   edge_gateway:
     name: Cloudflare / edge-gateway / ${{ matrix.boundary }}
-    needs: cloudflare_ssr
-    if: ${{ always() && inputs.deploy_cloudflare == true && needs.cloudflare_ssr.result == 'success' }}
+    needs: [preflight, cloudflare_ssr]
+    if: ${{ always() && needs.preflight.result == 'success' && inputs.deploy_cloudflare == true && needs.cloudflare_ssr.result == 'success' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -224,23 +262,29 @@ jobs:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
 
-      - name: Checkout GitOps routing config
+      - name: Checkout GitOps runtime topology
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/gitops
-          # GitOps routing is the environment configuration source of truth;
+          # GitOps runtime topology is the environment configuration source of truth;
           # keep it on main while deployable artifacts share tag_ref.
           ref: main
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/serverless/edge-routing.yaml
+            topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
 
-      - name: Render GitOps routing YAML
+      - name: Render GitOps runtime topology YAML
         run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
         env:
-          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/serverless/edge-routing.yaml
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
+
+      - name: Validate Cloudflare boundary contract
+        run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
+        env:
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          REQUIRED_RUNTIME_MODE: serverless
 
       - name: Checkout edge-gateway source
         uses: actions/checkout@v7
@@ -277,29 +321,29 @@ jobs:
 
   static_pages:
     name: Cloudflare / static-pages
-    needs: edge_gateway
-    if: ${{ always() && inputs.deploy_cloudflare == true && needs.edge_gateway.result == 'success' }}
+    needs: [preflight, edge_gateway]
+    if: ${{ always() && needs.preflight.result == 'success' && inputs.deploy_cloudflare == true && needs.edge_gateway.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
 
-      - name: Checkout GitOps routing config
+      - name: Checkout GitOps runtime topology
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/gitops
-          # GitOps routing is the environment configuration source of truth;
+          # GitOps runtime topology is the environment configuration source of truth;
           # keep it on main while deployable artifacts share tag_ref.
           ref: main
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/serverless/edge-routing.yaml
+            topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
 
-      - name: Render GitOps routing YAML
+      - name: Render GitOps runtime topology YAML
         run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
         env:
-          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/serverless/edge-routing.yaml
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
 
       - name: Validate Cloudflare boundary contract
@@ -343,8 +387,8 @@ jobs:
 
   verify:
     name: Verify / Summary
-    needs: [supabase, cloud_run, cloudflare_ssr, edge_gateway, static_pages]
-    if: ${{ always() && inputs.verify_supabase == true && needs.supabase.result != 'cancelled' && needs.cloud_run.result != 'cancelled' && needs.cloudflare_ssr.result != 'cancelled' && needs.edge_gateway.result != 'cancelled' && needs.static_pages.result != 'cancelled' }}
+    needs: [preflight, supabase, cloud_run, cloudflare_ssr, edge_gateway, static_pages]
+    if: ${{ always() && needs.preflight.result == 'success' && inputs.verify_supabase == true && needs.supabase.result != 'cancelled' && needs.cloud_run.result != 'cancelled' && needs.cloudflare_ssr.result != 'cancelled' && needs.edge_gateway.result != 'cancelled' && needs.static_pages.result != 'cancelled' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout platform toolkit
