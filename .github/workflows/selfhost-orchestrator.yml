@@ -34,7 +34,7 @@ on:
         - ubuntu-latest
         - self-hosted
       deploy_tag:
-        description: "应用部署的不可变镜像版本（例如 daily-build-2026.07.30-r1）。operation=deploy 或 deploy+migrate 时必填；基础设施操作可留空。"
+        description: "应用部署的不可变镜像版本（例如 daily-build-2026.07.30-r1）。operation=deploy 时必填；基础设施操作可留空。"
         required: false
         type: string
       source_ref:
@@ -74,11 +74,11 @@ on:
         default: ""
         type: string
       operation:
-        description: "执行范围：plan 仅校验；infra 仅基础设施；deploy 部署应用；deploy+migrate 部署后迁移；destroy 销毁"
+        description: "执行范围：plan 仅校验；infra 仅基础设施；deploy 部署应用；destroy 销毁。数据迁移由 GitOps 显式启用后再开放。"
         required: true
         default: "deploy"
         type: choice
-        options: [plan, infra, deploy, deploy+migrate, destroy]
+        options: [plan, infra, deploy, destroy]
       target_domains:
         description: "选择要执行的业务域 (Business Domain)"
         required: true
@@ -264,6 +264,48 @@ jobs:
       # env block inherited from job level — no repetition needed here
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_route-ref-to-an-explicit-profile.sh
+
+    - name: Checkout GitOps selfhost routing declaration
+      if: >-
+        ${{ steps.route.outputs.run_infrastructure == 'true' &&
+        steps.route.outputs.terraform_action != 'destroy' &&
+        steps.route.outputs.deployment_env == 'uat' &&
+        contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'),
+        steps.route.outputs.target_domains) }}
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/gitops
+        ref: ${{ steps.route.outputs.gitops_ref }}
+        path: gitops
+        sparse-checkout-cone-mode: false
+        sparse-checkout: |
+          resources/svc.plus/uat/selfhost/edge-routing.yaml
+
+    - name: Render GitOps selfhost routing declaration
+      if: >-
+        ${{ steps.route.outputs.run_infrastructure == 'true' &&
+        steps.route.outputs.terraform_action != 'destroy' &&
+        steps.route.outputs.deployment_env == 'uat' &&
+        contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'),
+        steps.route.outputs.target_domains) }}
+      run: ${{ github.workspace }}/.github/scripts/serverless/prepare_gitops_routing_config.sh
+      env:
+        GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/resources/svc.plus/uat/selfhost/edge-routing.yaml
+        GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/selfhost-edge-routing.json
+
+    - name: Validate GitOps selfhost routing contract
+      if: >-
+        ${{ steps.route.outputs.run_infrastructure == 'true' &&
+        steps.route.outputs.terraform_action != 'destroy' &&
+        steps.route.outputs.deployment_env == 'uat' &&
+        contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'),
+        steps.route.outputs.target_domains) }}
+      run: python3 ${{ github.workspace }}/.github/scripts/platform-ops/routing/validate_selfhost_contract.py
+      env:
+        GITOPS_ROUTING_CONFIG: ${{ runner.temp }}/selfhost-edge-routing.json
+        EXPECTED_ENV: ${{ steps.route.outputs.deployment_env }}
+        EXPECTED_TARGET_DOMAIN_BASE: ${{ steps.route.outputs.target_domain_base }}
+        REQUESTED_OPERATION: ${{ steps.route.outputs.toolkit_action }}
 
     - name: Load Vault secrets
       if: steps.route.outputs.run_infrastructure == 'true'
@@ -994,6 +1036,24 @@ jobs:
       with:
         ref: ${{ needs.provision.outputs.toolkit_ref }}
 
+    - name: Checkout GitOps selfhost routing declaration
+      if: ${{ needs.provision.outputs.deployment_env == 'uat' && needs.provision.outputs.dns_mode == 'uat-records' }}
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/gitops
+        ref: ${{ needs.provision.outputs.gitops_ref }}
+        path: gitops
+        sparse-checkout-cone-mode: false
+        sparse-checkout: |
+          resources/svc.plus/uat/selfhost/edge-routing.yaml
+
+    - name: Render GitOps selfhost routing declaration
+      if: ${{ needs.provision.outputs.deployment_env == 'uat' && needs.provision.outputs.dns_mode == 'uat-records' }}
+      run: ${{ github.workspace }}/.github/scripts/serverless/prepare_gitops_routing_config.sh
+      env:
+        GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/resources/svc.plus/uat/selfhost/edge-routing.yaml
+        GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/selfhost-edge-routing.json
+
     - name: Download CMDB
       # 与上传条件保持一致: artifact 只在基础设施阶段 apply 时产生。
       if: >-
@@ -1044,6 +1104,7 @@ jobs:
         SOURCE_DOMAIN_BASE: ${{ needs.provision.outputs.source_domain_base }}
         TARGET_DOMAIN_BASE: ${{ needs.provision.outputs.target_domain_base }}
         DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
+        GITOPS_ROUTING_CONFIG: ${{ runner.temp }}/selfhost-edge-routing.json
       run: ${{ github.workspace }}/.github/scripts/platform-ops/dns/platform-ops_uat_dns_reconcile.sh
 
     - name: Remove temporary agent controller host pin
@@ -1510,6 +1571,9 @@ jobs:
 
   trigger_data_migration:
     name: "[3] Post-deploy | Data Migration"
+    # Kept as a guarded compatibility path for a future GitOps declaration
+    # that explicitly enables migration. The current UAT selfhost contract
+    # has migration.enabled=false, and provision validation rejects this path.
     # Data migration uses the CMDB address and the local PostgreSQL container.
     # It is independent of Agent Proxy and observability, and can begin as
     # soon as the database bootstrap/schema job completes.
