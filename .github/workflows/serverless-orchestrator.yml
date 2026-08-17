@@ -160,12 +160,12 @@ jobs:
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/cloudflare/serverless/edge-routing.yaml
+            resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/serverless/edge-routing.yaml
 
       - name: Render GitOps routing YAML
         run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
         env:
-          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/cloudflare/serverless/edge-routing.yaml
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/serverless/edge-routing.yaml
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
 
       - name: Validate Cloudflare boundary contract
@@ -234,12 +234,12 @@ jobs:
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/cloudflare/serverless/edge-routing.yaml
+            resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/serverless/edge-routing.yaml
 
       - name: Render GitOps routing YAML
         run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
         env:
-          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/cloudflare/serverless/edge-routing.yaml
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/serverless/edge-routing.yaml
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
 
       - name: Checkout edge-gateway source
@@ -294,12 +294,12 @@ jobs:
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/cloudflare/serverless/edge-routing.yaml
+            resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/serverless/edge-routing.yaml
 
       - name: Render GitOps routing YAML
         run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
         env:
-          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/cloudflare/serverless/edge-routing.yaml
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/resources/svc.plus/${{ inputs.vault_env_path || 'uat' }}/serverless/edge-routing.yaml
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
 
       - name: Validate Cloudflare boundary contract
