@@ -49,6 +49,9 @@ jobs:
     - name: Verify serverless Cloudflare domain contract
       run: bash .github/scripts/tests/serverless_cloudflare_domains_contract_test.sh
 
+    - name: Verify serverless deployment runs in parallel before readiness
+      run: bash .github/scripts/tests/serverless_orchestrator_parallelism_test.sh
+
     - name: Verify serverless operation control-plane boundary
       run: bash .github/scripts/tests/serverless_boundary_migration_operation_test.sh
 

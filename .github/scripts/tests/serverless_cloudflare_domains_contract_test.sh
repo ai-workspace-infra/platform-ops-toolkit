@@ -20,6 +20,9 @@ cat >"${test_dir}/routing.json" <<'EOF'
     "serverless": {
       "console_host": "console-cloudflare-uat.onwalk.net",
       "accounts_host": "accounts-cloudflare-uat.onwalk.net",
+      "frontend_router": {
+        "worker_name": "frontend-router-uat"
+      },
       "edge_gateway": {
         "boundaries": [
           {"id": "core", "worker_name": "edge-gateway-core-uat"}
@@ -72,6 +75,10 @@ CLOUDFLARE_BOUNDARY_CONFIG="${test_dir}/routing.json" \
 CLOUDFLARE_API_BASE_OVERRIDE="https://cloudflare.invalid/client/v4" \
 "${reconciler}" >/dev/null
 
-grep -Fq $'POST\thttps://cloudflare.invalid/client/v4/accounts/account-1/pages/projects/ai-workspace-portal-uat/domains' "${test_dir}/curl.log"
-grep -Fq $'PUT\thttps://cloudflare.invalid/client/v4/accounts/account-1/workers/domains' "${test_dir}/curl.log"
+if grep -Fq $'POST\thttps://cloudflare.invalid/client/v4/accounts/account-1/pages/projects/ai-workspace-portal-uat/domains' "${test_dir}/curl.log"; then
+  echo "Pages must not receive the Console custom domain" >&2
+  exit 1
+fi
+worker_puts="$(grep -Fc $'PUT\thttps://cloudflare.invalid/client/v4/accounts/account-1/workers/domains' "${test_dir}/curl.log")"
+test "${worker_puts}" -eq 2
 echo "serverless_cloudflare_domains_contract_test: PASS"

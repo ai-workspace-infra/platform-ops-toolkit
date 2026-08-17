@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Reconcile the public Cloudflare entry points declared by the serverless
-# EdgeRoutingConfig. Pages custom domains own the console hostname; the core
-# Worker owns the accounts hostname while the auth/admin route boundaries keep
-# their more-specific routes on that same hostname.
+# Reconcile the Cloudflare target domains declared by the serverless
+# EdgeRoutingConfig. The Frontend Router owns the Console target and the core
+# Edge Gateway owns the Accounts target. Pages is an origin behind the router,
+# never an owner of the Console custom domain.
 
 CONFIG_FILE="${CLOUDFLARE_BOUNDARY_CONFIG:?CLOUDFLARE_BOUNDARY_CONFIG must point to the rendered GitOps manifest}"
 CLOUDFLARE_API_BASE="${CLOUDFLARE_API_BASE_OVERRIDE:-https://api.cloudflare.com/client/v4}"
@@ -29,6 +29,7 @@ zone_name="$(jq -er '.spec.cloudflare.zone_name' "${CONFIG_FILE}")"
 pages_project="$(jq -er '.spec.cloudflare.pages_project' "${CONFIG_FILE}")"
 console_host="$(jq -er '.spec.serverless.console_host' "${CONFIG_FILE}")"
 accounts_host="$(jq -er '.spec.serverless.accounts_host' "${CONFIG_FILE}")"
+frontend_router_worker="$(jq -er '.spec.serverless.frontend_router.worker_name' "${CONFIG_FILE}")"
 core_worker="$(jq -er '.spec.serverless.edge_gateway.boundaries[] | select(.id == "core") | .worker_name' "${CONFIG_FILE}")"
 
 api_request() {
@@ -65,46 +66,54 @@ api_request() {
 zone_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones?name=${zone_name}&status=active")"
 zone_id="$(jq -er '.result | if length == 1 then .[0].id else error("expected exactly one active zone") end' <<<"${zone_response}")"
 
-reconcile_pages_domain() {
+safeguard_pages_domain() {
   local domains_url="${CLOUDFLARE_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${pages_project}/domains?per_page=100"
   local domains_response
   local existing
   domains_response="$(api_request GET "${domains_url}")"
   existing="$(jq -r --arg hostname "${console_host}" 'first(.result[]? | select(.name == $hostname) | [.name, (.status // "unknown")] | @tsv) // empty' <<<"${domains_response}")"
   if [[ -n "${existing}" ]]; then
-    echo "Pages custom domain present: ${existing}"
-    return
+    echo "${console_host} is still attached to Pages (${existing}). Move this custom domain to ${frontend_router_worker} through the approved cutover before rerunning reconciliation; this script will not detach a live Pages domain." >&2
+    return 1
   fi
-
-  api_request POST "${CLOUDFLARE_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${pages_project}/domains" \
-    "$(jq -cn --arg name "${console_host}" '{name: $name}')" >/dev/null
-  echo "Pages custom domain attached: ${console_host} -> ${pages_project}"
+  echo "Pages does not own the Console target: ${console_host}"
 }
 
 reconcile_worker_domain() {
+  local hostname="$1"
+  local service="$2"
   local domains_url="${CLOUDFLARE_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/domains?per_page=100"
   local domains_response
   local existing
+  local conflicting_service
   local body
   domains_response="$(api_request GET "${domains_url}")"
-  existing="$(jq -r --arg hostname "${accounts_host}" --arg service "${core_worker}" '
+  existing="$(jq -r --arg hostname "${hostname}" --arg service "${service}" '
     first(.result[]? | select(.hostname == $hostname and .service == $service) | [.hostname, .service] | @tsv) // empty
   ' <<<"${domains_response}")"
   if [[ -n "${existing}" ]]; then
     echo "Worker custom domain present: ${existing}"
     return
   fi
+  conflicting_service="$(jq -r --arg hostname "${hostname}" '
+    first(.result[]? | select(.hostname == $hostname) | .service) // empty
+  ' <<<"${domains_response}")"
+  if [[ -n "${conflicting_service}" ]]; then
+    echo "Worker custom domain ${hostname} is already owned by ${conflicting_service}, not ${service}. Resolve the ownership explicitly before rerunning." >&2
+    return 1
+  fi
 
   body="$(jq -cn \
-    --arg hostname "${accounts_host}" \
-    --arg service "${core_worker}" \
+    --arg hostname "${hostname}" \
+    --arg service "${service}" \
     --arg zone_id "${zone_id}" \
     --arg zone_name "${zone_name}" \
     '{hostname: $hostname, service: $service, zone_id: $zone_id, zone_name: $zone_name}')"
   api_request PUT "${CLOUDFLARE_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/domains" "${body}" >/dev/null
-  echo "Worker custom domain attached: ${accounts_host} -> ${core_worker}"
+  echo "Worker custom domain attached: ${hostname} -> ${service}"
 }
 
-reconcile_pages_domain
-reconcile_worker_domain
+safeguard_pages_domain
+reconcile_worker_domain "${console_host}" "${frontend_router_worker}"
+reconcile_worker_domain "${accounts_host}" "${core_worker}"
 echo "Cloudflare serverless custom domains reconciled for ${zone_name}."
