@@ -38,15 +38,15 @@ Verify / Summary
 | SSR 身份页面 | `frontend-ssr-auth-uat` | `/login*`、`/register*` 等 | 独立轻量 Worker |
 | SSR 控制台 | `frontend-ssr-console-uat` | `/panel*`、`/dashboard*` | 独立轻量 Worker |
 | SSR 工作区 | `frontend-ssr-workspace-uat` | `/ai-workspace*`、`/editor*` 等 | 独立轻量 Worker |
-| API 鉴权 | `frontend-api-auth-uat` | `/api/auth/*` | 独立轻量 Worker |
-| API 管理 | `frontend-api-admin-uat` | `/api/admin/*` | 独立轻量 Worker |
-| API 核心 | `frontend-api-core-uat` | `/api/*` 兜底 | 独立轻量 Worker |
+| API 鉴权 | `edge-gateway-auth-uat` | `accounts-cloudflare-uat.onwalk.net/api/auth/*` | 独立轻量 Worker |
+| API 管理 | `edge-gateway-admin-uat` | `accounts-cloudflare-uat.onwalk.net/api/admin/*` | 独立轻量 Worker |
+| API 核心 | `edge-gateway-core-uat` | `accounts-cloudflare-uat.onwalk.net/api/*` 兜底 | 独立轻量 Worker |
 | 静态资源 | `ai-workspace-portal-uat` | `/static/*`、`/assets/*` | Pages 部署 |
 
 这里的拆分是源代码级拆分：不能仅复制 `wrangler` 名称，否则每个 Worker 仍会打包整套
 OpenNext 应用，无法解决 Cloudflare Worker 3 MiB 限制。API 三个独立入口已经在
-`ai-workspace-services/edge-gateway` 中提供，并通过 `wrangler.auth.toml`、
-`wrangler.admin.toml`、`wrangler.core.toml` 开启对应 Cloudflare Routes。
+`ai-workspace-services/edge-gateway` 中提供；Worker 名称、API 主机和路径由该仓库的
+`config/edge-gateway-boundaries.json` 配置，部署脚本据此创建三个独立 Worker 和 Routes。
 
 ## 输入建议
 
