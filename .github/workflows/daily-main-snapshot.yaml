@@ -45,7 +45,6 @@ jobs:
           - ai-workspace-infra
           - ai-workspace-lab
           - ai-workspace-services
-          - ai-workspace-service
           - ai-workspace-xstream
     steps:
       - name: Checkout repository

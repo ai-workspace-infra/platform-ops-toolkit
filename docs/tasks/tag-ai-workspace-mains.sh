@@ -16,7 +16,6 @@ SNAPSHOT_ORGS=(
   ai-workspace-infra
   ai-workspace-lab
   ai-workspace-services
-  ai-workspace-service
   ai-workspace-xstream
 )
 
@@ -25,7 +24,7 @@ declare -A BUILD_WORKFLOWS=(
   [ai-workspace-services/billing-service]="ci-pipeline.yml"
   [ai-workspace-services/content-service]="ci-pipeline.yml"
   [ai-workspace-services/portal]="ci-pipeline.yml"
-  [ai-workspace-service/edge-gateway.svc.plus]="deploy.yml"
+  [ai-workspace-services/edge-gateway]="deploy.yml"
   [ai-workspace-lab/xworkmate-bridge]="pipeline.yml"
   [ai-workspace-services/postgresql.svc.plus]="ci-pipeline.yml"
 )
@@ -136,7 +135,7 @@ dispatch_build_workflow() {
         -f "deploy_env=${deploy_env}" \
         >/dev/null
       ;;
-    ai-workspace-service/edge-gateway.svc.plus)
+    ai-workspace-services/edge-gateway)
       gh workflow run "${workflow}" --repo "${repo}" --ref "${tag}" \
         >/dev/null
       ;;
