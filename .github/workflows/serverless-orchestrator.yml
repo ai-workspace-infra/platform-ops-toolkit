@@ -22,10 +22,10 @@ on:
           - sit
           - uat
           - prod
-      image_tag:
-        description: 'Image tag to deploy to Cloud Run'
-        required: false
-        default: 'latest'
+      tag_ref:
+        description: 'Unified immutable tag for Cloud Run images, portal, and edge-gateway (for example daily-build-2026.08.17-r1)'
+        required: true
+        type: string
       deploy_cloudflare:
         description: 'Deploy Cloudflare SSR Workers, edge gateway, and Pages static assets'
         required: true
@@ -41,36 +41,6 @@ on:
         required: true
         default: true
         type: boolean
-      portal_repository:
-        description: 'Portal repository to check out for frontend deployment'
-        required: true
-        default: 'ai-workspace-services/portal'
-        type: string
-      portal_ref:
-        description: 'Portal source ref: immutable release tag, commit SHA, or branch'
-        required: true
-        default: 'main'
-        type: string
-      edge_gateway_repository:
-        description: 'Required edge-gateway repository'
-        required: true
-        default: 'ai-workspace-services/edge-gateway'
-        type: string
-      edge_gateway_ref:
-        description: 'Required edge-gateway source ref'
-        required: true
-        default: 'main'
-        type: string
-      gitops_repository:
-        description: 'GitOps repository containing the environment routing config'
-        required: true
-        default: 'ai-workspace-infra/gitops'
-        type: string
-      gitops_ref:
-        description: 'GitOps config ref'
-        required: true
-        default: 'main'
-        type: string
       cleanup_legacy_pages:
         description: 'Delete explicitly listed legacy Cloudflare Pages projects after deployment cleanup'
         required: true
@@ -171,7 +141,7 @@ jobs:
           VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
           VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
           DEPLOY_ENV: ${{ inputs.vault_env_path || 'uat' }}
-          IMAGE_TAG: ${{ inputs.image_tag || 'latest' }}
+          IMAGE_TAG: ${{ inputs.tag_ref }}
           DEPLOY_CLOUDFLARE: 'false'
           DEPLOY_CLOUD_RUN: 'true'
           VERIFY_SUPABASE: 'false'
@@ -198,8 +168,10 @@ jobs:
       - name: Checkout GitOps routing config
         uses: actions/checkout@v7
         with:
-          repository: ${{ inputs.gitops_repository }}
-          ref: ${{ inputs.gitops_ref }}
+          repository: ai-workspace-infra/gitops
+          # GitOps routing is the environment configuration source of truth;
+          # keep it on main while deployable artifacts share tag_ref.
+          ref: main
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -219,8 +191,8 @@ jobs:
       - name: Checkout portal source
         uses: actions/checkout@v7
         with:
-          repository: ${{ inputs.portal_repository }}
-          ref: ${{ inputs.portal_ref }}
+          repository: ai-workspace-services/portal
+          ref: ${{ inputs.tag_ref }}
           path: portal
 
       - name: Setup Node.js
@@ -269,8 +241,10 @@ jobs:
       - name: Checkout GitOps routing config
         uses: actions/checkout@v7
         with:
-          repository: ${{ inputs.gitops_repository }}
-          ref: ${{ inputs.gitops_ref }}
+          repository: ai-workspace-infra/gitops
+          # GitOps routing is the environment configuration source of truth;
+          # keep it on main while deployable artifacts share tag_ref.
+          ref: main
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -285,8 +259,8 @@ jobs:
       - name: Checkout edge-gateway source
         uses: actions/checkout@v7
         with:
-          repository: ${{ inputs.edge_gateway_repository }}
-          ref: ${{ inputs.edge_gateway_ref }}
+          repository: ai-workspace-services/edge-gateway
+          ref: ${{ inputs.tag_ref }}
           path: edge-gateway
 
       - name: Setup Node.js
@@ -327,8 +301,10 @@ jobs:
       - name: Checkout GitOps routing config
         uses: actions/checkout@v7
         with:
-          repository: ${{ inputs.gitops_repository }}
-          ref: ${{ inputs.gitops_ref }}
+          repository: ai-workspace-infra/gitops
+          # GitOps routing is the environment configuration source of truth;
+          # keep it on main while deployable artifacts share tag_ref.
+          ref: main
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -348,8 +324,8 @@ jobs:
       - name: Checkout portal source
         uses: actions/checkout@v7
         with:
-          repository: ${{ inputs.portal_repository }}
-          ref: ${{ inputs.portal_ref }}
+          repository: ai-workspace-services/portal
+          ref: ${{ inputs.tag_ref }}
           path: portal
 
       - name: Setup Node.js

@@ -7,10 +7,12 @@ environment routing values. For UAT the file is:
 resources/svc.plus/uat/cloudflare/edge-routing.yaml
 ```
 
-Each Cloudflare matrix job checks out the selected `gitops_ref`, validates the declaration,
-and passes its absolute path to the portal or edge-gateway repository. Repository-local config
-files remain compatibility fallbacks for standalone local builds; the orchestrator does not
-use those fallbacks.
+Each Cloudflare matrix job checks out `main`, validates the declaration, and passes its absolute
+path to the portal or edge-gateway repository. Application source and image versions are selected
+by the orchestrator's single `tag_ref` input; GitOps routing remains on `main` because it is the
+environment configuration source rather than an application artifact. Repository-local config files
+remain compatibility fallbacks for standalone local builds; the orchestrator does not use those
+fallbacks.
 
 The YAML declaration owns domains, Worker names, Pages project, route boundaries, and VPS/Cloud
 Run origin policy. The workflow renders it to a temporary JSON document for existing consumers;
