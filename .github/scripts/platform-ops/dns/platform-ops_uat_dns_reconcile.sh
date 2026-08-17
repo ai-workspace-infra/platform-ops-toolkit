@@ -41,7 +41,7 @@ fi
 
 dns_control_plane="$(jq -er '.spec.runtime.routing.dns.control_plane // empty' "${GITOPS_ROUTING_CONFIG}")"
 dns_ttl="$(jq -er '.spec.runtime.routing.dns.ttl_seconds // empty' "${GITOPS_ROUTING_CONFIG}")"
-dns_strategy="$(jq -er '.spec.runtime.routing.load-balancer.strategy // empty' "${GITOPS_ROUTING_CONFIG}")"
+dns_strategy="$(jq -er '.spec.runtime.routing."load-balancer".strategy // empty' "${GITOPS_ROUTING_CONFIG}")"
 selfhost_weight="$(jq -er '.spec.runtime.routing.weight.selfhost // empty' "${GITOPS_ROUTING_CONFIG}")"
 serverless_weight="$(jq -er '.spec.runtime.routing.weight.serverless // empty' "${GITOPS_ROUTING_CONFIG}")"
 canonical_count="$(jq -er '.spec.runtime.routing.dns.canonical_records | length' "${GITOPS_ROUTING_CONFIG}")"
