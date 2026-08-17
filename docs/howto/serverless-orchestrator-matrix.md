@@ -54,24 +54,27 @@ UAT 常用值：
 
 ```text
 vault_env_path=uat
-image_tag=<不可变 daily-build-* 快照>
+tag_ref=<不可变 daily-build-* 快照>
 deploy_cloudflare=true
 deploy_cloud_run=true
 verify_supabase=true
 ```
 
-`edge_gateway_repository` 和 `edge_gateway_ref` 为必填的源码来源。任务会检出
-edge-gateway 仓库，并以 `auth/admin/core` 三项矩阵独立发布三个 Worker；本地开发机路径不会
-被带入 CI。
+`tag_ref` 是 Cloud Run 镜像、Portal 源码和 edge-gateway 源码的唯一版本输入。任务会使用同一
+个不可变 tag 检出 Portal 和 edge-gateway，并将同名 tag 传给三个 Cloud Run 镜像；本地开发机
+路径不会被带入 CI。仓库名称仍可通过对应的 repository 输入覆盖。
+
+GitOps 路由配置固定从 `main` 读取。它是环境配置源，不属于应用制品 tag；这样不会因为某个
+服务快照 tag 尚未同步到 GitOps 仓库而导致路由配置 checkout 失败。
 
 ## Cloud Run 镜像契约
 
 每个矩阵项只部署一个服务：
 
 ```text
-<GCP_REGION>-docker.pkg.dev/<GCP_PROJECT_ID>/serverless/accounts:<image_tag>
-<GCP_REGION>-docker.pkg.dev/<GCP_PROJECT_ID>/serverless/content-service:<image_tag>
-<GCP_REGION>-docker.pkg.dev/<GCP_PROJECT_ID>/serverless/billing-service:<image_tag>
+<GCP_REGION>-docker.pkg.dev/<GCP_PROJECT_ID>/serverless/accounts:<tag_ref>
+<GCP_REGION>-docker.pkg.dev/<GCP_PROJECT_ID>/serverless/content-service:<tag_ref>
+<GCP_REGION>-docker.pkg.dev/<GCP_PROJECT_ID>/serverless/billing-service:<tag_ref>
 ```
 
 因此，执行完整部署前必须先在 `xworktech` 项目的 Artifact Registry 中创建
