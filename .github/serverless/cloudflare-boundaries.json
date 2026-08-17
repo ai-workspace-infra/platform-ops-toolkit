@@ -1,13 +1,17 @@
 {
   "version": 1,
   "environment": "uat",
-  "host": "console-uat.onwalk.net",
+  "hosts": {
+    "console": "console-cloudflare-uat.onwalk.net",
+    "accounts": "accounts-cloudflare-uat.onwalk.net"
+  },
   "boundaries": [
     {
       "id": "ssr-public",
       "kind": "worker",
       "name": "frontend-ssr-public-uat",
       "source": "ai-workspace-services/portal",
+      "host": "console",
       "routes": ["/*", "/_edge/public/*"]
     },
     {
@@ -15,6 +19,7 @@
       "kind": "worker",
       "name": "frontend-ssr-content-uat",
       "source": "ai-workspace-services/portal",
+      "host": "console",
       "routes": ["/blogs*", "/docs*", "/download*", "/_edge/content/*"]
     },
     {
@@ -22,6 +27,7 @@
       "kind": "worker",
       "name": "frontend-ssr-auth-uat",
       "source": "ai-workspace-services/portal",
+      "host": "console",
       "routes": ["/login*", "/register*", "/email-verification*", "/logout*", "/_edge/auth/*"]
     },
     {
@@ -29,6 +35,7 @@
       "kind": "worker",
       "name": "frontend-ssr-console-uat",
       "source": "ai-workspace-services/portal",
+      "host": "console",
       "routes": ["/panel*", "/dashboard*", "/_edge/console/*"]
     },
     {
@@ -36,27 +43,31 @@
       "kind": "worker",
       "name": "frontend-ssr-workspace-uat",
       "source": "ai-workspace-services/portal",
+      "host": "console",
       "routes": ["/ai-workspace*", "/cloud_iac*", "/editor*", "/support*", "/xworkmate*", "/_edge/workspace/*"]
     },
     {
       "id": "api-auth",
       "kind": "worker",
-      "name": "frontend-api-auth-uat",
+      "name": "edge-gateway-auth-uat",
       "source": "ai-workspace-services/edge-gateway",
+      "host": "accounts",
       "routes": ["/api/auth/*"]
     },
     {
       "id": "api-admin",
       "kind": "worker",
-      "name": "frontend-api-admin-uat",
+      "name": "edge-gateway-admin-uat",
       "source": "ai-workspace-services/edge-gateway",
+      "host": "accounts",
       "routes": ["/api/admin/*"]
     },
     {
       "id": "api-core",
       "kind": "worker",
-      "name": "frontend-api-core-uat",
+      "name": "edge-gateway-core-uat",
       "source": "ai-workspace-services/edge-gateway",
+      "host": "accounts",
       "routes": ["/api/*"]
     },
     {
@@ -64,6 +75,7 @@
       "kind": "pages",
       "name": "ai-workspace-portal-uat",
       "source": "ai-workspace-services/portal",
+      "host": "console",
       "routes": ["/static/*", "/assets/*"]
     }
   ]
