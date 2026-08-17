@@ -17,11 +17,14 @@ def main() -> int:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("kind") != "EdgeRoutingConfig":
         raise SystemExit("GitOps routing manifest must be an EdgeRoutingConfig")
+    metadata = manifest.get("metadata", {})
     spec = manifest.get("spec", {})
     runtime = spec.get("runtime", {})
     mode = runtime.get("mode")
     if mode not in {"serverless", "hybrid"}:
         raise SystemExit("Cloudflare boundary deployment requires runtime.mode=serverless or hybrid")
+    if metadata.get("mode") != mode:
+        raise SystemExit("GitOps routing metadata.mode must match spec.runtime.mode")
     required_mode = os.environ.get("REQUIRED_RUNTIME_MODE")
     if required_mode and mode != required_mode:
         raise SystemExit(f"GitOps routing manifest requires runtime.mode={required_mode}, got {mode}")
