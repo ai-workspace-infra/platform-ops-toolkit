@@ -41,21 +41,6 @@ on:
         required: true
         default: true
         type: boolean
-      portal_repository:
-        description: 'Portal repository to check out for frontend deployment'
-        required: true
-        default: 'ai-workspace-services/portal'
-        type: string
-      edge_gateway_repository:
-        description: 'Required edge-gateway repository'
-        required: true
-        default: 'ai-workspace-services/edge-gateway'
-        type: string
-      gitops_repository:
-        description: 'GitOps repository containing the environment routing config'
-        required: true
-        default: 'ai-workspace-infra/gitops'
-        type: string
       cleanup_legacy_pages:
         description: 'Delete explicitly listed legacy Cloudflare Pages projects after deployment cleanup'
         required: true
@@ -183,7 +168,7 @@ jobs:
       - name: Checkout GitOps routing config
         uses: actions/checkout@v7
         with:
-          repository: ${{ inputs.gitops_repository }}
+          repository: ai-workspace-infra/gitops
           # GitOps routing is the environment configuration source of truth;
           # keep it on main while deployable artifacts share tag_ref.
           ref: main
@@ -206,7 +191,7 @@ jobs:
       - name: Checkout portal source
         uses: actions/checkout@v7
         with:
-          repository: ${{ inputs.portal_repository }}
+          repository: ai-workspace-services/portal
           ref: ${{ inputs.tag_ref }}
           path: portal
 
@@ -256,7 +241,7 @@ jobs:
       - name: Checkout GitOps routing config
         uses: actions/checkout@v7
         with:
-          repository: ${{ inputs.gitops_repository }}
+          repository: ai-workspace-infra/gitops
           # GitOps routing is the environment configuration source of truth;
           # keep it on main while deployable artifacts share tag_ref.
           ref: main
@@ -274,7 +259,7 @@ jobs:
       - name: Checkout edge-gateway source
         uses: actions/checkout@v7
         with:
-          repository: ${{ inputs.edge_gateway_repository }}
+          repository: ai-workspace-services/edge-gateway
           ref: ${{ inputs.tag_ref }}
           path: edge-gateway
 
@@ -316,7 +301,7 @@ jobs:
       - name: Checkout GitOps routing config
         uses: actions/checkout@v7
         with:
-          repository: ${{ inputs.gitops_repository }}
+          repository: ai-workspace-infra/gitops
           # GitOps routing is the environment configuration source of truth;
           # keep it on main while deployable artifacts share tag_ref.
           ref: main
@@ -339,7 +324,7 @@ jobs:
       - name: Checkout portal source
         uses: actions/checkout@v7
         with:
-          repository: ${{ inputs.portal_repository }}
+          repository: ai-workspace-services/portal
           ref: ${{ inputs.tag_ref }}
           path: portal
 

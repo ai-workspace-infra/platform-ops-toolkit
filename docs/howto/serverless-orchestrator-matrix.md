@@ -62,7 +62,8 @@ verify_supabase=true
 
 `tag_ref` 是 Cloud Run 镜像、Portal 源码和 edge-gateway 源码的唯一版本输入。任务会使用同一
 个不可变 tag 检出 Portal 和 edge-gateway，并将同名 tag 传给三个 Cloud Run 镜像；本地开发机
-路径不会被带入 CI。仓库名称仍可通过对应的 repository 输入覆盖。
+路径不会被带入 CI。Portal、edge-gateway 和 GitOps 仓库是固定的平台交付依赖，不在手动派发
+页面重复暴露。
 
 GitOps 路由配置固定从 `main` 读取。它是环境配置源，不属于应用制品 tag；这样不会因为某个
 服务快照 tag 尚未同步到 GitOps 仓库而导致路由配置 checkout 失败。
