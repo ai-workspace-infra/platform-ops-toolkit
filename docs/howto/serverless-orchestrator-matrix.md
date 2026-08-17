@@ -135,9 +135,9 @@ deploy_cloudflare=true             # default
 ```
 
 `tag_ref` is required only for `deploy` and `deploy+migrate`. The `operation` input is the
-control-plane authority that selects whether the migration job runs. GitOps declares the data
-topology and migration capability (`spec.runtime.data.migration.enabled`) but does not authorize
-or select an individual workflow run.
+control-plane authority that selects whether the migration job runs. GitOps declares data
+topology and migration constraints (strategy, single-writer, lag, and quiesce requirements), but
+does not authorize or select an individual workflow run.
 
 `tag_ref` is the single immutable version for Cloud Run images, Portal SSR, and edge-gateway.
 The three repositories and the GitOps repository are fixed workflow dependencies, so their

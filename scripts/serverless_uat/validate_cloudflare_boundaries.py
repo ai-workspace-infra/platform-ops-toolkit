@@ -25,8 +25,6 @@ def validate_data_topology(data: dict[str, object]) -> None:
         raise SystemExit("GitOps runtime data must define a migration topology")
     if migration.get("strategy") != "async" or migration.get("single_writer") is not True:
         raise SystemExit("GitOps runtime migration must reserve async DTS with single_writer=true")
-    if not isinstance(migration.get("enabled"), bool):
-        raise SystemExit("GitOps DTS reservation must define migration.enabled explicitly")
 
 
 def main() -> int:

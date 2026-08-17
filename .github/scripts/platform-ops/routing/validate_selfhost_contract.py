@@ -82,8 +82,6 @@ def main() -> int:
     # does not authorize or select a control-plane operation for this run.
     # The latter is selected by platform-ops-toolkit's explicit operation
     # routing and must not be inferred from this declaration.
-    if not isinstance(migration.get("enabled"), bool):
-        fail("runtime.data.migration.enabled must be an explicit boolean")
     if migration.get("strategy") != "async" or migration.get("single_writer") is not True:
         fail("runtime.data.migration must reserve async single-writer handover")
     if migration.get("max_lag_seconds") != 60 or migration.get("require_quiesce_for_cutover") is not True:
@@ -113,11 +111,10 @@ def main() -> int:
     if vps.get("services") != ["console", "accounts", "content", "billing"]:
         fail("spec.vps.services must declare the four web-saas services")
 
-    migration_state = "enabled" if migration.get("enabled") else "disabled"
     print(
         "GitOps selfhost contract valid: "
         f"{expected_environment} -> VPS Full Stack, DNS-only, selfhost=100, "
-        f"PostgreSQL primary, migration {migration_state}"
+        "PostgreSQL primary, async single-writer migration topology"
     )
     return 0
 

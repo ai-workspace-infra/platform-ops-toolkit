@@ -29,7 +29,6 @@ module.validate_data_topology(
             "serverless": "supabase",
         },
         "migration": {
-            "enabled": False,
             "strategy": "async",
             "single_writer": True,
         },
