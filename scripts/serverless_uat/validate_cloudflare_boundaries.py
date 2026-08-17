@@ -10,47 +10,91 @@ from pathlib import Path
 
 
 def main() -> int:
-    manifest_path = Path(
-        os.environ.get(
-            "CLOUDFLARE_BOUNDARY_CONFIG",
-            str(Path(__file__).resolve().parents[2] / ".github/serverless/cloudflare-boundaries.json"),
-        )
-    )
+    configured_path = os.environ.get("CLOUDFLARE_BOUNDARY_CONFIG")
+    if not configured_path:
+        raise SystemExit("CLOUDFLARE_BOUNDARY_CONFIG must point to the GitOps routing manifest")
+    manifest_path = Path(configured_path)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("kind") == "EdgeRoutingConfig":
-        spec = manifest.get("spec", {})
-        configured_hosts = spec.get("hosts", {})
-        hosts = {
-            "console": configured_hosts.get("console_cloudflare", ""),
-            "accounts": configured_hosts.get("accounts_cloudflare", ""),
-        }
-        boundaries = []
-        for item in spec.get("ssr", []):
-            boundaries.append({
-                "id": f"ssr-{item['id']}",
-                "kind": "worker",
-                "name": item["worker_name"],
-                "host": "console",
-                "routes": item["route_suffixes"],
-            })
-        for item in spec.get("edge_gateway", {}).get("boundaries", []):
-            boundaries.append({
-                "id": f"api-{item['id']}",
-                "kind": "worker",
-                "name": item["worker_name"],
-                "host": "accounts",
-                "routes": [item["route"]],
-            })
+    if manifest.get("kind") != "EdgeRoutingConfig":
+        raise SystemExit("GitOps routing manifest must be an EdgeRoutingConfig")
+    spec = manifest.get("spec", {})
+    runtime = spec.get("runtime", {})
+    mode = runtime.get("mode")
+    if mode not in {"serverless", "hybrid"}:
+        raise SystemExit("Cloudflare boundary deployment requires runtime.mode=serverless or hybrid")
+    required_mode = os.environ.get("REQUIRED_RUNTIME_MODE")
+    if required_mode and mode != required_mode:
+        raise SystemExit(f"GitOps routing manifest requires runtime.mode={required_mode}, got {mode}")
+    if set(runtime.get("routing", {})) != {"dns", "load-balancer", "weight"}:
+        raise SystemExit("GitOps runtime routing must define dns, load-balancer, and weight")
+    if set(runtime.get("services", {})) != {"console", "accounts", "content", "billing"}:
+        raise SystemExit("GitOps runtime services must define console, accounts, content, and billing")
+
+    domains = spec.get("domains", {})
+    environment = manifest.get("metadata", {}).get("environment", "")
+    required_domains = (
+        {"console.svc.plus", "accounts.svc.plus"}
+        if environment == "prod"
+        else {f"console-{environment}.onwalk.net", f"accounts-{environment}.onwalk.net"}
+    )
+    if not required_domains.issubset(domains):
+        raise SystemExit("GitOps routing manifest must define canonical console and accounts domains")
+    for canonical in required_domains:
+        record = domains[canonical]
+        if not record.get("selfhost") or not record.get("serverless"):
+            raise SystemExit(f"domain {canonical} must define selfhost and serverless CNAME targets")
+
+    serverless = spec.get("serverless", {})
+    if len(serverless.get("ssr", [])) != 5:
+        raise SystemExit("GitOps routing manifest must define exactly five SSR boundaries")
+    if len(serverless.get("edge_gateway", {}).get("boundaries", [])) != 3:
+        raise SystemExit("GitOps routing manifest must define exactly three edge-gateway boundaries")
+    data = runtime.get("data", {})
+    if data.get("providers", {}).get("selfhost") != "self-managed-postgresql":
+        raise SystemExit("GitOps selfhost database mode must use self-managed-postgresql")
+    if data.get("providers", {}).get("serverless") != "supabase":
+        raise SystemExit("GitOps Serverless database mode must use Supabase")
+    if data.get("primary") not in {"selfhost", "serverless"} or data.get("replica") not in {"selfhost", "serverless"}:
+        raise SystemExit("GitOps runtime data must define selfhost or serverless primary and replica modes")
+    dts = data.get("migration", {})
+    if dts.get("strategy") != "async" or dts.get("single_writer") is not True:
+        raise SystemExit("GitOps runtime migration must reserve async DTS with single_writer=true")
+    if dts.get("enabled") is not False:
+        raise SystemExit("GitOps DTS reservation must remain disabled until cutover approval")
+    hosts = {
+        "console": serverless.get("console_host", ""),
+        "accounts": serverless.get("accounts_host", ""),
+    }
+    canonical_console = "console.svc.plus" if environment == "prod" else f"console-{environment}.onwalk.net"
+    canonical_accounts = "accounts.svc.plus" if environment == "prod" else f"accounts-{environment}.onwalk.net"
+    if hosts["console"] != domains[canonical_console]["serverless"]:
+        raise SystemExit("Serverless console host must match the canonical domain serverless target")
+    if hosts["accounts"] != domains[canonical_accounts]["serverless"]:
+        raise SystemExit("Serverless accounts host must match the canonical domain serverless target")
+    boundaries = []
+    for item in serverless.get("ssr", []):
         boundaries.append({
-            "id": "static",
-            "kind": "pages",
-            "name": spec.get("cloudflare", {}).get("pages_project", ""),
+            "id": f"ssr-{item['id']}",
+            "kind": "worker",
+            "name": item["worker_name"],
             "host": "console",
-            "routes": ["/static/*", "/assets/*"],
+            "routes": item["route_suffixes"],
         })
-    else:
-        boundaries = manifest.get("boundaries", [])
-        hosts = manifest.get("hosts", {})
+    for item in serverless.get("edge_gateway", {}).get("boundaries", []):
+        boundaries.append({
+            "id": f"api-{item['id']}",
+            "kind": "worker",
+            "name": item["worker_name"],
+            "host": "accounts",
+            "routes": [item["route"]],
+        })
+    boundaries.append({
+        "id": "static",
+        "kind": "pages",
+        "name": spec.get("cloudflare", {}).get("pages_project", ""),
+        "host": "console",
+        "routes": ["/static/*", "/assets/*"],
+    })
     if not boundaries:
         raise SystemExit("Cloudflare boundary manifest must define at least one boundary")
     if not hosts.get("console") or not hosts.get("accounts"):
@@ -73,6 +117,26 @@ def main() -> int:
             raise SystemExit(f"invalid host boundary for {boundary_id}: {host!r}")
         ids.add(boundary_id)
         names.add(name)
+
+    boundary_by_id = {boundary["id"]: boundary for boundary in boundaries}
+    required_routes = {
+        "ssr-public": ("frontend-ssr-public-" + environment, {"/*", "/_edge/public/*"}),
+        "ssr-content": ("frontend-ssr-content-" + environment, {"/blogs*", "/docs*", "/download*", "/_edge/content/*"}),
+        "ssr-auth": ("frontend-ssr-auth-" + environment, {"/login*", "/register*", "/email-verification*", "/logout*", "/_edge/auth/*"}),
+        "ssr-console": ("frontend-ssr-console-" + environment, {"/panel*", "/dashboard*", "/_edge/console/*"}),
+        "ssr-workspace": ("frontend-ssr-workspace-" + environment, {"/ai-workspace*", "/cloud_iac*", "/editor*", "/support*", "/xworkmate*", "/_edge/workspace/*"}),
+        "api-auth": ("edge-gateway-auth-" + environment, {"/api/auth/*"}),
+        "api-admin": ("edge-gateway-admin-" + environment, {"/api/admin/*"}),
+        "api-core": ("edge-gateway-core-" + environment, {"/api/*"}),
+        "static": (spec.get("cloudflare", {}).get("pages_project", ""), {"/static/*", "/assets/*"}),
+    }
+    for boundary_id, (expected_name, expected_routes) in required_routes.items():
+        boundary = boundary_by_id[boundary_id]
+        if boundary["name"] != expected_name:
+            raise SystemExit(f"{boundary_id} must use worker/project name {expected_name!r}")
+        missing_routes = expected_routes - set(boundary["routes"])
+        if missing_routes:
+            raise SystemExit(f"{boundary_id} is missing routes: {', '.join(sorted(missing_routes))}")
 
     required = {"ssr-public", "ssr-content", "ssr-auth", "ssr-console", "ssr-workspace", "api-auth", "api-admin", "api-core", "static"}
     missing = required - ids

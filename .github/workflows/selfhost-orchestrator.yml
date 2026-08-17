@@ -1,4 +1,4 @@
-name: Deploy Environment & Provision Infrastructure
+name: Selfhost Orchestrator
 
 # =============================================================================
 # IaC 环境交付与应用部署流水线 (Environment Provisioning & Deployment)

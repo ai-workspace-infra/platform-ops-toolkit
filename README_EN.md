@@ -10,7 +10,7 @@ This file is the explicit English alternate entry point. The canonical English g
 4. Open **Actions → Deploy Environment & Provision Infrastructure → Run workflow**.
 5. Start with a single domain, matching refs, an immutable `deploy_tag`, `vultr-vps`, and the correct `vault_env_path`.
 
-The workflow file that acts as the main entry point is [`.github/workflows/platform-ops.yaml`](.github/workflows/platform-ops.yaml).
+The selfhost workflow entry point is [`.github/workflows/selfhost-orchestrator.yml`](.github/workflows/selfhost-orchestrator.yml).
 
 ## Repository map
 

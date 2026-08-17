@@ -9,7 +9,7 @@ When operating within the `platform-ops-toolkit` and interacting with GitHub Act
 
 ## 1. Environment Routing Rules
 
-The workflow `platform-ops.yaml` routes traffic to specific environments based on Git events. Never hardcode environments outside of these bounds:
+The workflow `selfhost-orchestrator.yml` routes selfhost infrastructure traffic to specific environments based on Git events. Never hardcode environments outside of these bounds:
 - **`pull_request`** -> routes to **`sit`** environment (`sit/all-in-one.yaml`).
 - **`main` or `release/*` push** -> routes to **`uat`** environment (`uat/web-saas-uat.yaml`).
 - **`vMAJOR.MINOR.PATCH` tag** -> routes to **`prod`** environment (`prod/web-saas-prod.yaml`).

@@ -39,7 +39,7 @@ rsync -avz --delete /opt/modern-it-history/current/ backup-server:/opt/modern-it
 
 ## 4. CI 部署前置 (`deploy_web_saas` job / Vault Secrets)
 
-`.github/workflows/platform-ops.yaml` 里 `target_domains=web-saas`(或 `all`)
+`.github/workflows/selfhost-orchestrator.yml` 里 `target_domains=web-saas`(或 `all`)
 触发的 `deploy_web_saas` job，实际部署 postgresql.svc.plus / stunnel-client /
 accounts.svc.plus / billing-service / console.svc.plus 这 5 个服务到同一台
 provision 出来的主机上。

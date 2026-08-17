@@ -41,7 +41,7 @@ TOKEN_TTL="1h"
 # -----------------------------------------------------------------------------
 WF_PREFIX="${REPO}/.github/workflows"
 read -r -d '' ALLOWED_WORKFLOWS <<EOF || true
-    "${WF_PREFIX}/platform-ops.yaml@*",
+    "${WF_PREFIX}/selfhost-orchestrator.yml@*",
     "${WF_PREFIX}/daily-main-snapshot.yaml@*",
     "${WF_PREFIX}/resize-instance.yaml@*",
     "${WF_PREFIX}/deploy-action-runner-iac.yaml@*",
@@ -52,7 +52,8 @@ read -r -d '' ALLOWED_WORKFLOWS <<EOF || true
     "${WF_PREFIX}/data-migration.yaml@*",
     "${WF_PREFIX}/k6-performance-test.yaml@*",
     "${WF_PREFIX}/uat-serverless-orchestrator.yml@*",
-    "${WF_PREFIX}/serverless-orchestrator.yml@*"
+    "${WF_PREFIX}/serverless-orchestrator.yml@*",
+    "${WF_PREFIX}/hybrid-orchestrator.yml@*"
 EOF
 
 PLAYBOOKS_WF_PREFIX="${PLAYBOOKS_REPO}/.github/workflows"

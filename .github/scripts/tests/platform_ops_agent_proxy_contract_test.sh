@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-workflow="${repo_root}/.github/workflows/platform-ops.yaml"
+workflow="${repo_root}/.github/workflows/selfhost-orchestrator.yml"
 
 deployment_block="$(sed -n '/- name: Deploy native agent-proxy services/,/^  deploy_ai_workspace:/p' "${workflow}")"
 
