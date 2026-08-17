@@ -32,11 +32,12 @@ are
 declared in:
 
 ```text
-ai-workspace-infra/gitops/resources/svc.plus/uat/cloudflare/edge-routing.yaml
+ai-workspace-infra/gitops/resources/svc.plus/uat/cloudflare/serverless/edge-routing.yaml
 ```
 
-The serverless workflow requires `spec.runtime.mode: serverless`. UAT currently uses
-`spec.runtime.mode: hybrid`, with selfhost weight 100 and Serverless weight 0; the hybrid
+The serverless workflow requires the serverless pre-configuration at
+`spec.runtime.mode: serverless`. The hybrid workflow independently uses the hybrid pre-configuration
+with selfhost weight 100 and Serverless weight 0; the hybrid
 workflow owns the request-level selfhost→Cloud Run failover.
 
 ## Deployment stages and dependencies
