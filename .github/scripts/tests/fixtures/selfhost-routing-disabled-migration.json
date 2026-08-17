@@ -1,0 +1,56 @@
+{
+  "kind": "EdgeRoutingConfig",
+  "metadata": {
+    "name": "web-saas",
+    "project": "svc.plus",
+    "environment": "uat",
+    "mode": "selfhost"
+  },
+  "spec": {
+    "runtime": {
+      "mode": "selfhost",
+      "routing": {
+        "dns": {
+          "control_plane": "cloudflare-dns",
+          "ttl_seconds": 60,
+          "canonical_records": {
+            "console-uat.onwalk.net": "console-vps-uat.onwalk.net",
+            "accounts-uat.onwalk.net": "accounts-vps-uat.onwalk.net"
+          }
+        },
+        "load-balancer": {"strategy": "dns-only"},
+        "weight": {"selfhost": 100, "serverless": 0}
+      },
+      "services": {
+        "console": {"selfhost": "vps-full-stack"},
+        "accounts": {"selfhost": "vps-full-stack"},
+        "content": {"selfhost": "vps-full-stack"},
+        "billing": {"selfhost": "vps-full-stack"}
+      },
+      "data": {
+        "primary": "selfhost",
+        "replica": "serverless",
+        "providers": {
+          "selfhost": "self-managed-postgresql",
+          "serverless": "supabase"
+        },
+        "migration": {
+          "enabled": false,
+          "strategy": "async",
+          "single_writer": true,
+          "max_lag_seconds": 60,
+          "require_quiesce_for_cutover": true
+        }
+      }
+    },
+    "domains": {
+      "console-uat.onwalk.net": {"selfhost": "console-vps-uat.onwalk.net"},
+      "accounts-uat.onwalk.net": {"selfhost": "accounts-vps-uat.onwalk.net"}
+    },
+    "vps": {
+      "stack": "full-stack",
+      "database": "self-managed-postgresql",
+      "services": ["console", "accounts", "content", "billing"]
+    }
+  }
+}
