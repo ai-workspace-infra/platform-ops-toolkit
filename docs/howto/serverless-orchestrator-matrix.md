@@ -35,6 +35,21 @@ declared in:
 ai-workspace-infra/gitops/topology/uat/serverless/runtime-topology.yaml
 ```
 
+Every mode profile also declares the five public service entrances in
+`spec.public_endpoints` using `<service>-<mode>-<environment>.<base-domain>`:
+
+| Service | Default access | Serverless UAT | Selfhost UAT |
+| --- | --- | --- | --- |
+| Console | public | `console-serverless-uat.onwalk.net` | `console-selfhost-uat.onwalk.net` |
+| Accounts | authenticated | `accounts-serverless-uat.onwalk.net` | `accounts-selfhost-uat.onwalk.net` |
+| Billing | authenticated | `billing-serverless-uat.onwalk.net` | `billing-selfhost-uat.onwalk.net` |
+| PostgreSQL | authenticated | `postgresql-serverless-uat.onwalk.net` | `postgresql-selfhost-uat.onwalk.net` |
+| Agent-Proxy | public UUID validation | `agent-proxy-serverless-uat.onwalk.net` | `agent-proxy-selfhost-uat.onwalk.net` |
+
+The Serverless workflow actively reconciles and verifies Console, Accounts, and Billing. PostgreSQL
+and Agent-Proxy keep provider-owned authenticated/UUID validation paths until their deployment
+provider exposes an equivalent adapter.
+
 The serverless workflow requires the serverless pre-configuration at
 `spec.runtime.mode: serverless`. The hybrid workflow independently uses the hybrid pre-configuration
 with selfhost weight 100 and Serverless weight 0; the hybrid
@@ -78,9 +93,9 @@ source of truth for these names and routes:
 | SSR identity | `frontend-ssr-auth-uat` | `/login*`, `/register*`, etc. |
 | SSR console | `frontend-ssr-console-uat` | `/panel*`, `/dashboard*` |
 | SSR workspace | `frontend-ssr-workspace-uat` | `/ai-workspace*`, `/editor*`, etc. |
-| API auth | `edge-gateway-auth-uat` | `accounts-cloudflare-uat.onwalk.net/api/auth/*` |
-| API admin | `edge-gateway-admin-uat` | `accounts-cloudflare-uat.onwalk.net/api/admin/*` |
-| API core | `edge-gateway-core-uat` | `accounts-cloudflare-uat.onwalk.net/api/*` fallback |
+| API auth | `edge-gateway-auth-uat` | `accounts-serverless-uat.onwalk.net/api/auth/*` |
+| API admin | `edge-gateway-admin-uat` | `accounts-serverless-uat.onwalk.net/api/admin/*` |
+| API core | `edge-gateway-core-uat` | `accounts-serverless-uat.onwalk.net/api/*` fallback |
 | Static assets | `ai-workspace-portal-uat` | `/static/*`, `/assets/*` |
 
 ## GitOps boundary contract

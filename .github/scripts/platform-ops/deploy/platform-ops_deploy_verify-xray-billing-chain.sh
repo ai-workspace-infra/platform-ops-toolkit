@@ -6,7 +6,7 @@ set -euo pipefail
 : "${VECTOR_BILLING_INGEST_URL:?VECTOR_BILLING_INGEST_URL is required}"
 
 case "${VECTOR_BILLING_INGEST_URL}" in
-  https://billing-vps-*/v1/ingest/snapshots) ;;
+  https://billing-*-*/v1/ingest/snapshots) ;;
   *)
     echo "::error::VECTOR_BILLING_INGEST_URL must be an HTTPS Billing ingest endpoint: ${VECTOR_BILLING_INGEST_URL}" >&2
     exit 1

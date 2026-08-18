@@ -53,17 +53,17 @@ if [[ "${dns_control_plane}" != "cloudflare-dns" || "${dns_ttl}" != "60" ||
 fi
 
 # Web SaaS is a single full-stack host (control plane, frontend, backend and
-# database). These two public aliases must always point at that host; the
-# separate agent-proxy node is published below from the agent_proxy CMDB group.
+# database). These mode-qualified public endpoints must always point at that
+# host; the separate agent-proxy node is published below from the agent_proxy CMDB group.
 expected_console_name="console-${DEPLOY_ENV}.${UAT_ZONE}"
 expected_accounts_name="accounts-${DEPLOY_ENV}.${UAT_ZONE}"
-expected_console_target="console-vps-${DEPLOY_ENV}.${UAT_ZONE}"
-expected_accounts_target="accounts-vps-${DEPLOY_ENV}.${UAT_ZONE}"
-expected_console_vps_name="console-vps-${DEPLOY_ENV}.${UAT_ZONE}"
-expected_accounts_vps_name="accounts-vps-${DEPLOY_ENV}.${UAT_ZONE}"
-expected_billing_vps_name="billing-vps-${DEPLOY_ENV}.${UAT_ZONE}"
-expected_postgresql_name="postgresql-vps-${DEPLOY_ENV}.${UAT_ZONE}"
-expected_agent_proxy_name="agent-proxy-vps-${DEPLOY_ENV}.${UAT_ZONE}"
+expected_console_target="console-selfhost-${DEPLOY_ENV}.${UAT_ZONE}"
+expected_accounts_target="accounts-selfhost-${DEPLOY_ENV}.${UAT_ZONE}"
+expected_console_selfhost_name="console-selfhost-${DEPLOY_ENV}.${UAT_ZONE}"
+expected_accounts_selfhost_name="accounts-selfhost-${DEPLOY_ENV}.${UAT_ZONE}"
+expected_billing_name="billing-selfhost-${DEPLOY_ENV}.${UAT_ZONE}"
+expected_postgresql_name="postgresql-selfhost-${DEPLOY_ENV}.${UAT_ZONE}"
+expected_agent_proxy_name="agent-proxy-selfhost-${DEPLOY_ENV}.${UAT_ZONE}"
 canonical_records_json="$(jq -c -er '.spec.runtime.routing.dns.canonical_records' "${GITOPS_ROUTING_CONFIG}")"
 actual_console_target="$(jq -r --arg name "${expected_console_name}" '.[$name] // empty' <<<"${canonical_records_json}")"
 actual_accounts_target="$(jq -r --arg name "${expected_accounts_name}" '.[$name] // empty' <<<"${canonical_records_json}")"
@@ -264,11 +264,11 @@ while IFS=$'\t' read -r record_name record_target; do
 done < <(jq -r '.spec.runtime.routing.dns.canonical_records | to_entries[] | [.key, .value] | @tsv' "${GITOPS_ROUTING_CONFIG}")
 
 # These are the deployment-domain records owned by this Web SaaS full-stack
-# deployment. The selected Selfhost VPS route points the public console CNAME
-# at console-vps; console-cloudflare remains the inactive serverless target.
-reconcile_record "${expected_console_vps_name}" A "${web_saas_ip}" 1
-reconcile_record "${expected_accounts_vps_name}" A "${web_saas_ip}" 1
-reconcile_record "${expected_billing_vps_name}" A "${web_saas_ip}" 1
+# deployment. The selected Selfhost route owns the mode-qualified endpoints;
+# serverless endpoints are reconciled by the serverless workflow.
+reconcile_record "${expected_console_selfhost_name}" A "${web_saas_ip}" 1
+reconcile_record "${expected_accounts_selfhost_name}" A "${web_saas_ip}" 1
+reconcile_record "${expected_billing_name}" A "${web_saas_ip}" 1
 reconcile_record "${expected_postgresql_name}" A "${web_saas_ip}" 1
 
 if [[ "${#agent_proxy_ips[@]}" -gt 0 ]]; then

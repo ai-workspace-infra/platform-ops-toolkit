@@ -14,8 +14,8 @@
           "control_plane": "cloudflare-dns",
           "ttl_seconds": 60,
           "canonical_records": {
-            "console-uat.onwalk.net": "console-vps-uat.onwalk.net",
-            "accounts-uat.onwalk.net": "accounts-vps-uat.onwalk.net"
+            "console-uat.onwalk.net": "console-selfhost-uat.onwalk.net",
+            "accounts-uat.onwalk.net": "accounts-selfhost-uat.onwalk.net"
           }
         },
         "load-balancer": {"strategy": "dns-only"},
@@ -43,8 +43,15 @@
       }
     },
     "domains": {
-      "console-uat.onwalk.net": {"selfhost": "console-vps-uat.onwalk.net"},
-      "accounts-uat.onwalk.net": {"selfhost": "accounts-vps-uat.onwalk.net"}
+      "console-uat.onwalk.net": {"selfhost": "console-selfhost-uat.onwalk.net"},
+      "accounts-uat.onwalk.net": {"selfhost": "accounts-selfhost-uat.onwalk.net"}
+    },
+    "public_endpoints": {
+      "console": {"host": "console-selfhost-uat.onwalk.net", "access": "public"},
+      "accounts": {"host": "accounts-selfhost-uat.onwalk.net", "access": "authenticated"},
+      "billing": {"host": "billing-selfhost-uat.onwalk.net", "access": "authenticated"},
+      "postgresql": {"host": "postgresql-selfhost-uat.onwalk.net", "access": "authenticated"},
+      "agent-proxy": {"host": "agent-proxy-selfhost-uat.onwalk.net", "access": "public_uuid"}
     },
     "vps": {
       "stack": "full-stack",

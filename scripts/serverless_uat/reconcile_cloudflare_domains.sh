@@ -29,6 +29,8 @@ zone_name="$(jq -er '.spec.cloudflare.zone_name' "${CONFIG_FILE}")"
 pages_project="$(jq -er '.spec.cloudflare.pages_project' "${CONFIG_FILE}")"
 console_host="$(jq -er '.spec.serverless.console_host' "${CONFIG_FILE}")"
 accounts_host="$(jq -er '.spec.serverless.accounts_host' "${CONFIG_FILE}")"
+billing_host="$(jq -er '.spec.serverless.billing_host' "${CONFIG_FILE}")"
+billing_upstream="$(jq -er '.spec.serverless.cloud_run.billing_service' "${CONFIG_FILE}")"
 frontend_router_worker="$(jq -er '.spec.serverless.frontend_router.worker_name' "${CONFIG_FILE}")"
 core_worker="$(jq -er '.spec.serverless.edge_gateway.boundaries[] | select(.id == "core") | .worker_name' "${CONFIG_FILE}")"
 
@@ -137,6 +139,7 @@ reconcile_cname_record() {
 safeguard_pages_domain
 reconcile_worker_domain "${console_host}" "${frontend_router_worker}"
 reconcile_worker_domain "${accounts_host}" "${core_worker}"
+reconcile_cname_record "${billing_host}" "${billing_upstream#https://}"
 
 while IFS=$'\t' read -r record_name record_target; do
   [[ -n "${record_name}" && -n "${record_target}" ]] || continue

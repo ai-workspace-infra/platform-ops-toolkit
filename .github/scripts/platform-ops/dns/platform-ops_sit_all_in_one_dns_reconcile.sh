@@ -114,11 +114,12 @@ zone_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones?name=${TARGET_DOM
 zone_id="$(jq -er '.result | if length == 1 then .[0].id else error("expected exactly one active SIT zone") end' <<<"${zone_response}")"
 
 for record_name in \
-  "console-vps-sit.${TARGET_DOMAIN_BASE}" \
-  "accounts-vps-sit.${TARGET_DOMAIN_BASE}" \
-  "postgresql-vps-sit.${TARGET_DOMAIN_BASE}" \
-  "agent-proxy-sit.${TARGET_DOMAIN_BASE}"; do
+  "console-selfhost-sit.${TARGET_DOMAIN_BASE}" \
+  "accounts-selfhost-sit.${TARGET_DOMAIN_BASE}" \
+  "billing-selfhost-sit.${TARGET_DOMAIN_BASE}" \
+  "postgresql-selfhost-sit.${TARGET_DOMAIN_BASE}" \
+  "agent-proxy-selfhost-sit.${TARGET_DOMAIN_BASE}"; do
   reconcile_record "${record_name}"
 done
 
-echo "SIT all-in-one DNS reconciliation completed for 4 records in ${TARGET_DOMAIN_BASE}; host ${all_in_one_hosts[0]} (${all_in_one_ip})."
+echo "SIT all-in-one DNS reconciliation completed for 5 records in ${TARGET_DOMAIN_BASE}; host ${all_in_one_hosts[0]} (${all_in_one_ip})."

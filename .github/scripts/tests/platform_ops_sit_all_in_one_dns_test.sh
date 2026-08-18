@@ -54,12 +54,12 @@ output="$({
   "${reconciler}"
 } 2>&1)"
 
-for record_name in console-vps-sit accounts-vps-sit postgresql-vps-sit agent-proxy-sit; do
+for record_name in console-selfhost-sit accounts-selfhost-sit billing-selfhost-sit postgresql-selfhost-sit agent-proxy-selfhost-sit; do
   grep -Fq "Created ${record_name}.onwalk.net -> 45.77.128.182 (A)" <<<"${output}"
 done
-grep -Fq 'completed for 4 records' <<<"${output}"
+grep -Fq 'completed for 5 records' <<<"${output}"
 
 cut -f3 "${test_dir}/curl.log" | jq -s -e \
-  'map(select(.type == "A")) | length == 4 and all(.[]; .content == "45.77.128.182")' >/dev/null
+  'map(select(.type == "A")) | length == 5 and all(.[]; .content == "45.77.128.182")' >/dev/null
 
 echo "platform_ops_sit_all_in_one_dns_test: PASS"

@@ -20,7 +20,7 @@ python3 "${ORCHESTRATOR}"
   echo "| Frontend Router | ${FRONTEND_ROUTER_RESULT:-unknown} |"
   echo "| Edge gateway | ${EDGE_GATEWAY_RESULT:-unknown} |"
   echo "| Static Pages | ${STATIC_PAGES_RESULT:-unknown} |"
-  echo "| Custom domains / CORS chain | ${SERVERLESS_DOMAINS_RESULT:-unknown} |"
+  echo "| Custom domains / CORS chain / Billing | ${SERVERLESS_DOMAINS_RESULT:-unknown} |"
   echo "| Verify | success |"
 } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
