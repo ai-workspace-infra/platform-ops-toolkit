@@ -70,6 +70,24 @@ def main() -> int:
         raise SystemExit("GitOps routing manifest must define exactly five SSR boundaries")
     if len(serverless.get("edge_gateway", {}).get("boundaries", [])) != 3:
         raise SystemExit("GitOps routing manifest must define exactly three edge-gateway boundaries")
+    frontend_router = serverless.get("frontend_router")
+    if mode == "serverless":
+        if not isinstance(frontend_router, dict):
+            raise SystemExit("GitOps serverless topology must define frontend_router")
+        required_router_fields = {"worker_name", "host", "pages_origin", "api_origin", "static_prefixes", "bindings"}
+        missing_router_fields = required_router_fields - set(frontend_router)
+        if missing_router_fields:
+            raise SystemExit(
+                "GitOps frontend_router is missing: " + ", ".join(sorted(missing_router_fields))
+            )
+        if not isinstance(frontend_router.get("static_prefixes"), list) or not {
+            "/_next/*", "/static/*", "/assets/*"
+        }.issubset(frontend_router["static_prefixes"]):
+            raise SystemExit("GitOps frontend_router must define standard static prefixes")
+        bindings = frontend_router.get("bindings")
+        expected_binding_ids = {"auth", "content", "console", "workspace", "public"}
+        if not isinstance(bindings, dict) or set(bindings) != expected_binding_ids:
+            raise SystemExit("GitOps frontend_router must define exactly five SSR bindings")
     data = runtime.get("data", {})
     if not isinstance(data, dict):
         raise SystemExit("GitOps runtime must define a data topology")
@@ -85,6 +103,21 @@ def main() -> int:
     if hosts["accounts"] != domains[canonical_accounts]["serverless"]:
         raise SystemExit("Serverless accounts host must match the canonical domain serverless target")
     boundaries = []
+    if mode == "serverless":
+        assert isinstance(frontend_router, dict)
+        if frontend_router["host"] != hosts["console"]:
+            raise SystemExit("frontend_router.host must match the serverless console host")
+        if frontend_router["api_origin"] != f"https://{hosts['accounts']}":
+            raise SystemExit("frontend_router.api_origin must use the serverless accounts host")
+        if frontend_router["pages_origin"] != f"https://{spec.get('cloudflare', {}).get('pages_project', '')}.pages.dev":
+            raise SystemExit("frontend_router.pages_origin must use the declared Pages project origin")
+        boundaries.append({
+            "id": "frontend-router",
+            "kind": "worker",
+            "name": frontend_router["worker_name"],
+            "host": "console",
+            "routes": ["/*"],
+        })
     for item in serverless.get("ssr", []):
         boundaries.append({
             "id": f"ssr-{item['id']}",
@@ -94,12 +127,19 @@ def main() -> int:
             "routes": item["route_suffixes"],
         })
     for item in serverless.get("edge_gateway", {}).get("boundaries", []):
+        routes = item.get("routes")
+        if not isinstance(routes, list):
+            legacy_route = item.get("route")
+            if mode == "hybrid" and isinstance(legacy_route, str):
+                routes = [legacy_route]
+            else:
+                raise SystemExit(f"api-{item.get('id', '')} must define a routes array")
         boundaries.append({
             "id": f"api-{item['id']}",
             "kind": "worker",
             "name": item["worker_name"],
             "host": "accounts",
-            "routes": [item["route"]],
+            "routes": routes,
         })
     boundaries.append({
         "id": "static",
@@ -138,11 +178,13 @@ def main() -> int:
         "ssr-auth": ("frontend-ssr-auth-" + environment, {"/login*", "/register*", "/email-verification*", "/logout*", "/_edge/auth/*"}),
         "ssr-console": ("frontend-ssr-console-" + environment, {"/panel*", "/dashboard*", "/_edge/console/*"}),
         "ssr-workspace": ("frontend-ssr-workspace-" + environment, {"/ai-workspace*", "/cloud_iac*", "/editor*", "/support*", "/xworkmate*", "/_edge/workspace/*"}),
-        "api-auth": ("edge-gateway-auth-" + environment, {"/api/auth/*"}),
+        "api-auth": ("edge-gateway-auth-" + environment, {"/api/auth/*", "/api/v1/auth/*"}),
         "api-admin": ("edge-gateway-admin-" + environment, {"/api/admin/*"}),
         "api-core": ("edge-gateway-core-" + environment, {"/api/*"}),
         "static": (spec.get("cloudflare", {}).get("pages_project", ""), {"/static/*", "/assets/*"}),
     }
+    if mode == "serverless":
+        required_routes["frontend-router"] = ("frontend-router-" + environment, {"/*"})
     for boundary_id, (expected_name, expected_routes) in required_routes.items():
         boundary = boundary_by_id[boundary_id]
         if boundary["name"] != expected_name:
@@ -152,11 +194,19 @@ def main() -> int:
             raise SystemExit(f"{boundary_id} is missing routes: {', '.join(sorted(missing_routes))}")
 
     required = {"ssr-public", "ssr-content", "ssr-auth", "ssr-console", "ssr-workspace", "api-auth", "api-admin", "api-core", "static"}
+    if mode == "serverless":
+        required.add("frontend-router")
     missing = required - ids
     if missing:
         raise SystemExit(f"Cloudflare boundary contract is missing: {', '.join(sorted(missing))}")
     if "/api/*" not in next(boundary["routes"] for boundary in boundaries if boundary["id"] == "api-core"):
         raise SystemExit("api-core must retain the catch-all /api/* boundary")
+    core_topology = next(
+        item for item in serverless.get("edge_gateway", {}).get("boundaries", [])
+        if item.get("id") == "core"
+    )
+    if mode == "serverless" and core_topology.get("display_name") != "Edge Gateway Router Core":
+        raise SystemExit("GitOps api-core display_name must be Edge Gateway Router Core")
     for boundary_id in ("api-auth", "api-admin", "api-core"):
         boundary = next(boundary for boundary in boundaries if boundary["id"] == boundary_id)
         if boundary["host"] != "accounts":

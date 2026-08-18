@@ -11,6 +11,9 @@ case "${CLOUDFLARE_TARGET:-}" in
   static-pages|dashboard|pages)
     bash "${SCRIPT_DIR}/deploy_cloudflare_pages.sh"
     ;;
+  frontend-router)
+    bash "${SCRIPT_DIR}/deploy_frontend_router.sh"
+    ;;
   edge-gateway)
     : "${EDGE_GATEWAY_BOUNDARY:?EDGE_GATEWAY_BOUNDARY must be auth, admin, or core}"
     bash "${SCRIPT_DIR}/deploy_cloudflare_worker.sh"

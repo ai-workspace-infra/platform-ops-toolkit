@@ -158,8 +158,8 @@ jobs:
 
   cloud_run:
     name: Cloud Run / ${{ matrix.service }}
-    needs: [preflight, supabase]
-    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloud_run == true && (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') }}
+    needs: preflight
+    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloud_run == true }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -208,8 +208,8 @@ jobs:
 
   cloudflare_ssr:
     name: Cloudflare / SSR / ${{ matrix.boundary }}
-    needs: [preflight, cloud_run]
-    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true && (inputs.deploy_cloud_run == false || needs.cloud_run.result == 'success') }}
+    needs: preflight
+    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -282,18 +282,84 @@ jobs:
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
           PORTAL_DIR: ${{ github.workspace }}/portal
 
+  frontend_router:
+    name: Cloudflare / frontend-router
+    needs: preflight
+    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Checkout GitOps runtime topology
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: main
+          path: gitops
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+
+      - name: Render GitOps runtime topology YAML
+        run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+        env:
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
+
+      - name: Validate Cloudflare boundary contract
+        run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
+        env:
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          REQUIRED_RUNTIME_MODE: serverless
+
+      - name: Checkout frontend-router source
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-services/frontend-router
+          ref: ${{ inputs.tag_ref }}
+          path: frontend-router
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Authenticate to Vault with GitHub OIDC
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
+          jwtGithubAudience: vault
+          exportToken: true
+          secrets: |
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN
+
+      - name: Deploy Frontend Router Worker
+        run: ./.github/scripts/serverless/run_cloudflare_target.sh
+        env:
+          CLOUDFLARE_TARGET: frontend-router
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          FRONTEND_ROUTER_DIR: ${{ github.workspace }}/frontend-router
+
   edge_gateway:
-    name: Cloudflare / edge-gateway / ${{ matrix.boundary }}
-    needs: [preflight, cloudflare_ssr]
-    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true && needs.cloudflare_ssr.result == 'success' }}
+    name: Cloudflare / ${{ matrix.display_name }}
+    needs: preflight
+    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        boundary:
-          - auth
-          - admin
-          - core
+        include:
+          - boundary: auth
+            display_name: Edge Gateway Auth
+          - boundary: admin
+            display_name: Edge Gateway Admin
+          - boundary: core
+            display_name: Edge Gateway Router Core
     steps:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
@@ -357,8 +423,8 @@ jobs:
 
   static_pages:
     name: Cloudflare / static-pages
-    needs: [preflight, edge_gateway]
-    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true && needs.edge_gateway.result == 'success' }}
+    needs: preflight
+    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout platform toolkit
@@ -423,14 +489,17 @@ jobs:
 
   serverless_domains:
     name: Cloudflare / custom domains and public CORS chain
-    needs: [preflight, cloudflare_ssr, edge_gateway, static_pages]
+    needs: [preflight, supabase, cloud_run, cloudflare_ssr, frontend_router, edge_gateway, static_pages]
     if: >-
       ${{ always() && needs.preflight.result == 'success' &&
       contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) &&
       inputs.deploy_cloudflare == true &&
-      needs.cloudflare_ssr.result == 'success' &&
-      needs.edge_gateway.result == 'success' &&
-      needs.static_pages.result == 'success' }}
+      (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') &&
+      (needs.cloud_run.result == 'success' || needs.cloud_run.result == 'skipped') &&
+      (needs.cloudflare_ssr.result == 'success' || needs.cloudflare_ssr.result == 'skipped') &&
+      (needs.frontend_router.result == 'success' || needs.frontend_router.result == 'skipped') &&
+      (needs.edge_gateway.result == 'success' || needs.edge_gateway.result == 'skipped') &&
+      (needs.static_pages.result == 'success' || needs.static_pages.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout platform toolkit
@@ -467,7 +536,7 @@ jobs:
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN
 
-      - name: Reconcile Pages and Worker custom domains
+      - name: Reconcile Frontend Router and Edge Gateway custom domains
         run: ./scripts/serverless_uat/reconcile_cloudflare_domains.sh
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
@@ -481,7 +550,7 @@ jobs:
 
   trigger_data_migration:
     name: Data Migration / Supabase
-    needs: [preflight, supabase, cloud_run, cloudflare_ssr, edge_gateway, static_pages, serverless_domains]
+    needs: [preflight, supabase, cloud_run, cloudflare_ssr, frontend_router, edge_gateway, static_pages, serverless_domains]
     if: >-
       ${{ always() && !cancelled() &&
       needs.preflight.result == 'success' &&
@@ -489,6 +558,7 @@ jobs:
       (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') &&
       (needs.cloud_run.result == 'success' || needs.cloud_run.result == 'skipped') &&
       (needs.cloudflare_ssr.result == 'success' || needs.cloudflare_ssr.result == 'skipped') &&
+      (needs.frontend_router.result == 'success' || needs.frontend_router.result == 'skipped') &&
       (needs.edge_gateway.result == 'success' || needs.edge_gateway.result == 'skipped') &&
       (needs.static_pages.result == 'success' || needs.static_pages.result == 'skipped') &&
       (needs.serverless_domains.result == 'success' || needs.serverless_domains.result == 'skipped') }}
@@ -548,13 +618,14 @@ jobs:
 
   verify:
     name: Verify / Summary
-    needs: [preflight, supabase, cloud_run, cloudflare_ssr, edge_gateway, static_pages, serverless_domains, trigger_data_migration]
+    needs: [preflight, supabase, cloud_run, cloudflare_ssr, frontend_router, edge_gateway, static_pages, serverless_domains, trigger_data_migration]
     if: >-
       ${{ always() && needs.preflight.result == 'success' &&
       contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) &&
       needs.supabase.result != 'cancelled' &&
       needs.cloud_run.result != 'cancelled' &&
       needs.cloudflare_ssr.result != 'cancelled' &&
+      needs.frontend_router.result != 'cancelled' &&
       needs.edge_gateway.result != 'cancelled' &&
       needs.static_pages.result != 'cancelled' &&
       needs.serverless_domains.result != 'cancelled' &&
@@ -579,6 +650,7 @@ jobs:
           VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
           VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
           CLOUDFLARE_RESULT: ${{ needs.cloudflare_ssr.result }}
+          FRONTEND_ROUTER_RESULT: ${{ needs.frontend_router.result }}
           EDGE_GATEWAY_RESULT: ${{ needs.edge_gateway.result }}
           STATIC_PAGES_RESULT: ${{ needs.static_pages.result }}
           SERVERLESS_DOMAINS_RESULT: ${{ needs.serverless_domains.result }}
