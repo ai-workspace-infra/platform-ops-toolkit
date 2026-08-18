@@ -77,7 +77,7 @@ elif [[ "${url}" == *'/pages/projects/ai-workspace-portal-uat/domains'* && "${me
   printf '%s' '{"success":true,"result":[]}'
 elif [[ "${url}" == *'/workers/domains'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[{"id":"billing-worker-domain","hostname":"billing-serverless-uat.onwalk.net","service":"edge-gateway-core-uat"},{"id":"accounts-alias-worker-domain","hostname":"accounts-uat.onwalk.net","service":"edge-gateway-core-uat"}]}'
-elif [[ "${url}" == *'/rulesets?phase=http_request_origin'* && "${method}" == 'GET' ]]; then
+elif [[ "${url}" == *'/rulesets?per_page=50' && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[{"id":"ruleset-1","kind":"zone","phase":"http_request_origin"}]}'
 elif [[ "${url}" == *'/rulesets/ruleset-1'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":{"id":"ruleset-1","rules":[{"ref":"existing_rule","action":"route","expression":"(http.host eq \\\"existing.example.com\\\")"}]}}'
@@ -132,4 +132,8 @@ jq -e '
     .action_parameters.origin.host == "uat-billing-service-1004637461064.asia-northeast1.run.app" and
     .action_parameters.sni.value == "uat-billing-service-1004637461064.asia-northeast1.run.app")
 ' <<<"${ruleset_bodies}" >/dev/null
+if grep -Fq '/rulesets?phase=' "${test_dir}/curl.log"; then
+  echo "Rulesets list API must not use an unsupported phase query parameter" >&2
+  exit 1
+fi
 echo "serverless_cloudflare_domains_contract_test: PASS"
