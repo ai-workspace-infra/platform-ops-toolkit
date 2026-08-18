@@ -52,6 +52,24 @@ if [[ "${dns_control_plane}" != "cloudflare-dns" || "${dns_ttl}" != "60" ||
   exit 1
 fi
 
+# Web SaaS is a single full-stack host (control plane, frontend, backend and
+# database). These two public aliases must always point at that host; the
+# separate agent-proxy node is published below from the agent_proxy CMDB group.
+expected_console_name="console-${DEPLOY_ENV}.${UAT_ZONE}"
+expected_accounts_name="accounts-${DEPLOY_ENV}.${UAT_ZONE}"
+expected_console_target="console-vps-${DEPLOY_ENV}.${UAT_ZONE}"
+expected_accounts_target="accounts-vps-${DEPLOY_ENV}.${UAT_ZONE}"
+expected_postgresql_name="postgresql-vps-${DEPLOY_ENV}.${UAT_ZONE}"
+expected_agent_proxy_name="agent-proxy-${DEPLOY_ENV}.${UAT_ZONE}"
+canonical_records_json="$(jq -c -er '.spec.runtime.routing.dns.canonical_records' "${GITOPS_ROUTING_CONFIG}")"
+actual_console_target="$(jq -r --arg name "${expected_console_name}" '.[$name] // empty' <<<"${canonical_records_json}")"
+actual_accounts_target="$(jq -r --arg name "${expected_accounts_name}" '.[$name] // empty' <<<"${canonical_records_json}")"
+if [[ "${actual_console_target}" != "${expected_console_target}" ||
+      "${actual_accounts_target}" != "${expected_accounts_target}" ]]; then
+  echo "::error::UAT DNS contract must map ${expected_console_name} -> ${expected_console_target} and ${expected_accounts_name} -> ${expected_accounts_target}." >&2
+  exit 1
+fi
+
 cmdb_file="${CMDB_FILE:-cmdb/cmdb.json}"
 if [[ ! -f "${cmdb_file}" ]]; then
   echo "::error::CMDB file not found: ${cmdb_file}" >&2
@@ -79,22 +97,30 @@ fi
 mapfile -t agent_proxy_hosts < <(
   jq -r 'to_entries[] | select((.value.groups // []) | index("agent_proxy")) | .key' "${cmdb_file}"
 )
-if [[ "${#agent_proxy_hosts[@]}" -gt 1 ]]; then
-  echo "::error::UAT DNS requires at most one agent_proxy host in ${cmdb_file}; found ${#agent_proxy_hosts[@]}." >&2
-  exit 1
-fi
 
-agent_proxy_ip=""
-if [[ "${#agent_proxy_hosts[@]}" -eq 1 ]]; then
-  agent_proxy_ip="$(jq -er --arg host "${agent_proxy_hosts[0]}" '.[$host].ip // empty' "${cmdb_file}")"
+agent_proxy_ips=()
+for agent_proxy_host in "${agent_proxy_hosts[@]}"; do
+  agent_proxy_ip="$(jq -er --arg host "${agent_proxy_host}" '.[$host].ip // empty' "${cmdb_file}")"
   if [[ ! "${agent_proxy_ip}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || ! jq -n -e --arg ip "${agent_proxy_ip}" '
     ($ip | split(".")) as $octets
     | ($octets | length == 4)
     and all($octets[]; (tonumber >= 0 and tonumber <= 255))
   ' >/dev/null; then
-    echo "::error::CMDB agent_proxy host has an invalid IPv4 address: ${agent_proxy_ip}" >&2
+    echo "::error::CMDB agent_proxy host ${agent_proxy_host} has an invalid IPv4 address: ${agent_proxy_ip}" >&2
     exit 1
   fi
+  if [[ "${agent_proxy_ip}" == "${web_saas_ip}" ]]; then
+    echo "::error::UAT DNS refuses to reconcile: agent-proxy host ${agent_proxy_host} shares Web SaaS IP ${web_saas_ip}. Fix Terraform state/CMDB before changing DNS." >&2
+    exit 1
+  fi
+  agent_proxy_ips+=("${agent_proxy_ip}")
+done
+
+# Multiple CMDB entries may represent a future Agent Proxy pool.  A single
+# hostname is reconciled as one or more A records, while duplicate IPs are
+# collapsed so repeated aliases cannot accumulate.
+if [[ "${#agent_proxy_ips[@]}" -gt 0 ]]; then
+  mapfile -t agent_proxy_ips < <(printf '%s\n' "${agent_proxy_ips[@]}" | sort -u)
 fi
 
 api_request() {
@@ -191,6 +217,44 @@ reconcile_record() {
   done < <(jq -r --arg primary_id "${primary_id}" '.result[] | select(.id != $primary_id) | .id' <<<"${records_response}")
 }
 
+reconcile_multi_a_records() {
+  local record_name="$1"
+  local record_ttl="$2"
+  shift 2
+  local -a desired_ips=("$@")
+  local records_response
+  records_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records?name=${record_name}&per_page=100")"
+
+  declare -A kept_record_ids=()
+  for record_content in "${desired_ips[@]}"; do
+    primary_id="$(jq -r --arg content "${record_content}" '.result | map(select(.type == "A" and .content == $content)) | .[0].id // empty' <<<"${records_response}")"
+    if [[ -z "${primary_id}" ]]; then
+      api_request POST "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records" "$(desired_payload "${record_name}" "A" "${record_content}" "${record_ttl}")" >/dev/null
+      echo "Created ${record_name} -> ${record_content} (A)"
+      continue
+    fi
+
+    kept_record_ids["${primary_id}"]=1
+    current_primary="$(jq -c --arg id "${primary_id}" '.result[] | select(.id == $id)' <<<"${records_response}")"
+    if ! jq -e --arg name "${record_name}" --arg content "${record_content}" --argjson ttl "${record_ttl}" '
+      .type == "A"
+      and .name == $name
+      and .content == $content
+      and (.ttl | tonumber) == $ttl
+      and .proxied == false
+    ' >/dev/null <<<"${current_primary}"; then
+      api_request PUT "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records/${primary_id}" "$(desired_payload "${record_name}" "A" "${record_content}" "${record_ttl}")" >/dev/null
+      echo "Updated ${record_name} -> ${record_content} (A)"
+    else
+      echo "Unchanged ${record_name} -> ${record_content} (A)"
+    fi
+  done
+
+  while IFS= read -r record_id; do
+    [[ -z "${record_id}" || -n "${kept_record_ids[${record_id}]+x}" ]] || delete_record "${zone_id}" "${record_id}"
+  done < <(jq -r '.result[].id' <<<"${records_response}")
+}
+
 mapfile -t canonical_targets < <(
   jq -r '.spec.runtime.routing.dns.canonical_records | [.[]] | unique[]' "${GITOPS_ROUTING_CONFIG}"
 )
@@ -207,12 +271,18 @@ while IFS=$'\t' read -r record_name record_target; do
   reconcile_record "${record_name}" CNAME "${record_target}" "${dns_ttl}"
 done < <(jq -r '.spec.runtime.routing.dns.canonical_records | to_entries[] | [.key, .value] | @tsv' "${GITOPS_ROUTING_CONFIG}")
 
-if [[ -n "${agent_proxy_ip}" ]]; then
-  reconcile_record "agent-proxy.${TARGET_DOMAIN_BASE}" A "${agent_proxy_ip}" 1
+# PostgreSQL is co-located with the Web SaaS full-stack deployment in UAT.
+# Keep this legacy/public VPS name explicit so a stale Agent Proxy address is
+# repaired during the same guarded reconciliation.
+reconcile_record "${expected_postgresql_name}" A "${web_saas_ip}" 1
+
+if [[ "${#agent_proxy_ips[@]}" -gt 0 ]]; then
+  reconcile_multi_a_records "${expected_agent_proxy_name}" 1 "${agent_proxy_ips[@]}"
 fi
 
-record_count=$((canonical_count + ${#canonical_targets[@]}))
-if [[ -n "${agent_proxy_ip}" ]]; then
-  record_count=$((record_count + 1))
+record_count=$((canonical_count + ${#canonical_targets[@]} + 1 + ${#agent_proxy_ips[@]}))
+agent_proxy_summary=""
+if [[ "${#agent_proxy_ips[@]}" -gt 0 ]]; then
+  agent_proxy_summary="$(IFS=', '; echo "${agent_proxy_ips[*]}")"
 fi
-echo "UAT DNS reconciliation completed for ${record_count} GitOps-declared records in ${UAT_ZONE}; web-saas ${web_saas_hosts[0]} (${web_saas_ip})${agent_proxy_ip:+, agent-proxy ${agent_proxy_hosts[0]} (${agent_proxy_ip})}."
+echo "UAT DNS reconciliation completed for ${record_count} desired records in ${UAT_ZONE}; web-saas ${web_saas_hosts[0]} (${web_saas_ip})${agent_proxy_summary:+, agent-proxy [${agent_proxy_summary}]}."
