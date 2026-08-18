@@ -159,7 +159,9 @@ ensure_billing_origin_rule() {
   local rules
   local body
 
-  rulesets_response="$(api_request GET "${rulesets_url}?phase=http_request_origin&per_page=100")"
+  # The Rulesets list API only accepts pagination parameters. It returns the
+  # phase on each ruleset, so select the Origin Rules entry point locally.
+  rulesets_response="$(api_request GET "${rulesets_url}?per_page=50")"
   ruleset_id="$(jq -r 'first(.result[]? | select(.kind == "zone" and .phase == "http_request_origin") | .id) // empty' <<<"${rulesets_response}")"
   if [[ -z "${ruleset_id}" ]]; then
     body="$(jq -cn '{name:"Serverless Billing Origin Rules", description:"GitOps-managed Cloud Run origin overrides for the serverless Billing collector", kind:"zone", phase:"http_request_origin"}')"

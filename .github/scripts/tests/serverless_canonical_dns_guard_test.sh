@@ -73,7 +73,7 @@ elif [[ "${url}" == *'/pages/projects/ai-workspace-portal-uat/domains'* && "${me
   printf '%s' '{"success":true,"result":[]}'
 elif [[ "${url}" == *'/workers/domains'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[]}'
-elif [[ "${url}" == *'/rulesets?phase=http_request_origin'* && "${method}" == 'GET' ]]; then
+elif [[ "${url}" == *'/rulesets?per_page=50' && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[{"id":"ruleset-1","kind":"zone","phase":"http_request_origin"}]}'
 elif [[ "${url}" == *'/rulesets/ruleset-1'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":{"id":"ruleset-1","rules":[]}}'
