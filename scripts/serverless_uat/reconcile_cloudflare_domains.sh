@@ -126,7 +126,12 @@ reconcile_cname_record() {
   records_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records?name=${name}&type=CNAME&per_page=10")"
   primary_id="$(jq -r '.result[0].id // empty' <<<"${records_response}")"
   local body
-  body="$(jq -cn --arg name "${name}" --arg target "${target}" '{type:"CNAME", name:$name, content:$target, ttl:60, proxied:false}')"
+  # Every record reconciled here is an HTTPS application entry. Keep it
+  # proxied so Cloudflare terminates the public certificate and forwards to
+  # the Worker Custom Domain or Cloud Run origin. DNS-only would expose a
+  # run.app certificate for Billing and leaves canonical aliases without a
+  # routable Cloudflare edge endpoint.
+  body="$(jq -cn --arg name "${name}" --arg target "${target}" '{type:"CNAME", name:$name, content:$target, ttl:60, proxied:true}')"
   if [[ -z "${primary_id}" ]]; then
     api_request POST "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records" "${body}" >/dev/null
     echo "Created DNS CNAME: ${name} -> ${target}"

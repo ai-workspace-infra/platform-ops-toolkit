@@ -12,7 +12,17 @@ cat >"${test_dir}/routing.json" <<'EOF'
   "kind": "EdgeRoutingConfig",
   "metadata": {"mode": "serverless"},
   "spec": {
-    "runtime": {"mode": "serverless"},
+    "runtime": {
+      "mode": "serverless",
+      "routing": {
+        "dns": {
+          "canonical_records": {
+            "console-uat.onwalk.net": "console-serverless-uat.onwalk.net",
+            "accounts-uat.onwalk.net": "accounts-serverless-uat.onwalk.net"
+          }
+        }
+      }
+    },
     "cloudflare": {
       "zone_name": "onwalk.net",
       "pages_project": "ai-workspace-portal-uat"
@@ -42,6 +52,7 @@ cat >"${test_dir}/bin/curl" <<'EOF'
 set -euo pipefail
 
 method="GET"
+body=""
 url="${!#}"
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
@@ -50,6 +61,7 @@ while [[ "$#" -gt 0 ]]; do
       shift 2
       ;;
     --data)
+      body="$2"
       shift 2
       ;;
     *)
@@ -58,7 +70,7 @@ while [[ "$#" -gt 0 ]]; do
   esac
 done
 
-printf '%s\t%s\n' "${method}" "${url}" >>"${MOCK_CURL_LOG}"
+printf '%s\t%s\t%s\n' "${method}" "${url}" "${body}" >>"${MOCK_CURL_LOG}"
 if [[ "${url}" == *'/zones?name='* ]]; then
   printf '%s' '{"success":true,"result":[{"id":"zone-1"}]}'
 elif [[ "${url}" == *'/pages/projects/ai-workspace-portal-uat/domains'* && "${method}" == 'GET' ]]; then
@@ -87,4 +99,7 @@ if grep -Fq $'POST\thttps://cloudflare.invalid/client/v4/accounts/account-1/page
 fi
 worker_puts="$(grep -Fc $'PUT\thttps://cloudflare.invalid/client/v4/accounts/account-1/workers/domains' "${test_dir}/curl.log")"
 test "${worker_puts}" -eq 2
+cname_bodies="$(cut -f3 "${test_dir}/curl.log" | jq -s '[.[] | select(.type == "CNAME")]')"
+test "$(jq 'length' <<<"${cname_bodies}")" -eq 3
+jq -e 'all(.[]; .proxied == true and .ttl == 60)' <<<"${cname_bodies}" >/dev/null
 echo "serverless_cloudflare_domains_contract_test: PASS"
