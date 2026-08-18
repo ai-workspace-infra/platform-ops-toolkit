@@ -104,6 +104,78 @@ if [[ -z "${tag_repos}" ]]; then
 fi
 
 tag_repos="$(paste -sd, - <<< "${tag_repos}")"
+
+# A scheduled snapshot must never wait on a stale CI run just because its
+# requested tag was already created for an older main commit.  Tags are
+# immutable, so advance the revision for the whole selected repository set
+# before creating or waiting on any tags.  Doing this once at the matrix-job
+# level keeps every repository on the same snapshot tag; resolving a conflict
+# inside tag-ai-workspace-mains.sh per repository would split the snapshot.
+next_snapshot_revision() {
+  local current="$1"
+  if [[ "${current}" =~ ^(.+)-r([0-9]+)$ ]]; then
+    printf '%s-r%s\n' "${BASH_REMATCH[1]}" "$((10#${BASH_REMATCH[2]} + 1))"
+  else
+    printf '%s-r1\n' "${current}"
+  fi
+}
+
+resolve_snapshot_tag() {
+  local current_tag="$1"
+  local repo expected_sha ref_json existing candidate occupied
+
+  while IFS= read -r repo; do
+    [[ -n "${repo}" ]] || continue
+    if ! expected_sha="$(gh api "repos/${repo}/commits/${SNAPSHOT_REF:-main}" --jq .sha 2>/dev/null)" || [[ -z "${expected_sha}" ]]; then
+      continue
+    fi
+    if ! ref_json="$(gh api "repos/${repo}/git/ref/tags/${current_tag}" 2>/dev/null)"; then
+      continue
+    fi
+    existing="$(jq -r '.object.sha // empty' <<<"${ref_json}")"
+    [[ -n "${existing}" && "${existing}" != "${expected_sha}" ]] || continue
+
+    case "${current_tag}" in
+      daily-build-*|uat-daily-build-*)
+        candidate="$(next_snapshot_revision "${current_tag}")"
+        ;;
+      *)
+        echo "::error::Snapshot tag ${current_tag} is immutable and already points to ${existing} in ${repo}; choose a new revision tag." >&2
+        return 2
+        ;;
+    esac
+
+    # A previous partial attempt may already have occupied the first
+    # candidate in one repository. Keep advancing until the candidate is
+    # unused by every repository in this matrix selection.
+    while :; do
+      occupied=false
+      while IFS= read -r candidate_repo; do
+        [[ -n "${candidate_repo}" ]] || continue
+        if gh api "repos/${candidate_repo}/git/ref/tags/${candidate}" >/dev/null 2>&1; then
+          occupied=true
+          break
+        fi
+      done < <(tr ',' '\n' <<<"${tag_repos}")
+      [[ "${occupied}" == false ]] && break
+      candidate="$(next_snapshot_revision "${candidate}")"
+    done
+
+    printf '::warning::Snapshot tag %s points to an older commit; using immutable revision %s for %s.\n' \
+      "${current_tag}" "${candidate}" "${SNAPSHOT_REF:-main}" >&2
+    printf '%s\n' "${candidate}"
+    return 0
+  done < <(tr ',' '\n' <<<"${tag_repos}")
+
+  printf '%s\n' "${current_tag}"
+}
+
+resolved_tag="$(resolve_snapshot_tag "${tag}")"
+if [[ "${resolved_tag}" != "${tag}" ]]; then
+  tag="${resolved_tag}"
+  export SNAPSHOT_TAG="${tag}"
+fi
+
 args=(--tag "${tag}" --ref "${SNAPSHOT_REF:-main}" --deploy-env "${DEPLOY_ENV}" --apply
   --org "${snapshot_organization}" --repo "${tag_repos}")
 bash docs/tasks/tag-ai-workspace-mains.sh "${args[@]}"
