@@ -105,6 +105,18 @@ if [[ ! "${TARGET_HOST}" =~ "onwalk.net" ]]; then
   echo "[CRITICAL ERROR] Target host is not a recognised UAT host (expected *.onwalk.net). Aborting." >&2
   exit 1
 fi
+if [[ "${TARGET_HOST}" == "console-uat.onwalk.net" ||
+      "${TARGET_HOST}" == "accounts-uat.onwalk.net" ||
+      "${TARGET_HOST}" == "billing-uat.onwalk.net" ||
+      "${TARGET_HOST}" == "postgresql-uat.onwalk.net" ||
+      "${TARGET_HOST}" == "agent-proxy-uat.onwalk.net" ]]; then
+  echo "[CRITICAL ERROR] Target host is a canonical UAT alias, not a selfhost SSH endpoint: ${TARGET_HOST}. Aborting." >&2
+  exit 1
+fi
+if [[ ! "${TARGET_HOST}" =~ -selfhost-uat\.onwalk\.net$ ]]; then
+  echo "[CRITICAL ERROR] Target host is not a GitOps selfhost UAT endpoint: ${TARGET_HOST}. Aborting." >&2
+  exit 1
+fi
 if [[ ! "${SOURCE_HOST}" =~ "svc.plus" ]]; then
   echo "[CRITICAL ERROR] Source host is not a PROD host (expected *.svc.plus). Aborting." >&2
   exit 1
@@ -131,7 +143,7 @@ echo "[SAFEGUARD-CHECK] Direction verified: PROD source -> UAT target."
 #
 # Connecting by those same names is what broke run 31348437225: this job and
 # `update_uat_dns` have no dependency between them and started in the same
-# second, so console-uat.onwalk.net still pointed at the previous host when
+# second, so the canonical UAT alias still pointed at the previous host when
 # STEP 0 opened its SSH session. Staging and the snapshot transfer succeeded
 # anyway (mkdir, scp and cat exist everywhere), and the run only fell over at
 # STEP 3 with `docker: command not found` -- ten seconds before DNS was
