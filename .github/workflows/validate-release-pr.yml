@@ -43,6 +43,9 @@ jobs:
     - name: Verify Agent Proxy deployment variable contract
       run: bash .github/scripts/tests/platform_ops_agent_proxy_contract_test.sh
 
+    - name: Verify Web SaaS VPS alias contract
+      run: bash .github/scripts/tests/platform_ops_web_saas_public_alias_contract_test.sh
+
     - name: Verify UAT DNS target records
       run: bash .github/scripts/tests/platform_ops_uat_dns_target_records_test.sh
 
