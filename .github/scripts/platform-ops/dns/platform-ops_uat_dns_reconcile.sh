@@ -280,4 +280,4 @@ agent_proxy_summary=""
 if [[ "${#agent_proxy_ips[@]}" -gt 0 ]]; then
   agent_proxy_summary="$(IFS=', '; echo "${agent_proxy_ips[*]}")"
 fi
-echo "UAT DNS reconciliation completed for ${record_count} desired records in ${UAT_ZONE}; web-saas ${web_saas_hosts[0]} (${web_saas_ip})${agent_proxy_summary:+, agent-proxy [${agent_proxy_summary}]}."
+echo "UAT DNS reconciliation completed for ${record_count} desired records in ${UAT_ZONE}; web-saas ${expected_console_selfhost_name} (${web_saas_ip})${agent_proxy_summary:+, agent-proxy [${agent_proxy_summary}]}."

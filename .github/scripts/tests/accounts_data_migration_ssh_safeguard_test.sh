@@ -76,20 +76,22 @@ assert_case "reject PROD target even with valid PROD source" 1 no \
   "console.svc.plus" "postgresql-saas.svc.plus"
 assert_case "reject unknown target domain" 1 no \
   "console.svc.plus" "db.example.com"
+assert_case "reject canonical UAT target alias" 1 no \
+  "console.svc.plus" "console-uat.onwalk.net"
 assert_case "reject non-PROD source (UAT -> UAT)" 1 no \
-  "console-uat.onwalk.net" "console-uat.onwalk.net"
+  "console-uat.onwalk.net" "console-selfhost-uat.onwalk.net"
 assert_case "reject empty target host" 1 no \
   "console.svc.plus" ""
 assert_case "reject empty source host" 1 no \
-  "" "console-uat.onwalk.net"
+  "" "console-selfhost-uat.onwalk.net"
 assert_case "reject write-capable source DB role" 1 no \
-  "console.svc.plus" "console-uat.onwalk.net" "postgres"
+  "console.svc.plus" "console-selfhost-uat.onwalk.net" "postgres"
 assert_case "reject account_user as source DB role" 1 no \
-  "console.svc.plus" "console-uat.onwalk.net" "account_user"
+  "console.svc.plus" "console-selfhost-uat.onwalk.net" "account_user"
 
 # --- Must PROCEED past the safeguards ----------------------------------------
 assert_case "accept PROD -> UAT" 0 yes \
-  "console.svc.plus" "console-uat.onwalk.net"
+  "console.svc.plus" "console-selfhost-uat.onwalk.net"
 
 echo
 printf 'SSH safeguard tests: %d passed, %d failed\n' "${PASS}" "${FAIL}"

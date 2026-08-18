@@ -229,6 +229,7 @@ jobs:
       dns_mode:                 ${{ steps.route.outputs.dns_mode }}
       vault_env_path:           ${{ steps.route.outputs.vault_env_path }}
       cloud_provider:           ${{ steps.route.outputs.cloud_provider }}
+      migration_target_host:    ${{ steps.resolve_migration_target.outputs.target_host }}
       hosts:              ${{ steps.matrix.outputs.hosts         || '[]' }}
       hosts_web_saas:     ${{ steps.matrix.outputs.hosts_web_saas     || '[]' }}
       hosts_ai_workspace: ${{ steps.matrix.outputs.hosts_ai_workspace || '[]' }}
@@ -299,6 +300,19 @@ jobs:
         GITOPS_ROUTING_CONFIG: ${{ runner.temp }}/selfhost-edge-routing.json
         EXPECTED_ENV: ${{ steps.route.outputs.deployment_env }}
         EXPECTED_TARGET_DOMAIN_BASE: ${{ steps.route.outputs.target_domain_base }}
+
+    - name: Resolve Accounts migration target from GitOps
+      id: resolve_migration_target
+      if: >-
+        ${{ (steps.route.outputs.run_infrastructure == 'true' ||
+        steps.route.outputs.toolkit_action == 'migrate') &&
+        steps.route.outputs.terraform_action != 'destroy' &&
+        contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'),
+        steps.route.outputs.target_domains) }}
+      run: ${{ github.workspace }}/.github/scripts/serverless/resolve_gitops_migration_target.sh
+      env:
+        GITOPS_ROUTING_CONFIG: ${{ runner.temp }}/selfhost-edge-routing.json
+        MIGRATION_SERVICE: console
 
     - name: Load Vault secrets
       if: steps.route.outputs.run_infrastructure == 'true'
@@ -1622,4 +1636,4 @@ jobs:
       accounts_ref: ${{ needs.provision.outputs.deploy_tag }}
       accounts_transport: "ssh"
       accounts_source_host: ${{ needs.provision.outputs.source_host }}
-      accounts_target_host: "console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}"
+      accounts_target_host: ${{ needs.provision.outputs.migration_target_host }}

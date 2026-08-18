@@ -96,12 +96,12 @@ on:
       accounts_source_host:
         description: "ssh transport: PROD source host"
         required: false
-        default: "console.svc.plus"
+        default: ""
         type: string
       accounts_target_host:
         description: "ssh transport: UAT target host"
         required: false
-        default: "console-uat.onwalk.net"
+        default: ""
         type: string
       accounts_email_filter:
         description: "ssh transport: only migrate accounts whose email matches this keyword (empty = all)"
@@ -236,12 +236,12 @@ on:
       accounts_source_host:
         description: "ssh 传输：PROD 源主机"
         required: false
-        default: "console.svc.plus"
+        default: ""
         type: string
       accounts_target_host:
         description: "ssh 传输：UAT 目标主机"
         required: false
-        default: "console-uat.onwalk.net"
+        default: ""
         type: string
       accounts_email_filter:
         description: "ssh 传输：只迁移邮箱匹配该关键字的账号（留空=全量）。首次演练建议填一个测试账号"
@@ -397,8 +397,8 @@ jobs:
     - name: Run accounts migration over SSH (dry_run=${{ inputs.accounts_dry_run }})
       if: ${{ (inputs.accounts_transport || 'ssh') == 'ssh' }}
       env:
-        MIGRATION_SOURCE_HOST: ${{ inputs.accounts_source_host || 'console.svc.plus' }}
-        MIGRATION_TARGET_HOST: ${{ inputs.accounts_target_host || 'console-uat.onwalk.net' }}
+        MIGRATION_SOURCE_HOST: ${{ inputs.accounts_source_host }}
+        MIGRATION_TARGET_HOST: ${{ inputs.accounts_target_host }}
         MIGRATION_EMAIL_FILTER: ${{ inputs.accounts_email_filter }}
         MIGRATECTL_BIN: ${{ github.workspace }}/bin/migratectl
         CMDB_FILE: ${{ github.workspace }}/cmdb/cmdb.json
