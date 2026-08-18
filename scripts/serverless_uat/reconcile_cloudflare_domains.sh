@@ -219,8 +219,8 @@ while IFS=$'\t' read -r record_name record_target; do
       reconcile_worker_domain "${record_name}" "${frontend_router_worker}"
       ;;
     "${accounts_host%.}")
-      remove_declared_cname "${record_name}" "${record_target}"
-      reconcile_worker_domain "${record_name}" "${core_worker}"
+      detach_worker_domain "${record_name}" "${core_worker}"
+      reconcile_cname_record "${record_name}" "${record_target}"
       ;;
     *)
       reconcile_cname_record "${record_name}" "${record_target}"
