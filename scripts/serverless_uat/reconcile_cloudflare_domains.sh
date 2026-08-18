@@ -2,10 +2,10 @@
 set -euo pipefail
 
 # Reconcile the Cloudflare target domains declared by the serverless
-# EdgeRoutingConfig. Frontend Router owns Console, while the core Edge Gateway
-# owns Accounts and Billing. Canonical aliases are direct Worker Custom Domains
-# when their GitOps target is one of those serverless hosts; Pages and Cloud Run
-# remain origins behind the Workers, never public hostname owners.
+# EdgeRoutingConfig. Frontend Router owns Console and the core Edge Gateway
+# owns Accounts. Billing is a direct Cloudflare-to-Cloud-Run collector entry;
+# its origin rule rewrites the upstream DNS/Host/SNI to the native run.app name.
+# Canonical Console/Accounts aliases are direct Worker Custom Domains.
 
 CONFIG_FILE="${CLOUDFLARE_BOUNDARY_CONFIG:?CLOUDFLARE_BOUNDARY_CONFIG must point to the rendered GitOps manifest}"
 CLOUDFLARE_API_BASE="${CLOUDFLARE_API_BASE_OVERRIDE:-https://api.cloudflare.com/client/v4}"
@@ -119,6 +119,54 @@ reconcile_worker_domain() {
   echo "Worker custom domain attached: ${hostname} -> ${service}"
 }
 
+detach_worker_domain() {
+  local hostname="$1"
+  local expected_service="$2"
+  local domains_url="${CLOUDFLARE_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/domains?per_page=100"
+  local domains_response
+  domains_response="$(api_request GET "${domains_url}")"
+
+  while IFS=$'\t' read -r domain_id domain_service; do
+    [[ -n "${domain_id}" ]] || continue
+    if [[ "${domain_service}" != "${expected_service}" ]]; then
+      echo "Worker custom domain ${hostname} is owned by ${domain_service}, not ${expected_service}; refusing to detach it." >&2
+      return 1
+    fi
+    api_request DELETE "${CLOUDFLARE_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/domains/${domain_id}" >/dev/null
+    echo "Detached Worker custom domain: ${hostname} -> ${domain_service}"
+  done < <(jq -r --arg hostname "${hostname}" '.result[]? | select(.hostname == $hostname) | [.id, .service] | @tsv' <<<"${domains_response}")
+}
+
+ensure_billing_origin_rule() {
+  local rulesets_url="${CLOUDFLARE_API_BASE}/zones/${zone_id}/rulesets"
+  local rulesets_response
+  local ruleset_id
+  local ruleset_response
+  local expression
+  local billing_rule
+  local rules
+  local body
+
+  rulesets_response="$(api_request GET "${rulesets_url}?phase=http_request_origin&per_page=100")"
+  ruleset_id="$(jq -r 'first(.result[]? | select(.kind == "zone" and .phase == "http_request_origin") | .id) // empty' <<<"${rulesets_response}")"
+  if [[ -z "${ruleset_id}" ]]; then
+    body="$(jq -cn '{name:"Serverless Billing Origin Rules", description:"GitOps-managed Cloud Run origin overrides for the serverless Billing collector", kind:"zone", phase:"http_request_origin"}')"
+    ruleset_response="$(api_request POST "${rulesets_url}" "${body}")"
+    ruleset_id="$(jq -er '.result.id' <<<"${ruleset_response}")"
+  fi
+
+  ruleset_response="$(api_request GET "${rulesets_url}/${ruleset_id}")"
+  expression="(http.host eq \"${billing_host}\")"
+  billing_rule="$(jq -cn \
+    --arg expression "${expression}" \
+    --arg origin "${billing_upstream#https://}" \
+    '{ref:"serverless_billing_cloud_run_origin", description:"Route the Billing collector directly to Cloud Run", expression:$expression, action:"route", action_parameters:{host_header:$origin, origin:{host:$origin}, sni:{value:$origin}}}')"
+  rules="$(jq -c --argjson rule "${billing_rule}" '.result.rules // [] | map(select(.ref != $rule.ref)) + [$rule]' <<<"${ruleset_response}")"
+  body="$(jq -cn --argjson rules "${rules}" '{rules:$rules}')"
+  api_request PUT "${rulesets_url}/${ruleset_id}" "${body}" >/dev/null
+  echo "Cloudflare Origin Rule reconciled: ${billing_host} -> ${billing_upstream#https://}"
+}
+
 remove_declared_cname() {
   local name="$1"
   local expected_target="${2:-}"
@@ -159,8 +207,9 @@ reconcile_cname_record() {
 safeguard_pages_domain
 reconcile_worker_domain "${console_host}" "${frontend_router_worker}"
 reconcile_worker_domain "${accounts_host}" "${core_worker}"
-remove_declared_cname "${billing_host}" "${billing_upstream#https://}"
-reconcile_worker_domain "${billing_host}" "${core_worker}"
+detach_worker_domain "${billing_host}" "${core_worker}"
+reconcile_cname_record "${billing_host}" "${billing_upstream#https://}"
+ensure_billing_origin_rule
 
 while IFS=$'\t' read -r record_name record_target; do
   [[ -n "${record_name}" && -n "${record_target}" ]] || continue

@@ -76,7 +76,11 @@ if [[ "${url}" == *'/zones?name='* ]]; then
 elif [[ "${url}" == *'/pages/projects/ai-workspace-portal-uat/domains'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[]}'
 elif [[ "${url}" == *'/workers/domains'* && "${method}" == 'GET' ]]; then
-  printf '%s' '{"success":true,"result":[]}'
+  printf '%s' '{"success":true,"result":[{"id":"billing-worker-domain","hostname":"billing-serverless-uat.onwalk.net","service":"edge-gateway-core-uat"}]}'
+elif [[ "${url}" == *'/rulesets?phase=http_request_origin'* && "${method}" == 'GET' ]]; then
+  printf '%s' '{"success":true,"result":[{"id":"ruleset-1","kind":"zone","phase":"http_request_origin"}]}'
+elif [[ "${url}" == *'/rulesets/ruleset-1'* && "${method}" == 'GET' ]]; then
+  printf '%s' '{"success":true,"result":{"id":"ruleset-1","rules":[{"ref":"existing_rule","action":"route","expression":"(http.host eq \\\"existing.example.com\\\")"}]}}'
 elif [[ "${url}" == *'/dns_records?name=billing-serverless-uat.onwalk.net'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[{"id":"billing-cname","content":"uat-billing-service-1004637461064.asia-northeast1.run.app"}]}'
 elif [[ "${url}" == *'/dns_records?name=console-uat.onwalk.net'* && "${method}" == 'GET' ]]; then
@@ -104,10 +108,10 @@ if grep -Fq $'POST\thttps://cloudflare.invalid/client/v4/accounts/account-1/page
   exit 1
 fi
 worker_puts="$(grep -Fc $'PUT\thttps://cloudflare.invalid/client/v4/accounts/account-1/workers/domains' "${test_dir}/curl.log")"
-test "${worker_puts}" -eq 5
+test "${worker_puts}" -eq 4
 worker_bodies="$(cut -f3 "${test_dir}/curl.log" | jq -s '[.[] | select(type == "object" and .hostname != null)]')"
 if ! jq -e '
-  ((map(select(.hostname == "billing-serverless-uat.onwalk.net" and .service == "edge-gateway-core-uat")) | length) == 1)
+  ((map(select(.hostname == "billing-serverless-uat.onwalk.net")) | length) == 0)
   and ((map(select(.hostname == "console-uat.onwalk.net" and .service == "frontend-router-uat")) | length) == 1)
   and ((map(select(.hostname == "accounts-uat.onwalk.net" and .service == "edge-gateway-core-uat")) | length) == 1)
 ' <<<"${worker_bodies}" >/dev/null; then
@@ -115,9 +119,20 @@ if ! jq -e '
   exit 1
 fi
 dns_deletes="$(grep -Fc $'DELETE\thttps://cloudflare.invalid/client/v4/zones/zone-1/dns_records/' "${test_dir}/curl.log")"
-test "${dns_deletes}" -eq 3
+test "${dns_deletes}" -eq 2
+cname_bodies="$(cut -f3 "${test_dir}/curl.log" | jq -s '[.[] | select(.type == "CNAME")]')"
+test "$(jq 'length' <<<"${cname_bodies}")" -eq 1
+jq -e '.[0].name == "billing-serverless-uat.onwalk.net" and .[0].proxied == true and .[0].content == "uat-billing-service-1004637461064.asia-northeast1.run.app"' <<<"${cname_bodies}" >/dev/null
+ruleset_bodies="$(cut -f3 "${test_dir}/curl.log" | jq -s '[.[] | select(.rules != null)]')"
+test "$(jq 'length' <<<"${ruleset_bodies}")" -eq 1
+jq -e '
+  any(.[0].rules[]; .ref == "serverless_billing_cloud_run_origin" and
+    .action_parameters.host_header == "uat-billing-service-1004637461064.asia-northeast1.run.app" and
+    .action_parameters.origin.host == "uat-billing-service-1004637461064.asia-northeast1.run.app" and
+    .action_parameters.sni.value == "uat-billing-service-1004637461064.asia-northeast1.run.app")
+' <<<"${ruleset_bodies}" >/dev/null
 if grep -Fq $'POST\thttps://cloudflare.invalid/client/v4/zones/zone-1/dns_records' "${test_dir}/curl.log"; then
-  echo "serverless canonical aliases and Billing must not be recreated as DNS CNAMEs" >&2
+  echo "Billing must update its declared proxied CNAME instead of creating a duplicate" >&2
   exit 1
 fi
 echo "serverless_cloudflare_domains_contract_test: PASS"
