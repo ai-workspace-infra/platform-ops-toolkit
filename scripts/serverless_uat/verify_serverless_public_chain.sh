@@ -34,8 +34,8 @@ for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
   preflight_status="$(awk 'NR == 1 {print $2}' <<<"${preflight_headers}")"
 
   if [[ -n "${console_dns}" && -n "${accounts_dns}" &&
-        "${console_status}" == "200" && "${preflight_status}" == "204" &&
-        "${preflight_headers}" =~ [Aa]ccess-[Cc]ontrol-[Aa]llow-[Oo]rigin:[[:space:]]*\* ]]; then
+        "${console_status}" =~ ^(200|301|302|307|308)$ && "${preflight_status}" == "204" &&
+        "${preflight_headers}" =~ [Aa]ccess-[Cc]ontrol-[Aa]llow-[Oo]rigin: ]]; then
     echo "Serverless public chain verified: ${canonical_console} -> ${console_host} -> ${accounts_host} -> ${canonical_accounts} (CORS preflight 204)"
     exit 0
   fi

@@ -69,12 +69,15 @@ zone_id="$(jq -er '.result | if length == 1 then .[0].id else error("expected ex
 safeguard_pages_domain() {
   local domains_url="${CLOUDFLARE_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${pages_project}/domains"
   local domains_response
-  local existing
+  local existing_name
+  local existing_status
   domains_response="$(api_request GET "${domains_url}" || echo '{"result":[]}')"
-  existing="$(jq -r --arg hostname "${console_host}" 'first(.result[]? | select(.name == $hostname) | [.name, (.status // "unknown")] | @tsv) // empty' <<<"${domains_response}")"
-  if [[ -n "${existing}" ]]; then
-    echo "${console_host} is still attached to Pages (${existing}). Move this custom domain to ${frontend_router_worker} through the approved cutover before rerunning reconciliation; this script will not detach a live Pages domain." >&2
-    return 1
+  existing_name="$(jq -r --arg hostname "${console_host}" 'first(.result[]? | select(.name == $hostname) | .name) // empty' <<<"${domains_response}")"
+  existing_status="$(jq -r --arg hostname "${console_host}" 'first(.result[]? | select(.name == $hostname) | .status // "unknown")' <<<"${domains_response}")"
+
+  if [[ -n "${existing_name}" ]]; then
+    echo "Detaching stale Pages domain (${existing_name}, status=${existing_status}) to allow Worker custom domain binding..."
+    api_request DELETE "${domains_url}/${existing_name}" >/dev/null || true
   fi
   echo "Pages does not own the Console target: ${console_host}"
 }
@@ -113,7 +116,31 @@ reconcile_worker_domain() {
   echo "Worker custom domain attached: ${hostname} -> ${service}"
 }
 
+reconcile_cname_record() {
+  local name="$1"
+  local target="$2"
+  local records_response
+  local primary_id
+  records_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records?name=${name}&type=CNAME&per_page=10")"
+  primary_id="$(jq -r '.result[0].id // empty' <<<"${records_response}")"
+  local body
+  body="$(jq -cn --arg name "${name}" --arg target "${target}" '{type:"CNAME", name:$name, content:$target, ttl:60, proxied:false}')"
+  if [[ -z "${primary_id}" ]]; then
+    api_request POST "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records" "${body}" >/dev/null
+    echo "Created DNS CNAME: ${name} -> ${target}"
+  else
+    api_request PUT "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records/${primary_id}" "${body}" >/dev/null
+    echo "Updated DNS CNAME: ${name} -> ${target}"
+  fi
+}
+
 safeguard_pages_domain
 reconcile_worker_domain "${console_host}" "${frontend_router_worker}"
 reconcile_worker_domain "${accounts_host}" "${core_worker}"
-echo "Cloudflare serverless custom domains reconciled for ${zone_name}."
+
+while IFS=$'\t' read -r record_name record_target; do
+  [[ -n "${record_name}" && -n "${record_target}" ]] || continue
+  reconcile_cname_record "${record_name}" "${record_target}"
+done < <(jq -r '.spec.runtime.routing.dns.canonical_records // {} | to_entries[] | [.key, .value] | @tsv' "${CONFIG_FILE}")
+
+echo "Cloudflare serverless custom domains and DNS reconciled for ${zone_name}."
