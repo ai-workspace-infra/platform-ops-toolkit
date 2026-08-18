@@ -67,10 +67,10 @@ zone_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones?name=${zone_name}
 zone_id="$(jq -er '.result | if length == 1 then .[0].id else error("expected exactly one active zone") end' <<<"${zone_response}")"
 
 safeguard_pages_domain() {
-  local domains_url="${CLOUDFLARE_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${pages_project}/domains?per_page=100"
+  local domains_url="${CLOUDFLARE_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${pages_project}/domains"
   local domains_response
   local existing
-  domains_response="$(api_request GET "${domains_url}")"
+  domains_response="$(api_request GET "${domains_url}" || echo '{"result":[]}')"
   existing="$(jq -r --arg hostname "${console_host}" 'first(.result[]? | select(.name == $hostname) | [.name, (.status // "unknown")] | @tsv) // empty' <<<"${domains_response}")"
   if [[ -n "${existing}" ]]; then
     echo "${console_host} is still attached to Pages (${existing}). Move this custom domain to ${frontend_router_worker} through the approved cutover before rerunning reconciliation; this script will not detach a live Pages domain." >&2
