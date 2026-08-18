@@ -22,6 +22,7 @@ echo "==> [Cloudflare Worker UAT] Deploying edge-gateway boundary: ${EDGE_GATEWA
 test -d "${WORKER_DIR}"
 pushd "${WORKER_DIR}" > /dev/null
 corepack enable 2>/dev/null || true
+npm ci
 test -x .github/scripts/deploy_boundary.sh
 bash .github/scripts/deploy_boundary.sh "${EDGE_GATEWAY_BOUNDARY}"
 popd > /dev/null

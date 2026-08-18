@@ -252,7 +252,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-services/portal
-          ref: ${{ inputs.tag_ref }}
+          ref: ${{ inputs.tag_ref || 'main' }}
           path: portal
 
       - name: Setup Node.js
@@ -281,6 +281,8 @@ jobs:
           CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
           PORTAL_DIR: ${{ github.workspace }}/portal
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_API_TOKEN }}
 
   frontend_router:
     name: Cloudflare / frontend-router
@@ -317,7 +319,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-services/frontend-router
-          ref: ${{ inputs.tag_ref }}
+          ref: ${{ inputs.tag_ref || 'main' }}
           path: frontend-router
 
       - name: Setup Node.js
@@ -344,6 +346,8 @@ jobs:
           CLOUDFLARE_TARGET: frontend-router
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
           FRONTEND_ROUTER_DIR: ${{ github.workspace }}/frontend-router
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_API_TOKEN }}
 
   edge_gateway:
     name: Cloudflare / ${{ matrix.display_name }}
@@ -392,7 +396,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-services/edge-gateway
-          ref: ${{ inputs.tag_ref }}
+          ref: ${{ inputs.tag_ref || 'main' }}
           path: edge-gateway
 
       - name: Setup Node.js
@@ -401,6 +405,7 @@ jobs:
           node-version: 24
 
       - name: Authenticate to Vault with GitHub OIDC
+        id: vault
         uses: hashicorp/vault-action@v4
         with:
           url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
@@ -420,6 +425,8 @@ jobs:
           CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
           WORKER_DIR: ${{ github.workspace }}/edge-gateway
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_API_TOKEN }}
 
   static_pages:
     name: Cloudflare / static-pages
@@ -458,7 +465,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-services/portal
-          ref: ${{ inputs.tag_ref }}
+          ref: ${{ inputs.tag_ref || 'main' }}
           path: portal
 
       - name: Setup Node.js
@@ -467,6 +474,7 @@ jobs:
           node-version: 24
 
       - name: Authenticate to Vault with GitHub OIDC
+        id: vault
         uses: hashicorp/vault-action@v4
         with:
           url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
@@ -486,6 +494,8 @@ jobs:
           PAGES_BRANCH: ${{ inputs.vault_env_path || 'uat' }}
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
           PORTAL_DIR: ${{ github.workspace }}/portal
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_API_TOKEN }}
 
   serverless_domains:
     name: Cloudflare / custom domains and public CORS chain
