@@ -71,6 +71,14 @@ cat >"${test_dir}/cmdb.json" <<'EOF'
   "console-uat.onwalk.net": {
     "ip": "45.77.128.182",
     "groups": ["web_saas"]
+  },
+  "agent-proxy-uat.onwalk.net": {
+    "ip": "167.179.105.137",
+    "groups": ["agent_proxy"]
+  },
+  "agent-proxy-uat-2.onwalk.net": {
+    "ip": "167.179.110.129",
+    "groups": ["agent_proxy"]
   }
 }
 EOF
@@ -92,11 +100,52 @@ grep -Fq 'Created console-vps-uat.onwalk.net -> 45.77.128.182 (A)' <<<"${output}
 grep -Fq 'Created accounts-vps-uat.onwalk.net -> 45.77.128.182 (A)' <<<"${output}"
 grep -Fq 'Created console-uat.onwalk.net -> console-vps-uat.onwalk.net (CNAME)' <<<"${output}"
 grep -Fq 'Created accounts-uat.onwalk.net -> accounts-vps-uat.onwalk.net (CNAME)' <<<"${output}"
-grep -Fq 'completed for 4 GitOps-declared records' <<<"${output}"
+grep -Fq 'Created postgresql-vps-uat.onwalk.net -> 45.77.128.182 (A)' <<<"${output}"
+grep -Fq 'Created agent-proxy-uat.onwalk.net -> 167.179.105.137 (A)' <<<"${output}"
+grep -Fq 'Created agent-proxy-uat.onwalk.net -> 167.179.110.129 (A)' <<<"${output}"
+grep -Fq 'completed for 7 desired records' <<<"${output}"
 
 cut -f3 "${test_dir}/curl.log" | jq -s -e \
   'any(.[]; .type == "A" and .name == "console-vps-uat.onwalk.net" and .content == "45.77.128.182")' >/dev/null
 cut -f3 "${test_dir}/curl.log" | jq -s -e \
   'any(.[]; .type == "A" and .name == "accounts-vps-uat.onwalk.net" and .content == "45.77.128.182")' >/dev/null
+cut -f3 "${test_dir}/curl.log" | jq -s -e \
+  'any(.[]; .type == "A" and .name == "postgresql-vps-uat.onwalk.net" and .content == "45.77.128.182")' >/dev/null
+cut -f3 "${test_dir}/curl.log" | jq -s -e \
+  'any(.[]; .type == "A" and .name == "agent-proxy-uat.onwalk.net" and .content == "167.179.105.137")' >/dev/null
+cut -f3 "${test_dir}/curl.log" | jq -s -e \
+  'any(.[]; .type == "A" and .name == "agent-proxy-uat.onwalk.net" and .content == "167.179.110.129")' >/dev/null
+
+cat >"${test_dir}/duplicate-cmdb.json" <<'EOF'
+{
+  "console-uat.onwalk.net": {
+    "ip": "45.77.128.182",
+    "groups": ["web_saas"]
+  },
+  "agent-proxy-uat.onwalk.net": {
+    "ip": "45.77.128.182",
+    "groups": ["agent_proxy"]
+  }
+}
+EOF
+
+set +e
+duplicate_output="$({
+  PATH="${test_dir}/bin:${PATH}" \
+  MOCK_CURL_LOG="${test_dir}/duplicate-curl.log" \
+  CLOUDFLARE_DNS_API_TOKEN="test-token" \
+  CLOUDFLARE_API_BASE_OVERRIDE="https://cloudflare.invalid/client/v4" \
+  DEPLOY_ENV="uat" \
+  SOURCE_DOMAIN_BASE="svc.plus" \
+  TARGET_DOMAIN_BASE="onwalk.net" \
+  CMDB_FILE="${test_dir}/duplicate-cmdb.json" \
+  GITOPS_ROUTING_CONFIG="${test_dir}/routing.json" \
+  "${reconciler}"
+} 2>&1)"
+duplicate_exit=$?
+set -e
+
+[[ "${duplicate_exit}" -ne 0 ]]
+grep -Fq 'agent-proxy host agent-proxy-uat.onwalk.net shares Web SaaS IP 45.77.128.182' <<<"${duplicate_output}"
 
 echo "platform_ops_uat_dns_target_records_test: PASS"

@@ -119,7 +119,7 @@ on:
         - 1C1G
         - 1C2G
       dns_mode:
-        description: "DNS 行为：none 不发布；uat-records 仅更新 UAT 固定记录；prod-cutover 接管生产流量（仍须确认）；destroy 操作始终忽略 DNS 输入"
+        description: "DNS 行为：none 不发布；uat-records 更新 SIT all-in-one 或 UAT 固定记录；prod-cutover 接管生产流量（仍须确认）；destroy 操作始终忽略 DNS 输入"
         required: true
         default: "none"
         type: choice
@@ -1097,7 +1097,7 @@ jobs:
         ${{ github.workspace }}/.github/scripts/platform-ops/dns/platform-ops_switch_dns_switch-cloudflare-dns-records.sh
 
     - name: Reconcile UAT DNS records
-      if: ${{ needs.provision.outputs.dns_mode == 'uat-records' }}
+      if: ${{ needs.provision.outputs.deployment_env == 'uat' && needs.provision.outputs.dns_mode == 'uat-records' }}
       env:
         CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
         SOURCE_DOMAIN_BASE: ${{ needs.provision.outputs.source_domain_base }}
@@ -1105,6 +1105,16 @@ jobs:
         DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
         GITOPS_ROUTING_CONFIG: ${{ runner.temp }}/selfhost-edge-routing.json
       run: ${{ github.workspace }}/.github/scripts/platform-ops/dns/platform-ops_uat_dns_reconcile.sh
+
+    - name: Reconcile SIT all-in-one DNS records
+      if: ${{ needs.provision.outputs.deployment_env == 'sit' && needs.provision.outputs.dns_mode == 'uat-records' }}
+      env:
+        CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
+        SOURCE_DOMAIN_BASE: ${{ needs.provision.outputs.source_domain_base }}
+        TARGET_DOMAIN_BASE: ${{ needs.provision.outputs.target_domain_base }}
+        DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
+        CMDB_FILE: cmdb/cmdb.json
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/dns/platform-ops_sit_all_in_one_dns_reconcile.sh
 
     - name: Remove temporary agent controller host pin
       if: >-
