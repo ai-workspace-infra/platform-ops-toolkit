@@ -34,7 +34,10 @@ for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
     --header 'Access-Control-Request-Method: GET' \
     --header 'Access-Control-Request-Headers: Authorization, Content-Type' || true)"
   preflight_status="$(awk 'NR == 1 {print $2}' <<<"${preflight_headers}")"
-  billing_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 20 "https://${billing_host}/healthz" || true)"
+  # Billing is exposed through the Edge Gateway Core custom domain. Probe the
+  # service readiness contract, which is implemented by the deployed Go
+  # service, instead of assuming the generic accounts /healthz path exists.
+  billing_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 20 "https://${billing_host}/readyz" || true)"
 
   if [[ -n "${console_dns}" && -n "${accounts_dns}" && -n "${billing_dns}" &&
         "${console_status}" =~ ^(200|301|302|307|308)$ && "${preflight_status}" == "204" &&
