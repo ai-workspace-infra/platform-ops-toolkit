@@ -18,8 +18,8 @@ jobs = workflow["jobs"]
 triggers = workflow.get("on", workflow.get(True))
 dispatch_inputs = triggers["workflow_dispatch"]["inputs"]
 dns_mode = dispatch_inputs.get("dns_mode")
-if dns_mode is None or dns_mode.get("default") != "none" or dns_mode.get("options") != ["none", "serverless-cutover"]:
-    raise SystemExit("serverless workflow must default DNS mode to none and expose explicit cutover")
+if dns_mode is None or dns_mode.get("default") != "none" or dns_mode.get("options") != ["none", "uat-records", "prod-cutover"]:
+    raise SystemExit("serverless workflow must default DNS mode to none and expose the standard DNS choices")
 
 parallel = {
     "supabase",

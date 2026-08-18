@@ -29,7 +29,7 @@
   "source_domain_base": "svc.plus",
   "target_domain_base": "onwalk.net",
   "run_provision_and_deploy": true,
-  "confirm_dns_switch": false,
+  "dns_mode": "none",             // enum: ["none", "uat-records", "prod-cutover"]
   
   // ================= 预留扩展 (Reserved Extensions) =================
   "vault_integration": {

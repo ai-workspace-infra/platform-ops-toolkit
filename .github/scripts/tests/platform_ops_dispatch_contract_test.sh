@@ -16,7 +16,6 @@ run_route() {
     INPUT_SOURCE_DOMAIN_BASE=svc.plus \
     INPUT_TARGET_DOMAIN_BASE=onwalk.net \
     INPUT_OFFLINE_MODE=off \
-    INPUT_CONFIRM_DNS_SWITCH=false \
     GITHUB_OUTPUT="${output}" \
     "$@" "${route_script}"; then
     rm -f "${output}"
@@ -71,7 +70,7 @@ assert_contains "${destroy_output}" "terraform_action=destroy"
 assert_contains "${destroy_output}" "dns_mode=none"
 assert_contains "${destroy_output}" "deploy_tag="
 
-destroy_prod_dns_output="$(run_route env GITHUB_REF=refs/heads/release/v2026.08 INPUT_VAULT_ENV_PATH=prod INPUT_OPERATION=destroy INPUT_DNS_MODE=prod-cutover INPUT_CONFIRM_DNS_SWITCH=true)"
+destroy_prod_dns_output="$(run_route env GITHUB_REF=refs/heads/release/v2026.08 INPUT_VAULT_ENV_PATH=prod INPUT_OPERATION=destroy INPUT_DNS_MODE=prod-cutover)"
 assert_contains "${destroy_prod_dns_output}" "terraform_action=destroy"
 assert_contains "${destroy_prod_dns_output}" "dns_mode=none"
 assert_contains "${destroy_prod_dns_output}" "deploy_tag="
@@ -103,11 +102,11 @@ grep -Fq "v* release tags are PROD-only" "${uat_stable_error}"
 rm -f "${uat_stable_error}"
 
 if run_route env INPUT_OPERATION=deploy INPUT_DNS_MODE=prod-cutover >/dev/null 2>&1; then
-  echo "prod-cutover without confirmation unexpectedly succeeded" >&2
+  echo "prod-cutover without production environment unexpectedly succeeded" >&2
   exit 1
 fi
 
-prod_dns_output="$(run_route env GITHUB_REF=refs/heads/release/v2026.08 INPUT_VAULT_ENV_PATH=prod INPUT_OPERATION=deploy INPUT_DEPLOY_TAG=v2026.08 INPUT_DNS_MODE=prod-cutover INPUT_CONFIRM_DNS_SWITCH=true)"
+prod_dns_output="$(run_route env GITHUB_REF=refs/heads/release/v2026.08 INPUT_VAULT_ENV_PATH=prod INPUT_OPERATION=deploy INPUT_DEPLOY_TAG=v2026.08 INPUT_DNS_MODE=prod-cutover)"
 assert_contains "${prod_dns_output}" "dns_mode=prod-cutover"
 
 prod_daily_error="$(mktemp)"

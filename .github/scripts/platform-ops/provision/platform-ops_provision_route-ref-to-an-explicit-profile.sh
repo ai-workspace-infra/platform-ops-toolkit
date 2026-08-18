@@ -16,7 +16,6 @@ SOURCE_DOMAIN_BASE_DEFAULT="svc.plus"
 TARGET_DOMAIN_BASE_DEFAULT="onwalk.net"
 STATE_PROJECT="platform-ops-toolkit"
 dns_mode=none
-confirm_dns_switch=false
 uat_dns_update=false
 
 validate_deploy_tag_policy() {
@@ -154,26 +153,25 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     # Destroy has no deployment or DNS side effects. Treat a stale UI value
     # such as uat-records/prod-cutover as inert instead of applying the
     # deploy-only DNS preflight to the Terraform destroy path.
-    if [ "${dns_mode}" != "none" ] || [ "${INPUT_CONFIRM_DNS_SWITCH:-false}" = "true" ]; then
-      echo "::notice::Ignoring dns_mode=${dns_mode} and confirm_dns_switch for destroy; DNS updates are disabled." >&2
+    if [ "${dns_mode}" != "none" ]; then
+      echo "::notice::Ignoring dns_mode=${dns_mode} for destroy; DNS updates are disabled." >&2
     fi
     dns_mode=none
-    confirm_dns_switch=false
     uat_dns_update=false
   else
     case "${dns_mode}" in
       none)
-        confirm_dns_switch=false; uat_dns_update=false
+        uat_dns_update=false
         ;;
       uat-records)
-        confirm_dns_switch=false; uat_dns_update=true
+        uat_dns_update=true
         ;;
       prod-cutover)
-        if [ "${INPUT_CONFIRM_DNS_SWITCH:-false}" != "true" ]; then
-          echo "::error::dns_mode=prod-cutover requires confirm_dns_switch=true." >&2
+        if [ "${deployment_env}" != "prod" ]; then
+          echo "::error::dns_mode=prod-cutover requires vault_env_path=prod." >&2
           exit 1
         fi
-        confirm_dns_switch=true; uat_dns_update=false
+        uat_dns_update=false
         ;;
       *)
         echo "::error::Unsupported dns_mode '${dns_mode}'." >&2
@@ -193,7 +191,7 @@ else
     run_infrastructure=true; run_application_deploy=false
     terraform_action=plan; toolkit_action=none; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
     cloud_provider="vultr-vps"
-    source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-sit; confirm_dns_switch=false
+    source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-sit
   else
     case "${GITHUB_REF}" in
       refs/heads/main)
@@ -204,7 +202,7 @@ else
         run_infrastructure=true; run_application_deploy=false
         terraform_action=plan; toolkit_action=none; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
         cloud_provider="vultr-vps"
-        source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-uat; confirm_dns_switch=false
+    source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-uat
         ;;
       refs/heads/release/v*|refs/tags/v*)
         deployment_env=prod; resource_file=prod/web-saas; terraform_workspace=prod-vultr-vps-platform-ops-toolkit-web-saas
@@ -223,7 +221,7 @@ else
         run_infrastructure=true; run_application_deploy=false
         terraform_action=plan; toolkit_action=none; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
         cloud_provider="vultr-vps"
-        source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=""; confirm_dns_switch=false
+    source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=""
         ;;
       refs/heads/release/*)
         deployment_env=uat; resource_file=uat/web-saas; terraform_workspace=uat-vultr-vps-platform-ops-toolkit-web-saas
@@ -232,7 +230,7 @@ else
         run_infrastructure=true; run_application_deploy=false
         terraform_action=plan; toolkit_action=none; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
         cloud_provider="vultr-vps"
-        source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-uat; confirm_dns_switch=false
+    source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-uat
         ;;
       *)
         deployment_env=sit; resource_file=sit/all-in-one; terraform_workspace=sit-vultr-vps-platform-ops-toolkit-all-in-one
@@ -241,7 +239,7 @@ else
         run_infrastructure=true; run_application_deploy=true
         terraform_action=apply; toolkit_action=deploy; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
         cloud_provider="vultr-vps"
-        source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-sit; confirm_dns_switch=false
+    source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-sit
         ;;
     esac
   fi
@@ -257,8 +255,8 @@ case "${uat_dns_update}" in
 esac
 
 if [ "${uat_dns_update}" = "true" ]; then
-  if [ "${deployment_env}" != "uat" ]; then
-    echo "::error::uat_dns_update is UAT-only; vault_env_path must be uat." >&2
+  if [ "${deployment_env}" != "sit" ] && [ "${deployment_env}" != "uat" ]; then
+    echo "::error::uat-records is only valid for sit or uat." >&2
     exit 1
   fi
   if [ -z "${target_domain_base}" ] || [ "${target_domain_base}" = "${source_domain_base}" ]; then
@@ -276,10 +274,6 @@ if [ "${uat_dns_update}" = "true" ]; then
     echo "::error::uat_dns_update requires an apply plus application deployment so the run CMDB identifies the UAT web-saas host." >&2
     exit 1
   fi
-  confirm_dns_switch=false
-elif [ "${deployment_env}" = "uat" ] && [ "${confirm_dns_switch:-false}" = "true" ]; then
-  echo "::error::UAT DNS updates must use uat_dns_update=true; the generic confirm_dns_switch path is disabled for UAT." >&2
-  exit 1
 fi
 
 # 所有触发路径都必须给这两个开关显式赋值 —— 空串会让下游 == 'true' 比较

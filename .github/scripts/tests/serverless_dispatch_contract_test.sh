@@ -38,7 +38,7 @@ if OPERATION=deploy VAULT_ENV_PATH=uat TAG_REF=daily-build-2026.08.17-r1 DEPLOY_
   exit 1
 fi
 
-SERVERLESS_DNS_MODE=serverless-cutover \
+SERVERLESS_DNS_MODE=uat-records \
 OPERATION=deploy \
 VAULT_ENV_PATH=uat \
 TAG_REF=daily-build-2026.08.17-r1 \
@@ -46,13 +46,26 @@ DEPLOY_CLOUDFLARE=true \
 DEPLOY_CLOUD_RUN=true \
 "${validate_script}" >/dev/null
 
-if SERVERLESS_DNS_MODE=serverless-cutover OPERATION=migrate VAULT_ENV_PATH=uat DEPLOY_CLOUDFLARE=true DEPLOY_CLOUD_RUN=true "${validate_script}" >/dev/null 2>&1; then
-  echo "serverless-cutover unexpectedly accepted for migrate" >&2
+if SERVERLESS_DNS_MODE=uat-records OPERATION=migrate VAULT_ENV_PATH=uat DEPLOY_CLOUDFLARE=true DEPLOY_CLOUD_RUN=true "${validate_script}" >/dev/null 2>&1; then
+  echo "uat-records unexpectedly accepted for migrate" >&2
   exit 1
 fi
 
-if SERVERLESS_DNS_MODE=serverless-cutover OPERATION=deploy VAULT_ENV_PATH=uat TAG_REF=daily-build-2026.08.17-r1 DEPLOY_CLOUDFLARE=false DEPLOY_CLOUD_RUN=true "${validate_script}" >/dev/null 2>&1; then
-  echo "serverless-cutover unexpectedly accepted without Cloudflare deployment" >&2
+if SERVERLESS_DNS_MODE=uat-records OPERATION=deploy VAULT_ENV_PATH=uat TAG_REF=daily-build-2026.08.17-r1 DEPLOY_CLOUDFLARE=false DEPLOY_CLOUD_RUN=true "${validate_script}" >/dev/null 2>&1; then
+  echo "uat-records unexpectedly accepted without Cloudflare deployment" >&2
+  exit 1
+fi
+
+SERVERLESS_DNS_MODE=prod-cutover \
+OPERATION=deploy \
+VAULT_ENV_PATH=prod \
+TAG_REF=v2026.08.17 \
+DEPLOY_CLOUDFLARE=true \
+DEPLOY_CLOUD_RUN=true \
+"${validate_script}" >/dev/null
+
+if SERVERLESS_DNS_MODE=prod-cutover OPERATION=deploy VAULT_ENV_PATH=uat TAG_REF=daily-build-2026.08.17-r1 DEPLOY_CLOUDFLARE=true DEPLOY_CLOUD_RUN=true "${validate_script}" >/dev/null 2>&1; then
+  echo "prod-cutover unexpectedly accepted for uat" >&2
   exit 1
 fi
 

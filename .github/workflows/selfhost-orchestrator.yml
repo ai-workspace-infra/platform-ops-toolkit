@@ -119,16 +119,11 @@ on:
         - 1C1G
         - 1C2G
       dns_mode:
-        description: "DNS 行为：none 不发布；uat-records 更新 SIT all-in-one 或 UAT 固定记录；prod-cutover 接管生产流量（仍须确认）；destroy 操作始终忽略 DNS 输入"
+        description: "DNS 行为：none 不发布；uat-records 更新 SIT all-in-one 或 UAT 固定记录；prod-cutover 接管生产流量；destroy 操作始终忽略 DNS 输入"
         required: true
         default: "none"
         type: choice
         options: [none, uat-records, prod-cutover]
-      confirm_dns_switch:
-        description: "危险确认：仅 dns_mode=prod-cutover 时勾选，确认接管原域名生产流量"
-        required: false
-        default: false
-        type: boolean
       vault_env_path:
         description: "Vault 环境路径 (如 sit, uat, prod)，用于动态 secrets 的读写"
         required: true
@@ -208,7 +203,6 @@ jobs:
       INPUT_SOURCE_HOST:           ${{ github.event.inputs.source_host }}
       INPUT_SOURCE_DOMAIN_BASE:    ${{ github.event.inputs.source_domain_base }}
       INPUT_TARGET_DOMAIN_BASE:    ${{ github.event.inputs.target_domain_base }}
-      INPUT_CONFIRM_DNS_SWITCH:    ${{ github.event.inputs.confirm_dns_switch }}
       INPUT_DNS_MODE:              ${{ github.event.inputs.dns_mode }}
       INPUT_DEPLOY_TAG:            ${{ github.event.inputs.deploy_tag }}
     outputs:

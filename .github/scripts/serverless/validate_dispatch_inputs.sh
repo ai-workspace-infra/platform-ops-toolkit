@@ -9,10 +9,10 @@ deploy_cloud_run="${DEPLOY_CLOUD_RUN:-false}"
 serverless_dns_mode="${SERVERLESS_DNS_MODE:-none}"
 
 case "${serverless_dns_mode}" in
-  none|serverless-cutover)
+  none|uat-records|prod-cutover)
     ;;
   *)
-    echo "SERVERLESS_DNS_MODE must be one of: none, serverless-cutover" >&2
+    echo "SERVERLESS_DNS_MODE must be one of: none, uat-records, prod-cutover" >&2
     exit 2
     ;;
 esac
@@ -32,14 +32,24 @@ case "${operation}" in
     ;;
 esac
 
-if [[ "${serverless_dns_mode}" == "serverless-cutover" ]] &&
+if [[ "${serverless_dns_mode}" != "none" ]] &&
    [[ "${operation}" != "deploy" && "${operation}" != "deploy+migrate" ]]; then
-  echo "serverless-cutover requires operation=deploy or operation=deploy+migrate" >&2
+  echo "dns_mode=${serverless_dns_mode} requires operation=deploy or operation=deploy+migrate" >&2
   exit 2
 fi
 
-if [[ "${serverless_dns_mode}" == "serverless-cutover" && "${deploy_cloudflare}" != "true" ]]; then
-  echo "serverless-cutover requires deploy_cloudflare=true" >&2
+if [[ "${serverless_dns_mode}" != "none" && "${deploy_cloudflare}" != "true" ]]; then
+  echo "dns_mode=${serverless_dns_mode} requires deploy_cloudflare=true" >&2
+  exit 2
+fi
+
+if [[ "${serverless_dns_mode}" == "uat-records" && "${environment}" == "prod" ]]; then
+  echo "dns_mode=uat-records is only valid for sit or uat" >&2
+  exit 2
+fi
+
+if [[ "${serverless_dns_mode}" == "prod-cutover" && "${environment}" != "prod" ]]; then
+  echo "dns_mode=prod-cutover requires VAULT_ENV_PATH=prod" >&2
   exit 2
 fi
 
