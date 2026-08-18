@@ -54,9 +54,13 @@ DRY_RUN="${DRY_RUN:-true}"
 SKIP_VERIFY="${SKIP_VERIFY:-false}"
 EMAIL_FILTER="${MIGRATION_EMAIL_FILTER:-}"
 RUNTIME_IMAGE="${MIGRATION_RUNTIME_IMAGE:-alpine:latest}"
+SSH_READY_ATTEMPTS="${SSH_READY_ATTEMPTS:-60}"
+SSH_READY_INTERVAL_SECONDS="${SSH_READY_INTERVAL_SECONDS:-3}"
+SSH_READY_CONNECT_TIMEOUT_SECONDS="${SSH_READY_CONNECT_TIMEOUT_SECONDS:-5}"
 
 REMOTE_DIR="/root/.accounts-migration.$$"
 SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -i ~/.ssh/id_deploy)
+SSH_READY_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o "ConnectTimeout=${SSH_READY_CONNECT_TIMEOUT_SECONDS}" -i ~/.ssh/id_deploy)
 
 # The snapshot holds password hashes and session tokens. It must not outlive the
 # run on either host, including on every failure path.
@@ -183,6 +187,29 @@ for pair in "source:${SOURCE_HOST}:${SOURCE_ADDR}" "target:${TARGET_HOST}:${TARG
     echo "[ADDRESS] ${role} ${name} -> ${addr} (from CMDB)"
   fi
 done
+
+# A freshly provisioned VPS can have its address and containers ready before
+# sshd is accepting connections. Do not let the migration race that boot
+# window: retry the same resolved addresses before staging any snapshot data.
+wait_for_ssh() { # <role> <address>
+  local role="$1" address="$2"
+  local attempt
+  echo "[READINESS] Waiting for SSH on ${role} ${address}..."
+  for attempt in $(seq 1 "${SSH_READY_ATTEMPTS}"); do
+    if ssh "${SSH_READY_OPTS[@]}" "${SSH_USER}@${address}" true >/dev/null 2>&1; then
+      echo "[READINESS] SSH ready on ${role} ${address}."
+      return 0
+    fi
+    if (( attempt < SSH_READY_ATTEMPTS )); then
+      sleep "${SSH_READY_INTERVAL_SECONDS}"
+    fi
+  done
+  echo "[CRITICAL ERROR] SSH did not become ready on ${role} ${address} after ${SSH_READY_ATTEMPTS} attempts." >&2
+  return 1
+}
+
+wait_for_ssh source "${SOURCE_ADDR}"
+wait_for_ssh target "${TARGET_ADDR}"
 
 # ------------------------------------------------------------------------------
 # Step 0: stage migratectl on both hosts
