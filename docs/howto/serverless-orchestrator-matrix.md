@@ -52,8 +52,8 @@ provider exposes an equivalent adapter.
 The mode-qualified entries can coexist as separate DNS names. A normal Serverless deployment uses
 `dns_mode=none`, publishes only the `*-serverless-uat` entries, and verifies those entries directly;
 it does not rewrite `console-uat.onwalk.net` or `accounts-uat.onwalk.net`. The Serverless workflow
-may change the canonical aliases only with the explicit `dns_mode=serverless-cutover` input.
-Selfhost uses its own `dns_mode=uat-records` or `dns_mode=prod-cutover` inputs. The two DNS jobs
+may change the canonical aliases only with the explicit `dns_mode=uat-records` or
+`dns_mode=prod-cutover` input. Selfhost uses the same DNS choices. The two DNS jobs
 share the `public-dns-<environment>` concurrency group, so only one public cutover can run at a
 time. Distinct hostnames may each have a CNAME; the same hostname cannot have two CNAME targets or
 weighted DNS behavior on the free DNS tier.
@@ -158,12 +158,13 @@ vault_env_path=uat                 # default
 tag_ref=daily-build-YYYY.MM.DD-rN  # required immutable snapshot
 deploy_cloud_run=true              # default
 deploy_cloudflare=true             # default
-dns_mode=none                      # default; use serverless-cutover only for an intentional switch
+dns_mode=none                      # default; use uat-records or prod-cutover only for an intentional switch
 ```
 
-`dns_mode=none` is the safe default. `dns_mode=serverless-cutover` is accepted only with
-`operation=deploy` or `operation=deploy+migrate` and `deploy_cloudflare=true`; it is the only
-Serverless path that changes the shared canonical Console/Accounts records.
+`dns_mode=none` is the safe default. `dns_mode=uat-records` is valid only for SIT/UAT, and
+`dns_mode=prod-cutover` is valid only for production. Both cutover modes are accepted only with
+`operation=deploy` or `operation=deploy+migrate` and `deploy_cloudflare=true`; they are the only
+Serverless paths that change the shared canonical Console/Accounts records.
 
 `tag_ref` is required only for `deploy` and `deploy+migrate`. The `operation` input is the
 control-plane authority that selects whether the migration job runs. GitOps declares data

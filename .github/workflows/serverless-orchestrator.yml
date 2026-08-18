@@ -48,13 +48,14 @@ on:
         default: true
         type: boolean
       dns_mode:
-        description: 'Canonical DNS 行为：none 仅部署模式域名；serverless-cutover 显式接管 console/accounts canonical（普通部署不会改 canonical）'
+        description: 'DNS 行为：none 不发布；uat-records 更新 SIT/UAT canonical；prod-cutover 接管生产 canonical（普通部署不会改 canonical）'
         required: false
         default: 'none'
         type: choice
         options:
           - none
-          - serverless-cutover
+          - uat-records
+          - prod-cutover
 jobs:
   preflight:
     name: Validate / Dispatch inputs

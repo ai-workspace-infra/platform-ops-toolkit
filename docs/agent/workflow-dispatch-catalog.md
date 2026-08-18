@@ -108,7 +108,7 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
 ### 3.2 危险字段清单（派发前必须让用户对该字段本身给出明确确认）
 
 - `action=destroy`
-- `confirm_dns_switch=true`
+- `dns_mode=prod-cutover`
 - `vault_env_path=prod`（仅允许来源 ref 为 `refs/tags/v*` 或 `refs/heads/release/v*`）
 - `run_full_stack=true`（会连带打开上面两条）
 
@@ -121,7 +121,7 @@ vault_env_path=uat, target_domains="web-saas + agent-proxy",
 cloud_provider=vultr-vps, instance_plan=2C4G, action=deploy,
 run_infrastructure=true, run_application_deploy=true,
 target_domain_base=onwalk.net, deploy_tag=<gitops 已 pin 的值>,
-confirm_dns_switch=false
+dns_mode=none
 ```
 结果：web-saas 主机 `vc2-2c-4gb`（2C4G）、agent-proxy 主机默认 `vc2-1c-1gb`（1C1G）；
 如需兼容旧规格，在 dispatch 时把 `agent_proxy_plan` 设为 `1C2G`。

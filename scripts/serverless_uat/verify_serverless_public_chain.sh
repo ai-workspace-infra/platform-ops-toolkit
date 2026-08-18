@@ -7,10 +7,10 @@ VERIFY_INTERVAL_SECONDS="${VERIFY_INTERVAL_SECONDS:-10}"
 serverless_dns_mode="${SERVERLESS_DNS_MODE:-none}"
 
 case "${serverless_dns_mode}" in
-  none|serverless-cutover)
+  none|uat-records|prod-cutover)
     ;;
   *)
-    echo "SERVERLESS_DNS_MODE must be one of: none, serverless-cutover" >&2
+    echo "SERVERLESS_DNS_MODE must be one of: none, uat-records, prod-cutover" >&2
     exit 2
     ;;
 esac
@@ -31,7 +31,7 @@ if [[ "${environment}" != "prod" ]]; then
   canonical_accounts="accounts-${environment}.onwalk.net"
 fi
 
-if [[ "${serverless_dns_mode}" == "serverless-cutover" ]]; then
+if [[ "${serverless_dns_mode}" != "none" ]]; then
   console_probe_host="${canonical_console}"
   accounts_probe_host="${canonical_accounts}"
 else

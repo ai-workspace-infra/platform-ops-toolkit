@@ -14,10 +14,10 @@ CLOUDFLARE_API_BASE="${CLOUDFLARE_API_BASE_OVERRIDE:-https://api.cloudflare.com/
 serverless_dns_mode="${SERVERLESS_DNS_MODE:-none}"
 
 case "${serverless_dns_mode}" in
-  none|serverless-cutover)
+  none|uat-records|prod-cutover)
     ;;
   *)
-    echo "SERVERLESS_DNS_MODE must be one of: none, serverless-cutover" >&2
+    echo "SERVERLESS_DNS_MODE must be one of: none, uat-records, prod-cutover" >&2
     exit 2
     ;;
 esac
@@ -223,7 +223,7 @@ detach_worker_domain "${billing_host}" "${core_worker}"
 reconcile_cname_record "${billing_host}" "${billing_upstream#https://}"
 ensure_billing_origin_rule
 
-if [[ "${serverless_dns_mode}" == "serverless-cutover" ]]; then
+if [[ "${serverless_dns_mode}" != "none" ]]; then
   while IFS=$'\t' read -r record_name record_target; do
     [[ -n "${record_name}" && -n "${record_target}" ]] || continue
     case "${record_target%.}" in

@@ -14,7 +14,6 @@ run_push_route() {
     INPUT_SOURCE_HOST=install.svc.plus \
     INPUT_SOURCE_DOMAIN_BASE=svc.plus \
     INPUT_TARGET_DOMAIN_BASE=onwalk.net \
-    INPUT_CONFIRM_DNS_SWITCH=false \
     INPUT_DNS_MODE=none \
     GITHUB_OUTPUT="${output}" \
     "${route_script}"; then
@@ -71,7 +70,6 @@ INPUT_OFFLINE_MODE=off \
 INPUT_SOURCE_HOST=install.svc.plus \
 INPUT_SOURCE_DOMAIN_BASE=svc.plus \
 INPUT_TARGET_DOMAIN_BASE=onwalk.net \
-INPUT_CONFIRM_DNS_SWITCH=false \
 INPUT_DNS_MODE=none \
 GITHUB_OUTPUT="${dispatch_output_file}" \
 "${route_script}"
@@ -89,7 +87,6 @@ if GITHUB_EVENT_NAME=workflow_dispatch \
   INPUT_SOURCE_HOST=install.svc.plus \
   INPUT_SOURCE_DOMAIN_BASE=svc.plus \
   INPUT_TARGET_DOMAIN_BASE=onwalk.net \
-  INPUT_CONFIRM_DNS_SWITCH=false \
   INPUT_DNS_MODE=none \
   GITHUB_OUTPUT="${dispatch_rejected_output}" \
   "${route_script}" >/dev/null 2>&1; then
