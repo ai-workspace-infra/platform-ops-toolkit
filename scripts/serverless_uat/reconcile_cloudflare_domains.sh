@@ -5,10 +5,22 @@ set -euo pipefail
 # EdgeRoutingConfig. Frontend Router owns Console and the core Edge Gateway
 # owns Accounts. Billing is a direct Cloudflare-to-Cloud-Run collector entry;
 # its origin rule rewrites the upstream DNS/Host/SNI to the native run.app name.
-# Canonical Console/Accounts aliases are direct Worker Custom Domains.
+# Canonical Console/Accounts aliases are changed only during an explicit
+# serverless cutover. A normal deployment must not take ownership of the
+# shared canonical records from selfhost.
 
 CONFIG_FILE="${CLOUDFLARE_BOUNDARY_CONFIG:?CLOUDFLARE_BOUNDARY_CONFIG must point to the rendered GitOps manifest}"
 CLOUDFLARE_API_BASE="${CLOUDFLARE_API_BASE_OVERRIDE:-https://api.cloudflare.com/client/v4}"
+serverless_dns_mode="${SERVERLESS_DNS_MODE:-none}"
+
+case "${serverless_dns_mode}" in
+  none|serverless-cutover)
+    ;;
+  *)
+    echo "SERVERLESS_DNS_MODE must be one of: none, serverless-cutover" >&2
+    exit 2
+    ;;
+esac
 
 : "${CLOUDFLARE_ACCOUNT_ID:?CLOUDFLARE_ACCOUNT_ID is required}"
 : "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_API_TOKEN is required}"
@@ -211,21 +223,25 @@ detach_worker_domain "${billing_host}" "${core_worker}"
 reconcile_cname_record "${billing_host}" "${billing_upstream#https://}"
 ensure_billing_origin_rule
 
-while IFS=$'\t' read -r record_name record_target; do
-  [[ -n "${record_name}" && -n "${record_target}" ]] || continue
-  case "${record_target%.}" in
-    "${console_host%.}")
-      remove_declared_cname "${record_name}" "${record_target}"
-      reconcile_worker_domain "${record_name}" "${frontend_router_worker}"
-      ;;
-    "${accounts_host%.}")
-      detach_worker_domain "${record_name}" "${core_worker}"
-      reconcile_cname_record "${record_name}" "${record_target}"
-      ;;
-    *)
-      reconcile_cname_record "${record_name}" "${record_target}"
-      ;;
-  esac
-done < <(jq -r '.spec.runtime.routing.dns.canonical_records // {} | to_entries[] | [.key, .value] | @tsv' "${CONFIG_FILE}")
+if [[ "${serverless_dns_mode}" == "serverless-cutover" ]]; then
+  while IFS=$'\t' read -r record_name record_target; do
+    [[ -n "${record_name}" && -n "${record_target}" ]] || continue
+    case "${record_target%.}" in
+      "${console_host%.}")
+        remove_declared_cname "${record_name}" "${record_target}"
+        reconcile_worker_domain "${record_name}" "${frontend_router_worker}"
+        ;;
+      "${accounts_host%.}")
+        detach_worker_domain "${record_name}" "${core_worker}"
+        reconcile_cname_record "${record_name}" "${record_target}"
+        ;;
+      *)
+        reconcile_cname_record "${record_name}" "${record_target}"
+        ;;
+    esac
+  done < <(jq -r '.spec.runtime.routing.dns.canonical_records // {} | to_entries[] | [.key, .value] | @tsv' "${CONFIG_FILE}")
+else
+  echo "Skipping canonical DNS reconciliation; SERVERLESS_DNS_MODE=none leaves shared records under the current owner."
+fi
 
-echo "Cloudflare serverless custom domains and DNS reconciled for ${zone_name}."
+echo "Cloudflare serverless mode domains and DNS reconciled for ${zone_name} (dns_mode=${serverless_dns_mode})."

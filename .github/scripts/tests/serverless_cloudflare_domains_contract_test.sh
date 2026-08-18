@@ -101,6 +101,7 @@ CLOUDFLARE_ACCOUNT_ID="account-1" \
 CLOUDFLARE_API_TOKEN="test-token" \
 CLOUDFLARE_BOUNDARY_CONFIG="${test_dir}/routing.json" \
 CLOUDFLARE_API_BASE_OVERRIDE="https://cloudflare.invalid/client/v4" \
+SERVERLESS_DNS_MODE="serverless-cutover" \
 "${reconciler}"
 
 if grep -Fq $'POST\thttps://cloudflare.invalid/client/v4/accounts/account-1/pages/projects/ai-workspace-portal-uat/domains' "${test_dir}/curl.log"; then

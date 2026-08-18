@@ -1022,6 +1022,9 @@ jobs:
       needs.provision.outputs.terraform_action == 'apply' &&
       contains(fromJSON('["prod-cutover","uat-records"]'), needs.provision.outputs.dns_mode) }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
+    concurrency:
+      group: public-dns-${{ needs.provision.outputs.deployment_env }}
+      cancel-in-progress: false
     env:
       PROVISION_TARGET_DOMAIN_BASE:  ${{ needs.provision.outputs.target_domain_base }}
       PROVISION_SOURCE_DOMAIN_BASE:  ${{ needs.provision.outputs.source_domain_base }}

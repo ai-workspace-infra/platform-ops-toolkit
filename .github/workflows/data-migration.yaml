@@ -279,7 +279,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: data-migration-${{ github.ref_name }}
+  group: data-migration-${{ inputs.vault_env_path || 'sit' }}-${{ inputs.migration_scope || 'accounts' }}
   cancel-in-progress: false
 
 env:
