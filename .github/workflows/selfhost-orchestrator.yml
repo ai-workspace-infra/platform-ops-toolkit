@@ -705,6 +705,9 @@ jobs:
         # override it for a separately hosted Bridge, but it never falls back
         # to a source-zone URL.
         XWORKMATE_BRIDGE_SERVER_URL:       ${{ env.XWORKMATE_BRIDGE_SERVER_URL || format('https://bridge-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
+        # The VPS Caddy vhosts use the mode-qualified selfhost names. DNS keeps
+        # the public environment aliases separate and points them at these
+        # selfhost targets.
         WEB_SAAS_CONSOLE_DOMAIN:           ${{ format('console-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
         WEB_SAAS_ACCOUNTS_DOMAIN:          ${{ format('accounts-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
         WEB_SAAS_BILLING_DOMAIN:           ${{ format('billing-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
