@@ -59,8 +59,11 @@ expected_console_name="console-${DEPLOY_ENV}.${UAT_ZONE}"
 expected_accounts_name="accounts-${DEPLOY_ENV}.${UAT_ZONE}"
 expected_console_target="console-vps-${DEPLOY_ENV}.${UAT_ZONE}"
 expected_accounts_target="accounts-vps-${DEPLOY_ENV}.${UAT_ZONE}"
+expected_console_vps_name="console-vps-${DEPLOY_ENV}.${UAT_ZONE}"
+expected_accounts_vps_name="accounts-vps-${DEPLOY_ENV}.${UAT_ZONE}"
+expected_billing_vps_name="billing-vps-${DEPLOY_ENV}.${UAT_ZONE}"
 expected_postgresql_name="postgresql-vps-${DEPLOY_ENV}.${UAT_ZONE}"
-expected_agent_proxy_name="agent-proxy-${DEPLOY_ENV}.${UAT_ZONE}"
+expected_agent_proxy_name="agent-proxy-vps-${DEPLOY_ENV}.${UAT_ZONE}"
 canonical_records_json="$(jq -c -er '.spec.runtime.routing.dns.canonical_records' "${GITOPS_ROUTING_CONFIG}")"
 actual_console_target="$(jq -r --arg name "${expected_console_name}" '.[$name] // empty' <<<"${canonical_records_json}")"
 actual_accounts_target="$(jq -r --arg name "${expected_accounts_name}" '.[$name] // empty' <<<"${canonical_records_json}")"
@@ -255,32 +258,24 @@ reconcile_multi_a_records() {
   done < <(jq -r '.result[].id' <<<"${records_response}")
 }
 
-mapfile -t canonical_targets < <(
-  jq -r '.spec.runtime.routing.dns.canonical_records | [.[]] | unique[]' "${GITOPS_ROUTING_CONFIG}"
-)
-for record_target in "${canonical_targets[@]}"; do
-  if [[ "${record_target}" != *."${UAT_ZONE}" ]]; then
-    echo "::error::GitOps canonical target must remain inside ${UAT_ZONE}: ${record_target}" >&2
-    exit 1
-  fi
-  reconcile_record "${record_target}" A "${web_saas_ip}" "${dns_ttl}"
-done
-
 while IFS=$'\t' read -r record_name record_target; do
   [[ -n "${record_name}" && -n "${record_target}" ]] || continue
   reconcile_record "${record_name}" CNAME "${record_target}" "${dns_ttl}"
 done < <(jq -r '.spec.runtime.routing.dns.canonical_records | to_entries[] | [.key, .value] | @tsv' "${GITOPS_ROUTING_CONFIG}")
 
-# PostgreSQL is co-located with the Web SaaS full-stack deployment in UAT.
-# Keep this legacy/public VPS name explicit so a stale Agent Proxy address is
-# repaired during the same guarded reconciliation.
+# These are the deployment-domain records owned by this Web SaaS full-stack
+# deployment. The selected Selfhost VPS route points the public console CNAME
+# at console-vps; console-cloudflare remains the inactive serverless target.
+reconcile_record "${expected_console_vps_name}" A "${web_saas_ip}" 1
+reconcile_record "${expected_accounts_vps_name}" A "${web_saas_ip}" 1
+reconcile_record "${expected_billing_vps_name}" A "${web_saas_ip}" 1
 reconcile_record "${expected_postgresql_name}" A "${web_saas_ip}" 1
 
 if [[ "${#agent_proxy_ips[@]}" -gt 0 ]]; then
   reconcile_multi_a_records "${expected_agent_proxy_name}" 1 "${agent_proxy_ips[@]}"
 fi
 
-record_count=$((canonical_count + ${#canonical_targets[@]} + 1 + ${#agent_proxy_ips[@]}))
+record_count=$((canonical_count + 4 + ${#agent_proxy_ips[@]}))
 agent_proxy_summary=""
 if [[ "${#agent_proxy_ips[@]}" -gt 0 ]]; then
   agent_proxy_summary="$(IFS=', '; echo "${agent_proxy_ips[*]}")"
