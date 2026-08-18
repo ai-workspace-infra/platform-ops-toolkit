@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 reconciler="${repo_root}/scripts/serverless_uat/reconcile_cloudflare_domains.sh"
 test_dir="$(mktemp -d)"
-trap 'rm -rf "${test_dir}"' EXIT
+trap 'rc=$?; rm -rf "${test_dir}"; exit ${rc}' EXIT
 
 mkdir -p "${test_dir}/bin"
 cat >"${test_dir}/routing.json" <<'EOF'
@@ -77,6 +77,12 @@ elif [[ "${url}" == *'/pages/projects/ai-workspace-portal-uat/domains'* && "${me
   printf '%s' '{"success":true,"result":[]}'
 elif [[ "${url}" == *'/workers/domains'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[]}'
+elif [[ "${url}" == *'/dns_records?name=billing-serverless-uat.onwalk.net'* && "${method}" == 'GET' ]]; then
+  printf '%s' '{"success":true,"result":[{"id":"billing-cname","content":"uat-billing-service-1004637461064.asia-northeast1.run.app"}]}'
+elif [[ "${url}" == *'/dns_records?name=console-uat.onwalk.net'* && "${method}" == 'GET' ]]; then
+  printf '%s' '{"success":true,"result":[{"id":"console-alias","content":"console-serverless-uat.onwalk.net"}]}'
+elif [[ "${url}" == *'/dns_records?name=accounts-uat.onwalk.net'* && "${method}" == 'GET' ]]; then
+  printf '%s' '{"success":true,"result":[{"id":"accounts-alias","content":"accounts-serverless-uat.onwalk.net"}]}'
 elif [[ "${url}" == *'/dns_records?name='* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[]}'
 else
@@ -91,15 +97,27 @@ CLOUDFLARE_ACCOUNT_ID="account-1" \
 CLOUDFLARE_API_TOKEN="test-token" \
 CLOUDFLARE_BOUNDARY_CONFIG="${test_dir}/routing.json" \
 CLOUDFLARE_API_BASE_OVERRIDE="https://cloudflare.invalid/client/v4" \
-"${reconciler}" >/dev/null
+"${reconciler}"
 
 if grep -Fq $'POST\thttps://cloudflare.invalid/client/v4/accounts/account-1/pages/projects/ai-workspace-portal-uat/domains' "${test_dir}/curl.log"; then
   echo "Pages must not receive the Console custom domain" >&2
   exit 1
 fi
 worker_puts="$(grep -Fc $'PUT\thttps://cloudflare.invalid/client/v4/accounts/account-1/workers/domains' "${test_dir}/curl.log")"
-test "${worker_puts}" -eq 2
-cname_bodies="$(cut -f3 "${test_dir}/curl.log" | jq -s '[.[] | select(.type == "CNAME")]')"
-test "$(jq 'length' <<<"${cname_bodies}")" -eq 3
-jq -e 'all(.[]; .proxied == true and .ttl == 60)' <<<"${cname_bodies}" >/dev/null
+test "${worker_puts}" -eq 5
+worker_bodies="$(cut -f3 "${test_dir}/curl.log" | jq -s '[.[] | select(type == "object" and .hostname != null)]')"
+if ! jq -e '
+  ((map(select(.hostname == "billing-serverless-uat.onwalk.net" and .service == "edge-gateway-core-uat")) | length) == 1)
+  and ((map(select(.hostname == "console-uat.onwalk.net" and .service == "frontend-router-uat")) | length) == 1)
+  and ((map(select(.hostname == "accounts-uat.onwalk.net" and .service == "edge-gateway-core-uat")) | length) == 1)
+' <<<"${worker_bodies}" >/dev/null; then
+  echo "Unexpected Worker custom-domain bindings: ${worker_bodies}" >&2
+  exit 1
+fi
+dns_deletes="$(grep -Fc $'DELETE\thttps://cloudflare.invalid/client/v4/zones/zone-1/dns_records/' "${test_dir}/curl.log")"
+test "${dns_deletes}" -eq 3
+if grep -Fq $'POST\thttps://cloudflare.invalid/client/v4/zones/zone-1/dns_records' "${test_dir}/curl.log"; then
+  echo "serverless canonical aliases and Billing must not be recreated as DNS CNAMEs" >&2
+  exit 1
+fi
 echo "serverless_cloudflare_domains_contract_test: PASS"

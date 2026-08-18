@@ -2,9 +2,10 @@
 set -euo pipefail
 
 # Reconcile the Cloudflare target domains declared by the serverless
-# EdgeRoutingConfig. The Frontend Router owns the Console target and the core
-# Edge Gateway owns the Accounts target. Pages is an origin behind the router,
-# never an owner of the Console custom domain.
+# EdgeRoutingConfig. Frontend Router owns Console, while the core Edge Gateway
+# owns Accounts and Billing. Canonical aliases are direct Worker Custom Domains
+# when their GitOps target is one of those serverless hosts; Pages and Cloud Run
+# remain origins behind the Workers, never public hostname owners.
 
 CONFIG_FILE="${CLOUDFLARE_BOUNDARY_CONFIG:?CLOUDFLARE_BOUNDARY_CONFIG must point to the rendered GitOps manifest}"
 CLOUDFLARE_API_BASE="${CLOUDFLARE_API_BASE_OVERRIDE:-https://api.cloudflare.com/client/v4}"
@@ -118,6 +119,23 @@ reconcile_worker_domain() {
   echo "Worker custom domain attached: ${hostname} -> ${service}"
 }
 
+remove_declared_cname() {
+  local name="$1"
+  local expected_target="${2:-}"
+  local records_response
+  records_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records?name=${name}&type=CNAME&per_page=100")"
+
+  while IFS=$'\t' read -r record_id record_target; do
+    [[ -n "${record_id}" ]] || continue
+    if [[ -n "${expected_target}" && "${record_target%.}" != "${expected_target%.}" ]]; then
+      echo "DNS CNAME ${name} points to unexpected target ${record_target}; refusing to delete it before Worker binding." >&2
+      return 1
+    fi
+    api_request DELETE "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records/${record_id}" >/dev/null
+    echo "Removed conflicting DNS CNAME: ${name} -> ${record_target}"
+  done < <(jq -r '.result[]? | [.id, .content] | @tsv' <<<"${records_response}")
+}
+
 reconcile_cname_record() {
   local name="$1"
   local target="$2"
@@ -126,11 +144,8 @@ reconcile_cname_record() {
   records_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records?name=${name}&type=CNAME&per_page=10")"
   primary_id="$(jq -r '.result[0].id // empty' <<<"${records_response}")"
   local body
-  # Every record reconciled here is an HTTPS application entry. Keep it
-  # proxied so Cloudflare terminates the public certificate and forwards to
-  # the Worker Custom Domain or Cloud Run origin. DNS-only would expose a
-  # run.app certificate for Billing and leaves canonical aliases without a
-  # routable Cloudflare edge endpoint.
+  # Non-Worker aliases remain HTTPS application entries. Keep them proxied so
+  # Cloudflare terminates the public certificate before forwarding upstream.
   body="$(jq -cn --arg name "${name}" --arg target "${target}" '{type:"CNAME", name:$name, content:$target, ttl:60, proxied:true}')"
   if [[ -z "${primary_id}" ]]; then
     api_request POST "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records" "${body}" >/dev/null
@@ -144,11 +159,24 @@ reconcile_cname_record() {
 safeguard_pages_domain
 reconcile_worker_domain "${console_host}" "${frontend_router_worker}"
 reconcile_worker_domain "${accounts_host}" "${core_worker}"
-reconcile_cname_record "${billing_host}" "${billing_upstream#https://}"
+remove_declared_cname "${billing_host}" "${billing_upstream#https://}"
+reconcile_worker_domain "${billing_host}" "${core_worker}"
 
 while IFS=$'\t' read -r record_name record_target; do
   [[ -n "${record_name}" && -n "${record_target}" ]] || continue
-  reconcile_cname_record "${record_name}" "${record_target}"
+  case "${record_target%.}" in
+    "${console_host%.}")
+      remove_declared_cname "${record_name}" "${record_target}"
+      reconcile_worker_domain "${record_name}" "${frontend_router_worker}"
+      ;;
+    "${accounts_host%.}")
+      remove_declared_cname "${record_name}" "${record_target}"
+      reconcile_worker_domain "${record_name}" "${core_worker}"
+      ;;
+    *)
+      reconcile_cname_record "${record_name}" "${record_target}"
+      ;;
+  esac
 done < <(jq -r '.spec.runtime.routing.dns.canonical_records // {} | to_entries[] | [.key, .value] | @tsv' "${CONFIG_FILE}")
 
 echo "Cloudflare serverless custom domains and DNS reconciled for ${zone_name}."
