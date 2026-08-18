@@ -63,6 +63,24 @@ def main() -> int:
     if weights != {"selfhost": 100, "serverless": 0}:
         fail("runtime.routing.weight must be selfhost=100 and serverless=0")
 
+    public_endpoints = spec.get("public_endpoints", {})
+    expected_access = {
+        "console": "public",
+        "accounts": "authenticated",
+        "billing": "authenticated",
+        "postgresql": "authenticated",
+        "agent-proxy": "public_uuid",
+    }
+    if set(public_endpoints) != set(expected_access):
+        fail("public_endpoints must define exactly console, accounts, billing, postgresql, and agent-proxy")
+    for service, access in expected_access.items():
+        endpoint = public_endpoints[service]
+        expected_host = f"{service}-selfhost-{expected_environment}.{expected_environment_zone}"
+        if endpoint.get("host") != expected_host:
+            fail(f"public_endpoints.{service}.host must be {expected_host}")
+        if endpoint.get("access") != access:
+            fail(f"public_endpoints.{service}.access must be {access}")
+
     expected_services = {"console", "accounts", "content", "billing"}
     if set(services) != expected_services:
         fail("runtime.services must define console, accounts, content, and billing")
@@ -91,8 +109,8 @@ def main() -> int:
     expected_host_zone = expected_environment_zone
     canonical_records = dns.get("canonical_records", {})
     expected_records = {
-        f"console{env_suffix}.{expected_host_zone}": f"console-vps-{expected_environment}.{expected_host_zone}",
-        f"accounts{env_suffix}.{expected_host_zone}": f"accounts-vps-{expected_environment}.{expected_host_zone}",
+        f"console{env_suffix}.{expected_host_zone}": f"console-selfhost-{expected_environment}.{expected_host_zone}",
+        f"accounts{env_suffix}.{expected_host_zone}": f"accounts-selfhost-{expected_environment}.{expected_host_zone}",
     }
     if canonical_records != expected_records:
         fail(

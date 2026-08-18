@@ -53,6 +53,24 @@ def main() -> int:
 
     domains = spec.get("domains", {})
     environment = manifest.get("metadata", {}).get("environment", "")
+    mode_suffix = "svc.plus" if environment == "prod" else "onwalk.net"
+    public_endpoints = spec.get("public_endpoints", {})
+    expected_access = {
+        "console": "public",
+        "accounts": "authenticated",
+        "billing": "authenticated",
+        "postgresql": "authenticated",
+        "agent-proxy": "public_uuid",
+    }
+    if set(public_endpoints) != set(expected_access):
+        raise SystemExit("GitOps public_endpoints must define exactly console, accounts, billing, postgresql, and agent-proxy")
+    for service, access in expected_access.items():
+        endpoint = public_endpoints[service]
+        expected_host = f"{service}-{mode}-{environment}.{mode_suffix}"
+        if endpoint.get("host") != expected_host:
+            raise SystemExit(f"public_endpoints.{service}.host must be {expected_host!r}")
+        if endpoint.get("access") != access:
+            raise SystemExit(f"public_endpoints.{service}.access must be {access!r}")
     required_domains = (
         {"console.svc.plus", "accounts.svc.plus"}
         if environment == "prod"
@@ -102,6 +120,8 @@ def main() -> int:
         raise SystemExit("Serverless console host must match the canonical domain serverless target")
     if hosts["accounts"] != domains[canonical_accounts]["serverless"]:
         raise SystemExit("Serverless accounts host must match the canonical domain serverless target")
+    if serverless.get("billing_host") != f"billing-serverless-{environment}.{mode_suffix}":
+        raise SystemExit("Serverless billing host must use the billing-serverless-<environment> naming contract")
     boundaries = []
     if mode == "serverless":
         assert isinstance(frontend_router, dict)

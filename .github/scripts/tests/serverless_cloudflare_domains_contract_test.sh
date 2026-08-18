@@ -18,8 +18,12 @@ cat >"${test_dir}/routing.json" <<'EOF'
       "pages_project": "ai-workspace-portal-uat"
     },
     "serverless": {
-      "console_host": "console-cloudflare-uat.onwalk.net",
-      "accounts_host": "accounts-cloudflare-uat.onwalk.net",
+      "console_host": "console-serverless-uat.onwalk.net",
+      "accounts_host": "accounts-serverless-uat.onwalk.net",
+      "billing_host": "billing-serverless-uat.onwalk.net",
+      "cloud_run": {
+        "billing_service": "https://uat-billing-service-1004637461064.asia-northeast1.run.app"
+      },
       "frontend_router": {
         "worker_name": "frontend-router-uat"
       },
@@ -60,6 +64,8 @@ if [[ "${url}" == *'/zones?name='* ]]; then
 elif [[ "${url}" == *'/pages/projects/ai-workspace-portal-uat/domains'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[]}'
 elif [[ "${url}" == *'/workers/domains'* && "${method}" == 'GET' ]]; then
+  printf '%s' '{"success":true,"result":[]}'
+elif [[ "${url}" == *'/dns_records?name='* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[]}'
 else
   printf '%s' '{"success":true,"result":{}}'

@@ -53,8 +53,8 @@ cat >"${test_dir}/routing.json" <<'EOF'
           "control_plane": "cloudflare-dns",
           "ttl_seconds": 60,
           "canonical_records": {
-            "console-uat.onwalk.net": "console-vps-uat.onwalk.net",
-            "accounts-uat.onwalk.net": "accounts-vps-uat.onwalk.net"
+            "console-uat.onwalk.net": "console-selfhost-uat.onwalk.net",
+            "accounts-uat.onwalk.net": "accounts-selfhost-uat.onwalk.net"
           }
         },
         "load-balancer": {"strategy": "dns-only"},
@@ -72,11 +72,11 @@ cat >"${test_dir}/cmdb.json" <<'EOF'
     "ip": "45.77.128.182",
     "groups": ["web_saas"]
   },
-  "agent-proxy-vps-uat.onwalk.net": {
+  "agent-proxy-selfhost-uat.onwalk.net": {
     "ip": "167.179.105.137",
     "groups": ["agent_proxy"]
   },
-  "agent-proxy-vps-uat-2.onwalk.net": {
+  "agent-proxy-selfhost-uat-2.onwalk.net": {
     "ip": "167.179.110.129",
     "groups": ["agent_proxy"]
   }
@@ -96,28 +96,28 @@ output="$({
   "${reconciler}"
 } 2>&1)"
 
-grep -Fq 'Created console-vps-uat.onwalk.net -> 45.77.128.182 (A)' <<<"${output}"
-grep -Fq 'Created accounts-vps-uat.onwalk.net -> 45.77.128.182 (A)' <<<"${output}"
-grep -Fq 'Created billing-vps-uat.onwalk.net -> 45.77.128.182 (A)' <<<"${output}"
-grep -Fq 'Created console-uat.onwalk.net -> console-vps-uat.onwalk.net (CNAME)' <<<"${output}"
-grep -Fq 'Created accounts-uat.onwalk.net -> accounts-vps-uat.onwalk.net (CNAME)' <<<"${output}"
-grep -Fq 'Created postgresql-vps-uat.onwalk.net -> 45.77.128.182 (A)' <<<"${output}"
-grep -Fq 'Created agent-proxy-vps-uat.onwalk.net -> 167.179.105.137 (A)' <<<"${output}"
-grep -Fq 'Created agent-proxy-vps-uat.onwalk.net -> 167.179.110.129 (A)' <<<"${output}"
+grep -Fq 'Created console-selfhost-uat.onwalk.net -> 45.77.128.182 (A)' <<<"${output}"
+grep -Fq 'Created accounts-selfhost-uat.onwalk.net -> 45.77.128.182 (A)' <<<"${output}"
+grep -Fq 'Created billing-selfhost-uat.onwalk.net -> 45.77.128.182 (A)' <<<"${output}"
+grep -Fq 'Created console-uat.onwalk.net -> console-selfhost-uat.onwalk.net (CNAME)' <<<"${output}"
+grep -Fq 'Created accounts-uat.onwalk.net -> accounts-selfhost-uat.onwalk.net (CNAME)' <<<"${output}"
+grep -Fq 'Created postgresql-selfhost-uat.onwalk.net -> 45.77.128.182 (A)' <<<"${output}"
+grep -Fq 'Created agent-proxy-selfhost-uat.onwalk.net -> 167.179.105.137 (A)' <<<"${output}"
+grep -Fq 'Created agent-proxy-selfhost-uat.onwalk.net -> 167.179.110.129 (A)' <<<"${output}"
 grep -Fq 'completed for 8 desired records' <<<"${output}"
 
 cut -f3 "${test_dir}/curl.log" | jq -s -e \
-  'any(.[]; .type == "A" and .name == "console-vps-uat.onwalk.net" and .content == "45.77.128.182")' >/dev/null
+  'any(.[]; .type == "A" and .name == "console-selfhost-uat.onwalk.net" and .content == "45.77.128.182")' >/dev/null
 cut -f3 "${test_dir}/curl.log" | jq -s -e \
-  'any(.[]; .type == "A" and .name == "accounts-vps-uat.onwalk.net" and .content == "45.77.128.182")' >/dev/null
+  'any(.[]; .type == "A" and .name == "accounts-selfhost-uat.onwalk.net" and .content == "45.77.128.182")' >/dev/null
 cut -f3 "${test_dir}/curl.log" | jq -s -e \
-  'any(.[]; .type == "A" and .name == "billing-vps-uat.onwalk.net" and .content == "45.77.128.182")' >/dev/null
+  'any(.[]; .type == "A" and .name == "billing-selfhost-uat.onwalk.net" and .content == "45.77.128.182")' >/dev/null
 cut -f3 "${test_dir}/curl.log" | jq -s -e \
-  'any(.[]; .type == "A" and .name == "postgresql-vps-uat.onwalk.net" and .content == "45.77.128.182")' >/dev/null
+  'any(.[]; .type == "A" and .name == "postgresql-selfhost-uat.onwalk.net" and .content == "45.77.128.182")' >/dev/null
 cut -f3 "${test_dir}/curl.log" | jq -s -e \
-  'any(.[]; .type == "A" and .name == "agent-proxy-vps-uat.onwalk.net" and .content == "167.179.105.137")' >/dev/null
+  'any(.[]; .type == "A" and .name == "agent-proxy-selfhost-uat.onwalk.net" and .content == "167.179.105.137")' >/dev/null
 cut -f3 "${test_dir}/curl.log" | jq -s -e \
-  'any(.[]; .type == "A" and .name == "agent-proxy-vps-uat.onwalk.net" and .content == "167.179.110.129")' >/dev/null
+  'any(.[]; .type == "A" and .name == "agent-proxy-selfhost-uat.onwalk.net" and .content == "167.179.110.129")' >/dev/null
 
 cat >"${test_dir}/duplicate-cmdb.json" <<'EOF'
 {
@@ -125,7 +125,7 @@ cat >"${test_dir}/duplicate-cmdb.json" <<'EOF'
     "ip": "45.77.128.182",
     "groups": ["web_saas"]
   },
-  "agent-proxy-vps-uat.onwalk.net": {
+  "agent-proxy-selfhost-uat.onwalk.net": {
     "ip": "45.77.128.182",
     "groups": ["agent_proxy"]
   }
@@ -149,6 +149,6 @@ duplicate_exit=$?
 set -e
 
 [[ "${duplicate_exit}" -ne 0 ]]
-grep -Fq 'agent-proxy host agent-proxy-vps-uat.onwalk.net shares Web SaaS IP 45.77.128.182' <<<"${duplicate_output}"
+grep -Fq 'agent-proxy host agent-proxy-selfhost-uat.onwalk.net shares Web SaaS IP 45.77.128.182' <<<"${duplicate_output}"
 
 echo "platform_ops_uat_dns_target_records_test: PASS"
