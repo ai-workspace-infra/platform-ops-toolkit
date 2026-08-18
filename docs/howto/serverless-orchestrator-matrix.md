@@ -26,10 +26,9 @@ DNS → Cloudflare edge → edge-gateway
                     └── selfhost primary → Cloud Run request-level fallback
 ```
 
-Canonical DNS is the top-level switch. UAT uses `console-uat.onwalk.net` and
-`accounts-uat.onwalk.net`; their `selfhost` and `serverless` CNAME targets, TTL, and desired mode
-are
-declared in:
+Canonical DNS is an explicit traffic cutover switch, not a side effect of every deployment. UAT
+uses `console-uat.onwalk.net` and `accounts-uat.onwalk.net`; their `selfhost` and `serverless`
+targets, TTL, and desired mode are declared in:
 
 ```text
 ai-workspace-infra/gitops/topology/uat/serverless/runtime-topology.yaml
@@ -50,6 +49,15 @@ The Serverless workflow actively reconciles and verifies Console, Accounts, and 
 and Agent-Proxy keep provider-owned authenticated/UUID validation paths until their deployment
 provider exposes an equivalent adapter.
 
+The mode-qualified entries can coexist as separate DNS names. A normal Serverless deployment uses
+`dns_mode=none`, publishes only the `*-serverless-uat` entries, and verifies those entries directly;
+it does not rewrite `console-uat.onwalk.net` or `accounts-uat.onwalk.net`. The Serverless workflow
+may change the canonical aliases only with the explicit `dns_mode=serverless-cutover` input.
+Selfhost uses its own `dns_mode=uat-records` or `dns_mode=prod-cutover` inputs. The two DNS jobs
+share the `public-dns-<environment>` concurrency group, so only one public cutover can run at a
+time. Distinct hostnames may each have a CNAME; the same hostname cannot have two CNAME targets or
+weighted DNS behavior on the free DNS tier.
+
 The serverless workflow requires the serverless pre-configuration at
 `spec.runtime.mode: serverless`. The hybrid workflow independently uses the hybrid pre-configuration
 with selfhost weight 100 and Serverless weight 0; the hybrid
@@ -57,26 +65,28 @@ workflow owns the request-level selfhost→Cloud Run failover.
 
 ## Deployment stages and dependencies
 
-Deployment order is intentionally separate from request topology:
+Deployment order is intentionally separate from request topology. The application targets run in
+parallel after preflight, then readiness is the single fan-in:
 
 ```text
-Supabase / xworktech
-        │
-        ▼
-Cloud Run / accounts, content-service, billing-service
-        │
-        ▼
-Cloudflare / SSR / public, content, auth, console, workspace
-        │
-        ▼
-edge-gateway / auth, admin, core
-        │
-        ▼
-Cloudflare Pages / static assets
-        │
-        ▼
-Verify / Summary
+                         preflight
+             ┌──────────────┼──────────────┐
+             ▼              ▼              ▼
+      Supabase       Cloud Run       Cloudflare
+                                      SSR / Router /
+                                      Gateway / Pages
+             └──────────────┼──────────────┘
+                            ▼
+                  Readiness / public chain
+                            ▼
+                    Migrate (if selected)
+                            ▼
+                      Verify / Summary
 ```
+
+Supabase, Cloud Run, SSR, Frontend Router, Edge Gateway, and Pages depend only on `preflight` and
+run in parallel. Migration runs after readiness and is serialized by the shared data-migration
+concurrency group for the environment and migration scope.
 
 `edge-gateway` is a required stage. selfhost→Cloud Run request-level failover is enabled only
 when `spec.runtime.mode` is `hybrid`; `serverless` routes directly to Cloud Run and `selfhost` is
@@ -125,7 +135,8 @@ GitOps reserves both database endpoints under `spec.runtime.data`:
 
 Before a DNS cutover, the operator must validate lag, quiesce writes, promote exactly one writer,
 switch the canonical CNAME, and run Verify / Summary. Rollback reverses those steps without
-overwriting or deleting DTS checkpoints.
+overwriting or deleting DTS checkpoints. DNS cutover is controlled by the workflow input, not by
+the GitOps topology alone.
 
 ## Manual inputs
 
@@ -147,7 +158,12 @@ vault_env_path=uat                 # default
 tag_ref=daily-build-YYYY.MM.DD-rN  # required immutable snapshot
 deploy_cloud_run=true              # default
 deploy_cloudflare=true             # default
+dns_mode=none                      # default; use serverless-cutover only for an intentional switch
 ```
+
+`dns_mode=none` is the safe default. `dns_mode=serverless-cutover` is accepted only with
+`operation=deploy` or `operation=deploy+migrate` and `deploy_cloudflare=true`; it is the only
+Serverless path that changes the shared canonical Console/Accounts records.
 
 `tag_ref` is required only for `deploy` and `deploy+migrate`. The `operation` input is the
 control-plane authority that selects whether the migration job runs. GitOps declares data

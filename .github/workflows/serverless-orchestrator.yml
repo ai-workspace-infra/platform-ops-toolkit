@@ -47,6 +47,14 @@ on:
         required: false
         default: true
         type: boolean
+      dns_mode:
+        description: 'Canonical DNS 行为：none 仅部署模式域名；serverless-cutover 显式接管 console/accounts canonical（普通部署不会改 canonical）'
+        required: false
+        default: 'none'
+        type: choice
+        options:
+          - none
+          - serverless-cutover
 jobs:
   preflight:
     name: Validate / Dispatch inputs
@@ -85,6 +93,7 @@ jobs:
           TAG_REF: ${{ inputs.tag_ref }}
           DEPLOY_CLOUDFLARE: ${{ inputs.deploy_cloudflare }}
           DEPLOY_CLOUD_RUN: ${{ inputs.deploy_cloud_run }}
+          SERVERLESS_DNS_MODE: ${{ inputs.dns_mode || 'none' }}
 
   supabase:
     name: Supabase / xworktech
@@ -510,6 +519,9 @@ jobs:
       (needs.frontend_router.result == 'success' || needs.frontend_router.result == 'skipped') &&
       (needs.edge_gateway.result == 'success' || needs.edge_gateway.result == 'skipped') &&
       (needs.static_pages.result == 'success' || needs.static_pages.result == 'skipped') }}
+    concurrency:
+      group: public-dns-${{ inputs.vault_env_path || 'uat' }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:
       - name: Checkout platform toolkit
@@ -552,11 +564,13 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          SERVERLESS_DNS_MODE: ${{ inputs.dns_mode || 'none' }}
 
       - name: Verify public Console to Accounts CORS chain
         run: ./scripts/serverless_uat/verify_serverless_public_chain.sh
         env:
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          SERVERLESS_DNS_MODE: ${{ inputs.dns_mode || 'none' }}
 
   trigger_data_migration:
     name: Data Migration / Supabase

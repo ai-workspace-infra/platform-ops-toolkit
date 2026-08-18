@@ -6,6 +6,16 @@ operation="${OPERATION:-plan}"
 tag_ref="${TAG_REF:-}"
 deploy_cloudflare="${DEPLOY_CLOUDFLARE:-false}"
 deploy_cloud_run="${DEPLOY_CLOUD_RUN:-false}"
+serverless_dns_mode="${SERVERLESS_DNS_MODE:-none}"
+
+case "${serverless_dns_mode}" in
+  none|serverless-cutover)
+    ;;
+  *)
+    echo "SERVERLESS_DNS_MODE must be one of: none, serverless-cutover" >&2
+    exit 2
+    ;;
+esac
 
 case "${operation}" in
   plan|init-schema|migrate|destroy)
@@ -21,6 +31,17 @@ case "${operation}" in
     exit 2
     ;;
 esac
+
+if [[ "${serverless_dns_mode}" == "serverless-cutover" ]] &&
+   [[ "${operation}" != "deploy" && "${operation}" != "deploy+migrate" ]]; then
+  echo "serverless-cutover requires operation=deploy or operation=deploy+migrate" >&2
+  exit 2
+fi
+
+if [[ "${serverless_dns_mode}" == "serverless-cutover" && "${deploy_cloudflare}" != "true" ]]; then
+  echo "serverless-cutover requires deploy_cloudflare=true" >&2
+  exit 2
+fi
 
 if [[ "${operation}" == "deploy" || "${operation}" == "deploy+migrate" ]]; then
   case "${environment}" in
@@ -54,4 +75,4 @@ if [[ "${operation}" == "deploy" || "${operation}" == "deploy+migrate" ]] &&
   exit 2
 fi
 
-echo "Dispatch validated: operation=${operation}, environment=${environment}, tag_ref=${tag_ref}"
+echo "Dispatch validated: operation=${operation}, environment=${environment}, tag_ref=${tag_ref}, dns_mode=${serverless_dns_mode}"

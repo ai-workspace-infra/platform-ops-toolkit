@@ -12,6 +12,7 @@ run_case() {
   TAG_REF="${tag_ref}" \
   DEPLOY_CLOUDFLARE=true \
   DEPLOY_CLOUD_RUN=true \
+  SERVERLESS_DNS_MODE=none \
   "${validate_script}"
 }
 
@@ -34,6 +35,24 @@ fi
 
 if OPERATION=deploy VAULT_ENV_PATH=uat TAG_REF=daily-build-2026.08.17-r1 DEPLOY_CLOUDFLARE=false DEPLOY_CLOUD_RUN=false "${validate_script}" >/dev/null 2>&1; then
   echo "deploy without an application target unexpectedly succeeded" >&2
+  exit 1
+fi
+
+SERVERLESS_DNS_MODE=serverless-cutover \
+OPERATION=deploy \
+VAULT_ENV_PATH=uat \
+TAG_REF=daily-build-2026.08.17-r1 \
+DEPLOY_CLOUDFLARE=true \
+DEPLOY_CLOUD_RUN=true \
+"${validate_script}" >/dev/null
+
+if SERVERLESS_DNS_MODE=serverless-cutover OPERATION=migrate VAULT_ENV_PATH=uat DEPLOY_CLOUDFLARE=true DEPLOY_CLOUD_RUN=true "${validate_script}" >/dev/null 2>&1; then
+  echo "serverless-cutover unexpectedly accepted for migrate" >&2
+  exit 1
+fi
+
+if SERVERLESS_DNS_MODE=serverless-cutover OPERATION=deploy VAULT_ENV_PATH=uat TAG_REF=daily-build-2026.08.17-r1 DEPLOY_CLOUDFLARE=false DEPLOY_CLOUD_RUN=true "${validate_script}" >/dev/null 2>&1; then
+  echo "serverless-cutover unexpectedly accepted without Cloudflare deployment" >&2
   exit 1
 fi
 

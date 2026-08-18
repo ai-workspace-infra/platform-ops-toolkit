@@ -52,8 +52,14 @@ jobs:
     - name: Verify serverless Cloudflare domain contract
       run: bash .github/scripts/tests/serverless_cloudflare_domains_contract_test.sh
 
+    - name: Verify serverless canonical DNS ownership guard
+      run: bash .github/scripts/tests/serverless_canonical_dns_guard_test.sh
+
     - name: Verify serverless deployment runs in parallel before readiness
       run: bash .github/scripts/tests/serverless_orchestrator_parallelism_test.sh
+
+    - name: Verify public DNS and migration concurrency boundaries
+      run: bash .github/scripts/tests/public_state_concurrency_contract_test.sh
 
     - name: Verify serverless operation control-plane boundary
       run: bash .github/scripts/tests/serverless_boundary_migration_operation_test.sh
