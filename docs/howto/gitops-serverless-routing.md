@@ -18,6 +18,8 @@ an application artifact. Repository-local config files remain compatibility fall
 standalone local builds; the orchestrator does not use those fallbacks.
 
 The YAML declaration owns domains, Worker names, Pages project, route boundaries, and VPS/Cloud
-Run origin policy. The workflow renders it to a temporary JSON document for existing consumers;
+Run origin policy. For Billing, `spec.serverless.billing_origin_host` is a separate same-zone
+DNS-only CNAME used by the Cloudflare Origin Rule and must not equal `billing_host`. The workflow
+renders it to a temporary JSON document for existing consumers;
 that generated file is never committed. Secrets are still loaded from Vault through GitHub OIDC
 and are never committed to GitOps.

@@ -4,7 +4,8 @@ set -euo pipefail
 # Reconcile the Cloudflare target domains declared by the serverless
 # EdgeRoutingConfig. Frontend Router owns Console and the core Edge Gateway
 # owns Accounts. Billing is a direct Cloudflare-to-Cloud-Run collector entry;
-# its origin rule rewrites the upstream DNS/Host/SNI to the native run.app name.
+# its origin rule uses a DNS-only, same-zone origin alias for the DNS override,
+# while Host/SNI remain the native run.app name.
 # Canonical Console/Accounts aliases are changed only during an explicit
 # serverless cutover. A normal deployment must not take ownership of the
 # shared canonical records from selfhost.
@@ -43,6 +44,7 @@ pages_project="$(jq -er '.spec.cloudflare.pages_project' "${CONFIG_FILE}")"
 console_host="$(jq -er '.spec.serverless.console_host' "${CONFIG_FILE}")"
 accounts_host="$(jq -er '.spec.serverless.accounts_host' "${CONFIG_FILE}")"
 billing_host="$(jq -er '.spec.serverless.billing_host' "${CONFIG_FILE}")"
+billing_origin_host="$(jq -er '.spec.serverless.billing_origin_host' "${CONFIG_FILE}")"
 billing_upstream="$(jq -er '.spec.serverless.cloud_run.billing_service' "${CONFIG_FILE}")"
 frontend_router_worker="$(jq -er '.spec.serverless.frontend_router.worker_name' "${CONFIG_FILE}")"
 core_worker="$(jq -er '.spec.serverless.edge_gateway.boundaries[] | select(.id == "core") | .worker_name' "${CONFIG_FILE}")"
@@ -68,6 +70,10 @@ api_request() {
   fi
   if ! response="$(curl "${curl_args[@]}" "${url}")"; then
     echo "Cloudflare API request failed: ${method} ${url}" >&2
+    if [[ -n "${response:-}" ]]; then
+      echo "Cloudflare API error body:" >&2
+      jq -c '.' <<<"${response}" >&2 || printf '%s\n' "${response}" >&2
+    fi
     return 1
   fi
   if ! jq -e '.success == true' >/dev/null <<<"${response}"; then
@@ -174,11 +180,18 @@ ensure_billing_origin_rule() {
   billing_rule="$(jq -cn \
     --arg expression "${expression}" \
     --arg origin "${billing_upstream#https://}" \
-    '{ref:"serverless_billing_cloud_run_origin", description:"Route the Billing collector directly to Cloud Run", expression:$expression, action:"route", action_parameters:{host_header:$origin, origin:{host:$origin}, sni:{value:$origin}}}')"
-  rules="$(jq -c --argjson rule "${billing_rule}" '.result.rules // [] | map(select(.ref != $rule.ref)) + [$rule]' <<<"${ruleset_response}")"
+    --arg origin_host "${billing_origin_host}" \
+    '{ref:"serverless_billing_cloud_run_origin", description:"Route the Billing collector directly to Cloud Run", expression:$expression, action:"route", action_parameters:{host_header:$origin, origin:{host:$origin_host}, sni:{value:$origin}}}')"
+  # PUT replaces the complete rule list. Strip response-only metadata before
+  # sending existing rules back; the API accepts writable rule properties only.
+  rules="$(jq -c --argjson rule "${billing_rule}" '
+    (.result.rules // [])
+    | map(del(.id, .version, .created_at, .created_by, .last_updated, .last_updated_by))
+    | map(select(.ref != $rule.ref)) + [$rule]
+  ' <<<"${ruleset_response}")"
   body="$(jq -cn --argjson rules "${rules}" '{rules:$rules}')"
   api_request PUT "${rulesets_url}/${ruleset_id}" "${body}" >/dev/null
-  echo "Cloudflare Origin Rule reconciled: ${billing_host} -> ${billing_upstream#https://}"
+  echo "Cloudflare Origin Rule reconciled: ${billing_host} -> ${billing_origin_host} -> ${billing_upstream#https://}"
 }
 
 remove_declared_cname() {
@@ -201,14 +214,15 @@ remove_declared_cname() {
 reconcile_cname_record() {
   local name="$1"
   local target="$2"
+  local proxied="${3:-true}"
   local records_response
   local primary_id
   records_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records?name=${name}&type=CNAME&per_page=10")"
   primary_id="$(jq -r '.result[0].id // empty' <<<"${records_response}")"
   local body
-  # Non-Worker aliases remain HTTPS application entries. Keep them proxied so
-  # Cloudflare terminates the public certificate before forwarding upstream.
-  body="$(jq -cn --arg name "${name}" --arg target "${target}" '{type:"CNAME", name:$name, content:$target, ttl:60, proxied:true}')"
+  # Public entries stay proxied; the Billing origin alias must remain DNS-only
+  # so the Origin Rule cannot recurse through Cloudflare.
+  body="$(jq -cn --arg name "${name}" --arg target "${target}" --argjson proxied "${proxied}" '{type:"CNAME", name:$name, content:$target, ttl:60, proxied:$proxied}')"
   if [[ -z "${primary_id}" ]]; then
     api_request POST "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records" "${body}" >/dev/null
     echo "Created DNS CNAME: ${name} -> ${target}"
@@ -223,6 +237,7 @@ reconcile_worker_domain "${console_host}" "${frontend_router_worker}"
 reconcile_worker_domain "${accounts_host}" "${core_worker}"
 detach_worker_domain "${billing_host}" "${core_worker}"
 reconcile_cname_record "${billing_host}" "${billing_upstream#https://}"
+reconcile_cname_record "${billing_origin_host}" "${billing_upstream#https://}" false
 ensure_billing_origin_rule
 
 if [[ "${serverless_dns_mode}" != "none" ]]; then

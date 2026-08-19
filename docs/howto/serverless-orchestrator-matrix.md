@@ -63,6 +63,18 @@ The serverless workflow requires the serverless pre-configuration at
 with selfhost weight 100 and Serverless weight 0; the hybrid
 workflow owns the request-level selfhost→Cloud Run failover.
 
+### Billing Cloud Run origin alias
+
+The serverless topology also declares `spec.serverless.billing_origin_host`, for example
+`billing-origin-serverless-uat.onwalk.net`. The `serverless_domains` job reconciles this
+hostname as a **DNS-only CNAME** to the Billing Cloud Run `run.app` hostname. It is an
+origin-only alias and must not be proxied or exposed as the public Billing endpoint.
+
+The Cloudflare Origin Rule uses the alias for `action_parameters.origin.host`, while the
+Cloud Run `run.app` hostname remains the `host_header` and TLS SNI. Terraform's
+`serverless_uat` module and the Ansible `saas/serverless_uat` role manage the same alias
+for non-orchestrator runs; Cloud Run Preview domain mapping is not required.
+
 ## Deployment stages and dependencies
 
 Deployment order is intentionally separate from request topology. The application targets run in
@@ -116,6 +128,7 @@ manifest to every Cloudflare consumer. The manifest must define:
 - `spec.runtime.mode` (`selfhost`, `serverless`, or `hybrid`), routing, services, and data handover;
 - flat `spec.domains` entries with both `selfhost` and `serverless` targets;
 - Cloudflare zone and Pages project;
+- `spec.serverless.billing_origin_host` as a separate DNS-only same-zone Billing origin alias;
 - exactly five `spec.serverless.ssr` boundaries;
 - `auth`, `admin`, and `core` in `spec.serverless.edge_gateway`, with `core` owning `/api/*`;
 - both database modes and an async DTS reservation under `spec.runtime.data.migration`.
