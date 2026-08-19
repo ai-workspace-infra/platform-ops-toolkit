@@ -33,8 +33,13 @@ kv/data/<env>/serverless/supabase
   DATABASE_DIRECT_URL         = postgres://postgres:...@db.rbjnksmfzkjheiwpkaem.supabase.co:5432/postgres
 
 kv/data/<env>/accounts-migration
-  MIGRATION_SOURCE_DSN = postgres://readonly:...@<vps-postgres-host>/account
+  MIGRATION_SOURCE_DSN = postgres://readonly:...@<vps-postgres-host>:5432/account?sslmode=require
 ```
+
+`MIGRATION_SOURCE_DSN` 必须是 migration runner 可达的只读源库地址，不能使用
+`127.0.0.1`、`localhost` 或 `::1` 这类仅对另一台机器上的 SSH/stunnel 隧道有效的地址。
+当前工作流不会创建该隧道；如源库没有可达的 PostgreSQL 端点，先在具备网络连通性的
+self-hosted runner 上建立受管隧道，再以明确的迁移设计执行。
 
 Session pooler（`pooler.supabase.com:5432`）适合当前 IPv4 VPS 和迁移 runner，也可以
 用于 `pg_dump/psql`。Transaction pooler（端口 `6543`）仅适合短请求应用流量，迁移脚本
@@ -57,6 +62,7 @@ Content 表；它接入 Supabase 运行时时继续保持数据库可选。
 
 业务数据可能包含密码哈希、session、MFA secret 等敏感字段，正式执行前必须完成数据
 分类确认。若 GitHub hosted runner 无法访问 VPS PostgreSQL，使用 `runner_type=self-hosted`，
-并确保 runner 同时可达源 VPS 和 Supabase 目标端点。VPS 的 Accounts/Billing 运行时
+并确保 runner 同时可达源 VPS 和 Supabase 目标端点，且 Vault 中仍使用可明确审计的源库
+地址而非 Runner loopback。VPS 的 Accounts/Billing 运行时
 建议使用 Session pooler；只有在应用明确兼容 transaction pooling（关闭 prepared
 statement/session state 依赖）时，才考虑 `6543` Transaction pooler。
