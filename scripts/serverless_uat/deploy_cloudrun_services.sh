@@ -64,6 +64,13 @@ for svc in "${SERVICES[@]}"; do
         "SMTP_PORT=${SMTP_PORT:-587}"
         "SMTP_FROM=${SMTP_FROM:-XControl Account <no-reply@example.com>}"
       )
+      # Browser origins the accounts CORS middleware must accept, derived by the
+      # orchestrator from the GitOps console host. Without it gin-contrib/cors
+      # aborts every browser login with an empty 403 that the portal can only
+      # render as a generic error.
+      if [[ -n "${ALLOWED_ORIGINS:-}" ]]; then
+        env_vars+=("ALLOWED_ORIGINS=${ALLOWED_ORIGINS}")
+      fi
       ;;
     content-service)
       env_vars+=(
