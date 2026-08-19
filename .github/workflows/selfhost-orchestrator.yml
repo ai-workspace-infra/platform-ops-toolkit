@@ -1449,7 +1449,7 @@ jobs:
         AGENT_CONTROLLER_IP: ${{ steps.controller.outputs.ip }}
         AGENT_REPO_VERSION: ${{ contains(needs.provision.outputs.deploy_tag, 'daily-build') && 'main' || needs.provision.outputs.deploy_tag }}
         AGENT_ID: ${{ matrix.host }}
-        AGENT_PROXY_DOMAIN: ${{ format('agent-proxy-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
+        AGENT_PROXY_DOMAIN: ${{ format('agent-proxy-vps-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
         AGENT_DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
         BILLING_SERVICE_BASE_URL: ${{ format('https://billing-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
         AGENT_XRAY_ENABLED: "true"

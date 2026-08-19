@@ -43,7 +43,7 @@ Every mode profile also declares the five public service entrances in
 | Accounts | authenticated | `accounts-serverless-uat.onwalk.net` | `accounts-selfhost-uat.onwalk.net` |
 | Billing | authenticated | `billing-serverless-uat.onwalk.net` | `billing-selfhost-uat.onwalk.net` |
 | PostgreSQL | authenticated | `postgresql-serverless-uat.onwalk.net` | `postgresql-selfhost-uat.onwalk.net` |
-| Agent-Proxy | public UUID validation | `agent-proxy-serverless-uat.onwalk.net` | `agent-proxy-selfhost-uat.onwalk.net` |
+| Agent-Proxy | public UUID validation | `agent-proxy-serverless-uat.onwalk.net` | `agent-proxy-vps-uat.onwalk.net` |
 
 The Serverless workflow actively reconciles and verifies Console, Accounts, and Billing. PostgreSQL
 and Agent-Proxy keep provider-owned authenticated/UUID validation paths until their deployment
