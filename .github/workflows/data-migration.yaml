@@ -227,12 +227,6 @@ on:
         required: false
         default: "DATABASE_SESSION_POOLER_URL"
         type: string
-      supabase_target_connection_mode:
-        description: "Supabase 目标连接：session_pooler（IPv4 默认）或 direct"
-        required: false
-        default: "session_pooler"
-        type: choice
-        options: [session_pooler, direct]
       supabase_source_vault_path:
         description: "源 PostgreSQL Vault 路径（留空使用 kv/data/<env>/accounts-migration）"
         required: false
