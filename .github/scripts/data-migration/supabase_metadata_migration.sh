@@ -33,6 +33,11 @@ if [[ -z "${SOURCE_DSN}" || -z "${TARGET_DSN}" ]]; then
   echo "ERROR: source and Supabase target DSNs are required from Vault." >&2
   exit 1
 fi
+if [[ "${SOURCE_DSN}" =~ @((127\.0\.0\.1)|localhost|\[::1\])(:|/|\?) ]]; then
+  echo "ERROR: MIGRATION_SOURCE_DSN targets runner loopback and cannot be used by this workflow." >&2
+  echo "       Store a reachable, read-only VPS PostgreSQL DSN in Vault instead of a local tunnel endpoint." >&2
+  exit 1
+fi
 if [[ -z "${VAULT_REF}" ]]; then
   echo "ERROR: Supabase Vault is missing PROJECT_REF." >&2
   exit 1
