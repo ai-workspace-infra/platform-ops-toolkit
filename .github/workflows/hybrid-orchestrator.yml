@@ -1,5 +1,20 @@
 name: Hybrid Orchestrator
 
+# Hybrid is a routing policy, not a third deployment target.
+#
+# The Cloudflare edge chain — Pages, frontend-router, the five SSR Workers, the
+# three edge-gateway Workers, and the Cloud Run services behind them — is built
+# and owned by serverless-orchestrator. The VPS full stack is built and owned by
+# selfhost-orchestrator. This workflow deploys no images and creates no DNS
+# records. It redeploys the three edge-gateway Workers with RUNTIME_MODE=hybrid
+# so that each API request is served by the selfhost primary and, when the
+# primary cannot answer it, retried against Cloud Run.
+#
+# Failing an environment all the way back to the selfhost full stack is a manual
+# operation: repoint the canonical console/accounts CNAMEs at the selfhost
+# targets that GitOps declares under spec.domains. GitOps declares both targets;
+# nothing here switches between them.
+
 permissions:
   id-token: write
   contents: read
@@ -7,35 +22,27 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
+      operation:
+        description: '执行范围：plan 仅校验 hybrid 契约；deploy 校验并把三个 edge-gateway 边界切到 hybrid 策略'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - deploy
       vault_env_path:
         description: 'Target environment'
         required: false
         default: 'uat'
         type: choice
-        options: [dev, sit, uat, prod]
-      tag_ref:
-        description: 'Unified immutable tag for Cloud Run and edge-gateway (for example daily-build-2026.08.17-r1)'
-        required: true
-        type: string
-      deploy_cloud_run:
-        description: 'Deploy the Cloud Run fallback services'
-        required: false
-        default: true
-        type: boolean
-      deploy_edge_gateway:
-        description: 'Deploy the hybrid edge-gateway boundaries'
-        required: false
-        default: true
-        type: boolean
-      verify:
-        description: 'Validate the hybrid contract and publish the summary'
-        required: false
-        default: true
-        type: boolean
+        options:
+          - sit
+          - uat
+          - prod
 
 jobs:
-  contract:
-    name: Contract / hybrid routing
+  preflight:
+    name: Validate / Hybrid contract
     runs-on: ubuntu-latest
     steps:
       - name: Checkout platform toolkit
@@ -45,89 +52,60 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/gitops
+          # GitOps runtime topology is the environment configuration source of
+          # truth; it stays on main because it describes the environment rather
+          # than a deployable artifact. Both mode declarations are needed: the
+          # hybrid contract is defined relative to its serverless sibling.
           ref: main
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             topology/${{ inputs.vault_env_path || 'uat' }}/hybrid/runtime-topology.yaml
+            topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
 
-      - name: Render GitOps runtime topology YAML
+      - name: Render GitOps hybrid runtime topology
         run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
         env:
           GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/hybrid/runtime-topology.yaml
-          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
+          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/hybrid-routing.json
 
-      - name: Validate hybrid boundary contract
+      - name: Render GitOps serverless runtime topology
+        run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+        env:
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/serverless-routing.json
+
+      - name: Validate hybrid GitOps contract
         run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
         env:
-          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/hybrid-routing.json
           REQUIRED_RUNTIME_MODE: hybrid
 
-      - name: Upload rendered routing contract
-        uses: actions/upload-artifact@v7
-        with:
-          name: hybrid-edge-routing-config
-          path: ${{ runner.temp }}/edge-routing.json
-          if-no-files-found: error
-
-  cloud_run_fallback:
-    name: Cloud Run fallback / ${{ matrix.service }}
-    needs: contract
-    if: ${{ inputs.deploy_cloud_run == true }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        service: [accounts, content-service, billing-service]
-    steps:
-      - name: Checkout platform toolkit
-        uses: actions/checkout@v7
-
-      - name: Download routing contract
-        uses: actions/download-artifact@v8
-        with:
-          name: hybrid-edge-routing-config
-          path: ${{ runner.temp }}/hybrid-routing
-
-      - name: Authenticate to Vault with GitHub OIDC
-        id: vault
-        uses: hashicorp/vault-action@v4
-        with:
-          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
-          method: jwt
-          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
-          jwtGithubAudience: vault
-          exportToken: true
-          secrets: |
-            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_WORKLOAD_IDENTITY_PROVIDER | GCP_WORKLOAD_IDENTITY_PROVIDER ;
-            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ steps.vault.outputs.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ steps.vault.outputs.GCP_SERVICE_ACCOUNT_EMAIL }}
-
-      - name: Set up Google Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Deploy Cloud Run fallback service
-        run: ./.github/scripts/platform-ops/deploy/uat_orchestrator_runner.sh
+      - name: Validate serverless GitOps contract
+        run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
         env:
-          VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
-          VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
-          DEPLOY_ENV: ${{ inputs.vault_env_path || 'uat' }}
-          IMAGE_TAG: ${{ inputs.tag_ref }}
-          DEPLOY_CLOUDFLARE: 'false'
-          DEPLOY_CLOUD_RUN: 'true'
-          VERIFY_SUPABASE: 'false'
-          CLOUD_RUN_SERVICE: ${{ matrix.service }}
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/serverless-routing.json
+          REQUIRED_RUNTIME_MODE: serverless
 
-  edge_gateway_failover:
-    name: Hybrid / ${{ matrix.display_name }}
-    needs: [contract, cloud_run_fallback]
-    if: ${{ always() && inputs.deploy_edge_gateway == true && needs.contract.result == 'success' && (needs.cloud_run_fallback.result == 'success' || needs.cloud_run_fallback.result == 'skipped') }}
+      - name: Verify hybrid reuses the serverless edge inventory
+        run: ./.github/scripts/serverless/verify_hybrid_contract.sh
+        env:
+          HYBRID_CONFIG: ${{ runner.temp }}/hybrid-routing.json
+          SERVERLESS_CONFIG: ${{ runner.temp }}/serverless-routing.json
+
+  edge_gateway:
+    name: Cloudflare / ${{ matrix.display_name }}
+    needs: preflight
+    if: ${{ needs.preflight.result == 'success' && inputs.operation == 'deploy' }}
     runs-on: ubuntu-latest
+    # The hybrid and serverless orchestrators deploy the same three Worker names
+    # on the same routes and differ only in the vars they set, so they must never
+    # write the same boundary at the same time. The group is per boundary: a
+    # group shared by all three matrix legs would make GitHub cancel the queued
+    # legs instead of serialising them.
+    concurrency:
+      group: edge-gateway-${{ inputs.vault_env_path || 'uat' }}-${{ matrix.boundary }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:
@@ -142,17 +120,35 @@ jobs:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
 
-      - name: Download routing contract
-        uses: actions/download-artifact@v8
+      - name: Checkout GitOps runtime topology
+        uses: actions/checkout@v7
         with:
-          name: hybrid-edge-routing-config
-          path: ${{ runner.temp }}/hybrid-routing
+          repository: ai-workspace-infra/gitops
+          ref: main
+          path: gitops
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            topology/${{ inputs.vault_env_path || 'uat' }}/hybrid/runtime-topology.yaml
+
+      - name: Render GitOps hybrid runtime topology
+        run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+        env:
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/hybrid/runtime-topology.yaml
+          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/hybrid-routing.json
+
+      - name: Validate hybrid GitOps contract
+        run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
+        env:
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/hybrid-routing.json
+          REQUIRED_RUNTIME_MODE: hybrid
 
       - name: Checkout edge-gateway source
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-services/edge-gateway
-          ref: ${{ inputs.tag_ref }}
+          # Same ref policy as serverless-orchestrator: flipping the runtime mode
+          # must change Worker vars only, never the Worker code underneath them.
+          ref: main
           path: edge-gateway
 
       - name: Setup Node.js
@@ -161,6 +157,7 @@ jobs:
           node-version: 24
 
       - name: Authenticate to Vault with GitHub OIDC
+        id: vault
         uses: hashicorp/vault-action@v4
         with:
           url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
@@ -172,33 +169,68 @@ jobs:
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN
 
-      - name: Deploy hybrid edge-gateway boundary
+      - name: Deploy edge-gateway Worker boundary
         run: ./.github/scripts/serverless/run_cloudflare_target.sh
         env:
           CLOUDFLARE_TARGET: edge-gateway
           EDGE_GATEWAY_BOUNDARY: ${{ matrix.boundary }}
           CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
-          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/hybrid-routing/edge-routing.json
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/hybrid-routing.json
           WORKER_DIR: ${{ github.workspace }}/edge-gateway
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_API_TOKEN }}
 
   verify:
-    name: Verify / Hybrid Summary
-    needs: [contract, cloud_run_fallback, edge_gateway_failover]
-    if: ${{ always() && inputs.verify == true && needs.contract.result == 'success' && needs.cloud_run_fallback.result != 'cancelled' && needs.edge_gateway_failover.result != 'cancelled' }}
+    name: Verify / Summary
+    needs: [preflight, edge_gateway]
+    if: >-
+      ${{ always() && needs.preflight.result == 'success' &&
+      needs.edge_gateway.result != 'cancelled' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
 
-      - name: Download routing contract
-        uses: actions/download-artifact@v8
+      - name: Checkout GitOps runtime topology
+        uses: actions/checkout@v7
         with:
-          name: hybrid-edge-routing-config
-          path: ${{ runner.temp }}/hybrid-routing
+          repository: ai-workspace-infra/gitops
+          ref: main
+          path: gitops
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            topology/${{ inputs.vault_env_path || 'uat' }}/hybrid/runtime-topology.yaml
+            topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
 
-      - name: Validate hybrid summary
+      - name: Render GitOps hybrid runtime topology
+        run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+        env:
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/hybrid/runtime-topology.yaml
+          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/hybrid-routing.json
+
+      - name: Render GitOps serverless runtime topology
+        run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+        env:
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/serverless-routing.json
+
+      - name: Verify hybrid routing contract
         run: ./.github/scripts/serverless/verify_hybrid_contract.sh
         env:
-          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/hybrid-routing/edge-routing.json
-          CLOUD_RUN_RESULT: ${{ needs.cloud_run_fallback.result }}
-          EDGE_GATEWAY_RESULT: ${{ needs.edge_gateway_failover.result }}
+          HYBRID_CONFIG: ${{ runner.temp }}/hybrid-routing.json
+          SERVERLESS_CONFIG: ${{ runner.temp }}/serverless-routing.json
+          EDGE_GATEWAY_RESULT: ${{ needs.edge_gateway.result }}
+
+      # The frontend is not deployed here; this asserts the shared edge chain is
+      # still serving, so a hybrid run that silently disturbed it cannot pass.
+      - name: Verify reused frontend boundary assets
+        if: ${{ inputs.operation == 'deploy' && needs.edge_gateway.result == 'success' }}
+        run: ./.github/scripts/serverless/verify_frontend_boundary_assets.sh
+        env:
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/hybrid-routing.json
+
+      - name: Fail when the edge-gateway stage did not succeed
+        if: ${{ inputs.operation == 'deploy' && needs.edge_gateway.result != 'success' }}
+        run: |-
+          echo "Edge gateway stage result: ${{ needs.edge_gateway.result }}" >&2
+          exit 1
