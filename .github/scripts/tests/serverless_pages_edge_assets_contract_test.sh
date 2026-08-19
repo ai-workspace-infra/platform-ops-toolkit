@@ -53,7 +53,7 @@ printf '{}\n' > "${workdir}/portal/package.json"
 for stub in yarn corepack; do
   cat > "${workdir}/bin/${stub}" <<'STUB'
 #!/usr/bin/env bash
-echo "stub: $(basename "$0") $*" >> "${STUB_LOG}"
+echo "stub: $(basename "$0") $* console_origin=${NEXT_PUBLIC_CONSOLE_ORIGIN:-<unset>} cdn=${NEXT_PUBLIC_STATIC_CDN_URL:-<unset>}" >> "${STUB_LOG}"
 exit 0
 STUB
   chmod +x "${workdir}/bin/${stub}"
@@ -110,6 +110,9 @@ run_deploy EDGE_ASSETS_DIR="${workdir}/edge-assets" > "${workdir}/merged.log" 2>
 test -f "${workdir}/portal/static-dashboard/out/_edge/public/_next/static/app.js"
 test -f "${workdir}/portal/static-dashboard/out/_edge/auth/_next/static/app.js"
 grep -Fq "wrangler pages deploy static-dashboard/out" "${workdir}/stub.log"
+# The exported 404 page can only hand a visitor back to the console when the
+# build knows the console origin.
+grep -Fq "build:static-dashboard console_origin=https://console-serverless-uat.onwalk.net" "${workdir}/stub.log"
 
 # The Pages hostname only holds the static export, so SSR entry points such as
 # /login must hand the visitor back to the console host instead of rendering the

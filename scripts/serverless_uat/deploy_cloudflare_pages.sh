@@ -38,7 +38,12 @@ test -f "${PORTAL_DIR}/package.json"
 pushd "${PORTAL_DIR}" > /dev/null
 corepack enable
 yarn install --immutable
-NEXT_PUBLIC_STATIC_CDN_URL="${STATIC_CDN_URL}" yarn build:static-dashboard
+# NEXT_PUBLIC_CONSOLE_ORIGIN lets the exported 404 page hand a visitor who
+# reached the CDN hostname over to the console host, which is where every route
+# outside the marketing export actually lives.
+NEXT_PUBLIC_STATIC_CDN_URL="${STATIC_CDN_URL}" \
+  NEXT_PUBLIC_CONSOLE_ORIGIN="${CONSOLE_HOST:+https://${CONSOLE_HOST}}" \
+  yarn build:static-dashboard
 
 # The SSR boundaries build their client chunks against
 # <static_cdn_url>/_edge/<boundary>, so the Pages deployment that backs the CDN
