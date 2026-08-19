@@ -621,6 +621,7 @@ jobs:
       accounts_target_backend: supabase
       accounts_migration_mode: metadata_and_data
       supabase_metadata_dry_run: false
+      supabase_source_tunnel_host: ${{ format('accounts-vps-{0}.onwalk.net', inputs.vault_env_path || 'uat') }}
 
   destroy:
     name: Destroy / Cloud Run ephemeral compute
