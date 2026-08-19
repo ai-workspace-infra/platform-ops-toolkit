@@ -103,9 +103,9 @@ def main() -> int:
         }.issubset(frontend_router["static_prefixes"]):
             raise SystemExit("GitOps frontend_router must define standard static prefixes")
         bindings = frontend_router.get("bindings")
-        expected_binding_ids = {"auth", "content", "console", "workspace", "public"}
+        expected_binding_ids = {"api_auth", "auth", "content", "console", "workspace", "public"}
         if not isinstance(bindings, dict) or set(bindings) != expected_binding_ids:
-            raise SystemExit("GitOps frontend_router must define exactly five SSR bindings")
+            raise SystemExit("GitOps frontend_router must define api_auth and exactly five SSR bindings")
     data = runtime.get("data", {})
     if not isinstance(data, dict):
         raise SystemExit("GitOps runtime must define a data topology")
@@ -140,6 +140,8 @@ def main() -> int:
             raise SystemExit("frontend_router.api_origin must use the serverless accounts host")
         if frontend_router["pages_origin"] != f"https://{spec.get('cloudflare', {}).get('pages_project', '')}.pages.dev":
             raise SystemExit("frontend_router.pages_origin must use the declared Pages project origin")
+        if frontend_router["bindings"]["api_auth"] != f"edge-gateway-auth-{environment}":
+            raise SystemExit("frontend_router.bindings.api_auth must use the environment auth gateway Worker")
         boundaries.append({
             "id": "frontend-router",
             "kind": "worker",
