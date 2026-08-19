@@ -33,6 +33,16 @@ if [[ -z "${SOURCE_DSN}" || -z "${TARGET_DSN}" ]]; then
   echo "ERROR: source and Supabase target DSNs are required from Vault." >&2
   exit 1
 fi
+if [[ -z "${VAULT_REF}" ]]; then
+  echo "ERROR: Supabase Vault is missing PROJECT_REF." >&2
+  exit 1
+fi
+if [[ -z "${EXPECTED_REF}" ]]; then
+  EXPECTED_REF="$(printf '%s' "${TARGET_DSN}" | sed -nE 's#.*postgres\.([a-z0-9]+):.*@.*#\1#p')"
+  if [[ -z "${EXPECTED_REF}" ]]; then
+    EXPECTED_REF="$(printf '%s' "${TARGET_DSN}" | sed -nE 's#.*db\.([a-z0-9]+)\.supabase\.co.*#\1#p')"
+  fi
+fi
 if [[ -z "${EXPECTED_REF}" || "${VAULT_REF}" != "${EXPECTED_REF}" ]]; then
   echo "ERROR: Supabase Vault PROJECT_REF does not match the requested project ref." >&2
   exit 1
