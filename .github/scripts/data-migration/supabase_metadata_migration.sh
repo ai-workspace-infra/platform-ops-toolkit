@@ -94,8 +94,6 @@ if [[ "${MODE}" != "metadata" && "${MODE}" != "metadata_and_data" ]]; then
   exit 1
 fi
 
-command -v pg_dump >/dev/null || { echo "ERROR: pg_dump is required." >&2; exit 1; }
-command -v psql >/dev/null || { echo "ERROR: psql is required." >&2; exit 1; }
 if [[ "${source_uses_loopback}" == true ]]; then
   if [[ -z "${SOURCE_TUNNEL_HOST}" ]]; then
     echo "ERROR: MIGRATION_SOURCE_DSN targets runner loopback but SUPABASE_SOURCE_TUNNEL_HOST is not configured." >&2
@@ -130,6 +128,8 @@ if [[ "${source_uses_loopback}" == true ]]; then
     exit 1
   fi
 fi
+command -v pg_dump >/dev/null || { echo "ERROR: pg_dump is required." >&2; exit 1; }
+command -v psql >/dev/null || { echo "ERROR: psql is required." >&2; exit 1; }
 hash_file() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$1" | awk '{print $1}'
