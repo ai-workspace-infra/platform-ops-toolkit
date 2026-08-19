@@ -31,6 +31,7 @@ cat >"${test_dir}/routing.json" <<'EOF'
       "console_host": "console-serverless-uat.onwalk.net",
       "accounts_host": "accounts-serverless-uat.onwalk.net",
       "billing_host": "billing-serverless-uat.onwalk.net",
+      "billing_origin_host": "billing-origin-serverless-uat.onwalk.net",
       "cloud_run": {
         "billing_service": "https://uat-billing-service-1004637461064.asia-northeast1.run.app"
       },
@@ -83,6 +84,8 @@ elif [[ "${url}" == *'/rulesets/ruleset-1'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":{"id":"ruleset-1","rules":[{"ref":"existing_rule","action":"route","expression":"(http.host eq \\\"existing.example.com\\\")"}]}}'
 elif [[ "${url}" == *'/dns_records?name=billing-serverless-uat.onwalk.net'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[{"id":"billing-cname","content":"uat-billing-service-1004637461064.asia-northeast1.run.app"}]}'
+elif [[ "${url}" == *'/dns_records?name=billing-origin-serverless-uat.onwalk.net'* && "${method}" == 'GET' ]]; then
+  printf '%s' '{"success":true,"result":[]}'
 elif [[ "${url}" == *'/dns_records?name=console-uat.onwalk.net'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[{"id":"console-alias","content":"console-serverless-uat.onwalk.net"}]}'
 elif [[ "${url}" == *'/dns_records?name=accounts-uat.onwalk.net'* && "${method}" == 'GET' ]]; then
@@ -122,14 +125,18 @@ fi
 dns_deletes="$(grep -Fc $'DELETE\thttps://cloudflare.invalid/client/v4/zones/zone-1/dns_records/' "${test_dir}/curl.log")"
 test "${dns_deletes}" -eq 1
 cname_bodies="$(cut -f3 "${test_dir}/curl.log" | jq -s '[.[] | select(.type == "CNAME")]')"
-test "$(jq 'length' <<<"${cname_bodies}")" -eq 2
-jq -e 'all(.[]; .proxied == true) and any(.[]; .name == "billing-serverless-uat.onwalk.net" and .content == "uat-billing-service-1004637461064.asia-northeast1.run.app") and any(.[]; .name == "accounts-uat.onwalk.net" and .content == "accounts-serverless-uat.onwalk.net")' <<<"${cname_bodies}" >/dev/null
+test "$(jq 'length' <<<"${cname_bodies}")" -eq 3
+jq -e '
+  any(.[]; .name == "billing-serverless-uat.onwalk.net" and .content == "uat-billing-service-1004637461064.asia-northeast1.run.app" and .proxied == true)
+  and any(.[]; .name == "billing-origin-serverless-uat.onwalk.net" and .content == "uat-billing-service-1004637461064.asia-northeast1.run.app" and .proxied == false)
+  and any(.[]; .name == "accounts-uat.onwalk.net" and .content == "accounts-serverless-uat.onwalk.net" and .proxied == true)
+' <<<"${cname_bodies}" >/dev/null
 ruleset_bodies="$(cut -f3 "${test_dir}/curl.log" | jq -s '[.[] | select(.rules != null)]')"
 test "$(jq 'length' <<<"${ruleset_bodies}")" -eq 1
 jq -e '
   any(.[0].rules[]; .ref == "serverless_billing_cloud_run_origin" and
     .action_parameters.host_header == "uat-billing-service-1004637461064.asia-northeast1.run.app" and
-    .action_parameters.origin.host == "uat-billing-service-1004637461064.asia-northeast1.run.app" and
+    .action_parameters.origin.host == "billing-origin-serverless-uat.onwalk.net" and
     .action_parameters.sni.value == "uat-billing-service-1004637461064.asia-northeast1.run.app")
 ' <<<"${ruleset_bodies}" >/dev/null
 if grep -Fq '/rulesets?phase=' "${test_dir}/curl.log"; then
