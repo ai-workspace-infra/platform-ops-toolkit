@@ -82,7 +82,7 @@ for key in "${OPTIONAL_KEYS[@]}"; do
     val=""
   fi
   if [[ "${key}" == "EXPORTER_SOURCES_JSON" && -z "${val}" && "${DEPLOY_ENV:-}" == "uat" ]]; then
-    exporter_host="agent-proxy-selfhost-${DEPLOY_ENV}.${TARGET_DOMAIN_BASE:-onwalk.net}"
+    exporter_host="agent-proxy-vps-${DEPLOY_ENV}.${TARGET_DOMAIN_BASE:-onwalk.net}"
     val="$(jq -cn --arg host "${exporter_host}" '[
       {source_id: "xhttp-uat", base_url: ("https://" + $host + "/xray-exporter/xhttp")},
       {source_id: "tcp-uat", base_url: ("https://" + $host + "/xray-exporter/tcp")}
