@@ -61,7 +61,7 @@ on:
       supabase_project_ref:
         description: "Supabase project ref expected by the metadata migration"
         required: false
-        default: "rbjnksmfzkjheiwpkaem"
+        default: ""
         type: string
       supabase_metadata_dry_run:
         description: "Supabase metadata migration: dump and preflight only, never write the target"
@@ -205,7 +205,7 @@ on:
       supabase_project_ref:
         description: "Supabase Cloud 项目 ref"
         required: false
-        default: "rbjnksmfzkjheiwpkaem"
+        default: ""
         type: string
       supabase_metadata_dry_run:
         description: "Supabase 元数据迁移：只导出/预检，不写入目标库"
@@ -443,7 +443,7 @@ jobs:
     runs-on: ${{ inputs.runner_type || 'ubuntu-latest' }}
     env:
       VAULT_ROLE: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'sit' }}
-      SUPABASE_EXPECTED_PROJECT_REF: ${{ inputs.supabase_project_ref || 'rbjnksmfzkjheiwpkaem' }}
+      SUPABASE_EXPECTED_PROJECT_REF: ${{ inputs.supabase_project_ref }}
       SUPABASE_METADATA_DRY_RUN: ${{ inputs.supabase_metadata_dry_run && 'true' || 'false' }}
       SUPABASE_VAULT_PATH: ${{ inputs.supabase_vault_path || format('kv/data/{0}/serverless/supabase', inputs.vault_env_path || 'sit') }}
       SUPABASE_SOURCE_VAULT_PATH: ${{ inputs.supabase_source_vault_path || format('kv/data/{0}/accounts-migration', inputs.vault_env_path || 'sit') }}
