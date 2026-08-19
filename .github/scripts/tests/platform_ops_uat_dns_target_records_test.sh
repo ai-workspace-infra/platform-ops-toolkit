@@ -151,4 +151,75 @@ set -e
 [[ "${duplicate_exit}" -ne 0 ]]
 grep -Fq 'agent-proxy host agent-proxy-vps-uat.onwalk.net shares Web SaaS IP 45.77.128.182' <<<"${duplicate_output}"
 
+# A canonical public entry that already exists belongs to whoever published it
+# -- in UAT that is the serverless orchestrator's Worker custom domain, which
+# Cloudflare refuses to let the DNS API delete. The reconciler must yield it
+# instead of trying to reclaim it.
+mkdir -p "${test_dir}/owned-bin"
+cat >"${test_dir}/owned-bin/curl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+method="GET"
+body=""
+url="${!#}"
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --request)
+      method="$2"
+      shift 2
+      ;;
+    --data)
+      body="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
+printf '%s\t%s\t%s\n' "${method}" "${url}" "${body}" >>"${MOCK_CURL_LOG}"
+if [[ "${url}" == *'/zones?name='* ]]; then
+  printf '%s' '{"success":true,"result":[{"id":"zone-1"}]}'
+elif [[ "${method}" == "GET" && "${url}" == *'name=console-uat.onwalk.net'* ]]; then
+  printf '%s' '{"success":true,"result":[{"id":"worker-managed-1","type":"A","name":"console-uat.onwalk.net","content":"192.0.2.1","ttl":1,"proxied":true}]}'
+elif [[ "${method}" == "GET" ]]; then
+  printf '%s' '{"success":true,"result":[]}'
+else
+  printf '%s' '{"success":true,"result":{"id":"record-1"}}'
+fi
+EOF
+chmod +x "${test_dir}/owned-bin/curl"
+
+owned_output="$({
+  PATH="${test_dir}/owned-bin:${PATH}" \
+  MOCK_CURL_LOG="${test_dir}/owned-curl.log" \
+  CLOUDFLARE_DNS_API_TOKEN="test-token" \
+  CLOUDFLARE_API_BASE_OVERRIDE="https://cloudflare.invalid/client/v4" \
+  DEPLOY_ENV="uat" \
+  SOURCE_DOMAIN_BASE="svc.plus" \
+  TARGET_DOMAIN_BASE="onwalk.net" \
+  CMDB_FILE="${test_dir}/cmdb.json" \
+  GITOPS_ROUTING_CONFIG="${test_dir}/routing.json" \
+  "${reconciler}"
+} 2>&1)"
+
+grep -Fq 'Yielded console-uat.onwalk.net; held by the current owner (A -> 192.0.2.1)' <<<"${owned_output}"
+grep -Fq 'Created accounts-uat.onwalk.net -> accounts-selfhost-uat.onwalk.net (CNAME)' <<<"${owned_output}"
+# Reclaiming the record is exactly what returned HTTP 400 in run 32219402202.
+if grep -q '^DELETE' "${test_dir}/owned-curl.log"; then
+  echo "Expected no DNS record deletion while a canonical entry is owned elsewhere" >&2
+  exit 1
+fi
+if grep -E '^(POST|PUT)' "${test_dir}/owned-curl.log" | grep -Fq 'console-uat.onwalk.net'; then
+  echo "Expected no write against a canonical entry owned elsewhere" >&2
+  exit 1
+fi
+if cut -f3 "${test_dir}/owned-curl.log" | jq -s -e \
+  'any(.[]; .name == "console-uat.onwalk.net")' >/dev/null; then
+  echo "Expected no desired payload for a canonical entry owned elsewhere" >&2
+  exit 1
+fi
+
 echo "platform_ops_uat_dns_target_records_test: PASS"
