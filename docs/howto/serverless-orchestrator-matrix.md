@@ -63,17 +63,13 @@ The serverless workflow requires the serverless pre-configuration at
 with selfhost weight 100 and Serverless weight 0; the hybrid
 workflow owns the request-level selfhost→Cloud Run failover.
 
-### Billing Cloud Run origin alias
+### Billing Cloud Run routing
 
-The serverless topology also declares `spec.serverless.billing_origin_host`, for example
-`billing-origin-serverless-uat.onwalk.net`. The `serverless_domains` job reconciles this
-hostname as a **DNS-only CNAME** to the Billing Cloud Run `run.app` hostname. It is an
-origin-only alias and must not be proxied or exposed as the public Billing endpoint.
-
-The Cloudflare Origin Rule uses the alias for `action_parameters.origin.host`, while the
-Cloud Run `run.app` hostname remains the `host_header` and TLS SNI. Terraform's
-`serverless_uat` module and the Ansible `saas/serverless_uat` role manage the same alias
-for non-orchestrator runs; Cloud Run Preview domain mapping is not required.
+`billing-serverless-<environment>` is a custom domain of the core Edge Gateway Worker. The
+Worker proxies Billing requests to the GitOps-declared Cloud Run `run.app` upstream and preserves
+the public host separately. This avoids Cloudflare Origin Rule Host/SNI overrides, which require
+an Enterprise plan. `billing_origin_host` is a retired compatibility field; reconciliation removes
+its old DNS-only CNAME when present and does not create or update an Origin Ruleset.
 
 ## Deployment stages and dependencies
 
@@ -118,7 +114,12 @@ source of truth for these names and routes:
 | API auth | `edge-gateway-auth-uat` | `accounts-serverless-uat.onwalk.net/api/auth/*` |
 | API admin | `edge-gateway-admin-uat` | `accounts-serverless-uat.onwalk.net/api/admin/*` |
 | API core | `edge-gateway-core-uat` | `accounts-serverless-uat.onwalk.net/api/*` fallback |
+| Billing | `edge-gateway-core-uat` | `billing-serverless-uat.onwalk.net/*` custom domain |
 | Static assets | `ai-workspace-portal-uat` | `/static/*`, `/assets/*` |
+
+Console is owned only by the `frontend-router` custom domain. SSR boundaries are Service Bindings,
+not public Worker Routes. Reconciliation deletes explicit routes on the GitOps Console host because
+they take precedence over the custom domain and bypass the router.
 
 ## GitOps boundary contract
 
@@ -128,13 +129,18 @@ manifest to every Cloudflare consumer. The manifest must define:
 - `spec.runtime.mode` (`selfhost`, `serverless`, or `hybrid`), routing, services, and data handover;
 - flat `spec.domains` entries with both `selfhost` and `serverless` targets;
 - Cloudflare zone and Pages project;
-- `spec.serverless.billing_origin_host` as a separate DNS-only same-zone Billing origin alias;
+- `spec.serverless.billing_host` and the core Edge Gateway Billing upstream;
 - exactly five `spec.serverless.ssr` boundaries;
 - `auth`, `admin`, and `core` in `spec.serverless.edge_gateway`, with `core` owning `/api/*`;
 - both database modes and an async DTS reservation under `spec.runtime.data.migration`.
 
 Repository-local Cloudflare boundary JSON is not a deployment source of truth and is not used by
 the orchestrator.
+
+Preflight also compares Portal's UAT `dashboardUrl`, `authUrl`, and `apiBaseUrl` with these GitOps
+hosts. Readiness requires `X-Frontend-Route` on public and console HTML and CSS, validates the public
+Tailwind marker, and reports both boundary CSS SHA-256 hashes; HTTP 200 and file size alone are not
+accepted as proof of a correct deployment.
 
 ## Database handover and DTS reservation
 

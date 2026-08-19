@@ -125,11 +125,11 @@ def main() -> int:
     if mode == "serverless":
         billing_origin_host = serverless.get("billing_origin_host", "")
         expected_billing_origin = f"billing-origin-serverless-{environment}.{mode_suffix}"
-        if billing_origin_host != expected_billing_origin:
+        if billing_origin_host and billing_origin_host != expected_billing_origin:
             raise SystemExit(
-                "Serverless billing_origin_host must use the billing-origin-serverless-<environment> naming contract"
+                "Legacy serverless billing_origin_host must use the billing-origin-serverless-<environment> naming contract"
             )
-        if billing_origin_host == serverless.get("billing_host"):
+        if billing_origin_host and billing_origin_host == serverless.get("billing_host"):
             raise SystemExit("Serverless billing_origin_host must be separate from billing_host")
     boundaries = []
     if mode == "serverless":

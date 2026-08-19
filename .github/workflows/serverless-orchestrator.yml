@@ -74,11 +74,27 @@ jobs:
           sparse-checkout: |
             topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
 
+      - name: Checkout Portal runtime configuration
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-services/portal
+          ref: ${{ inputs.tag_ref || 'main' }}
+          path: portal-runtime-config
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/config/runtime-service-config.uat.yaml
+
       - name: Render GitOps serverless runtime topology
         run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
         env:
           GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
+
+      - name: Validate Portal and GitOps public domains
+        run: ./.github/scripts/serverless/validate_portal_runtime_domains.sh
+        env:
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          PORTAL_DIR: ${{ github.workspace }}/portal-runtime-config
 
       - name: Validate serverless GitOps contract
         run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
@@ -559,7 +575,7 @@ jobs:
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN
 
-      - name: Reconcile Worker domains and Billing DNS-only origin alias
+      - name: Reconcile Worker custom domains and routes
         run: ./scripts/serverless_uat/reconcile_cloudflare_domains.sh
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
@@ -572,6 +588,11 @@ jobs:
         env:
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
           SERVERLESS_DNS_MODE: ${{ inputs.dns_mode || 'none' }}
+
+      - name: Verify Frontend Router boundary assets
+        run: ./.github/scripts/serverless/verify_frontend_boundary_assets.sh
+        env:
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
 
   trigger_data_migration:
     name: Data Migration / Supabase
