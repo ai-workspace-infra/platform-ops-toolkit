@@ -77,6 +77,19 @@ https://ai-workspace-portal-    https://ai-workspace-portal-          https://as
 
 ---
 
+## 3.3 资产必须随 Pages 一起发布（2026-08-20 补充）
+
+`assetPrefix` 指向 `static_cdn_url` 之后，SSR boundary 的 client chunk 地址变成 `<static_cdn_url>/_edge/<boundary>/_next/...`，而这些文件原先只存在于各 boundary Worker 自己的 `.open-next/assets` 里，Pages 项目只有 `static-dashboard/out` —— 直接上线会让每个 SSR 页面的 chunk 在 Pages 上 404，页面能出 HTML 但不 hydrate。
+
+因此交付链路补齐两件事：
+
+1. `deploy_portal_opennext_worker.sh` 在部署完 Worker 后用 portal 的 `scripts/collect-edge-assets.mjs` 导出 `_edge/<boundary>`，由 orchestrator 作为 artifact 交给 `static_pages` 作业；`static_pages` 因此改为 `needs: [preflight, cloudflare_ssr]`（编排里唯一一处刻意的串行）。
+2. `deploy_cloudflare_pages.sh` 把所有 boundary 的 `_edge/*` 合并进 `static-dashboard/out` 再发布；若 `static_cdn_url` 已声明却没拿到资产，直接失败，不允许发出一份"每个 chunk 都 404"的绿色部署。
+
+同时 Pages 侧写入 `_redirects`，把 `/login`、`/panel` 等只存在于 console host 的 SSR 入口 302 回 `console_host`（Cloudflare 的 redirect 先于静态资产求值，所以规则只覆盖不可能承载静态文件的前缀，绝不能用 `/*` 兜底）。
+
+---
+
 ## 4. 跨仓库落地实现清单与关联 PR
 
 本方案通过三端协同、极小代码侵入完成交付：
