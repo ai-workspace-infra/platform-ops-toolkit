@@ -22,6 +22,9 @@ DUMP_DIR="${SUPABASE_METADATA_DUMP_DIR:-${RUNNER_TEMP:-/tmp}/supabase-metadata-m
 SCHEMA_FILE="${DUMP_DIR}/public-schema.sql"
 DATA_FILE="${DUMP_DIR}/public-data.sql"
 APPLY_FILE="${DUMP_DIR}/apply.sql"
+SOURCE_TUNNEL_SNI="${SUPABASE_SOURCE_TUNNEL_SNI:-}"
+SOURCE_TUNNEL_CA="${SUPABASE_SOURCE_TUNNEL_CA:-/etc/ssl/certs/ca-certificates.crt}"
+SOURCE_TUNNEL_LOG="${RUNNER_TEMP:-/tmp}/supabase-source-stunnel.log"
 SOURCE_TUNNEL_CONFIG=""
 SOURCE_TUNNEL_PID=""
 
@@ -31,6 +34,7 @@ cleanup() {
     wait "${SOURCE_TUNNEL_PID}" 2>/dev/null || true
   fi
   [[ -z "${SOURCE_TUNNEL_CONFIG}" ]] || rm -f "${SOURCE_TUNNEL_CONFIG}"
+  rm -f "${SOURCE_TUNNEL_LOG}"
   rm -rf "${DUMP_DIR}"
 }
 trap cleanup EXIT
@@ -105,28 +109,59 @@ if [[ "${source_uses_loopback}" == true ]]; then
     exit 1
   fi
   command -v stunnel >/dev/null || { echo "ERROR: stunnel is required for a loopback migration source." >&2; exit 1; }
+  command -v pg_isready >/dev/null || { echo "ERROR: pg_isready is required to probe the loopback tunnel." >&2; exit 1; }
   SOURCE_TUNNEL_CONFIG="$(mktemp "${RUNNER_TEMP:-/tmp}/supabase-source-stunnel.XXXXXX.conf")"
-  printf '%s\n' \
-    'foreground = yes' \
-    'client = yes' \
-    '[source-postgres]' \
-    "accept = 127.0.0.1:${SOURCE_TUNNEL_LOCAL_PORT}" \
-    "connect = ${SOURCE_TUNNEL_HOST}:${SOURCE_TUNNEL_PORT}" \
-    >"${SOURCE_TUNNEL_CONFIG}"
-  stunnel "${SOURCE_TUNNEL_CONFIG}" >"${DUMP_DIR}.stunnel.log" 2>&1 &
+  {
+    printf '%s\n' \
+      'foreground = yes' \
+      'client = yes' \
+      'debug = info' \
+      '[source-postgres]' \
+      "accept = 127.0.0.1:${SOURCE_TUNNEL_LOCAL_PORT}" \
+      "connect = ${SOURCE_TUNNEL_HOST}:${SOURCE_TUNNEL_PORT}"
+    # stunnel-server presents the public *.onwalk.net wildcard and selects its
+    # service by SNI (docs/tasks/2026-07-29-domain-wildcard-tls-reuse.md). The
+    # platform's own client pins postgresql-<env>.onwalk.net; set
+    # SUPABASE_SOURCE_TUNNEL_SNI to the same name to verify the peer instead of
+    # trusting whatever answers on the tunnel port.
+    if [[ -n "${SOURCE_TUNNEL_SNI}" ]]; then
+      printf '%s\n' \
+        "sni = ${SOURCE_TUNNEL_SNI}" \
+        "checkHost = ${SOURCE_TUNNEL_SNI}" \
+        'verifyChain = yes' \
+        "CAfile = ${SOURCE_TUNNEL_CA}"
+    fi
+  } >"${SOURCE_TUNNEL_CONFIG}"
+  stunnel "${SOURCE_TUNNEL_CONFIG}" >"${SOURCE_TUNNEL_LOG}" 2>&1 &
   SOURCE_TUNNEL_PID="$!"
-  for _ in {1..20}; do
-    if kill -0 "${SOURCE_TUNNEL_PID}" >/dev/null 2>&1 && (echo >"/dev/tcp/127.0.0.1/${SOURCE_TUNNEL_LOCAL_PORT}") 2>/dev/null; then
-      echo "Source PostgreSQL TLS tunnel ready: ${SOURCE_TUNNEL_HOST}:${SOURCE_TUNNEL_PORT}"
+
+  # A bound accept socket proves nothing: stunnel binds it before it ever dials
+  # the upstream, so the old "listener is up" probe reported a ready tunnel
+  # whose remote leg was dead, and pg_dump then failed 10s later (stunnel's
+  # default TIMEOUTconnect) with a bare "server closed the connection"
+  # (run 32219430536). pg_isready speaks the PostgreSQL protocol all the way
+  # through, so only it can tell a working tunnel from a bound port. Exit code
+  # 1 means the server answered and rejected the connection -- that still
+  # proves the tunnel carries traffic, which is what this probe is for.
+  tunnel_ready=false
+  for _ in {1..6}; do
+    kill -0 "${SOURCE_TUNNEL_PID}" >/dev/null 2>&1 || break
+    probe_rc=0
+    pg_isready --host 127.0.0.1 --port "${SOURCE_TUNNEL_LOCAL_PORT}" --timeout 3 >/dev/null 2>&1 || probe_rc="$?"
+    if [[ "${probe_rc}" -le 1 ]]; then
+      tunnel_ready=true
       break
     fi
-    sleep 0.25
+    sleep 0.5
   done
-  if ! kill -0 "${SOURCE_TUNNEL_PID}" >/dev/null 2>&1; then
-    echo "ERROR: source PostgreSQL TLS tunnel terminated during startup." >&2
-    cat "${DUMP_DIR}.stunnel.log" >&2 || true
+  if [[ "${tunnel_ready}" != true ]]; then
+    echo "ERROR: source PostgreSQL TLS tunnel did not carry traffic to ${SOURCE_TUNNEL_HOST}:${SOURCE_TUNNEL_PORT}." >&2
+    echo "       A connect timeout here means the endpoint drops the runner's packets; check the VPS firewall" >&2
+    echo "       or rerun with runner_type=self-hosted. stunnel log follows:" >&2
+    cat "${SOURCE_TUNNEL_LOG}" >&2 || true
     exit 1
   fi
+  echo "Source PostgreSQL TLS tunnel ready: ${SOURCE_TUNNEL_HOST}:${SOURCE_TUNNEL_PORT}"
 fi
 command -v pg_dump >/dev/null || { echo "ERROR: pg_dump is required." >&2; exit 1; }
 command -v psql >/dev/null || { echo "ERROR: psql is required." >&2; exit 1; }

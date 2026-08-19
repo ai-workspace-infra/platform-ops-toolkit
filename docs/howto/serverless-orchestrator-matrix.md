@@ -53,9 +53,17 @@ The mode-qualified entries can coexist as separate DNS names. A normal Serverles
 `dns_mode=none`, publishes only the `*-serverless-uat` entries, and verifies those entries directly;
 it does not rewrite `console-uat.onwalk.net` or `accounts-uat.onwalk.net`. The Serverless workflow
 may change the canonical aliases only with the explicit `dns_mode=uat-records` or
-`dns_mode=prod-cutover` input. Selfhost uses the same DNS choices. The two DNS jobs
-share the `public-dns-<environment>` concurrency group, so only one public cutover can run at a
-time. Distinct hostnames may each have a CNAME; the same hostname cannot have two CNAME targets or
+`dns_mode=prod-cutover` input.
+
+Ownership of the canonical aliases is asymmetric, and deliberately so. `dns_mode=uat-records`
+binds `console-uat.onwalk.net` as a Worker custom domain, and Cloudflare then refuses to delete
+that record through the DNS API. The Selfhost UAT reconciler therefore never reclaims a canonical
+alias: it yields any canonical name that already exists, logs the current owner, and creates the
+declared CNAME only when the name is unpublished. It always owns the mode-qualified
+`*-selfhost-<environment>` records. To move a canonical alias back to Selfhost, detach the Worker
+custom domain first -- the Selfhost DNS job holds only a DNS-scoped token and cannot do it. The two
+DNS jobs share the `public-dns-<environment>` concurrency group, so only one public cutover can run
+at a time. Distinct hostnames may each have a CNAME; the same hostname cannot have two CNAME targets or
 weighted DNS behavior on the free DNS tier.
 
 The serverless workflow requires the serverless pre-configuration at

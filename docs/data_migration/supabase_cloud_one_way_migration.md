@@ -44,6 +44,19 @@ Serverless Orchestrator 的 UAT 默认值是
 `accounts-vps-uat.onwalk.net:15433`。SIT/PROD 运行前必须在 dispatch 表单中将
 `supabase_source_tunnel_host` 改为该环境的 VPS stunnel 地址，避免把 UAT 主机误用于其他环境。
 
+隧道就绪是用 `pg_isready` 穿过隧道判定的，不是判断本地端口是否 listen。stunnel 在拨上游之前
+就已经把 accept socket bind 好了，所以"端口起来了"和"隧道通了"是两回事：run 32219430536 里
+就是本地端口已就绪、上游腿不通，pg_dump 在 10 秒（stunnel 默认 `TIMEOUTconnect`）后才报
+`server closed the connection unexpectedly`。探测失败时脚本会把 stunnel 日志整份打出来。
+连接超时（而不是 refused）说明报文被丢弃，应先查 VPS 侧防火墙是否放行 GitHub runner 出口，
+再考虑 `runner_type=self-hosted`。
+
+可选环境变量 `SUPABASE_SOURCE_TUNNEL_SNI`：stunnel-server 使用 `*.onwalk.net` 公网通配证书并按
+SNI 选择服务，平台自身的 client 固定用 `postgresql-<env>.onwalk.net`。设置该变量后，CI 侧
+stunnel client 会同时启用 `sni` / `checkHost` / `verifyChain`（CA 默认取
+`/etc/ssl/certs/ca-certificates.crt`，可用 `SUPABASE_SOURCE_TUNNEL_CA` 覆盖），从而校验对端身份
+而不是盲信隧道端口上的任何应答。不设置则保持不校验的现状行为。
+
 Session pooler（`pooler.supabase.com:5432`）适合当前 IPv4 VPS 和迁移 runner，也可以
 用于 `pg_dump/psql`。Transaction pooler（端口 `6543`）仅适合短请求应用流量，迁移脚本
 会拒绝它。若目标网络可用 IPv6 或已购买 IPv4 add-on，可将

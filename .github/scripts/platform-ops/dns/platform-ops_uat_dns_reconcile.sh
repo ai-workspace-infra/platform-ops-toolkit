@@ -149,6 +149,12 @@ api_request() {
 
   if ! response="$(curl "${curl_args[@]}" "${url}")"; then
     echo "::error::Cloudflare API request failed: ${method} ${url}" >&2
+    # --fail-with-body already captured Cloudflare's error document on stdout.
+    # Dropping it turns every 4xx into a bare URL and an unexplained failure.
+    if [[ -n "${response:-}" ]]; then
+      echo "Cloudflare API error body:" >&2
+      jq -c '.errors // .' <<<"${response}" >&2 || printf '%s\n' "${response}" >&2
+    fi
     return 1
   fi
   if ! jq -e '.success == true' >/dev/null <<<"${response}"; then
@@ -258,9 +264,34 @@ reconcile_multi_a_records() {
   done < <(jq -r '.result[].id' <<<"${records_response}")
 }
 
+# The canonical public entries are owned by the serverless orchestrator, which
+# binds them as Worker custom domains when it runs with dns_mode=uat-records.
+# Cloudflare refuses to delete a Worker-managed record, so reclaiming them from
+# here fails the whole reconciliation on a bare HTTP 400 (run 32219402202) and
+# would fight the serverless owner even if it succeeded. Selfhost therefore
+# yields any canonical name that already exists and only publishes one that
+# nobody owns, so the public entry is never silently left unresolvable.
+adopt_or_yield_canonical_record() {
+  local record_name="$1"
+  local record_target="$2"
+  local record_ttl="$3"
+  local records_response
+  local current_owner
+  records_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records?name=${record_name}&per_page=100")"
+  current_owner="$(jq -r '[.result[] | "\(.type) -> \(.content)"] | join(", ")' <<<"${records_response}")"
+
+  if [[ -n "${current_owner}" ]]; then
+    echo "Yielded ${record_name}; held by the current owner (${current_owner}). Selfhost does not reclaim canonical public entries."
+    return
+  fi
+
+  api_request POST "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records" "$(desired_payload "${record_name}" CNAME "${record_target}" "${record_ttl}")" >/dev/null
+  echo "Created ${record_name} -> ${record_target} (CNAME)"
+}
+
 while IFS=$'\t' read -r record_name record_target; do
   [[ -n "${record_name}" && -n "${record_target}" ]] || continue
-  reconcile_record "${record_name}" CNAME "${record_target}" "${dns_ttl}"
+  adopt_or_yield_canonical_record "${record_name}" "${record_target}" "${dns_ttl}"
 done < <(jq -r '.spec.runtime.routing.dns.canonical_records | to_entries[] | [.key, .value] | @tsv' "${GITOPS_ROUTING_CONFIG}")
 
 # These are the deployment-domain records owned by this Web SaaS full-stack
@@ -280,4 +311,4 @@ agent_proxy_summary=""
 if [[ "${#agent_proxy_ips[@]}" -gt 0 ]]; then
   agent_proxy_summary="$(IFS=', '; echo "${agent_proxy_ips[*]}")"
 fi
-echo "UAT DNS reconciliation completed for ${record_count} desired records in ${UAT_ZONE}; web-saas ${expected_console_selfhost_name} (${web_saas_ip})${agent_proxy_summary:+, agent-proxy [${agent_proxy_summary}]}."
+echo "UAT DNS reconciliation completed for ${record_count} desired records in ${UAT_ZONE}; web-saas ${expected_console_selfhost_name} (${web_saas_ip})${agent_proxy_summary:+, agent-proxy [${agent_proxy_summary}]}; canonical public entries stay with their current owner."
