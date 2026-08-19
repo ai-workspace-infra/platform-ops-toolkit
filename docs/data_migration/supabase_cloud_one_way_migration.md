@@ -1,14 +1,15 @@
-# VPS → Supabase Cloud 单向数据库迁移
+# VPS 数据迁移模式
 
-`.github/workflows/data-migration.yaml` 支持两条互斥路径：
+`.github/workflows/data-migration.yaml` 支持两种互斥的目标模式：
 
 | 目标配置 | 行为 |
 |---|---|
-| `accounts_target_backend=vps` + `accounts_migration_mode=data` | 保留现有 VPS 自建 PostgreSQL `migratectl` 数据迁移 |
-| `accounts_target_backend=supabase` + `accounts_migration_mode=metadata` | 只导出元数据并对 Supabase 目标做只读预检 |
-| `accounts_target_backend=supabase` + `accounts_migration_mode=metadata_and_data` | VPS → Supabase 单向复制 `public` schema 元数据和业务数据 |
+| `accounts_target_backend=vps` + `accounts_migration_mode=data` | **VPS → VPS**：通过 SSH 在两端 PostgreSQL 容器网络中运行 `migratectl`；使用 `accounts_source_host` 和 `accounts_target_host`，不使用 Supabase DSN |
+| `accounts_target_backend=supabase` + `accounts_migration_mode=metadata` | **VPS → Supabase**：通过 stunnel 从 VPS 只读导出 schema，并对 Supabase 目标做只读预检 |
+| `accounts_target_backend=supabase` + `accounts_migration_mode=metadata_and_data` | **VPS → Supabase**：通过 stunnel 从 VPS 导出 `public` schema 和业务数据，并一次性写入 Supabase |
 
-默认仍是第一条 VPS 路径，不改变现有 `platform-ops.yaml` 的调用行为。
+VPS → VPS 与 VPS → Supabase 不可混用：前者需要两端 SSH 主机和 `migratectl`，后者需要
+只读源 DSN、Supabase 目标 DSN 和（源 DSN 为 loopback 时）`supabase_source_tunnel_host`。
 
 Supabase 迁移流程：
 
@@ -36,10 +37,11 @@ kv/data/<env>/accounts-migration
   MIGRATION_SOURCE_DSN = postgres://readonly:...@<vps-postgres-host>:5432/account?sslmode=require
 ```
 
-`MIGRATION_SOURCE_DSN` 必须是 migration runner 可达的只读源库地址，不能使用
-`127.0.0.1`、`localhost` 或 `::1` 这类仅对另一台机器上的 SSH/stunnel 隧道有效的地址。
-当前工作流不会创建该隧道；如源库没有可达的 PostgreSQL 端点，先在具备网络连通性的
-self-hosted runner 上建立受管隧道，再以明确的迁移设计执行。
+若 `MIGRATION_SOURCE_DSN` 使用 `127.0.0.1`、`localhost` 或 `::1`，工作流会将其视为
+受管 stunnel 客户端入口，并要求传入 `supabase_source_tunnel_host`。该客户端会在 Runner
+中启动，并转发到 `<host>:15433`；不要把本地端口直接当作 GitHub Runner 上天然存在的服务。
+对于 UAT selfhost 数据源，Serverless Orchestrator 使用
+`accounts-vps-uat.onwalk.net:15433` 作为 TLS tunnel target。
 
 Session pooler（`pooler.supabase.com:5432`）适合当前 IPv4 VPS 和迁移 runner，也可以
 用于 `pg_dump/psql`。Transaction pooler（端口 `6543`）仅适合短请求应用流量，迁移脚本

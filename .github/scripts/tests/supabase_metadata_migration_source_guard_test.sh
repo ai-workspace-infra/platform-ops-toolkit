@@ -15,7 +15,7 @@ if MIGRATION_SOURCE_DSN='postgres://readonly:password@127.0.0.1:15433/account?ss
   exit 1
 fi
 
-grep -Fq 'MIGRATION_SOURCE_DSN targets runner loopback' "${test_dir}/output"
-grep -Fq 'reachable, read-only VPS PostgreSQL DSN' "${test_dir}/output"
+grep -Fq 'MIGRATION_SOURCE_DSN targets runner loopback but SUPABASE_SOURCE_TUNNEL_HOST is not configured' "${test_dir}/output"
+grep -Fq 'Configure a TLS tunnel target' "${test_dir}/output"
 
 echo "supabase_metadata_migration_source_guard_test: PASS"

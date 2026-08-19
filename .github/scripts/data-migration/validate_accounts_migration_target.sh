@@ -18,7 +18,7 @@ case "${backend}:${mode}" in
     ;;
   *)
     echo "::error::Unsupported Accounts migration combination: backend=${backend}, mode=${mode}." >&2
-    echo "Allowed combinations are backend=vps/mode=data or backend=supabase/mode=metadata." >&2
+    echo "Allowed combinations are backend=vps/mode=data or backend=supabase/mode=metadata|metadata_and_data." >&2
     exit 1
     ;;
 esac
