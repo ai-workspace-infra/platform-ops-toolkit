@@ -24,7 +24,6 @@ environment="$(jq -er '.metadata.environment' "${CONFIG_FILE}")"
 console_host="$(jq -er '.spec.serverless.console_host' "${CONFIG_FILE}")"
 accounts_host="$(jq -er '.spec.serverless.accounts_host' "${CONFIG_FILE}")"
 billing_host="$(jq -er '.spec.serverless.billing_host' "${CONFIG_FILE}")"
-billing_origin_host="$(jq -er '.spec.serverless.billing_origin_host' "${CONFIG_FILE}")"
 canonical_console="console.svc.plus"
 canonical_accounts="accounts.svc.plus"
 if [[ "${environment}" != "prod" ]]; then
@@ -46,7 +45,6 @@ for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
   console_dns="$(dig +short @1.1.1.1 "${console_probe_host}" | sed -n '1p')"
   accounts_dns="$(dig +short @1.1.1.1 "${accounts_probe_host}" | sed -n '1p')"
   billing_dns="$(dig +short @1.1.1.1 "${billing_host}" | sed -n '1p')"
-  billing_origin_dns="$(dig +short @1.1.1.1 "${billing_origin_host}" | sed -n '1p')"
   console_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 20 "${origin}/" || true)"
   preflight_headers="$(curl --silent --show-error --dump-header - --output /dev/null --max-time 20 \
     --request OPTIONS "${api_origin}/api/v1/health" \
@@ -57,17 +55,19 @@ for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
   # Billing is exposed through the Edge Gateway Core custom domain. Probe the
   # service readiness contract, which is implemented by the deployed Go
   # service, instead of assuming the generic accounts /healthz path exists.
-  billing_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 20 "https://${billing_host}/readyz" || true)"
+  billing_headers="$(curl --silent --show-error --dump-header - --output /dev/null --max-time 20 "https://${billing_host}/readyz" || true)"
+  billing_status="$(awk 'NR == 1 {print $2}' <<<"${billing_headers}")"
+  billing_route="$(awk 'BEGIN { IGNORECASE=1 } /^X-Upstream-Route:/ {sub(/\r$/, "", $2); print $2}' <<<"${billing_headers}" | tail -1)"
 
-  if [[ -n "${console_dns}" && -n "${accounts_dns}" && -n "${billing_dns}" && -n "${billing_origin_dns}" &&
+  if [[ -n "${console_dns}" && -n "${accounts_dns}" && -n "${billing_dns}" &&
         "${console_status}" =~ ^(200|301|302|307|308)$ && "${preflight_status}" == "204" &&
-        "${billing_status}" =~ ^(200|401|403)$ &&
+        "${billing_status}" == "200" && "${billing_route}" == "cloud-run-billing" &&
         "${preflight_headers}" =~ [Aa]ccess-[Cc]ontrol-[Aa]llow-[Oo]rigin: ]]; then
-    echo "Serverless public chain verified: Console=${console_probe_host}, Accounts=${accounts_probe_host}, Billing=${billing_host}, BillingOrigin=${billing_origin_host}; CORS preflight 204 (dns_mode=${serverless_dns_mode})"
+    echo "Serverless public chain verified: Console=${console_probe_host}, Accounts=${accounts_probe_host}, Billing=${billing_host} via ${billing_route}; CORS preflight 204 (dns_mode=${serverless_dns_mode})"
     exit 0
   fi
 
-  echo "Waiting for serverless public chain (${attempt}/${VERIFY_ATTEMPTS}): console=${console_probe_host} dns=${console_dns:-missing}, accounts=${accounts_probe_host} dns=${accounts_dns:-missing}, billing=${billing_host} dns=${billing_dns:-missing}, billing_origin=${billing_origin_host} dns=${billing_origin_dns:-missing}, console_http=${console_status}, preflight=${preflight_status:-missing}, billing_http=${billing_status}" >&2
+  echo "Waiting for serverless public chain (${attempt}/${VERIFY_ATTEMPTS}): console=${console_probe_host} dns=${console_dns:-missing}, accounts=${accounts_probe_host} dns=${accounts_dns:-missing}, billing=${billing_host} dns=${billing_dns:-missing}, console_http=${console_status}, preflight=${preflight_status:-missing}, billing_http=${billing_status:-missing}, billing_route=${billing_route:-missing}" >&2
   if (( attempt < VERIFY_ATTEMPTS )); then
     sleep "${VERIFY_INTERVAL_SECONDS}"
   fi

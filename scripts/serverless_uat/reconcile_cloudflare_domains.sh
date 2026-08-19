@@ -3,9 +3,9 @@ set -euo pipefail
 
 # Reconcile the Cloudflare target domains declared by the serverless
 # EdgeRoutingConfig. Frontend Router owns Console and the core Edge Gateway
-# owns Accounts. Billing is a direct Cloudflare-to-Cloud-Run collector entry;
-# its origin rule uses a DNS-only, same-zone origin alias for the DNS override,
-# while Host/SNI remain the native run.app name.
+# owns Accounts. The core Edge Gateway also owns Billing and proxies it to
+# Cloud Run. Cloudflare Origin Rules cannot override Host/SNI on non-Enterprise
+# plans, so this workflow must not depend on a zone Ruleset for Billing.
 # Canonical Console/Accounts aliases are changed only during an explicit
 # serverless cutover. A normal deployment must not take ownership of the
 # shared canonical records from selfhost.
@@ -44,7 +44,7 @@ pages_project="$(jq -er '.spec.cloudflare.pages_project' "${CONFIG_FILE}")"
 console_host="$(jq -er '.spec.serverless.console_host' "${CONFIG_FILE}")"
 accounts_host="$(jq -er '.spec.serverless.accounts_host' "${CONFIG_FILE}")"
 billing_host="$(jq -er '.spec.serverless.billing_host' "${CONFIG_FILE}")"
-billing_origin_host="$(jq -er '.spec.serverless.billing_origin_host' "${CONFIG_FILE}")"
+billing_origin_host="$(jq -r '.spec.serverless.billing_origin_host // empty' "${CONFIG_FILE}")"
 billing_upstream="$(jq -er '.spec.serverless.cloud_run.billing_service' "${CONFIG_FILE}")"
 frontend_router_worker="$(jq -er '.spec.serverless.frontend_router.worker_name' "${CONFIG_FILE}")"
 core_worker="$(jq -er '.spec.serverless.edge_gateway.boundaries[] | select(.id == "core") | .worker_name' "${CONFIG_FILE}")"
@@ -137,6 +137,28 @@ reconcile_worker_domain() {
   echo "Worker custom domain attached: ${hostname} -> ${service}"
 }
 
+remove_worker_routes_for_host() {
+  local hostname="$1"
+  local routes_url="${CLOUDFLARE_API_BASE}/zones/${zone_id}/workers/routes"
+  local routes_response
+  local route_id
+  local pattern
+  local pattern_host
+
+  routes_response="$(api_request GET "${routes_url}")"
+  while IFS=$'\t' read -r route_id pattern; do
+    [[ -n "${route_id}" && -n "${pattern}" ]] || continue
+    pattern_host="${pattern#*://}"
+    pattern_host="${pattern_host%%/*}"
+    pattern_host="${pattern_host%%:*}"
+    if [[ "${pattern_host}" != "${hostname}" ]]; then
+      continue
+    fi
+    api_request DELETE "${routes_url}/${route_id}" >/dev/null
+    echo "Removed stale Worker Route: ${pattern}"
+  done < <(jq -r '.result[]? | [.id, .pattern] | @tsv' <<<"${routes_response}")
+}
+
 detach_worker_domain() {
   local hostname="$1"
   local expected_service="$2"
@@ -153,45 +175,6 @@ detach_worker_domain() {
     api_request DELETE "${CLOUDFLARE_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/domains/${domain_id}" >/dev/null
     echo "Detached Worker custom domain: ${hostname} -> ${domain_service}"
   done < <(jq -r --arg hostname "${hostname}" '.result[]? | select(.hostname == $hostname) | [.id, .service] | @tsv' <<<"${domains_response}")
-}
-
-ensure_billing_origin_rule() {
-  local rulesets_url="${CLOUDFLARE_API_BASE}/zones/${zone_id}/rulesets"
-  local rulesets_response
-  local ruleset_id
-  local ruleset_response
-  local expression
-  local billing_rule
-  local rules
-  local body
-
-  # The Rulesets list API only accepts pagination parameters. It returns the
-  # phase on each ruleset, so select the Origin Rules entry point locally.
-  rulesets_response="$(api_request GET "${rulesets_url}?per_page=50")"
-  ruleset_id="$(jq -r 'first(.result[]? | select(.kind == "zone" and .phase == "http_request_origin") | .id) // empty' <<<"${rulesets_response}")"
-  if [[ -z "${ruleset_id}" ]]; then
-    body="$(jq -cn '{name:"Serverless Billing Origin Rules", description:"GitOps-managed Cloud Run origin overrides for the serverless Billing collector", kind:"zone", phase:"http_request_origin"}')"
-    ruleset_response="$(api_request POST "${rulesets_url}" "${body}")"
-    ruleset_id="$(jq -er '.result.id' <<<"${ruleset_response}")"
-  fi
-
-  ruleset_response="$(api_request GET "${rulesets_url}/${ruleset_id}")"
-  expression="(http.host eq \"${billing_host}\")"
-  billing_rule="$(jq -cn \
-    --arg expression "${expression}" \
-    --arg origin "${billing_upstream#https://}" \
-    --arg origin_host "${billing_origin_host}" \
-    '{ref:"serverless_billing_cloud_run_origin", description:"Route the Billing collector directly to Cloud Run", expression:$expression, action:"route", action_parameters:{host_header:$origin, origin:{host:$origin_host}, sni:{value:$origin}}}')"
-  # PUT replaces the complete rule list. Strip response-only metadata before
-  # sending existing rules back; the API accepts writable rule properties only.
-  rules="$(jq -c --argjson rule "${billing_rule}" '
-    (.result.rules // [])
-    | map(del(.id, .version, .created_at, .created_by, .last_updated, .last_updated_by))
-    | map(select(.ref != $rule.ref)) + [$rule]
-  ' <<<"${ruleset_response}")"
-  body="$(jq -cn --argjson rules "${rules}" '{rules:$rules}')"
-  api_request PUT "${rulesets_url}/${ruleset_id}" "${body}" >/dev/null
-  echo "Cloudflare Origin Rule reconciled: ${billing_host} -> ${billing_origin_host} -> ${billing_upstream#https://}"
 }
 
 remove_declared_cname() {
@@ -234,11 +217,18 @@ reconcile_cname_record() {
 
 safeguard_pages_domain
 reconcile_worker_domain "${console_host}" "${frontend_router_worker}"
+# A Worker custom domain is the only supported owner for Console. Explicit
+# Worker Routes take precedence over it and can bypass Frontend Router, so
+# remove every route on the GitOps-declared Console host.
+remove_worker_routes_for_host "${console_host}"
 reconcile_worker_domain "${accounts_host}" "${core_worker}"
-detach_worker_domain "${billing_host}" "${core_worker}"
-reconcile_cname_record "${billing_host}" "${billing_upstream#https://}"
-reconcile_cname_record "${billing_origin_host}" "${billing_upstream#https://}" false
-ensure_billing_origin_rule
+remove_declared_cname "${billing_host}" "${billing_upstream#https://}"
+reconcile_worker_domain "${billing_host}" "${core_worker}"
+# Remove the DNS-only alias left by the retired Enterprise-only Origin Rule
+# design. It is not part of the public service contract.
+if [[ -n "${billing_origin_host}" ]]; then
+  remove_declared_cname "${billing_origin_host}" "${billing_upstream#https://}"
+fi
 
 if [[ "${serverless_dns_mode}" != "none" ]]; then
   while IFS=$'\t' read -r record_name record_target; do
