@@ -385,6 +385,14 @@ jobs:
     needs: preflight
     if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true }}
     runs-on: ubuntu-latest
+    # hybrid-orchestrator writes these same three Worker names on the same
+    # routes, differing only in the vars it sets, so the two orchestrators must
+    # never write the same boundary concurrently. The group is per boundary: a
+    # group shared by all three matrix legs would make GitHub cancel the queued
+    # legs instead of serialising them.
+    concurrency:
+      group: edge-gateway-${{ inputs.vault_env_path || 'uat' }}-${{ matrix.boundary }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:
