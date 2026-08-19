@@ -11,6 +11,10 @@ if grep -Eq 'wrangler deploy.*--env|--env[[:space:]]+"?\$\{CLOUDFLARE_ENV\}' "${
   echo "Portal boundary deploy must use the GitOps Worker name without appending a Wrangler environment suffix" >&2
   exit 1
 fi
+grep -Fq 'env -u CLOUDFLARE_ENV yarn exec wrangler deploy' "${portal_deployer}" || {
+  echo "Wrangler deploy must not inherit CLOUDFLARE_ENV" >&2
+  exit 1
+}
 
 mkdir -p "${test_dir}/bin"
 cat >"${test_dir}/routing.json" <<'EOF'

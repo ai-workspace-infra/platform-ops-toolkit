@@ -27,6 +27,6 @@ env -u CLOUDFLARE_ENV \
   PORTAL_DEPLOYMENT_ENV="${CLOUDFLARE_ENV}" \
   RUNTIME_ENV="${CLOUDFLARE_ENV}" \
   yarn "build:ssr:${PORTAL_SSR_BOUNDARY}"
-yarn exec wrangler deploy \
+env -u CLOUDFLARE_ENV yarn exec wrangler deploy \
   --config ".edge-build/${PORTAL_SSR_BOUNDARY}/wrangler.jsonc"
 popd > /dev/null
