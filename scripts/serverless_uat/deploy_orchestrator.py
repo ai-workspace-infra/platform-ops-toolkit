@@ -31,6 +31,7 @@ DEPLOY_CLOUD_RUN = os.environ.get("DEPLOY_CLOUD_RUN", "true").lower() == "true"
 VERIFY_SUPABASE = os.environ.get("VERIFY_SUPABASE", "true").lower() == "true"
 CLOUD_RUN_SERVICE = os.environ.get("CLOUD_RUN_SERVICE", "").strip()
 CLOUDFLARE_TARGET = os.environ.get("CLOUDFLARE_TARGET", "").strip()
+CLOUDFLARE_BOUNDARY_CONFIG = os.environ.get("CLOUDFLARE_BOUNDARY_CONFIG", "").strip()
 
 def log(msg: str):
     print(f"==> [UAT Orchestrator] {msg}", flush=True)
@@ -51,6 +52,58 @@ def fetch_vault_path(path: str) -> dict:
     except Exception as e:
         log(f"Failed to fetch Vault secret at {url}: {e}")
         return {}
+
+def resolve_console_origins(config_path: str) -> list:
+    """Return the browser origins that accounts must accept for CORS.
+
+    The portal is served from the console host, so that host is the Origin
+    every login request carries. Aliases that resolve to the same host are
+    included as well: a user who reaches the console through the canonical
+    alias sends the alias as the Origin, not the target.
+
+    Deriving this from the GitOps EdgeRoutingConfig is deliberate. The same
+    knowledge previously lived only in the accounts config template, and a new
+    environment shipped without it -- every browser login was rejected with an
+    empty 403 by the CORS middleware while curl probes without an Origin header
+    kept returning a normal 401.
+    """
+    if not config_path:
+        return []
+    try:
+        with open(config_path, encoding="utf-8") as handle:
+            document = json.load(handle)
+    except (OSError, ValueError) as exc:
+        log(f"Failed to read routing config at {config_path}: {exc}")
+        return []
+
+    spec = document.get("spec", {}) or {}
+    console_host = str((spec.get("serverless", {}) or {}).get("console_host", "")).strip()
+    if not console_host:
+        return []
+
+    hosts = [console_host]
+
+    routing = ((spec.get("runtime", {}) or {}).get("routing", {}) or {})
+    canonical = ((routing.get("dns", {}) or {}).get("canonical_records", {}) or {})
+    for alias, target in canonical.items():
+        if str(target).strip() == console_host:
+            hosts.append(str(alias).strip())
+
+    for alias, targets in (spec.get("domains", {}) or {}).items():
+        if not isinstance(targets, dict):
+            continue
+        if str(targets.get("serverless", "")).strip() == console_host:
+            hosts.append(str(alias).strip())
+
+    origins = []
+    for host in hosts:
+        if not host:
+            continue
+        origin = host if "://" in host else f"https://{host}"
+        if origin not in origins:
+            origins.append(origin)
+    return origins
+
 
 def normalize_runtime_database_uri(secrets: dict) -> str:
     """Return a URL-safe Supabase runtime URI.
@@ -281,6 +334,23 @@ def main():
         )
         cloudrun_context["DEPLOY_ENV"] = VAULT_ENV_PATH
         cloudrun_context["CLOUD_RUN_SERVICE"] = CLOUD_RUN_SERVICE
+        console_origins = resolve_console_origins(CLOUDFLARE_BOUNDARY_CONFIG)
+        if CLOUDFLARE_BOUNDARY_CONFIG and not console_origins:
+            raise SystemExit(
+                "CLOUDFLARE_BOUNDARY_CONFIG is set but no console origin could be "
+                "resolved from spec.serverless.console_host; refusing to deploy "
+                "accounts without its CORS allowlist"
+            )
+        if not console_origins:
+            log(
+                "Warning: CLOUDFLARE_BOUNDARY_CONFIG is not set, so ALLOWED_ORIGINS "
+                "cannot be derived. accounts will fall back to the origins baked "
+                "into its config template, which may reject this environment's "
+                "browser logins with an empty 403."
+            )
+        else:
+            log(f"Cloud Run CORS origins: {', '.join(console_origins)}")
+        cloudrun_context["ALLOWED_ORIGINS"] = ",".join(console_origins)
         if not run_command([cloudrun_script], cloudrun_context):
             log("Error: Cloud Run deployment failed")
             sys.exit(1)

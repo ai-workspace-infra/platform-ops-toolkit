@@ -203,6 +203,26 @@ jobs:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
 
+      - name: Checkout GitOps runtime topology
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          # GitOps runtime topology is the environment configuration source of truth;
+          # keep it on main while deployable artifacts share tag_ref.
+          ref: main
+          path: gitops
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+
+      # accounts rejects any browser Origin that is not on its CORS allowlist,
+      # so the deploy has to pass this environment's console host through.
+      - name: Render GitOps runtime topology YAML
+        run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+        env:
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
+
       - name: Authenticate to Vault with GitHub OIDC
         id: vault
         uses: hashicorp/vault-action@v4
@@ -236,6 +256,7 @@ jobs:
           DEPLOY_CLOUD_RUN: 'true'
           VERIFY_SUPABASE: 'false'
           CLOUD_RUN_SERVICE: ${{ matrix.service }}
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
 
   cloudflare_ssr:
     name: Cloudflare / SSR / ${{ matrix.boundary }}
