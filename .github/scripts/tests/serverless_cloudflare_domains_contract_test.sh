@@ -33,6 +33,16 @@ cat >"${test_dir}/routing.json" <<'EOF'
         }
       }
     },
+    "domains": {
+      "console-uat.onwalk.net": {
+        "selfhost": "console-selfhost-uat.onwalk.net",
+        "serverless": "console-serverless-uat.onwalk.net"
+      },
+      "accounts-uat.onwalk.net": {
+        "selfhost": "accounts-selfhost-uat.onwalk.net",
+        "serverless": "accounts-serverless-uat.onwalk.net"
+      }
+    },
     "cloudflare": {
       "zone_name": "onwalk.net",
       "pages_project": "ai-workspace-portal-uat"
@@ -99,7 +109,7 @@ elif [[ "${url}" == *'/dns_records?name=billing-serverless-uat.onwalk.net'* && "
 elif [[ "${url}" == *'/dns_records?name=billing-origin-serverless-uat.onwalk.net'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[{"id":"billing-origin-cname","content":"uat-billing-service-1004637461064.asia-northeast1.run.app"}]}'
 elif [[ "${url}" == *'/dns_records?name=console-uat.onwalk.net'* && "${method}" == 'GET' ]]; then
-  printf '%s' '{"success":true,"result":[{"id":"console-alias","content":"console-serverless-uat.onwalk.net"}]}'
+  printf '%s' '{"success":true,"result":[{"id":"console-alias","content":"console-selfhost-uat.onwalk.net"}]}'
 elif [[ "${url}" == *'/dns_records?name=accounts-uat.onwalk.net'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[{"id":"accounts-alias","content":"accounts-serverless-uat.onwalk.net"}]}'
 elif [[ "${url}" == *'/dns_records?name='* && "${method}" == 'GET' ]]; then
