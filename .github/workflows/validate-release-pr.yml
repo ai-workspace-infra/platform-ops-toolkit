@@ -58,6 +58,12 @@ jobs:
     - name: Verify serverless deployment runs in parallel before readiness
       run: bash .github/scripts/tests/serverless_orchestrator_parallelism_test.sh
 
+    # A Pages deployment that misses the boundary assets still deploys green
+    # while every SSR page silently loses its client chunks, so assert the
+    # hand-off instead of relying on a smoke test.
+    - name: Verify Cloudflare Pages carries the SSR boundary assets
+      run: bash .github/scripts/tests/serverless_pages_edge_assets_contract_test.sh
+
     - name: Verify public DNS and migration concurrency boundaries
       run: bash .github/scripts/tests/public_state_concurrency_contract_test.sh
 

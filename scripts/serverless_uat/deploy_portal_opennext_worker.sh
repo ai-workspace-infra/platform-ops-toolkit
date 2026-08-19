@@ -36,4 +36,11 @@ env -u CLOUDFLARE_ENV \
   yarn "build:ssr:${PORTAL_SSR_BOUNDARY}"
 env -u CLOUDFLARE_ENV yarn exec wrangler deploy \
   --config ".edge-build/${PORTAL_SSR_BOUNDARY}/wrangler.jsonc"
+# When a static CDN is declared the boundary emits absolute
+# <cdn>/_edge/<boundary>/_next/... asset URLs, so the same assets must also be
+# published to the CDN (Cloudflare Pages).  Hand them to the caller, which
+# merges every boundary into the single Pages deployment.
+if [[ -n "${EDGE_ASSETS_OUT:-}" ]]; then
+  node scripts/collect-edge-assets.mjs --out "${EDGE_ASSETS_OUT}" --boundary "${PORTAL_SSR_BOUNDARY}"
+fi
 popd > /dev/null

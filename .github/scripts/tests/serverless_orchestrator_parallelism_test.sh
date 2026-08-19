@@ -27,12 +27,20 @@ parallel = {
     "cloudflare_ssr",
     "frontend_router",
     "edge_gateway",
-    "static_pages",
 }
 for job in parallel:
     needs = jobs[job].get("needs")
     if needs != "preflight":
         raise SystemExit(f"{job} must depend only on preflight, got {needs!r}")
+
+# static_pages is the one deliberate exception: the Pages deployment publishes
+# the client chunks of every SSR boundary (assetPrefix -> static_cdn_url), so it
+# has to wait for the boundary builds instead of racing them.
+static_pages_needs = jobs["static_pages"].get("needs")
+if static_pages_needs != ["preflight", "cloudflare_ssr"]:
+    raise SystemExit(
+        f"static_pages must depend on preflight and cloudflare_ssr, got {static_pages_needs!r}"
+    )
 
 expected_readiness_needs = {
     "preflight",

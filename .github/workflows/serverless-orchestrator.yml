@@ -333,8 +333,20 @@ jobs:
           CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
           PORTAL_DIR: ${{ github.workspace }}/portal
+          EDGE_ASSETS_OUT: ${{ runner.temp }}/edge-assets
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_API_TOKEN }}
+
+      # The boundary serves its HTML, but with a static CDN declared the client
+      # chunks are fetched from <static_cdn_url>/_edge/<boundary>; hand them to
+      # the static-pages job so one Pages deployment carries every boundary.
+      - name: Upload boundary edge assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: edge-assets-${{ matrix.boundary }}
+          path: ${{ runner.temp }}/edge-assets
+          retention-days: 1
+          if-no-files-found: error
 
   frontend_router:
     name: Cloudflare / frontend-router
@@ -490,8 +502,15 @@ jobs:
 
   static_pages:
     name: Cloudflare / static-pages
-    needs: preflight
-    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true }}
+    # The Pages deployment carries the client chunks of every SSR boundary
+    # (assetPrefix points at static_cdn_url), so it can only be published once
+    # the boundaries have been built and their assets uploaded.
+    needs: [preflight, cloudflare_ssr]
+    if: >-
+      ${{ always() && needs.preflight.result == 'success' &&
+      contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) &&
+      inputs.deploy_cloudflare == true &&
+      (needs.cloudflare_ssr.result == 'success' || needs.cloudflare_ssr.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout platform toolkit
@@ -546,10 +565,18 @@ jobs:
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN
 
+      - name: Download boundary edge assets
+        uses: actions/download-artifact@v8
+        with:
+          pattern: edge-assets-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/edge-assets
+
       - name: Deploy Cloudflare Pages static assets
         run: ./.github/scripts/serverless/run_cloudflare_target.sh
         env:
           CLOUDFLARE_TARGET: static-pages
+          EDGE_ASSETS_DIR: ${{ runner.temp }}/edge-assets
           CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
           PAGES_BRANCH: ${{ inputs.vault_env_path || 'uat' }}
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
