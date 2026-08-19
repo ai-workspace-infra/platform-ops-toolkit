@@ -240,8 +240,11 @@ if [[ "${serverless_dns_mode}" != "none" ]]; then
     [[ -n "${record_name}" && -n "${record_target}" ]] || continue
     case "${record_target%.}" in
       "${console_host%.}")
-        remove_declared_cname "${record_name}" "${record_target}"
+        # Bind the canonical hostname before removing the old self-host CNAME.
+        # This makes the explicit UAT cutover safe: the legacy record is only
+        # removed after Worker custom-domain ownership is confirmed or created.
         reconcile_worker_domain "${record_name}" "${frontend_router_worker}"
+        remove_declared_cname "${record_name}" "${record_target}"
         ;;
       "${accounts_host%.}")
         detach_worker_domain "${record_name}" "${core_worker}"
