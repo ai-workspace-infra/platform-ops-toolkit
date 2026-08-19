@@ -19,6 +19,12 @@ if [[ -z "${CLOUDFLARE_API_TOKEN:-}" || -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
   exit 1
 fi
 
+CONFIG_FILE="${CLOUDFLARE_BOUNDARY_CONFIG:-}"
+STATIC_CDN_URL=""
+if [[ -n "${CONFIG_FILE}" && -f "${CONFIG_FILE}" ]]; then
+  STATIC_CDN_URL="$(jq -r '.spec.cloudflare.static_cdn_url // empty' "${CONFIG_FILE}" 2>/dev/null || true)"
+fi
+
 test -f "${PORTAL_DIR}/package.json"
 pushd "${PORTAL_DIR}" > /dev/null
 corepack enable
@@ -26,6 +32,7 @@ yarn install --immutable
 env -u CLOUDFLARE_ENV \
   PORTAL_DEPLOYMENT_ENV="${CLOUDFLARE_ENV}" \
   RUNTIME_ENV="${CLOUDFLARE_ENV}" \
+  NEXT_PUBLIC_STATIC_CDN_URL="${STATIC_CDN_URL}" \
   yarn "build:ssr:${PORTAL_SSR_BOUNDARY}"
 env -u CLOUDFLARE_ENV yarn exec wrangler deploy \
   --config ".edge-build/${PORTAL_SSR_BOUNDARY}/wrangler.jsonc"

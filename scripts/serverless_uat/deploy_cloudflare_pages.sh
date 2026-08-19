@@ -11,10 +11,12 @@ PAGES_PROJECT="${PAGES_PROJECT_NAME:-ai-workspace-portal-${CLOUDFLARE_ENV}}"
 PAGES_BRANCH="${PAGES_BRANCH:-${CLOUDFLARE_ENV}}"
 CONFIG_FILE="${CLOUDFLARE_BOUNDARY_CONFIG:-}"
 
+STATIC_CDN_URL=""
 if [[ -n "${CONFIG_FILE}" && -f "${CONFIG_FILE}" ]]; then
   if jq -e '.kind == "EdgeRoutingConfig"' "${CONFIG_FILE}" >/dev/null; then
     PAGES_PROJECT="$(jq -er '.spec.cloudflare.pages_project' "${CONFIG_FILE}")"
     PAGES_BRANCH="$(jq -er '.spec.cloudflare.pages_branch' "${CONFIG_FILE}")"
+    STATIC_CDN_URL="$(jq -r '.spec.cloudflare.static_cdn_url // empty' "${CONFIG_FILE}" 2>/dev/null || true)"
   fi
 fi
 
@@ -29,7 +31,7 @@ test -f "${PORTAL_DIR}/package.json"
 pushd "${PORTAL_DIR}" > /dev/null
 corepack enable
 yarn install --immutable
-yarn build:static-dashboard
+NEXT_PUBLIC_STATIC_CDN_URL="${STATIC_CDN_URL}" yarn build:static-dashboard
 # Pages deployments are environment-scoped.  Create the explicitly selected
 # project once when a fresh Cloudflare account has not been provisioned yet;
 # an existing project is reused without changing its configuration.
