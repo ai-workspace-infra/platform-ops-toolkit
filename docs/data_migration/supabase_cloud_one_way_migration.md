@@ -40,8 +40,9 @@ kv/data/<env>/accounts-migration
 若 `MIGRATION_SOURCE_DSN` 使用 `127.0.0.1`、`localhost` 或 `::1`，工作流会将其视为
 受管 stunnel 客户端入口，并要求传入 `supabase_source_tunnel_host`。该客户端会在 Runner
 中启动，并转发到 `<host>:15433`；不要把本地端口直接当作 GitHub Runner 上天然存在的服务。
-对于 UAT selfhost 数据源，Serverless Orchestrator 使用
-`accounts-vps-uat.onwalk.net:15433` 作为 TLS tunnel target。
+Serverless Orchestrator 的 UAT 默认值是
+`accounts-vps-uat.onwalk.net:15433`。SIT/PROD 运行前必须在 dispatch 表单中将
+`supabase_source_tunnel_host` 改为该环境的 VPS stunnel 地址，避免把 UAT 主机误用于其他环境。
 
 Session pooler（`pooler.supabase.com:5432`）适合当前 IPv4 VPS 和迁移 runner，也可以
 用于 `pg_dump/psql`。Transaction pooler（端口 `6543`）仅适合短请求应用流量，迁移脚本
@@ -63,8 +64,9 @@ Content Service 当前是 Git/文件索引模式，没有 PostgreSQL 元数据�
 Content 表；它接入 Supabase 运行时时继续保持数据库可选。
 
 业务数据可能包含密码哈希、session、MFA secret 等敏感字段，正式执行前必须完成数据
-分类确认。若 GitHub hosted runner 无法访问 VPS PostgreSQL，使用 `runner_type=self-hosted`，
-并确保 runner 同时可达源 VPS 和 Supabase 目标端点，且 Vault 中仍使用可明确审计的源库
-地址而非 Runner loopback。VPS 的 Accounts/Billing 运行时
+分类确认。GitHub-hosted runner 可通过受管 stunnel 访问以 loopback DSN 表示的 VPS 源库；
+若网络策略不允许 Runner 访问该 TLS endpoint，再使用 `runner_type=self-hosted`，并确保
+runner 同时可达源 VPS 和 Supabase 目标端点。Vault 中的源 DSN 仍必须是可审计的明确来源，
+loopback 仅作为由工作流建立 stunnel 的本地入口。VPS 的 Accounts/Billing 运行时
 建议使用 Session pooler；只有在应用明确兼容 transaction pooling（关闭 prepared
 statement/session state 依赖）时，才考虑 `6543` Transaction pooler。
