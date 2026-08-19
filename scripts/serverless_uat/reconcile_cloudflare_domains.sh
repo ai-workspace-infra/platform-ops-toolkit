@@ -139,14 +139,16 @@ reconcile_worker_domain() {
 
 remove_worker_routes_for_host() {
   local hostname="$1"
+  local expected_service="${2:-}"
   local routes_url="${CLOUDFLARE_API_BASE}/zones/${zone_id}/workers/routes"
   local routes_response
   local route_id
   local pattern
   local pattern_host
+  local route_service
 
   routes_response="$(api_request GET "${routes_url}")"
-  while IFS=$'\t' read -r route_id pattern; do
+  while IFS=$'\t' read -r route_id pattern route_service; do
     [[ -n "${route_id}" && -n "${pattern}" ]] || continue
     pattern_host="${pattern#*://}"
     pattern_host="${pattern_host%%/*}"
@@ -154,9 +156,12 @@ remove_worker_routes_for_host() {
     if [[ "${pattern_host}" != "${hostname}" ]]; then
       continue
     fi
+    if [[ -n "${expected_service}" && "${route_service}" != "${expected_service}" ]]; then
+      continue
+    fi
     api_request DELETE "${routes_url}/${route_id}" >/dev/null
     echo "Removed stale Worker Route: ${pattern}"
-  done < <(jq -r '.result[]? | [.id, .pattern] | @tsv' <<<"${routes_response}")
+  done < <(jq -r '.result[]? | [.id, .pattern, (.script // empty)] | @tsv' <<<"${routes_response}")
 }
 
 detach_worker_domain() {
@@ -248,6 +253,13 @@ if [[ "${serverless_dns_mode}" != "none" ]]; then
     esac
   done < <(jq -r '.spec.runtime.routing.dns.canonical_records // {} | to_entries[] | [.key, .value] | @tsv' "${CONFIG_FILE}")
 else
+  while IFS=$'\t' read -r record_name record_target; do
+    [[ "${record_target%.}" == "${accounts_host%.}" ]] || continue
+    # Edge Gateway deployment may declare canonical API routes for explicit
+    # cutovers. A normal dns_mode=none run must remove only its own legacy
+    # route and leave unrelated scripts untouched.
+    remove_worker_routes_for_host "${record_name}" "${core_worker}"
+  done < <(jq -r '.spec.runtime.routing.dns.canonical_records // {} | to_entries[] | [.key, .value] | @tsv' "${CONFIG_FILE}")
   echo "Skipping canonical DNS reconciliation; SERVERLESS_DNS_MODE=none leaves shared records under the current owner."
 fi
 

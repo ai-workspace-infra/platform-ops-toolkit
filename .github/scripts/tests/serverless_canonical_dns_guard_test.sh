@@ -75,7 +75,7 @@ elif [[ "${url}" == *'/pages/projects/ai-workspace-portal-uat/domains'* && "${me
 elif [[ "${url}" == *'/workers/domains'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[]}'
 elif [[ "${url}" == *'/zones/zone-1/workers/routes' && "${method}" == 'GET' ]]; then
-  printf '%s' '{"success":true,"result":[]}'
+  printf '%s' '{"success":true,"result":[{"id":"legacy-core-route","pattern":"accounts-uat.onwalk.net/api/*","script":"edge-gateway-core-uat"},{"id":"unrelated-route","pattern":"accounts-uat.onwalk.net/internal/*","script":"unrelated-worker"}]}'
 elif [[ "${url}" == *'/rulesets?per_page=50' && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[{"id":"ruleset-1","kind":"zone","phase":"http_request_origin"}]}'
 elif [[ "${url}" == *'/rulesets/ruleset-1'* && "${method}" == 'GET' ]]; then
@@ -100,7 +100,14 @@ SERVERLESS_DNS_MODE="none" \
 "${reconciler}"
 
 if grep -Eq 'console-uat\.onwalk\.net|accounts-uat\.onwalk\.net' "${test_dir}/curl.log"; then
-  echo "Canonical DNS was modified during a normal serverless deployment" >&2
+  if grep -Eq '/dns_records.*(console-uat\.onwalk\.net|accounts-uat\.onwalk\.net)' "${test_dir}/curl.log"; then
+    echo "Canonical DNS was modified during a normal serverless deployment" >&2
+    exit 1
+  fi
+fi
+grep -Fq $'DELETE\thttps://cloudflare.invalid/client/v4/zones/zone-1/workers/routes/legacy-core-route' "${test_dir}/curl.log"
+if grep -Fq '/workers/routes/unrelated-route' "${test_dir}/curl.log"; then
+  echo "Unrelated canonical Worker Route was deleted" >&2
   exit 1
 fi
 
