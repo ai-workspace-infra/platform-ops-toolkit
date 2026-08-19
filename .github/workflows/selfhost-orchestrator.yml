@@ -197,7 +197,6 @@ jobs:
       INPUT_INSTANCE_PLAN:          ${{ inputs.instance_plan || github.event.inputs.instance_plan || '4C8G' }}
       INPUT_AGENT_PROXY_PLAN:       ${{ inputs.agent_proxy_plan || github.event.inputs.agent_proxy_plan || '1C1G' }}
       INPUT_OPERATION:             ${{ github.event.inputs.operation }}
-      INPUT_DEPLOY_REF:            
       INPUT_SOURCE_REF:            ${{ github.event.inputs.source_ref }}
       INPUT_OFFLINE_MODE:          ${{ github.event.inputs.offline_mode }}
       INPUT_SOURCE_HOST:           ${{ github.event.inputs.source_host }}
