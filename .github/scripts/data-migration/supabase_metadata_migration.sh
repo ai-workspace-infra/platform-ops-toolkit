@@ -15,12 +15,22 @@ VAULT_REF="${SUPABASE_VAULT_PROJECT_REF:-}"
 DRY_RUN="${SUPABASE_METADATA_DRY_RUN:-true}"
 MODE="${SUPABASE_MIGRATION_MODE:-metadata}"
 CONNECTION_MODE="${SUPABASE_TARGET_CONNECTION_MODE:-session_pooler}"
+SOURCE_TUNNEL_HOST="${SUPABASE_SOURCE_TUNNEL_HOST:-}"
+SOURCE_TUNNEL_PORT="${SUPABASE_SOURCE_TUNNEL_PORT:-15433}"
+SOURCE_TUNNEL_LOCAL_PORT="${SUPABASE_SOURCE_TUNNEL_LOCAL_PORT:-15433}"
 DUMP_DIR="${SUPABASE_METADATA_DUMP_DIR:-${RUNNER_TEMP:-/tmp}/supabase-metadata-migration}"
 SCHEMA_FILE="${DUMP_DIR}/public-schema.sql"
 DATA_FILE="${DUMP_DIR}/public-data.sql"
 APPLY_FILE="${DUMP_DIR}/apply.sql"
+SOURCE_TUNNEL_CONFIG=""
+SOURCE_TUNNEL_PID=""
 
 cleanup() {
+  if [[ -n "${SOURCE_TUNNEL_PID}" ]]; then
+    kill "${SOURCE_TUNNEL_PID}" >/dev/null 2>&1 || true
+    wait "${SOURCE_TUNNEL_PID}" 2>/dev/null || true
+  fi
+  [[ -z "${SOURCE_TUNNEL_CONFIG}" ]] || rm -f "${SOURCE_TUNNEL_CONFIG}"
   rm -rf "${DUMP_DIR}"
 }
 trap cleanup EXIT
@@ -33,10 +43,9 @@ if [[ -z "${SOURCE_DSN}" || -z "${TARGET_DSN}" ]]; then
   echo "ERROR: source and Supabase target DSNs are required from Vault." >&2
   exit 1
 fi
+source_uses_loopback=false
 if [[ "${SOURCE_DSN}" =~ @((127\.0\.0\.1)|localhost|\[::1\])(:|/|\?) ]]; then
-  echo "ERROR: MIGRATION_SOURCE_DSN targets runner loopback and cannot be used by this workflow." >&2
-  echo "       Store a reachable, read-only VPS PostgreSQL DSN in Vault instead of a local tunnel endpoint." >&2
-  exit 1
+  source_uses_loopback=true
 fi
 if [[ -z "${VAULT_REF}" ]]; then
   echo "ERROR: Supabase Vault is missing PROJECT_REF." >&2
@@ -85,6 +94,40 @@ if [[ "${MODE}" != "metadata" && "${MODE}" != "metadata_and_data" ]]; then
   exit 1
 fi
 
+if [[ "${source_uses_loopback}" == true ]]; then
+  if [[ -z "${SOURCE_TUNNEL_HOST}" ]]; then
+    echo "ERROR: MIGRATION_SOURCE_DSN targets runner loopback but SUPABASE_SOURCE_TUNNEL_HOST is not configured." >&2
+    echo "       Configure a TLS tunnel target for the self-hosted PostgreSQL source." >&2
+    exit 1
+  fi
+  if [[ ! "${SOURCE_DSN}" =~ :${SOURCE_TUNNEL_LOCAL_PORT}([/?]|$) ]]; then
+    echo "ERROR: loopback source DSN must use SUPABASE_SOURCE_TUNNEL_LOCAL_PORT=${SOURCE_TUNNEL_LOCAL_PORT}." >&2
+    exit 1
+  fi
+  command -v stunnel >/dev/null || { echo "ERROR: stunnel is required for a loopback migration source." >&2; exit 1; }
+  SOURCE_TUNNEL_CONFIG="$(mktemp "${RUNNER_TEMP:-/tmp}/supabase-source-stunnel.XXXXXX.conf")"
+  printf '%s\n' \
+    'foreground = yes' \
+    'client = yes' \
+    '[source-postgres]' \
+    "accept = 127.0.0.1:${SOURCE_TUNNEL_LOCAL_PORT}" \
+    "connect = ${SOURCE_TUNNEL_HOST}:${SOURCE_TUNNEL_PORT}" \
+    >"${SOURCE_TUNNEL_CONFIG}"
+  stunnel "${SOURCE_TUNNEL_CONFIG}" >"${DUMP_DIR}.stunnel.log" 2>&1 &
+  SOURCE_TUNNEL_PID="$!"
+  for _ in {1..20}; do
+    if kill -0 "${SOURCE_TUNNEL_PID}" >/dev/null 2>&1 && (echo >"/dev/tcp/127.0.0.1/${SOURCE_TUNNEL_LOCAL_PORT}") 2>/dev/null; then
+      echo "Source PostgreSQL TLS tunnel ready: ${SOURCE_TUNNEL_HOST}:${SOURCE_TUNNEL_PORT}"
+      break
+    fi
+    sleep 0.25
+  done
+  if ! kill -0 "${SOURCE_TUNNEL_PID}" >/dev/null 2>&1; then
+    echo "ERROR: source PostgreSQL TLS tunnel terminated during startup." >&2
+    cat "${DUMP_DIR}.stunnel.log" >&2 || true
+    exit 1
+  fi
+fi
 command -v pg_dump >/dev/null || { echo "ERROR: pg_dump is required." >&2; exit 1; }
 command -v psql >/dev/null || { echo "ERROR: psql is required." >&2; exit 1; }
 hash_file() {
