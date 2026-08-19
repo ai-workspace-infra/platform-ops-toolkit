@@ -184,15 +184,27 @@ detach_worker_domain() {
 
 remove_declared_cname() {
   local name="$1"
-  local expected_target="${2:-}"
+  shift
+  local -a allowed_targets=("$@")
   local records_response
+  local expected_target
+  local target_allowed
   records_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records?name=${name}&type=CNAME&per_page=100")"
 
   while IFS=$'\t' read -r record_id record_target; do
     [[ -n "${record_id}" ]] || continue
-    if [[ -n "${expected_target}" && "${record_target%.}" != "${expected_target%.}" ]]; then
-      echo "DNS CNAME ${name} points to unexpected target ${record_target}; refusing to delete it before Worker binding." >&2
-      return 1
+    if ((${#allowed_targets[@]} > 0)); then
+      target_allowed=false
+      for expected_target in "${allowed_targets[@]}"; do
+        if [[ -n "${expected_target}" && "${record_target%.}" == "${expected_target%.}" ]]; then
+          target_allowed=true
+          break
+        fi
+      done
+      if [[ "${target_allowed}" != true ]]; then
+        echo "DNS CNAME ${name} points to unexpected target ${record_target}; refusing to delete it." >&2
+        return 1
+      fi
     fi
     api_request DELETE "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records/${record_id}" >/dev/null
     echo "Removed conflicting DNS CNAME: ${name} -> ${record_target}"
@@ -240,11 +252,12 @@ if [[ "${serverless_dns_mode}" != "none" ]]; then
     [[ -n "${record_name}" && -n "${record_target}" ]] || continue
     case "${record_target%.}" in
       "${console_host%.}")
-        # Bind the canonical hostname before removing the old self-host CNAME.
-        # This makes the explicit UAT cutover safe: the legacy record is only
-        # removed after Worker custom-domain ownership is confirmed or created.
+        # Cloudflare rejects a Worker custom-domain binding while any external
+        # CNAME still exists. Delete only GitOps-declared aliases first; an
+        # unknown target remains protected by remove_declared_cname.
+        old_selfhost_target="$(jq -r --arg hostname "${record_name}" '.spec.domains[$hostname].selfhost // empty' "${CONFIG_FILE}")"
+        remove_declared_cname "${record_name}" "${old_selfhost_target}" "${record_target}"
         reconcile_worker_domain "${record_name}" "${frontend_router_worker}"
-        remove_declared_cname "${record_name}" "${record_target}"
         ;;
       "${accounts_host%.}")
         detach_worker_domain "${record_name}" "${core_worker}"
