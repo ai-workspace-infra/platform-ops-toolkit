@@ -8,10 +8,13 @@ workdir="$(mktemp -d)"
 trap 'rm -rf "${workdir}"' EXIT
 
 mkdir -p "${workdir}/status"
-printf '%s\n' '{"repository":"ai-workspace-services/accounts","tag":"uat-daily-build-2026.08.21-r2"}' > "${workdir}/status/services.jsonl"
-printf '%s\n' '{"repository":"ai-workspace-services/portal","tag":"uat-daily-build-2026.08.21-r2"}' > "${workdir}/status/portal.jsonl"
+printf '%s\n' '{"organization":"ai-workspace-services","repository":"ai-workspace-services/accounts","tag":"uat-daily-build-2026.08.21-r2"}' > "${workdir}/status/services.jsonl"
+printf '%s\n' '{"organization":"ai-workspace-services","repository":"ai-workspace-services/portal","tag":"uat-daily-build-2026.08.21-r2"}' > "${workdir}/status/portal.jsonl"
+printf '%s\n' '{"organization":"ai-workspace-lab","repository":"ai-workspace-lab/xworkmate-bridge","tag":"uat-daily-build-2026.08.21"}' > "${workdir}/status/lab.jsonl"
+printf '%s\n' '{"organization":"ai-workspace-xstream","repository":"ai-workspace-xstream/xray-exporter","tag":"uat-daily-build-2026.08.21"}' > "${workdir}/status/xstream.jsonl"
 
 GITHUB_OUTPUT="${workdir}/output" SNAPSHOT_STATUS_DIRECTORY="${workdir}/status" \
+  SNAPSHOT_CANONICAL_ORGANIZATION=ai-workspace-services \
   bash "${resolver}"
 grep -Fqx 'snapshot_tag=uat-daily-build-2026.08.21-r2' "${workdir}/output"
 
