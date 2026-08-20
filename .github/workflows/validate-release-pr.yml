@@ -49,6 +49,9 @@ jobs:
     - name: Verify UAT Serverless migration source contract
       run: bash .github/scripts/tests/serverless_supabase_source_contract_test.sh
 
+    - name: Verify Supabase migration only uses the managed SSH source path
+      run: bash .github/scripts/tests/supabase_migration_ssh_only_contract_test.sh
+
     - name: Verify Agent Proxy deployment variable contract
       run: bash .github/scripts/tests/platform_ops_agent_proxy_contract_test.sh
 
