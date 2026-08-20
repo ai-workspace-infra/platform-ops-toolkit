@@ -14,6 +14,7 @@ CONFIG_FILE="${CLOUDFLARE_BOUNDARY_CONFIG:-}"
 STATIC_CDN_URL=""
 SSR_BOUNDARIES=""
 CONSOLE_HOST=""
+CONTENT_SERVICE_URL="${DOCS_SERVICE_URL:-}"
 # SSR entry points that live only on the console host and never carry a static
 # file, so redirecting them away from the Pages hostname cannot shadow an asset.
 SSR_ENTRY_PATHS=(login register email-verification logout panel dashboard)
@@ -24,6 +25,7 @@ if [[ -n "${CONFIG_FILE}" && -f "${CONFIG_FILE}" ]]; then
     STATIC_CDN_URL="$(jq -r '.spec.cloudflare.static_cdn_url // empty' "${CONFIG_FILE}" 2>/dev/null || true)"
     SSR_BOUNDARIES="$(jq -r '.spec.serverless.ssr[]?.id // empty' "${CONFIG_FILE}" 2>/dev/null || true)"
     CONSOLE_HOST="$(jq -r '.spec.serverless.console_host // empty' "${CONFIG_FILE}" 2>/dev/null || true)"
+    CONTENT_SERVICE_URL="${CONTENT_SERVICE_URL:-$(jq -r '.spec.serverless.cloud_run.content_service // empty' "${CONFIG_FILE}" 2>/dev/null || true)}"
   fi
 fi
 
@@ -38,7 +40,17 @@ test -f "${PORTAL_DIR}/package.json"
 pushd "${PORTAL_DIR}" > /dev/null
 corepack enable
 yarn install --immutable
-NEXT_PUBLIC_STATIC_CDN_URL="${STATIC_CDN_URL}" yarn build:static-dashboard
+# blogs, docs and products are exported from the content service, and only when
+# it answers: the export drops those sections rather than failing, which is what
+# lets the VPS image and the delivery checks build without one. A deployment
+# that means to carry them therefore has to hand both values over.
+if [[ -z "${CONTENT_SERVICE_URL}" || -z "${INTERNAL_SERVICE_TOKEN:-}" ]]; then
+  echo "==> [Cloudflare Pages ${CLOUDFLARE_ENV}] No content service credentials; publishing without blogs/docs/products."
+fi
+NEXT_PUBLIC_STATIC_CDN_URL="${STATIC_CDN_URL}" \
+  DOCS_SERVICE_URL="${CONTENT_SERVICE_URL}" \
+  INTERNAL_SERVICE_TOKEN="${INTERNAL_SERVICE_TOKEN:-}" \
+  yarn build:static-dashboard
 
 # The SSR boundaries build their client chunks against
 # <static_cdn_url>/_edge/<boundary>, so the Pages deployment that backs the CDN
