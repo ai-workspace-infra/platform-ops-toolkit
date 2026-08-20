@@ -87,7 +87,17 @@ if [[ "${CONNECTION_MODE}" == "direct" && "${TARGET_DSN}" == *"pooler.supabase.c
   echo "ERROR: direct mode cannot use a Supabase pooler DSN." >&2
   exit 1
 fi
-if [[ -z "${VAULT_REF}" || -z "${EXPECTED_REF}" || "${VAULT_REF}" != "${EXPECTED_REF}" ]]; then
+if [[ -z "${VAULT_REF}" ]]; then
+  echo "ERROR: Supabase Vault is missing PROJECT_REF." >&2
+  exit 1
+fi
+if [[ -z "${EXPECTED_REF}" ]]; then
+  EXPECTED_REF="$(printf '%s' "${TARGET_DSN}" | sed -nE 's#.*postgres\.([a-z0-9]+):.*@.*#\1#p')"
+  if [[ -z "${EXPECTED_REF}" ]]; then
+    EXPECTED_REF="$(printf '%s' "${TARGET_DSN}" | sed -nE 's#.*db\.([a-z0-9]+)\.supabase\.co.*#\1#p')"
+  fi
+fi
+if [[ -z "${EXPECTED_REF}" || "${VAULT_REF}" != "${EXPECTED_REF}" ]]; then
   echo "ERROR: Supabase Vault PROJECT_REF does not match the requested project ref." >&2
   exit 1
 fi

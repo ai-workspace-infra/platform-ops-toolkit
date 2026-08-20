@@ -42,9 +42,9 @@ Supabase Cloud（直连 target DSN）
 
 ```text
 kv/data/<env>/serverless/supabase
-  PROJECT_REF          = rbjnksmfzkjheiwpkaem
-  DATABASE_SESSION_POOLER_URL = postgres://postgres.rbjnksmfzkjheiwpkaem:...@aws-0-<region>.pooler.supabase.com:5432/postgres
-  DATABASE_DIRECT_URL         = postgres://postgres:...@db.rbjnksmfzkjheiwpkaem.supabase.co:5432/postgres
+  PROJECT_REF          = <20-character Supabase project ref>
+  DATABASE_SESSION_POOLER_URL = postgres://postgres.<project-ref>:...@aws-0-<region>.pooler.supabase.com:5432/postgres
+  DATABASE_DIRECT_URL         = postgres://postgres:...@db.<project-ref>.supabase.co:5432/postgres
 
 kv/data/uat/accounts-migration
   MIGRATION_SOURCE_SSH_PRIVATE_KEY_B64 = <base64 of the dedicated key authorized only for root@console.svc.plus>
@@ -63,7 +63,8 @@ Session pooler（`pooler.supabase.com:5432`）适合当前 IPv4 VPS 和迁移 ru
 会拒绝它。若目标网络可用 IPv6 或已购买 IPv4 add-on，可将
 `supabase_target_connection_mode=direct` 并切换到 `DATABASE_DIRECT_URL`。
 目标 DSN 会被脚本强制校验为 Supabase 端点，并拒绝 `svc.plus`、Transaction pooler
-和同源目标；`PROJECT_REF` 必须与 workflow input 一致。
+和同源目标；Vault 中的 `PROJECT_REF` 必须与目标 DSN 一致。workflow input 中的
+`supabase_project_ref` 可留空（推荐，直接使用 Vault 值），填写时则必须与 Vault 一致。
 
 ## 执行顺序
 
