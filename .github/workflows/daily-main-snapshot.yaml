@@ -114,7 +114,11 @@ jobs:
           merge-multiple: true
 
       - name: Resolve immutable snapshot tag
-        if: ${{ (inputs.deploy_env || 'uat') == 'uat' }}
+        # A tag is meaningful for UAT only after every organization matrix leg
+        # completed successfully and no repository subset was requested. Do
+        # not resolve a partial artifact set, even if stale status files happen
+        # to contain one valid-looking tag.
+        if: ${{ (inputs.deploy_env || 'uat') == 'uat' && needs.snapshot.result == 'success' && (inputs.repositories || '') == '' }}
         id: resolve_snapshot_tag
         run: ./.github/scripts/snapshots/resolve-daily-snapshot-tag.sh
         env:
