@@ -18,6 +18,14 @@ CONNECTION_MODE="${SUPABASE_TARGET_CONNECTION_MODE:-session_pooler}"
 SOURCE_TUNNEL_HOST="${SUPABASE_SOURCE_TUNNEL_HOST:-}"
 SOURCE_TUNNEL_PORT="${SUPABASE_SOURCE_TUNNEL_PORT:-15433}"
 SOURCE_TUNNEL_LOCAL_PORT="${SUPABASE_SOURCE_TUNNEL_LOCAL_PORT:-15433}"
+# How the runner reaches the source PostgreSQL:
+#   stunnel  dial the host's public TLS listener on SOURCE_TUNNEL_PORT
+#   ssh      forward the port over SSH, the way accounts_data_migration_ssh.sh
+#            already reaches these hosts
+SOURCE_TRANSPORT="${SUPABASE_SOURCE_TRANSPORT:-stunnel}"
+SOURCE_SSH_USER="${SUPABASE_SOURCE_SSH_USER:-root}"
+SOURCE_SSH_TARGET_HOST="${SUPABASE_SOURCE_SSH_TARGET_HOST:-127.0.0.1}"
+SOURCE_SSH_TARGET_PORT="${SUPABASE_SOURCE_SSH_TARGET_PORT:-5432}"
 DUMP_DIR="${SUPABASE_METADATA_DUMP_DIR:-${RUNNER_TEMP:-/tmp}/supabase-metadata-migration}"
 SCHEMA_FILE="${DUMP_DIR}/public-schema.sql"
 DATA_FILE="${DUMP_DIR}/public-data.sql"
@@ -97,6 +105,10 @@ if [[ "${MODE}" != "metadata" && "${MODE}" != "metadata_and_data" ]]; then
   echo "ERROR: SUPABASE_MIGRATION_MODE must be metadata or metadata_and_data." >&2
   exit 1
 fi
+if [[ "${SOURCE_TRANSPORT}" != "stunnel" && "${SOURCE_TRANSPORT}" != "ssh" ]]; then
+  echo "ERROR: SUPABASE_SOURCE_TRANSPORT must be stunnel or ssh." >&2
+  exit 1
+fi
 
 if [[ "${source_uses_loopback}" == true ]]; then
   if [[ -z "${SOURCE_TUNNEL_HOST}" ]]; then
@@ -108,8 +120,26 @@ if [[ "${source_uses_loopback}" == true ]]; then
     echo "ERROR: loopback source DSN must use SUPABASE_SOURCE_TUNNEL_LOCAL_PORT=${SOURCE_TUNNEL_LOCAL_PORT}." >&2
     exit 1
   fi
-  command -v stunnel >/dev/null || { echo "ERROR: stunnel is required for a loopback migration source." >&2; exit 1; }
   command -v pg_isready >/dev/null || { echo "ERROR: pg_isready is required to probe the loopback tunnel." >&2; exit 1; }
+  if [[ "${SOURCE_TRANSPORT}" == "ssh" ]]; then
+    # The public 15433 listener is only reachable from inside the platform's
+    # network; a GitHub-hosted runner's packets are dropped before stunnel ever
+    # completes a connect. SSH is the path that is already open to these hosts
+    # and already authenticated by the deploy key, so forward the database port
+    # over it rather than widening the firewall for a database port.
+    command -v ssh >/dev/null || { echo "ERROR: ssh is required for SUPABASE_SOURCE_TRANSPORT=ssh." >&2; exit 1; }
+    ssh -N \
+      -o BatchMode=yes \
+      -o StrictHostKeyChecking=no \
+      -o UserKnownHostsFile=/dev/null \
+      -o ExitOnForwardFailure=yes \
+      -o ConnectTimeout=15 \
+      -o ServerAliveInterval=30 \
+      -L "127.0.0.1:${SOURCE_TUNNEL_LOCAL_PORT}:${SOURCE_SSH_TARGET_HOST}:${SOURCE_SSH_TARGET_PORT}" \
+      "${SOURCE_SSH_USER}@${SOURCE_TUNNEL_HOST}" >"${SOURCE_TUNNEL_LOG}" 2>&1 &
+    SOURCE_TUNNEL_PID="$!"
+  else
+  command -v stunnel >/dev/null || { echo "ERROR: stunnel is required for a loopback migration source." >&2; exit 1; }
   SOURCE_TUNNEL_CONFIG="$(mktemp "${RUNNER_TEMP:-/tmp}/supabase-source-stunnel.XXXXXX.conf")"
   {
     printf '%s\n' \
@@ -134,6 +164,7 @@ if [[ "${source_uses_loopback}" == true ]]; then
   } >"${SOURCE_TUNNEL_CONFIG}"
   stunnel "${SOURCE_TUNNEL_CONFIG}" >"${SOURCE_TUNNEL_LOG}" 2>&1 &
   SOURCE_TUNNEL_PID="$!"
+  fi
 
   # A bound accept socket proves nothing: stunnel binds it before it ever dials
   # the upstream, so the old "listener is up" probe reported a ready tunnel
@@ -155,13 +186,21 @@ if [[ "${source_uses_loopback}" == true ]]; then
     sleep 0.5
   done
   if [[ "${tunnel_ready}" != true ]]; then
-    echo "ERROR: source PostgreSQL TLS tunnel did not carry traffic to ${SOURCE_TUNNEL_HOST}:${SOURCE_TUNNEL_PORT}." >&2
-    echo "       A connect timeout here means the endpoint drops the runner's packets; check the VPS firewall" >&2
-    echo "       or rerun with runner_type=self-hosted. stunnel log follows:" >&2
+    if [[ "${SOURCE_TRANSPORT}" == "ssh" ]]; then
+      echo "ERROR: source PostgreSQL SSH tunnel did not carry traffic to ${SOURCE_SSH_USER}@${SOURCE_TUNNEL_HOST}" >&2
+      echo "       -> ${SOURCE_SSH_TARGET_HOST}:${SOURCE_SSH_TARGET_PORT}. Check the deploy key and that the" >&2
+      echo "       database listens on that address inside the host. ssh log follows:" >&2
+    else
+      echo "ERROR: source PostgreSQL TLS tunnel did not carry traffic to ${SOURCE_TUNNEL_HOST}:${SOURCE_TUNNEL_PORT}." >&2
+      echo "       A connect timeout here means the endpoint drops the runner's packets: ${SOURCE_TUNNEL_PORT} is only" >&2
+      echo "       open inside the platform network. Either rerun with supabase_source_transport=ssh, which forwards" >&2
+      echo "       the port over the path the deploy key already has, or open ${SOURCE_TUNNEL_PORT} to the runner." >&2
+      echo "       stunnel log follows:" >&2
+    fi
     cat "${SOURCE_TUNNEL_LOG}" >&2 || true
     exit 1
   fi
-  echo "Source PostgreSQL TLS tunnel ready: ${SOURCE_TUNNEL_HOST}:${SOURCE_TUNNEL_PORT}"
+  echo "Source PostgreSQL tunnel ready (${SOURCE_TRANSPORT}): ${SOURCE_TUNNEL_HOST}:${SOURCE_TUNNEL_PORT}"
 fi
 command -v pg_dump >/dev/null || { echo "ERROR: pg_dump is required." >&2; exit 1; }
 command -v psql >/dev/null || { echo "ERROR: psql is required." >&2; exit 1; }
