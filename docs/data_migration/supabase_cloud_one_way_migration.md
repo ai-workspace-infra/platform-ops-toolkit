@@ -38,11 +38,11 @@ kv/data/<env>/accounts-migration
 ```
 
 若 `MIGRATION_SOURCE_DSN` 使用 `127.0.0.1`、`localhost` 或 `::1`，工作流会将其视为
-受管 stunnel 客户端入口，并要求传入 `supabase_source_tunnel_host`。该客户端会在 Runner
-中启动，并转发到 `<host>:15433`；不要把本地端口直接当作 GitHub Runner 上天然存在的服务。
-Serverless Orchestrator 的 UAT 默认值是
-`accounts-vps-uat.onwalk.net:15433`。SIT/PROD 运行前必须在 dispatch 表单中将
-`supabase_source_tunnel_host` 改为该环境的 VPS stunnel 地址，避免把 UAT 主机误用于其他环境。
+由工作流建立的本地入口，并要求传入 `supabase_source_tunnel_host`；不要把该本地端口直接当作
+GitHub Runner 上天然存在的服务。Serverless Orchestrator 的 UAT 默认源端为
+`console.svc.plus`，并默认使用 SSH 将其 `127.0.0.1:5432` 转发到 Runner 的本地入口；这是一条
+**PROD → UAT Serverless** 的单向链路。只有在源端 TLS 端口已明确对 GitHub Runner 开放时，才显式
+选择 `supabase_source_transport=stunnel`，由 stunnel 客户端转发到 `<host>:15433`。
 
 隧道就绪是用 `pg_isready` 穿过隧道判定的，不是判断本地端口是否 listen。stunnel 在拨上游之前
 就已经把 accept socket bind 好了，所以"端口起来了"和"隧道通了"是两回事：run 32219430536 里
