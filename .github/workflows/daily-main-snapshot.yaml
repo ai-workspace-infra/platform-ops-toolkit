@@ -114,7 +114,8 @@ jobs:
           merge-multiple: true
 
       - name: Resolve immutable snapshot tag
-        if: ${{ (inputs.deploy_env || 'uat') == 'uat' }}
+        # Never derive a deploy tag from a partial or filtered snapshot.
+        if: ${{ (inputs.deploy_env || 'uat') == 'uat' && needs.snapshot.result == 'success' && (inputs.repositories || '') == '' }}
         id: resolve_snapshot_tag
         run: ./.github/scripts/snapshots/resolve-daily-snapshot-tag.sh
         env:
@@ -141,12 +142,15 @@ jobs:
           private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
           owner: ai-workspace-infra
 
-      - name: Dispatch UAT serverless deploy and migration
+      - name: Dispatch UAT serverless and selfhost agent-proxy
         if: ${{ (inputs.deploy_env || 'uat') == 'uat' && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' }}
-        run: ./.github/scripts/snapshots/dispatch-uat-serverless.sh
+        run: ./.github/scripts/snapshots/dispatch-uat-combined.sh
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           SNAPSHOT_TAG: ${{ steps.resolve_snapshot_tag.outputs.snapshot_tag }}
+          # Serverless Accounts is the controller for the separately deployed
+          # UAT Agent Proxy. This is a public endpoint, not a credential.
+          AGENT_CONTROLLER_URL: https://accounts-serverless-uat.onwalk.net
 
       - name: Publish unified snapshot matrix summary
         env:

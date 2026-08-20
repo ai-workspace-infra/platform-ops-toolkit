@@ -69,11 +69,22 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
 
 ## 3. `serverless-orchestrator.yml` —— UAT 自动发布与数据同步
 
-`daily-main-snapshot.yaml` 在服务快照构建完成后会自动派发
-`serverless-orchestrator.yml` 的 `deploy+migrate`。该调用明确传入
+`daily-main-snapshot.yaml` 在完整 UAT 服务快照构建完成后会按组合式顺序派发
+`serverless-orchestrator.yml` 与 `selfhost-orchestrator.yml`。第一条调用明确传入
+`operation=deploy+migrate`、`vault_env_path=uat` 与不可变 `tag_ref`，并明确传入
 `supabase_target_existing_strategy=accounts_merge`，因此 UAT 已有 public 表时不会因
 可复用迁移工作流的默认 `reject` 而中止；Accounts 的 `migratectl --merge` 只增量合并
 用户、身份和会话数据，不删除 UAT 行。手工派发也默认使用 `accounts_merge`。
+
+Serverless 工作流成功完成并通过 Accounts 验证后，组合派发器才会继续调用
+`selfhost-orchestrator.yml`，参数固定为 `operation=deploy`、`vault_env_path=uat`、
+`target_domains=agent-proxy` 与同一个 `deploy_tag`。Agent Proxy 的
+`agent_controller_url` 指向本次 Serverless Web SaaS 的
+`https://accounts-serverless-uat.onwalk.net`，所以注册不会误连到 Selfhost Accounts；
+手工 Selfhost 派发若不提供该输入，仍回退到同一 Selfhost Web SaaS Accounts。
+
+组合派发只在完整矩阵成功且 `repositories` 为空时执行；部分仓库筛选不会解析 TAG，也不会
+派发任一下游环境。
 
 只有 UAT 可废弃且操作者明确确认时，才选择
 `supabase_target_existing_strategy=replace_public` 并勾选

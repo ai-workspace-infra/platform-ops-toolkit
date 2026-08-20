@@ -49,6 +49,12 @@ jobs:
     - name: Verify UAT snapshot dispatch linkage
       run: bash .github/scripts/tests/daily_snapshot_uat_link_test.sh
 
+    - name: Verify complete-snapshot combined UAT gate
+      run: bash .github/scripts/tests/daily_snapshot_uat_gate_contract_test.sh
+
+    - name: Verify serverless then Agent Proxy dispatch ordering
+      run: bash .github/scripts/tests/daily_snapshot_combined_dispatch_test.sh
+
     - name: Verify UAT Serverless migration source contract
       run: bash .github/scripts/tests/serverless_supabase_source_contract_test.sh
 
@@ -60,6 +66,9 @@ jobs:
 
     - name: Verify Agent Proxy deployment variable contract
       run: bash .github/scripts/tests/platform_ops_agent_proxy_contract_test.sh
+
+    - name: Verify Agent Proxy controller registration contract
+      run: bash .github/scripts/tests/platform_ops_agent_proxy_controller_contract_test.sh
 
     - name: Verify Web SaaS VPS alias contract
       run: bash .github/scripts/tests/platform_ops_web_saas_public_alias_contract_test.sh

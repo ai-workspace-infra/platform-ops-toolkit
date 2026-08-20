@@ -318,6 +318,19 @@ fi
 : "${deploy_tag+x}"
 validate_deploy_tag_policy "${deployment_env}" "${deploy_tag}"
 
+# Agent Proxy normally registers against the Web SaaS Accounts service on the
+# same Selfhost host. The combined UAT path overrides this with the already
+# deployed Serverless Accounts endpoint, while keeping the default safe for
+# standalone Selfhost runs.
+agent_controller_url="${INPUT_AGENT_CONTROLLER_URL:-}"
+if [[ -z "${agent_controller_url}" ]]; then
+  agent_controller_url="https://accounts-selfhost-${deployment_env}.${target_domain_base}"
+fi
+if [[ ! "${agent_controller_url}" =~ ^https://[^/]+$ ]]; then
+  echo "::error::agent_controller_url must be an HTTPS origin without a path." >&2
+  exit 1
+fi
+
 # docker tag 里 '/' 非法, 所以 release/v1.4 的镜像实际叫 release-v1.4
 # (docker/metadata-action 自己就这么转)。这里不转的话, CD 会去 pull 一个
 # 从来没有被推送过的 tag。规则见 docs/domains/IMAGE-TAG-CONTRACT.md。
@@ -332,7 +345,7 @@ if [ "${run_application_deploy}" = "true" ]; then
   esac
 fi
 
-for key in deployment_env resource_file resource_files_full terraform_workspace state_key run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider source_host source_domain_base target_domain_base env_suffix dns_mode deploy_tag; do
+for key in deployment_env resource_file resource_files_full terraform_workspace state_key run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider source_host source_domain_base target_domain_base env_suffix dns_mode deploy_tag agent_controller_url; do
   value="${!key:-}"
   echo "$key=$value" >> "$GITHUB_OUTPUT"
 done
