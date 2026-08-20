@@ -30,6 +30,7 @@ document = {
     "spec": {
         "serverless": {
             "console_host": "console-cloudflare-uat.onwalk.net",
+            "console_aliases": ["console-legacy-uat.onwalk.net"],
             "accounts_host": "accounts-cloudflare-uat.onwalk.net",
         },
         "runtime": {
@@ -70,13 +71,18 @@ with tempfile.TemporaryDirectory() as tmp:
     # through it sends the alias as the Origin instead.
     assert "https://console-uat.onwalk.net" in origins, origins
 
+    # A hostname that still answers for the console but is outside the canonical
+    # alias contract has to be declared explicitly, otherwise every browser
+    # login from it is rejected with an empty 403.
+    assert "https://console-legacy-uat.onwalk.net" in origins, origins
+
     # Hosts belonging to other services must not leak into the allowlist.
     assert not any("accounts-" in origin for origin in origins), origins
 
     # Aliases appear in both canonical_records and domains; they must be
     # de-duplicated rather than repeated.
     assert len(origins) == len(set(origins)), origins
-    assert len(origins) == 2, origins
+    assert len(origins) == 3, origins
 
     # A missing console host yields no origins rather than a bogus "https://".
     empty_path = os.path.join(tmp, "empty.json")

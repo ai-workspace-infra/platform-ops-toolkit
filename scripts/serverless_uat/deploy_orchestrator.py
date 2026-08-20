@@ -95,6 +95,14 @@ def resolve_console_origins(config_path: str) -> list:
         if str(targets.get("serverless", "")).strip() == console_host:
             hosts.append(str(alias).strip())
 
+    # Hostnames that still reach the console but are not part of the canonical
+    # alias contract -- an older Worker custom domain that stayed bound, for
+    # example. The browser sends whichever hostname the user typed as the
+    # Origin, so a host that answers has to be on the allowlist or its logins
+    # fail with an empty 403 that the UI reports as a generic error.
+    for alias in ((spec.get("serverless", {}) or {}).get("console_aliases", []) or []):
+        hosts.append(str(alias).strip())
+
     origins = []
     for host in hosts:
         if not host:
