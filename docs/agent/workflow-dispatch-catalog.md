@@ -176,6 +176,8 @@ dns_mode=none
   `docker exec web-saas-caddy wget -qS -O /dev/null http://console:3000/` 看 200。
 - **证书轮换**：见第 1 节，命中 Let's Encrypt 限流时不要重试。
 - **快照打 tag**：见第 2 节，逐仓核对 release/assets 是否真的存在。
+- UAT 自动联动还要求快照矩阵整体为 `success` 且未提供 `repositories` 子集；仅有部分仓库
+  成功时不会解析 tag，也不会触发 serverless 发布。
 
 ---
 
