@@ -57,10 +57,21 @@ on:
           - uat-records
           - prod-cutover
       supabase_source_tunnel_host:
-        description: '仅 migrate/deploy+migrate：PROD 源 PostgreSQL 主机。loopback 源 DSN 默认通过 SSH 转发其本机 5432 端口'
+        description: '仅 migrate/deploy+migrate：PROD 源 PostgreSQL SSH 主机；在 postgresql-svc-plus 容器内执行只读导出'
         required: false
         default: 'console.svc.plus'
         type: string
+      supabase_target_existing_strategy:
+        description: 'Supabase UAT public 非空时的策略：reject、replace_public 或 accounts_merge'
+        required: false
+        default: 'reject'
+        type: choice
+        options: [reject, replace_public, accounts_merge]
+      supabase_target_confirm_replace:
+        description: 'replace_public 清空 Supabase UAT public 前的显式确认'
+        required: false
+        default: false
+        type: boolean
       runner_type:
         description: '迁移这一段跑在哪种 Runner 上（ubuntu-latest 或 self-hosted）'
         required: false
@@ -692,6 +703,8 @@ jobs:
       accounts_migration_mode: metadata_and_data
       supabase_metadata_dry_run: false
       supabase_source_tunnel_host: ${{ inputs.supabase_source_tunnel_host }}
+      supabase_target_existing_strategy: ${{ inputs.supabase_target_existing_strategy || 'reject' }}
+      supabase_target_confirm_replace: ${{ inputs.supabase_target_confirm_replace || false }}
 
   destroy:
     name: Destroy / Cloud Run ephemeral compute
