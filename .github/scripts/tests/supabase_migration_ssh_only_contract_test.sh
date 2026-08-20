@@ -36,4 +36,8 @@ if rg -n 'stunnel|SUPABASE_SOURCE_TRANSPORT|SUPABASE_SOURCE_TUNNEL_SNI' "${scrip
   exit 1
 fi
 
+grep -Fq 'SOURCE_SSH_KEY_PATH="${SUPABASE_SOURCE_SSH_KEY_PATH:-${HOME}/.ssh/id_deploy}"' "${script}"
+grep -Fq '  -o IdentitiesOnly=yes \' "${script}"
+grep -Fq '  -i "${SOURCE_SSH_KEY_PATH}" \' "${script}"
+
 echo "supabase_migration_ssh_only_contract_test: PASS"
