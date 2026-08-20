@@ -9,14 +9,14 @@
 | `accounts_target_backend=supabase` + `accounts_migration_mode=metadata_and_data` | **PROD Console → UAT Supabase**：通过 SSH 只读导出 `public` schema 和业务数据，并一次性写入 Supabase Target |
 
 VPS → VPS 与 VPS → Supabase 不可混用：前者需要两端 SSH 主机和 `migratectl`，后者需要
-只读源 DSN、Supabase 目标 DSN 和（源 DSN 为 loopback 时）`supabase_source_tunnel_host`。
+PROD 源 SSH 主机、源容器内的 `readonly` 角色和 Supabase 目标 DSN。
 
 Supabase 迁移流程：
 
 ```text
-VPS PostgreSQL（只读 source DSN）
-  → pg_dump public schema metadata
-  → pg_dump public business data
+PROD PostgreSQL container（SSH + container-local trust，readonly role）
+  → SSH 执行 pg_dump public schema metadata
+  → SSH 执行 pg_dump public business data
   → target preflight
   → schema + data 同一事务写入
   → schema/data SHA-256 marker 收敛校验
@@ -34,16 +34,16 @@ kv/data/<env>/serverless/supabase
   DATABASE_DIRECT_URL         = postgres://postgres:...@db.rbjnksmfzkjheiwpkaem.supabase.co:5432/postgres
 
 kv/data/uat/accounts-migration
-  MIGRATION_SOURCE_DSN                 = postgres://readonly:...@127.0.0.1:15433/account?sslmode=disable
   MIGRATION_SOURCE_SSH_PRIVATE_KEY_B64 = <base64 of the dedicated key authorized only for root@console.svc.plus>
 ```
 
-源 DSN 必须使用 Runner loopback。工作流固定通过 `root@console.svc.plus` 的 SSH 将源端
-`127.0.0.1:5432` 转发到 Runner 本地；不允许源库直连或 stunnel。这样不会开放 PostgreSQL
-端口给 GitHub Runner，且不会因保存的 dispatch 值意外切换迁移方式。
+工作流固定通过 `root@console.svc.plus` 的 SSH 在 `postgresql-svc-plus` 容器内执行
+`pg_dump -U readonly -d account`，并将 SQL 流回 Runner；不再通过 Runner 侧 DSN、密码、
+数据库端口转发或 stunnel 进行源端认证。容器内 `pg_hba` 的 loopback `trust` 仅跳过密码校验，
+`readonly` 角色仍限制源端只能读取。
 
-隧道就绪由 `pg_isready` 穿过 SSH 转发验证，而不是只检查本地端口是否 listen。源端密钥必须
-独立于 UAT 部署密钥，并仅授予 PROD `console.svc.plus` 所需的访问权限。
+源容器就绪由 SSH 执行容器内 `pg_isready` 验证。源端密钥必须独立于 UAT 部署密钥，
+并仅授予 PROD `console.svc.plus` 所需的访问权限。
 
 Session pooler（`pooler.supabase.com:5432`）适合当前 IPv4 VPS 和迁移 runner，也可以
 用于 `pg_dump/psql`。Transaction pooler（端口 `6543`）仅适合短请求应用流量，迁移脚本
@@ -65,8 +65,8 @@ Content Service 当前是 Git/文件索引模式，没有 PostgreSQL 元数据�
 Content 表；它接入 Supabase 运行时时继续保持数据库可选。
 
 业务数据可能包含密码哈希、session、MFA secret 等敏感字段，正式执行前必须完成数据
-分类确认。GitHub-hosted runner 只可通过受管 SSH 转发访问以 loopback DSN 表示的 PROD 源库；
-Vault 中的源 DSN 与源端 SSH 密钥必须可审计，loopback 仅作为由工作流建立的本地 SSH 入口。
+分类确认。GitHub-hosted runner 只可通过受管 SSH 执行 PROD 源容器内的只读导出；Vault
+中的源端 SSH 密钥必须可审计。
 VPS 的 Accounts/Billing 运行时
 建议使用 Session pooler；只有在应用明确兼容 transaction pooling（关闭 prepared
 statement/session state 依赖）时，才考虑 `6543` Transaction pooler。
