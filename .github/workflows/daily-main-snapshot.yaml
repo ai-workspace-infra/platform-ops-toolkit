@@ -120,6 +120,7 @@ jobs:
         run: ./.github/scripts/snapshots/resolve-daily-snapshot-tag.sh
         env:
           SNAPSHOT_STATUS_DIRECTORY: ${{ runner.temp }}/daily-snapshot-status
+          SNAPSHOT_CANONICAL_ORGANIZATION: ai-workspace-services
 
       - name: Load GitHub App private key for UAT dispatch
         if: ${{ (inputs.deploy_env || 'uat') == 'uat' }}
