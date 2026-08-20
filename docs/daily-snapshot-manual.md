@@ -40,6 +40,18 @@ workflow 会从各仓库当时的 `main` SHA 创建不可变的
 `daily-build-YYYY.MM.DD` tag，并继续执行目标仓库的构建触发流程。
 构建等待会同时按 tag 名和 SHA 匹配，避免误用同名历史运行。
 
+## UAT 自动联动
+
+当 `deploy_env=uat` 且未使用 `repositories` 缩小范围时，快照矩阵全部构建成功后会自动：
+
+1. 从各组织状态 artifact 解析唯一的不可变快照 tag；
+2. 使用 GitHub App installation token dispatch `serverless-orchestrator.yml`；
+3. 固定传入 `operation=deploy+migrate`、`vault_env_path=uat` 和该 tag；
+4. 等待 Serverless Orchestrator 完成 Cloud Run/Cloudflare 发布，再执行 Supabase Accounts 增量迁移与验证。
+
+因此 Daily Main Snapshot 成功后不再需要手工复制 tag 到第二个 workflow。部分仓库筛选、SIT 或 PROD 快照不会自动触发 UAT；这避免不完整制品集进入 UAT。手工重跑仍可直接执行
+`serverless-orchestrator.yml` 的 `deploy+migrate`。
+
 稳定发布 tag 与日常构建 tag 共用同一个跨仓库打标脚本，区别只在 tag
 值和路由语义：`daily-build-*` 是每日自动构建，`uat-daily-build-*` 是允许的
 UAT 构建/重试 tag，`v*` 是受控手动选择的正式 PROD 发布，`sit-*` 是低频

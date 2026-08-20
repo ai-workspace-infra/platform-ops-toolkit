@@ -113,6 +113,41 @@ jobs:
           path: ${{ runner.temp }}/daily-snapshot-status
           merge-multiple: true
 
+      - name: Resolve immutable snapshot tag
+        if: ${{ (inputs.deploy_env || 'uat') == 'uat' }}
+        id: resolve_snapshot_tag
+        run: ./.github/scripts/snapshots/resolve-daily-snapshot-tag.sh
+        env:
+          SNAPSHOT_STATUS_DIRECTORY: ${{ runner.temp }}/daily-snapshot-status
+
+      - name: Load GitHub App private key for UAT dispatch
+        if: ${{ (inputs.deploy_env || 'uat') == 'uat' }}
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-uat
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
+
+      - name: Create GitHub App installation token for UAT dispatch
+        if: ${{ (inputs.deploy_env || 'uat') == 'uat' }}
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: Iv23liNwStpQIiXajhpb
+          private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
+          owner: ai-workspace-infra
+
+      - name: Dispatch UAT serverless deploy and migration
+        if: ${{ (inputs.deploy_env || 'uat') == 'uat' && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' }}
+        run: ./.github/scripts/snapshots/dispatch-uat-serverless.sh
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SNAPSHOT_TAG: ${{ steps.resolve_snapshot_tag.outputs.snapshot_tag }}
+
       - name: Publish unified snapshot matrix summary
         env:
           SNAPSHOT_STATUS_DIRECTORY: ${{ runner.temp }}/daily-snapshot-status
