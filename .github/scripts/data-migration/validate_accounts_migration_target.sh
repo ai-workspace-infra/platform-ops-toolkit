@@ -20,7 +20,7 @@ case "${backend}:${mode}" in
     echo "Migration target validated: VPS self-hosted PostgreSQL data flow."
     ;;
   supabase:metadata|supabase:metadata_and_data)
-    if [[ ! "${project_ref}" =~ ^[a-z0-9]{20}$ ]]; then
+    if [[ -n "${project_ref}" && ! "${project_ref}" =~ ^[a-z0-9]{20}$ ]]; then
       echo "::error::SUPABASE_PROJECT_REF must be a 20-character lowercase project ref." >&2
       exit 1
     fi
@@ -28,7 +28,11 @@ case "${backend}:${mode}" in
       echo "::error::SUPABASE_TARGET_EXISTING_STRATEGY=accounts_merge requires ACCOUNTS_MIGRATION_MODE=metadata_and_data." >&2
       exit 1
     fi
-    echo "Migration target validated: Supabase Cloud one-way metadata/data flow (${project_ref})."
+    if [[ -n "${project_ref}" ]]; then
+      echo "Migration target validated: Supabase Cloud one-way metadata/data flow (${project_ref})."
+    else
+      echo "Migration target validated: Supabase Cloud one-way metadata/data flow (PROJECT_REF from Vault)."
+    fi
     ;;
   *)
     echo "::error::Unsupported Accounts migration combination: backend=${backend}, mode=${mode}." >&2
