@@ -84,7 +84,7 @@ on:
         default: "session_pooler"
         type: string
       supabase_source_vault_path:
-        description: "Vault KV v2 path containing the source PostgreSQL DSN"
+        description: "Vault KV v2 path containing the source SSH key"
         required: false
         default: ""
         type: string
@@ -93,6 +93,16 @@ on:
         required: false
         default: ""
         type: string
+      supabase_target_existing_strategy:
+        description: "Non-empty Supabase target: reject, replace_public, or accounts_merge"
+        required: false
+        default: "reject"
+        type: string
+      supabase_target_confirm_replace:
+        description: "Explicit confirmation before clearing public for replace_public"
+        required: false
+        default: false
+        type: boolean
       accounts_source_host:
         description: "ssh transport: PROD source host"
         required: false
@@ -238,6 +248,17 @@ on:
         required: false
         default: ""
         type: string
+      supabase_target_existing_strategy:
+        description: "目标 public 非空时的策略"
+        required: false
+        default: "reject"
+        type: choice
+        options: [reject, replace_public, accounts_merge]
+      supabase_target_confirm_replace:
+        description: "replace_public 清空前的显式确认"
+        required: false
+        default: false
+        type: boolean
       accounts_source_host:
         description: "ssh 传输：PROD 源主机"
         required: false
@@ -300,6 +321,7 @@ jobs:
         ACCOUNTS_TARGET_BACKEND: ${{ inputs.accounts_target_backend || 'vps' }}
         ACCOUNTS_MIGRATION_MODE: ${{ inputs.accounts_migration_mode || 'data' }}
         SUPABASE_PROJECT_REF: ${{ inputs.supabase_project_ref || 'rbjnksmfzkjheiwpkaem' }}
+        SUPABASE_TARGET_EXISTING_STRATEGY: ${{ inputs.supabase_target_existing_strategy || 'reject' }}
       run: .github/scripts/data-migration/validate_accounts_migration_target.sh
 
   # ---------------------------------------------------------------------------
@@ -439,17 +461,20 @@ jobs:
   supabase_metadata_migration:
     name: Migrate PostgreSQL Metadata to Supabase Cloud
     needs: validate_accounts_migration_target
-    if: ${{ (inputs.migration_scope || 'accounts') == 'accounts' && (inputs.accounts_target_backend || 'vps') == 'supabase' && contains(fromJSON('["metadata","metadata_and_data"]'), inputs.accounts_migration_mode || 'data') }}
+    if: ${{ (inputs.migration_scope || 'accounts') == 'accounts' && (inputs.accounts_target_backend || 'vps') == 'supabase' && contains(fromJSON('["metadata","metadata_and_data"]'), inputs.accounts_migration_mode || 'data') && (inputs.supabase_target_existing_strategy || 'reject') != 'accounts_merge' }}
     runs-on: ${{ inputs.runner_type || 'ubuntu-latest' }}
     env:
       VAULT_ROLE: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'sit' }}
-      SUPABASE_EXPECTED_PROJECT_REF: ${{ inputs.supabase_project_ref }}
+      SUPABASE_EXPECTED_PROJECT_REF: ${{ inputs.supabase_project_ref || 'rbjnksmfzkjheiwpkaem' }}
       SUPABASE_METADATA_DRY_RUN: ${{ inputs.supabase_metadata_dry_run && 'true' || 'false' }}
       SUPABASE_VAULT_PATH: ${{ inputs.supabase_vault_path || format('kv/data/{0}/serverless/supabase', inputs.vault_env_path || 'sit') }}
       SUPABASE_SOURCE_VAULT_PATH: ${{ inputs.supabase_source_vault_path || format('kv/data/{0}/accounts-migration', inputs.vault_env_path || 'sit') }}
       SUPABASE_TARGET_DSN_KEY: ${{ inputs.supabase_target_dsn_key || 'DATABASE_SESSION_POOLER_URL' }}
       SUPABASE_TARGET_CONNECTION_MODE: ${{ inputs.supabase_target_connection_mode || 'session_pooler' }}
       SUPABASE_SOURCE_TUNNEL_HOST: ${{ inputs.supabase_source_tunnel_host }}
+      SUPABASE_TARGET_EXISTING_STRATEGY: ${{ inputs.supabase_target_existing_strategy || 'reject' }}
+      SUPABASE_TARGET_CONFIRM_REPLACE: ${{ inputs.supabase_target_confirm_replace && 'true' || 'false' }}
+      SUPABASE_TARGET_BACKUP_FILE: ${{ runner.temp }}/supabase-public-backup.sql
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
@@ -481,6 +506,91 @@ jobs:
         SUPABASE_MIGRATION_MODE: ${{ inputs.accounts_migration_mode || 'data' }}
         SUPABASE_SOURCE_TUNNEL_HOST: ${{ env.SUPABASE_SOURCE_TUNNEL_HOST }}
       run: .github/scripts/data-migration/supabase_metadata_migration.sh
+
+    - name: Upload replace_public target backup
+      if: ${{ always() && (inputs.supabase_target_existing_strategy || 'reject') == 'replace_public' && inputs.supabase_metadata_dry_run == false }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: supabase-public-backup-${{ github.run_id }}
+        path: ${{ runner.temp }}/supabase-public-backup.sql
+        if-no-files-found: ignore
+        retention-days: 1
+
+  supabase_accounts_merge_migration:
+    name: Merge Accounts Data into Supabase Cloud
+    needs: validate_accounts_migration_target
+    if: ${{ (inputs.migration_scope || 'accounts') == 'accounts' && (inputs.accounts_target_backend || 'vps') == 'supabase' && (inputs.accounts_migration_mode || 'data') == 'metadata_and_data' && (inputs.supabase_target_existing_strategy || 'reject') == 'accounts_merge' }}
+    runs-on: ${{ inputs.runner_type || 'ubuntu-latest' }}
+    env:
+      VAULT_ROLE: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'sit' }}
+      SUPABASE_EXPECTED_PROJECT_REF: ${{ inputs.supabase_project_ref || 'rbjnksmfzkjheiwpkaem' }}
+      SUPABASE_METADATA_DRY_RUN: ${{ inputs.supabase_metadata_dry_run && 'true' || 'false' }}
+      SUPABASE_VAULT_PATH: ${{ inputs.supabase_vault_path || format('kv/data/{0}/serverless/supabase', inputs.vault_env_path || 'sit') }}
+      SUPABASE_SOURCE_VAULT_PATH: ${{ inputs.supabase_source_vault_path || format('kv/data/{0}/accounts-migration', inputs.vault_env_path || 'sit') }}
+      SUPABASE_TARGET_DSN_KEY: ${{ inputs.supabase_target_dsn_key || 'DATABASE_SESSION_POOLER_URL' }}
+      SUPABASE_TARGET_CONNECTION_MODE: ${{ inputs.supabase_target_connection_mode || 'session_pooler' }}
+      SUPABASE_SOURCE_TUNNEL_HOST: ${{ inputs.supabase_source_tunnel_host }}
+      SUPABASE_TARGET_BACKUP_FILE: ${{ runner.temp }}/supabase-accounts-merge-backup.sql
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.toolkit_ref || 'main' }}
+
+    - name: Checkout accounts service
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-services/accounts
+        ref: ${{ inputs.accounts_ref || 'main' }}
+        path: accounts
+
+    - name: Setup Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: accounts/go.mod
+        cache-dependency-path: accounts/go.sum
+
+    - name: Build migratectl
+      run: .github/scripts/data-migration/data-migration_accounts_build-migratectl.sh
+
+    - name: Load Supabase target DSN and source SSH key from Vault
+      id: vault
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        role: ${{ env.VAULT_ROLE }}
+        method: jwt
+        jwtGithubAudience: vault
+        secrets: |
+          ${{ env.SUPABASE_SOURCE_VAULT_PATH }} MIGRATION_SOURCE_SSH_PRIVATE_KEY_B64 | MIGRATION_SOURCE_SSH_PRIVATE_KEY_B64 ;
+          ${{ env.SUPABASE_VAULT_PATH }} ${{ env.SUPABASE_TARGET_DSN_KEY }} | SUPABASE_TARGET_DSN ;
+          ${{ env.SUPABASE_VAULT_PATH }} PROJECT_REF | SUPABASE_VAULT_PROJECT_REF ;
+
+    - name: Configure source SSH
+      uses: ./.github/actions/setup-deployment-runner
+      with:
+        ssh_key_b64: ${{ steps.vault.outputs.MIGRATION_SOURCE_SSH_PRIVATE_KEY_B64 }}
+
+    - name: Run Accounts merge migration
+      env:
+        SUPABASE_TARGET_DSN: ${{ steps.vault.outputs.SUPABASE_TARGET_DSN }}
+        SUPABASE_VAULT_PROJECT_REF: ${{ steps.vault.outputs.SUPABASE_VAULT_PROJECT_REF }}
+        MIGRATECTL_BIN: ${{ github.workspace }}/bin/migratectl
+        SUPABASE_MIGRATION_MODE: ${{ inputs.accounts_migration_mode || 'data' }}
+        SUPABASE_METADATA_DRY_RUN: ${{ inputs.supabase_metadata_dry_run && 'true' || 'false' }}
+        SUPABASE_SOURCE_TUNNEL_HOST: ${{ env.SUPABASE_SOURCE_TUNNEL_HOST }}
+        SUPABASE_TARGET_CONNECTION_MODE: ${{ env.SUPABASE_TARGET_CONNECTION_MODE }}
+        SUPABASE_TARGET_BACKUP_FILE: ${{ env.SUPABASE_TARGET_BACKUP_FILE }}
+      run: .github/scripts/data-migration/supabase_accounts_merge_migration.sh
+
+    - name: Upload accounts_merge target backup
+      if: ${{ always() && inputs.supabase_metadata_dry_run == false }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: supabase-accounts-merge-backup-${{ github.run_id }}
+        path: ${{ runner.temp }}/supabase-accounts-merge-backup.sql
+        if-no-files-found: ignore
+        retention-days: 1
 
   data_migration:
     name: Migrate Site Data (Source -> Target)
