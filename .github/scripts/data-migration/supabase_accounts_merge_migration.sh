@@ -103,6 +103,31 @@ if [[ -z "${EXPECTED_REF}" || "${VAULT_REF}" != "${EXPECTED_REF}" ]]; then
 fi
 command -v ssh >/dev/null || { echo "ERROR: ssh is required." >&2; exit 1; }
 command -v scp >/dev/null || { echo "ERROR: scp is required." >&2; exit 1; }
+command -v psql >/dev/null || { echo "ERROR: psql is required to inspect the target server version." >&2; exit 1; }
+
+target_pg_dump() {
+  local output_file="$1"
+  shift
+  local output_dir output_name server_major client_major
+  output_dir="$(cd "$(dirname "${output_file}")" && pwd)"
+  output_name="$(basename "${output_file}")"
+  server_major="$(psql "${TARGET_DSN}" -Atqc "SELECT current_setting('server_version_num')::int / 10000;")"
+  client_major="$(pg_dump --version 2>/dev/null | awk '{print $3}' | cut -d. -f1 || true)"
+  if [[ "${client_major}" =~ ^[0-9]+$ && "${client_major}" -ge "${server_major}" ]]; then
+    pg_dump "${TARGET_DSN}" "$@" --file="${output_file}"
+    return
+  fi
+  command -v docker >/dev/null || {
+    echo "ERROR: pg_dump ${client_major:-unknown} cannot back up PostgreSQL ${server_major}, and Docker is unavailable for a matching client." >&2
+    exit 1
+  }
+  echo "  using postgres:${server_major} client for PostgreSQL ${server_major} target"
+  docker run --rm --pull=missing \
+    -e TARGET_DSN="${TARGET_DSN}" \
+    -v "${output_dir}:/backup" \
+    "postgres:${server_major}" \
+    pg_dump "${TARGET_DSN}" "$@" --file="/backup/${output_name}"
+}
 
 run_remote() {
   local remote_command
@@ -158,15 +183,13 @@ if [[ "${DRY_RUN}" == "true" ]]; then
   exit 0
 fi
 
-command -v pg_dump >/dev/null || { echo "ERROR: pg_dump is required to back up the target before merge." >&2; exit 1; }
 echo "[3/4] Backing up existing Supabase public schema/data before merge..."
-pg_dump "${TARGET_DSN}" \
+target_pg_dump "${BACKUP_FILE}" \
   --schema=public \
   --no-owner \
   --no-privileges \
   --no-publications \
-  --no-subscriptions \
-  --file="${BACKUP_FILE}"
+  --no-subscriptions
 [[ -s "${BACKUP_FILE}" ]] || { echo "ERROR: target backup is empty; refusing Accounts merge." >&2; exit 1; }
 
 echo "[3/4] Applying Accounts merge with timestamp conflict resolution..."

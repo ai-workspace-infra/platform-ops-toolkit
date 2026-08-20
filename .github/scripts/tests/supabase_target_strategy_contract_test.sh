@@ -37,9 +37,13 @@ PY
 grep -Fq 'TARGET_STRATEGY="${SUPABASE_TARGET_EXISTING_STRATEGY:-reject}"' "${replace_script}"
 grep -Fq 'replace_public requires SUPABASE_TARGET_CONFIRM_REPLACE=true' "${replace_script}"
 grep -Fq 'DROP %s IF EXISTS' "${replace_script}"
+grep -Fq "server_version_num" "${replace_script}"
+grep -Fq 'postgres:${server_major}' "${replace_script}"
 grep -Fq 'migratectl export' "${merge_script}"
 grep -Fq -- '--merge-strategy timestamp' "${merge_script}"
 grep -Fq 'source DB role must remain readonly' "${merge_script}"
+grep -Fq "server_version_num" "${merge_script}"
+grep -Fq 'postgres:${server_major}' "${merge_script}"
 grep -Fq 'Accounts merge requires SUPABASE_MIGRATION_MODE=metadata_and_data' "${merge_script}"
 
 echo "supabase_target_strategy_contract_test: PASS"
