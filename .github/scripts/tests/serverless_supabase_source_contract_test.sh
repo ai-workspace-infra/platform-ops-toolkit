@@ -25,9 +25,19 @@ if host.get("default") != "console.svc.plus":
 if "supabase_source_transport" in inputs:
     raise SystemExit("serverless migration must not expose a transport override")
 
+strategy = inputs["supabase_target_existing_strategy"]
+if strategy.get("options") != ["reject", "replace_public", "accounts_merge"]:
+    raise SystemExit("serverless dispatch must expose all Supabase target strategies")
+if inputs["supabase_target_confirm_replace"].get("default") is not False:
+    raise SystemExit("serverless replace confirmation must default to false")
+
 with_args = document["jobs"]["trigger_data_migration"]["with"]
 if "supabase_source_transport" in with_args:
     raise SystemExit("serverless migration must not pass a removable transport input")
+if "supabase_target_existing_strategy" not in with_args:
+    raise SystemExit("serverless migration must pass the selected target strategy")
+if "supabase_target_confirm_replace" not in with_args:
+    raise SystemExit("serverless migration must pass replace confirmation")
 PY
 
 echo "serverless_supabase_source_contract_test: PASS"
