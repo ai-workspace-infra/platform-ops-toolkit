@@ -98,6 +98,21 @@ on:
         required: false
         default: ""
         type: string
+      supabase_source_transport:
+        description: "How the runner reaches the source PostgreSQL: stunnel (public TLS port) or ssh (forward over the deploy key)"
+        required: false
+        default: "stunnel"
+        type: string
+      supabase_source_tunnel_sni:
+        description: "stunnel transport: SNI/hostname to verify the source tunnel against. Empty means the tunnel is not authenticated."
+        required: false
+        default: ""
+        type: string
+      supabase_source_ssh_target_port:
+        description: "ssh transport: PostgreSQL port to forward from inside the source host"
+        required: false
+        default: "5432"
+        type: string
       accounts_source_host:
         description: "ssh transport: PROD source host"
         required: false
@@ -236,6 +251,21 @@ on:
         description: "源 DSN 使用 Runner loopback 时的自建 PostgreSQL stunnel 地址"
         required: false
         default: ""
+        type: string
+      supabase_source_transport:
+        description: "Runner 如何连到源 PostgreSQL：stunnel（公网 TLS 端口）或 ssh（用部署密钥转发端口）"
+        required: false
+        default: "stunnel"
+        type: string
+      supabase_source_tunnel_sni:
+        description: "stunnel 传输：校验对端用的 SNI/主机名。留空表示隧道不做对端认证。"
+        required: false
+        default: ""
+        type: string
+      supabase_source_ssh_target_port:
+        description: "ssh 传输：在源主机内部转发的 PostgreSQL 端口"
+        required: false
+        default: "5432"
         type: string
       accounts_source_host:
         description: "ssh 传输：PROD 源主机"
@@ -455,6 +485,9 @@ jobs:
       SUPABASE_TARGET_CONNECTION_MODE: ${{ inputs.supabase_target_connection_mode || 'session_pooler' }}
       SUPABASE_SOURCE_DSN_KEY: ${{ inputs.supabase_source_dsn_key || 'MIGRATION_SOURCE_DSN' }}
       SUPABASE_SOURCE_TUNNEL_HOST: ${{ inputs.supabase_source_tunnel_host }}
+      SUPABASE_SOURCE_TRANSPORT: ${{ inputs.supabase_source_transport || 'stunnel' }}
+      SUPABASE_SOURCE_TUNNEL_SNI: ${{ inputs.supabase_source_tunnel_sni }}
+      SUPABASE_SOURCE_SSH_TARGET_PORT: ${{ inputs.supabase_source_ssh_target_port || '5432' }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
@@ -475,7 +508,29 @@ jobs:
           ${{ env.SUPABASE_VAULT_PATH }} PROJECT_REF | SUPABASE_VAULT_PROJECT_REF ;
 
     - name: Install PostgreSQL source tunnel client
+      if: ${{ (inputs.supabase_source_transport || 'stunnel') == 'stunnel' }}
       run: .github/scripts/data-migration/install_stunnel_client.sh
+
+    # The ssh transport forwards the database port over the same deploy key the
+    # accounts migration already uses, for hosts whose PostgreSQL port is not
+    # open to a GitHub-hosted runner.
+    - name: Load deploy key from Vault
+      id: vault_ssh
+      if: ${{ (inputs.supabase_source_transport || 'stunnel') == 'ssh' }}
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        role: ${{ env.VAULT_ROLE }}
+        method: jwt
+        jwtGithubAudience: vault
+        secrets: |
+          kv/data/CICD/${{ inputs.vault_env_path || 'sit' }} SSH_PRIVATE_DEPLOY_KEY_B64 | VAULT_ANSIBLE_SSH_KEY_B64 ;
+
+    - name: Configure source tunnel SSH
+      if: ${{ (inputs.supabase_source_transport || 'stunnel') == 'ssh' }}
+      uses: ./.github/actions/setup-deployment-runner
+      with:
+        ssh_key_b64: ${{ steps.vault_ssh.outputs.VAULT_ANSIBLE_SSH_KEY_B64 }}
 
     - name: Run Supabase one-way database migration (mode=${{ inputs.accounts_migration_mode }}, dry_run=${{ inputs.supabase_metadata_dry_run }})
       env:
@@ -484,6 +539,9 @@ jobs:
         SUPABASE_VAULT_PROJECT_REF: ${{ steps.vault.outputs.SUPABASE_VAULT_PROJECT_REF }}
         SUPABASE_MIGRATION_MODE: ${{ inputs.accounts_migration_mode || 'data' }}
         SUPABASE_SOURCE_TUNNEL_HOST: ${{ env.SUPABASE_SOURCE_TUNNEL_HOST }}
+        SUPABASE_SOURCE_TRANSPORT: ${{ env.SUPABASE_SOURCE_TRANSPORT }}
+        SUPABASE_SOURCE_TUNNEL_SNI: ${{ env.SUPABASE_SOURCE_TUNNEL_SNI }}
+        SUPABASE_SOURCE_SSH_TARGET_PORT: ${{ env.SUPABASE_SOURCE_SSH_TARGET_PORT }}
       run: .github/scripts/data-migration/supabase_metadata_migration.sh
 
   data_migration:
