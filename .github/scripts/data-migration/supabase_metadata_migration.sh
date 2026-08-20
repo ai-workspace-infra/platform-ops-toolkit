@@ -22,6 +22,7 @@ SOURCE_TUNNEL_LOCAL_PORT="${SUPABASE_SOURCE_TUNNEL_LOCAL_PORT:-15433}"
 SOURCE_SSH_USER="${SUPABASE_SOURCE_SSH_USER:-root}"
 SOURCE_SSH_TARGET_HOST="${SUPABASE_SOURCE_SSH_TARGET_HOST:-127.0.0.1}"
 SOURCE_SSH_TARGET_PORT="${SUPABASE_SOURCE_SSH_TARGET_PORT:-5432}"
+SOURCE_SSH_KEY_PATH="${SUPABASE_SOURCE_SSH_KEY_PATH:-${HOME}/.ssh/id_deploy}"
 DUMP_DIR="${SUPABASE_METADATA_DUMP_DIR:-${RUNNER_TEMP:-/tmp}/supabase-metadata-migration}"
 SCHEMA_FILE="${DUMP_DIR}/public-schema.sql"
 DATA_FILE="${DUMP_DIR}/public-data.sql"
@@ -106,6 +107,11 @@ if [[ -z "${SOURCE_SSH_HOST}" ]]; then
     echo "       Configure the PROD PostgreSQL SSH host." >&2
     exit 1
 fi
+if [[ ! -r "${SOURCE_SSH_KEY_PATH}" ]]; then
+    echo "ERROR: source PostgreSQL SSH key is missing: ${SOURCE_SSH_KEY_PATH}" >&2
+    echo "       Configure MIGRATION_SOURCE_SSH_PRIVATE_KEY_B64 before starting the tunnel." >&2
+    exit 1
+fi
 if [[ ! "${SOURCE_DSN}" =~ :${SOURCE_TUNNEL_LOCAL_PORT}([/?]|$) ]]; then
     echo "ERROR: loopback source DSN must use SUPABASE_SOURCE_TUNNEL_LOCAL_PORT=${SOURCE_TUNNEL_LOCAL_PORT}." >&2
     exit 1
@@ -114,11 +120,13 @@ command -v pg_isready >/dev/null || { echo "ERROR: pg_isready is required to pro
 command -v ssh >/dev/null || { echo "ERROR: ssh is required for the PostgreSQL source tunnel." >&2; exit 1; }
 ssh -N \
   -o BatchMode=yes \
+  -o IdentitiesOnly=yes \
   -o StrictHostKeyChecking=no \
   -o UserKnownHostsFile=/dev/null \
   -o ExitOnForwardFailure=yes \
   -o ConnectTimeout=15 \
   -o ServerAliveInterval=30 \
+  -i "${SOURCE_SSH_KEY_PATH}" \
   -L "127.0.0.1:${SOURCE_TUNNEL_LOCAL_PORT}:${SOURCE_SSH_TARGET_HOST}:${SOURCE_SSH_TARGET_PORT}" \
   "${SOURCE_SSH_USER}@${SOURCE_SSH_HOST}" >"${SOURCE_TUNNEL_LOG}" 2>&1 &
 SOURCE_TUNNEL_PID="$!"
