@@ -19,6 +19,8 @@ gh workflow run "${workflow_file}" \
   -f vault_env_path=uat \
   -f "tag_ref=${snapshot_tag}" \
   -f deploy_cloudflare=true \
-  -f deploy_cloud_run=true
+  -f deploy_cloud_run=true \
+  -f supabase_target_existing_strategy=accounts_merge \
+  -f supabase_target_confirm_replace=false
 
 echo "Dispatched UAT serverless deploy+migrate for ${snapshot_tag}."
