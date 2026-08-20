@@ -474,7 +474,6 @@ jobs:
       SUPABASE_SOURCE_TUNNEL_HOST: ${{ inputs.supabase_source_tunnel_host }}
       SUPABASE_TARGET_EXISTING_STRATEGY: ${{ inputs.supabase_target_existing_strategy || 'reject' }}
       SUPABASE_TARGET_CONFIRM_REPLACE: ${{ inputs.supabase_target_confirm_replace && 'true' || 'false' }}
-      SUPABASE_TARGET_BACKUP_FILE: ${{ runner.temp }}/supabase-public-backup.sql
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
@@ -530,7 +529,6 @@ jobs:
       SUPABASE_TARGET_DSN_KEY: ${{ inputs.supabase_target_dsn_key || 'DATABASE_SESSION_POOLER_URL' }}
       SUPABASE_TARGET_CONNECTION_MODE: ${{ inputs.supabase_target_connection_mode || 'session_pooler' }}
       SUPABASE_SOURCE_TUNNEL_HOST: ${{ inputs.supabase_source_tunnel_host }}
-      SUPABASE_TARGET_BACKUP_FILE: ${{ runner.temp }}/supabase-accounts-merge-backup.sql
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
@@ -580,7 +578,6 @@ jobs:
         SUPABASE_METADATA_DRY_RUN: ${{ inputs.supabase_metadata_dry_run && 'true' || 'false' }}
         SUPABASE_SOURCE_TUNNEL_HOST: ${{ env.SUPABASE_SOURCE_TUNNEL_HOST }}
         SUPABASE_TARGET_CONNECTION_MODE: ${{ env.SUPABASE_TARGET_CONNECTION_MODE }}
-        SUPABASE_TARGET_BACKUP_FILE: ${{ env.SUPABASE_TARGET_BACKUP_FILE }}
       run: .github/scripts/data-migration/supabase_accounts_merge_migration.sh
 
     - name: Upload accounts_merge target backup
