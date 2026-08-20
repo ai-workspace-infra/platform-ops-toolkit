@@ -46,6 +46,9 @@ jobs:
     - name: Verify workflow_dispatch inputs stay within GitHub's limit
       run: bash .github/scripts/tests/workflow_dispatch_input_limit_test.sh
 
+    - name: Verify UAT Serverless migration source contract
+      run: bash .github/scripts/tests/serverless_supabase_source_contract_test.sh
+
     - name: Verify Agent Proxy deployment variable contract
       run: bash .github/scripts/tests/platform_ops_agent_proxy_contract_test.sh
 
