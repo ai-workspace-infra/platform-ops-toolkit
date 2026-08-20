@@ -19,6 +19,28 @@ on:
           - migrate
           - deploy+migrate
           - destroy
+      target_domains:
+        description: '选择要执行的业务域 (Business Domain)。serverless 仅部署 web-saas；默认 all 在 serverless 中解析为 web-saas，其它业务域走 cloud_provider 环境副本链路。'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - ai-workspace
+          - web-saas
+          - infra-platform
+          - agent-proxy
+          - web-saas + agent-proxy
+      cloud_provider:
+        description: '其它业务域的云服务商 (多云选项为预留; 当前环境副本链路仅接通 vultr-vps，选择其它云会在 preflight 阶段明确失败)'
+        required: false
+        default: 'vultr-vps'
+        type: choice
+        options:
+          - aws-cloud
+          - gcp-cloud
+          - azure-cloud
+          - vultr-vps
       vault_env_path:
         description: 'Target environment'
         required: false
@@ -111,6 +133,8 @@ jobs:
         run: ./.github/scripts/serverless/validate_dispatch_inputs.sh
         env:
           OPERATION: ${{ inputs.operation || 'plan' }}
+          TARGET_DOMAINS: ${{ inputs.target_domains || 'all' }}
+          CLOUD_PROVIDER: ${{ inputs.cloud_provider || 'vultr-vps' }}
           VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
           TAG_REF: ${{ inputs.tag_ref }}
           DEPLOY_CLOUDFLARE: ${{ inputs.deploy_cloudflare }}
