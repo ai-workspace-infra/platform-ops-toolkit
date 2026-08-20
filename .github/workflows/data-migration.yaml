@@ -88,20 +88,10 @@ on:
         required: false
         default: ""
         type: string
-      supabase_source_dsn_key:
-        description: "Vault key containing the source PostgreSQL DSN"
-        required: false
-        default: "MIGRATION_SOURCE_DSN"
-        type: string
       supabase_source_tunnel_host:
-        description: "PROD PostgreSQL SSH host when the source DSN uses Runner loopback"
+        description: "PROD PostgreSQL SSH host used to run pg_dump inside the source container"
         required: false
         default: ""
-        type: string
-      supabase_source_ssh_target_port:
-        description: "ssh transport: PostgreSQL port to forward from inside the source host"
-        required: false
-        default: "5432"
         type: string
       accounts_source_host:
         description: "ssh transport: PROD source host"
@@ -244,7 +234,7 @@ on:
         default: ""
         type: string
       supabase_source_tunnel_host:
-        description: "源 DSN 使用 Runner loopback 时的 PROD PostgreSQL SSH 地址"
+        description: "在 PROD 源容器内执行 pg_dump 的 SSH 地址"
         required: false
         default: ""
         type: string
@@ -459,16 +449,14 @@ jobs:
       SUPABASE_SOURCE_VAULT_PATH: ${{ inputs.supabase_source_vault_path || format('kv/data/{0}/accounts-migration', inputs.vault_env_path || 'sit') }}
       SUPABASE_TARGET_DSN_KEY: ${{ inputs.supabase_target_dsn_key || 'DATABASE_SESSION_POOLER_URL' }}
       SUPABASE_TARGET_CONNECTION_MODE: ${{ inputs.supabase_target_connection_mode || 'session_pooler' }}
-      SUPABASE_SOURCE_DSN_KEY: ${{ inputs.supabase_source_dsn_key || 'MIGRATION_SOURCE_DSN' }}
       SUPABASE_SOURCE_TUNNEL_HOST: ${{ inputs.supabase_source_tunnel_host }}
-      SUPABASE_SOURCE_SSH_TARGET_PORT: ${{ inputs.supabase_source_ssh_target_port || '5432' }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
         ref: ${{ inputs.toolkit_ref || 'main' }}
 
-    - name: Load source and Supabase direct DSNs from Vault
+    - name: Load Supabase target DSN and source SSH key from Vault
       id: vault
       uses: hashicorp/vault-action@v4
       with:
@@ -477,7 +465,6 @@ jobs:
         method: jwt
         jwtGithubAudience: vault
         secrets: |
-          ${{ env.SUPABASE_SOURCE_VAULT_PATH }} ${{ env.SUPABASE_SOURCE_DSN_KEY }} | MIGRATION_SOURCE_DSN ;
           ${{ env.SUPABASE_SOURCE_VAULT_PATH }} MIGRATION_SOURCE_SSH_PRIVATE_KEY_B64 | MIGRATION_SOURCE_SSH_PRIVATE_KEY_B64 ;
           ${{ env.SUPABASE_VAULT_PATH }} ${{ env.SUPABASE_TARGET_DSN_KEY }} | SUPABASE_TARGET_DSN ;
           ${{ env.SUPABASE_VAULT_PATH }} PROJECT_REF | SUPABASE_VAULT_PROJECT_REF ;
@@ -489,12 +476,10 @@ jobs:
 
     - name: Run Supabase one-way database migration (mode=${{ inputs.accounts_migration_mode }}, dry_run=${{ inputs.supabase_metadata_dry_run }})
       env:
-        MIGRATION_SOURCE_DSN: ${{ steps.vault.outputs.MIGRATION_SOURCE_DSN }}
         SUPABASE_TARGET_DSN: ${{ steps.vault.outputs.SUPABASE_TARGET_DSN }}
         SUPABASE_VAULT_PROJECT_REF: ${{ steps.vault.outputs.SUPABASE_VAULT_PROJECT_REF }}
         SUPABASE_MIGRATION_MODE: ${{ inputs.accounts_migration_mode || 'data' }}
         SUPABASE_SOURCE_TUNNEL_HOST: ${{ env.SUPABASE_SOURCE_TUNNEL_HOST }}
-        SUPABASE_SOURCE_SSH_TARGET_PORT: ${{ env.SUPABASE_SOURCE_SSH_TARGET_PORT }}
       run: .github/scripts/data-migration/supabase_metadata_migration.sh
 
   data_migration:

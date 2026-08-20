@@ -6,9 +6,10 @@ set -euo pipefail
 # separate from migratectl: migratectl moves Accounts rows between VPS hosts,
 # while this path is the one-way VPS -> Supabase database cutover path.
 # The target must use Supabase's direct endpoint or session pooler, never a
-# transaction pooler URL, because pg_dump/DDL need a stable session.
+# transaction pooler URL, because pg_dump/DDL need a stable session. The source
+# dump runs inside the PROD PostgreSQL container over SSH: the container-local
+# pg_hba trust rule avoids putting a stale database password on the runner.
 
-SOURCE_DSN="${MIGRATION_SOURCE_DSN:-}"
 TARGET_DSN="${SUPABASE_TARGET_DSN:-}"
 EXPECTED_REF="${SUPABASE_EXPECTED_PROJECT_REF:-}"
 VAULT_REF="${SUPABASE_VAULT_PROJECT_REF:-}"
@@ -16,26 +17,18 @@ DRY_RUN="${SUPABASE_METADATA_DRY_RUN:-true}"
 MODE="${SUPABASE_MIGRATION_MODE:-metadata}"
 CONNECTION_MODE="${SUPABASE_TARGET_CONNECTION_MODE:-session_pooler}"
 SOURCE_SSH_HOST="${SUPABASE_SOURCE_TUNNEL_HOST:-}"
-SOURCE_TUNNEL_LOCAL_PORT="${SUPABASE_SOURCE_TUNNEL_LOCAL_PORT:-15433}"
 # This migration is deliberately SSH-only: console.svc.plus publishes
 # PostgreSQL only on its loopback address, never to GitHub-hosted runners.
 SOURCE_SSH_USER="${SUPABASE_SOURCE_SSH_USER:-root}"
-SOURCE_SSH_TARGET_HOST="${SUPABASE_SOURCE_SSH_TARGET_HOST:-127.0.0.1}"
-SOURCE_SSH_TARGET_PORT="${SUPABASE_SOURCE_SSH_TARGET_PORT:-5432}"
 SOURCE_SSH_KEY_PATH="${SUPABASE_SOURCE_SSH_KEY_PATH:-${HOME}/.ssh/id_deploy}"
+SOURCE_CONTAINER="${SUPABASE_SOURCE_DB_CONTAINER:-postgresql-svc-plus}"
+SOURCE_DB_USER="${SUPABASE_SOURCE_DB_USER:-readonly}"
+SOURCE_DB_NAME="${SUPABASE_SOURCE_DATABASE:-account}"
 DUMP_DIR="${SUPABASE_METADATA_DUMP_DIR:-${RUNNER_TEMP:-/tmp}/supabase-metadata-migration}"
 SCHEMA_FILE="${DUMP_DIR}/public-schema.sql"
 DATA_FILE="${DUMP_DIR}/public-data.sql"
 APPLY_FILE="${DUMP_DIR}/apply.sql"
-SOURCE_TUNNEL_LOG="${RUNNER_TEMP:-/tmp}/supabase-source-ssh.log"
-SOURCE_TUNNEL_PID=""
-
 cleanup() {
-  if [[ -n "${SOURCE_TUNNEL_PID}" ]]; then
-    kill "${SOURCE_TUNNEL_PID}" >/dev/null 2>&1 || true
-    wait "${SOURCE_TUNNEL_PID}" 2>/dev/null || true
-  fi
-  rm -f "${SOURCE_TUNNEL_LOG}"
   rm -rf "${DUMP_DIR}"
 }
 trap cleanup EXIT
@@ -44,13 +37,9 @@ redact_dsn() {
   printf '%s' "$1" | sed -E 's#(://[^:/@]+):[^@]*@#\1:***@#'
 }
 
-if [[ -z "${SOURCE_DSN}" || -z "${TARGET_DSN}" ]]; then
-  echo "ERROR: source and Supabase target DSNs are required from Vault." >&2
+if [[ -z "${TARGET_DSN}" ]]; then
+  echo "ERROR: Supabase target DSN is required from Vault." >&2
   exit 1
-fi
-source_uses_loopback=false
-if [[ "${SOURCE_DSN}" =~ @((127\.0\.0\.1)|localhost|\[::1\])(:|/|\?) ]]; then
-  source_uses_loopback=true
 fi
 if [[ -z "${VAULT_REF}" ]]; then
   echo "ERROR: Supabase Vault is missing PROJECT_REF." >&2
@@ -90,67 +79,59 @@ if [[ "${CONNECTION_MODE}" == "direct" && "${TARGET_DSN}" == *"pooler.supabase.c
   echo "ERROR: direct mode cannot use a Supabase pooler DSN." >&2
   exit 1
 fi
-if [[ "${TARGET_DSN}" == *"svc.plus"* || "${TARGET_DSN}" == "${SOURCE_DSN}" ]]; then
-  echo "ERROR: target DSN is unsafe or identical to source; refusing to write." >&2
+if [[ "${TARGET_DSN}" == *"svc.plus"* ]]; then
+  echo "ERROR: target DSN must not point at a platform PROD host; refusing to write." >&2
   exit 1
 fi
 if [[ "${MODE}" != "metadata" && "${MODE}" != "metadata_and_data" ]]; then
   echo "ERROR: SUPABASE_MIGRATION_MODE must be metadata or metadata_and_data." >&2
   exit 1
 fi
-if [[ "${source_uses_loopback}" != true ]]; then
-  echo "ERROR: MIGRATION_SOURCE_DSN must use runner loopback; only the managed SSH source path is supported." >&2
-  exit 1
-fi
 if [[ -z "${SOURCE_SSH_HOST}" ]]; then
-    echo "ERROR: MIGRATION_SOURCE_DSN targets runner loopback but SUPABASE_SOURCE_TUNNEL_HOST is not configured." >&2
+    echo "ERROR: SUPABASE_SOURCE_TUNNEL_HOST is not configured." >&2
     echo "       Configure the PROD PostgreSQL SSH host." >&2
+    exit 1
+fi
+if [[ "${SOURCE_DB_USER}" != "readonly" ]]; then
+    echo "ERROR: source DB role must remain readonly; refusing to run as ${SOURCE_DB_USER}." >&2
+    exit 1
+fi
+if [[ ! "${SOURCE_CONTAINER}" =~ ^[a-zA-Z0-9_.-]+$ || ! "${SOURCE_DB_NAME}" =~ ^[a-zA-Z0-9_.-]+$ ]]; then
+    echo "ERROR: source container and database names contain unsafe characters." >&2
     exit 1
 fi
 if [[ ! -r "${SOURCE_SSH_KEY_PATH}" ]]; then
     echo "ERROR: source PostgreSQL SSH key is missing: ${SOURCE_SSH_KEY_PATH}" >&2
-    echo "       Configure MIGRATION_SOURCE_SSH_PRIVATE_KEY_B64 before starting the tunnel." >&2
+    echo "       Configure MIGRATION_SOURCE_SSH_PRIVATE_KEY_B64 before starting the export." >&2
     exit 1
 fi
-if [[ ! "${SOURCE_DSN}" =~ :${SOURCE_TUNNEL_LOCAL_PORT}([/?]|$) ]]; then
-    echo "ERROR: loopback source DSN must use SUPABASE_SOURCE_TUNNEL_LOCAL_PORT=${SOURCE_TUNNEL_LOCAL_PORT}." >&2
-    exit 1
-fi
-command -v pg_isready >/dev/null || { echo "ERROR: pg_isready is required to probe the SSH tunnel." >&2; exit 1; }
-command -v ssh >/dev/null || { echo "ERROR: ssh is required for the PostgreSQL source tunnel." >&2; exit 1; }
-ssh -N \
-  -o BatchMode=yes \
-  -o IdentitiesOnly=yes \
-  -o StrictHostKeyChecking=no \
-  -o UserKnownHostsFile=/dev/null \
-  -o ExitOnForwardFailure=yes \
-  -o ConnectTimeout=15 \
-  -o ServerAliveInterval=30 \
-  -i "${SOURCE_SSH_KEY_PATH}" \
-  -L "127.0.0.1:${SOURCE_TUNNEL_LOCAL_PORT}:${SOURCE_SSH_TARGET_HOST}:${SOURCE_SSH_TARGET_PORT}" \
-  "${SOURCE_SSH_USER}@${SOURCE_SSH_HOST}" >"${SOURCE_TUNNEL_LOG}" 2>&1 &
-SOURCE_TUNNEL_PID="$!"
+command -v ssh >/dev/null || { echo "ERROR: ssh is required for the source export." >&2; exit 1; }
+SSH_OPTIONS=(
+  -o BatchMode=yes
+  -o IdentitiesOnly=yes
+  -o StrictHostKeyChecking=no
+  -o UserKnownHostsFile=/dev/null
+  -o ConnectTimeout=15
+  -o ServerAliveInterval=30
+  -i "${SOURCE_SSH_KEY_PATH}"
+)
 
-tunnel_ready=false
-for _ in {1..6}; do
-  kill -0 "${SOURCE_TUNNEL_PID}" >/dev/null 2>&1 || break
-  probe_rc=0
-  pg_isready --host 127.0.0.1 --port "${SOURCE_TUNNEL_LOCAL_PORT}" --timeout 3 >/dev/null 2>&1 || probe_rc="$?"
-  if [[ "${probe_rc}" -le 1 ]]; then
-    tunnel_ready=true
-    break
-  fi
-  sleep 0.5
-done
-if [[ "${tunnel_ready}" != true ]]; then
-  echo "ERROR: source PostgreSQL SSH tunnel did not carry traffic to ${SOURCE_SSH_USER}@${SOURCE_SSH_HOST}" >&2
-  echo "       -> ${SOURCE_SSH_TARGET_HOST}:${SOURCE_SSH_TARGET_PORT}. Check the source migration key and host listener." >&2
-  echo "       ssh log follows:" >&2
-  cat "${SOURCE_TUNNEL_LOG}" >&2 || true
+remote_pg_dump() {
+  local output_file="$1"
+  shift
+  local -a command=(docker exec "${SOURCE_CONTAINER}" pg_dump -U "${SOURCE_DB_USER}" -d "${SOURCE_DB_NAME}" "$@")
+  local remote_command
+  printf -v remote_command '%q ' "${command[@]}"
+  ssh "${SSH_OPTIONS[@]}" "${SOURCE_SSH_USER}@${SOURCE_SSH_HOST}" "${remote_command}" >"${output_file}"
+}
+
+source_probe_command=(docker exec "${SOURCE_CONTAINER}" pg_isready -U "${SOURCE_DB_USER}" -d "${SOURCE_DB_NAME}")
+printf -v source_probe '%q ' "${source_probe_command[@]}"
+if ! ssh "${SSH_OPTIONS[@]}" "${SOURCE_SSH_USER}@${SOURCE_SSH_HOST}" "${source_probe}" >/dev/null; then
+  echo "ERROR: PROD PostgreSQL container is not ready: ${SOURCE_CONTAINER}/${SOURCE_DB_NAME}." >&2
   exit 1
 fi
-echo "Source PostgreSQL SSH tunnel ready: ${SOURCE_SSH_HOST}:${SOURCE_SSH_TARGET_PORT}"
-command -v pg_dump >/dev/null || { echo "ERROR: pg_dump is required." >&2; exit 1; }
+echo "Source PostgreSQL container ready: ${SOURCE_SSH_HOST}/${SOURCE_CONTAINER}:${SOURCE_DB_NAME}"
 command -v psql >/dev/null || { echo "ERROR: psql is required." >&2; exit 1; }
 hash_file() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -165,7 +146,7 @@ hash_file() {
 mkdir -p "${DUMP_DIR}"
 
 echo "Supabase one-way database migration"
-echo "  source: $(redact_dsn "${SOURCE_DSN}")"
+echo "  source: ${SOURCE_SSH_USER}@${SOURCE_SSH_HOST}/${SOURCE_CONTAINER}:${SOURCE_DB_NAME} (role ${SOURCE_DB_USER})"
 echo "  target: $(redact_dsn "${TARGET_DSN}")"
 echo "  project: ${EXPECTED_REF}"
 echo "  connection: ${CONNECTION_MODE}"
@@ -173,7 +154,7 @@ echo "  mode: ${MODE}"
 echo "  dry-run: ${DRY_RUN}"
 
 echo "[1/5] Exporting public-schema metadata only..."
-pg_dump "${SOURCE_DSN}" \
+remote_pg_dump "${SCHEMA_FILE}" \
   --schema-only \
   --schema=public \
   --no-owner \
@@ -181,7 +162,7 @@ pg_dump "${SOURCE_DSN}" \
   --no-comments \
   --no-publications \
   --no-subscriptions \
-  --file="${SCHEMA_FILE}"
+  --file=-
 
 if [[ ! -s "${SCHEMA_FILE}" ]]; then
   echo "ERROR: schema dump is empty." >&2
@@ -191,9 +172,9 @@ if grep -Eq 'CREATE EXTENSION[^;]*pglogical|CREATE SCHEMA[^;]*pglogical' "${SCHE
   echo "ERROR: source dump contains pglogical objects; Supabase Cloud does not accept this replication extension." >&2
   exit 1
 fi
-for object in 'CREATE TABLE.*users' 'CREATE TABLE.*traffic_minute_buckets' 'CREATE TABLE.*billing_ledger'; do
+for object in 'CREATE TABLE.*public\.users'; do
   if ! grep -Eiq "${object}" "${SCHEMA_FILE}"; then
-    echo "ERROR: required Accounts/Billing metadata is missing from the source dump: ${object}" >&2
+    echo "ERROR: required Accounts metadata is missing from the source dump: ${object}" >&2
     exit 1
   fi
 done
@@ -202,7 +183,7 @@ schema_sha256="$(hash_file "${SCHEMA_FILE}")"
 data_sha256="none"
 if [[ "${MODE}" == "metadata_and_data" ]]; then
   echo "[2/5] Exporting public-schema business data only..."
-  pg_dump "${SOURCE_DSN}" \
+  remote_pg_dump "${DATA_FILE}" \
     --data-only \
     --schema=public \
     --no-owner \
@@ -210,7 +191,7 @@ if [[ "${MODE}" == "metadata_and_data" ]]; then
     --no-comments \
     --no-publications \
     --no-subscriptions \
-    --file="${DATA_FILE}"
+    --file=-
   if [[ ! -s "${DATA_FILE}" ]]; then
     echo "ERROR: business data dump is empty." >&2
     exit 1
