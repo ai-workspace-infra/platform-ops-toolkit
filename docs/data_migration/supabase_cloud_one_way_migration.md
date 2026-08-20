@@ -41,8 +41,9 @@ kv/data/<env>/accounts-migration
 由工作流建立的本地入口，并要求传入 `supabase_source_tunnel_host`；不要把该本地端口直接当作
 GitHub Runner 上天然存在的服务。Serverless Orchestrator 的 UAT 默认源端为
 `console.svc.plus`，并默认使用 SSH 将其 `127.0.0.1:5432` 转发到 Runner 的本地入口；这是一条
-**PROD → UAT Serverless** 的单向链路。只有在源端 TLS 端口已明确对 GitHub Runner 开放时，才显式
-选择 `supabase_source_transport=stunnel`，由 stunnel 客户端转发到 `<host>:15433`。
+**PROD → UAT Serverless** 的单向链路。Serverless Orchestrator 强制使用 SSH，防止保存的
+dispatch 值意外让 Runner 去连接未发布的 stunnel 端口；stunnel 只保留给直接调用
+`data-migration.yaml` 的、网络已明确开放 TLS 端口的其他迁移场景。
 
 隧道就绪是用 `pg_isready` 穿过隧道判定的，不是判断本地端口是否 listen。stunnel 在拨上游之前
 就已经把 accept socket bind 好了，所以"端口起来了"和"隧道通了"是两回事：run 32219430536 里

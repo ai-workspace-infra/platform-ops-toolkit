@@ -22,13 +22,12 @@ host = inputs["supabase_source_tunnel_host"]
 if host.get("default") != "console.svc.plus":
     raise SystemExit("serverless migration source must default to console.svc.plus (PROD)")
 
-transport = inputs["supabase_source_transport"]
-if transport.get("default") != "ssh" or transport.get("options") != ["ssh", "stunnel"]:
-    raise SystemExit("serverless migration must default to SSH while retaining stunnel as opt-in")
+if "supabase_source_transport" in inputs:
+    raise SystemExit("serverless migration must not expose a stunnel override for the loopback-only PROD source")
 
 with_args = document["jobs"]["trigger_data_migration"]["with"]
-if with_args.get("supabase_source_transport") != "${{ inputs.supabase_source_transport || 'ssh' }}":
-    raise SystemExit("serverless migration must pass the SSH fallback to the reusable workflow")
+if with_args.get("supabase_source_transport") != "ssh":
+    raise SystemExit("serverless migration must force SSH to the PROD source")
 PY
 
 echo "serverless_supabase_source_contract_test: PASS"
