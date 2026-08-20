@@ -320,7 +320,7 @@ jobs:
       env:
         ACCOUNTS_TARGET_BACKEND: ${{ inputs.accounts_target_backend || 'vps' }}
         ACCOUNTS_MIGRATION_MODE: ${{ inputs.accounts_migration_mode || 'data' }}
-        SUPABASE_PROJECT_REF: ${{ inputs.supabase_project_ref || 'rbjnksmfzkjheiwpkaem' }}
+        SUPABASE_PROJECT_REF: ${{ inputs.supabase_project_ref }}
         SUPABASE_TARGET_EXISTING_STRATEGY: ${{ inputs.supabase_target_existing_strategy || 'reject' }}
       run: .github/scripts/data-migration/validate_accounts_migration_target.sh
 
@@ -465,7 +465,7 @@ jobs:
     runs-on: ${{ inputs.runner_type || 'ubuntu-latest' }}
     env:
       VAULT_ROLE: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'sit' }}
-      SUPABASE_EXPECTED_PROJECT_REF: ${{ inputs.supabase_project_ref || 'rbjnksmfzkjheiwpkaem' }}
+      SUPABASE_EXPECTED_PROJECT_REF: ${{ inputs.supabase_project_ref }}
       SUPABASE_METADATA_DRY_RUN: ${{ inputs.supabase_metadata_dry_run && 'true' || 'false' }}
       SUPABASE_VAULT_PATH: ${{ inputs.supabase_vault_path || format('kv/data/{0}/serverless/supabase', inputs.vault_env_path || 'sit') }}
       SUPABASE_SOURCE_VAULT_PATH: ${{ inputs.supabase_source_vault_path || format('kv/data/{0}/accounts-migration', inputs.vault_env_path || 'sit') }}
@@ -522,7 +522,7 @@ jobs:
     runs-on: ${{ inputs.runner_type || 'ubuntu-latest' }}
     env:
       VAULT_ROLE: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'sit' }}
-      SUPABASE_EXPECTED_PROJECT_REF: ${{ inputs.supabase_project_ref || 'rbjnksmfzkjheiwpkaem' }}
+      SUPABASE_EXPECTED_PROJECT_REF: ${{ inputs.supabase_project_ref }}
       SUPABASE_METADATA_DRY_RUN: ${{ inputs.supabase_metadata_dry_run && 'true' || 'false' }}
       SUPABASE_VAULT_PATH: ${{ inputs.supabase_vault_path || format('kv/data/{0}/serverless/supabase', inputs.vault_env_path || 'sit') }}
       SUPABASE_SOURCE_VAULT_PATH: ${{ inputs.supabase_source_vault_path || format('kv/data/{0}/accounts-migration', inputs.vault_env_path || 'sit') }}
