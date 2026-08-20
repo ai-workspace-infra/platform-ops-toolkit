@@ -563,7 +563,8 @@ jobs:
           exportToken: true
           secrets: |
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
-            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN ;
+            kv/data/WEB_SAAS INTERNAL_SERVICE_TOKEN | INTERNAL_SERVICE_TOKEN
 
       - name: Download boundary edge assets
         uses: actions/download-artifact@v8
@@ -583,6 +584,9 @@ jobs:
           PORTAL_DIR: ${{ github.workspace }}/portal
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_API_TOKEN }}
+          # Decides whether this deployment's export carries blogs/docs/products
+          # at all; without it those sections are simply absent.
+          INTERNAL_SERVICE_TOKEN: ${{ steps.vault.outputs.INTERNAL_SERVICE_TOKEN }}
 
   serverless_domains:
     name: Cloudflare / custom domains and public CORS chain
