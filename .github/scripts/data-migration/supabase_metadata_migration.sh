@@ -16,6 +16,8 @@ VAULT_REF="${SUPABASE_VAULT_PROJECT_REF:-}"
 DRY_RUN="${SUPABASE_METADATA_DRY_RUN:-true}"
 MODE="${SUPABASE_MIGRATION_MODE:-metadata}"
 CONNECTION_MODE="${SUPABASE_TARGET_CONNECTION_MODE:-session_pooler}"
+TARGET_STRATEGY="${SUPABASE_TARGET_EXISTING_STRATEGY:-reject}"
+CONFIRM_REPLACE="${SUPABASE_TARGET_CONFIRM_REPLACE:-false}"
 SOURCE_SSH_HOST="${SUPABASE_SOURCE_TUNNEL_HOST:-}"
 # This migration is deliberately SSH-only: console.svc.plus publishes
 # PostgreSQL only on its loopback address, never to GitHub-hosted runners.
@@ -28,6 +30,7 @@ DUMP_DIR="${SUPABASE_METADATA_DUMP_DIR:-${RUNNER_TEMP:-/tmp}/supabase-metadata-m
 SCHEMA_FILE="${DUMP_DIR}/public-schema.sql"
 DATA_FILE="${DUMP_DIR}/public-data.sql"
 APPLY_FILE="${DUMP_DIR}/apply.sql"
+BACKUP_FILE="${SUPABASE_TARGET_BACKUP_FILE:-${RUNNER_TEMP:-/tmp}/supabase-public-backup.sql}"
 cleanup() {
   rm -rf "${DUMP_DIR}"
 }
@@ -85,6 +88,15 @@ if [[ "${TARGET_DSN}" == *"svc.plus"* ]]; then
 fi
 if [[ "${MODE}" != "metadata" && "${MODE}" != "metadata_and_data" ]]; then
   echo "ERROR: SUPABASE_MIGRATION_MODE must be metadata or metadata_and_data." >&2
+  exit 1
+fi
+if [[ "${TARGET_STRATEGY}" != "reject" && "${TARGET_STRATEGY}" != "replace_public" ]]; then
+  echo "ERROR: SUPABASE_TARGET_EXISTING_STRATEGY must be reject or replace_public for the schema migration." >&2
+  exit 1
+fi
+if [[ "${TARGET_STRATEGY}" == "replace_public" && "${DRY_RUN}" != "true" && "${CONFIRM_REPLACE}" != "true" ]]; then
+  echo "ERROR: replace_public requires SUPABASE_TARGET_CONFIRM_REPLACE=true." >&2
+  echo "       This explicit confirmation is required before clearing the target public schema." >&2
   exit 1
 fi
 if [[ -z "${SOURCE_SSH_HOST}" ]]; then
@@ -151,6 +163,7 @@ echo "  target: $(redact_dsn "${TARGET_DSN}")"
 echo "  project: ${EXPECTED_REF}"
 echo "  connection: ${CONNECTION_MODE}"
 echo "  mode: ${MODE}"
+echo "  existing-target strategy: ${TARGET_STRATEGY}"
 echo "  dry-run: ${DRY_RUN}"
 
 echo "[1/5] Exporting public-schema metadata only..."
@@ -214,8 +227,59 @@ if [[ -n "${existing_marker}" ]]; then
     echo "  migration marker matches the source dump; target is already converged."
     exit 0
   fi
-  echo "ERROR: target migration marker exists but does not match the source dump." >&2
-  exit 1
+  if [[ "${TARGET_STRATEGY}" == "reject" ]]; then
+    echo "ERROR: target migration marker exists but does not match the source dump." >&2
+    exit 1
+  fi
+  echo "  migration marker differs; replace_public will rebuild the public schema."
+fi
+
+if [[ "${TARGET_STRATEGY}" == "replace_public" && "${existing_tables}" != "0" ]]; then
+  if [[ "${DRY_RUN}" == "true" ]]; then
+    echo "[4/5] DRY_RUN=true; replace_public would back up and clear the existing public schema."
+    echo "[5/5] Supabase metadata/data preflight completed without target writes."
+    exit 0
+  fi
+
+  command -v pg_dump >/dev/null || { echo "ERROR: pg_dump is required to back up the target before replace_public." >&2; exit 1; }
+  echo "[4/5] Backing up existing public schema/data before replace_public..."
+  pg_dump "${TARGET_DSN}" \
+    --schema=public \
+    --no-owner \
+    --no-privileges \
+    --no-publications \
+    --no-subscriptions \
+    --file="${BACKUP_FILE}"
+  [[ -s "${BACKUP_FILE}" ]] || { echo "ERROR: target backup is empty; refusing to clear public schema." >&2; exit 1; }
+  echo "  target backup: ${BACKUP_FILE}"
+  echo "  clearing existing public objects (Supabase-managed auth/storage schemas are untouched)..."
+  psql "${TARGET_DSN}" -v ON_ERROR_STOP=1 <<'SQL'
+DO $$
+DECLARE
+  object_record RECORD;
+BEGIN
+  FOR object_record IN
+    SELECT n.nspname AS schema_name,
+           c.relname AS object_name,
+           CASE c.relkind
+             WHEN 'r' THEN 'TABLE'
+             WHEN 'p' THEN 'TABLE'
+             WHEN 'v' THEN 'VIEW'
+             WHEN 'm' THEN 'MATERIALIZED VIEW'
+             WHEN 'S' THEN 'SEQUENCE'
+             WHEN 'f' THEN 'FOREIGN TABLE'
+           END AS object_kind
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+      AND c.relname <> 'spatial_ref_sys'
+  LOOP
+    EXECUTE format('DROP %s IF EXISTS %I.%I CASCADE', object_record.object_kind, object_record.schema_name, object_record.object_name);
+  END LOOP;
+END $$;
+SQL
+  existing_tables="0"
 fi
 
 if [[ "${DRY_RUN}" == "true" ]]; then

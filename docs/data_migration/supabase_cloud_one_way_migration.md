@@ -8,6 +8,19 @@
 | `accounts_target_backend=supabase` + `accounts_migration_mode=metadata` | **PROD Console → UAT Supabase**：通过 SSH 只读导出 `public` schema，并对 Supabase Target 做只读预检 |
 | `accounts_target_backend=supabase` + `accounts_migration_mode=metadata_and_data` | **PROD Console → UAT Supabase**：通过 SSH 只读导出 `public` schema 和业务数据，并一次性写入 Supabase Target |
 
+Supabase 目标已有数据时，`workflow_dispatch` 的
+`supabase_target_existing_strategy` 决定写入策略：
+
+| 策略 | 适用场景 | 行为 |
+|---|---|---|
+| `reject`（默认） | 未确认目标状态 | 目标 `public` 非空即停止，不做写入 |
+| `replace_public` | UAT 可废弃、需要重建 | 先用 `pg_dump` 备份目标 `public`，再删除 `public` 对象，最后按 `metadata`/`metadata_and_data` 重建；必须同时将 `supabase_target_confirm_replace=true` |
+| `accounts_merge` | UAT 数据必须保留 | 仅允许 `metadata_and_data`；使用 Accounts 专用 `migratectl import --merge --merge-strategy timestamp` 增量合并，不删除目标表或目标行 |
+
+`replace_public` 备份会作为 GitHub Actions artifact 上传，保留 1 天；备份可能包含业务
+敏感数据，验证后应及时删除。`accounts_merge` 在实际写入前会先执行一次目标 dry-run，
+并在写入后再次 dry-run 验证 users、identities、sessions 没有被重复插入。
+
 VPS → VPS 与 VPS → Supabase 不可混用：前者需要两端 SSH 主机和 `migratectl`，后者需要
 PROD 源 SSH 主机、源容器内的 `readonly` 角色和 Supabase 目标 DSN。
 
@@ -55,12 +68,17 @@ Session pooler（`pooler.supabase.com:5432`）适合当前 IPv4 VPS 和迁移 ru
 ## 执行顺序
 
 1. 先用 `accounts_target_backend=supabase`、`accounts_migration_mode=metadata`、
-   `supabase_metadata_dry_run=true` 做源/目标连接、对象完整性和目标空库预检。
-2. 确认目标项目 `public` schema 没有业务表后，使用
-   `accounts_migration_mode=metadata_and_data`、仍保持 dry-run 做业务数据导出预检。
-3. 审核导出范围后，才将 `supabase_metadata_dry_run` 改为 `false` 执行一次性迁移。
+   `supabase_target_existing_strategy=reject`、`supabase_metadata_dry_run=true` 做源/目标连接、
+   对象完整性和目标状态预检。
+2. UAT 可废弃时，选择 `replace_public`，明确设置
+   `supabase_target_confirm_replace=true`，先以 dry-run 检查，再将
+   `supabase_metadata_dry_run=false` 执行备份、清空和重建。
+3. UAT 数据需保留时，选择 `accounts_merge`，并将
+   `accounts_migration_mode=metadata_and_data`；先 dry-run，确认合并计划后再关闭 dry-run。
 
-目标已有业务表时流水线拒绝隐式覆盖；源端只执行 `pg_dump`，不会执行 DDL 或业务写入。
+默认策略下目标已有业务表时流水线拒绝隐式覆盖；只有显式选择 `replace_public` 并确认，
+才会清空目标 `public`。`accounts_merge` 不执行目标表删除；源端只执行 `pg_dump`，不会执行
+源端 DDL 或业务写入。
 Content Service 当前是 Git/文件索引模式，没有 PostgreSQL 元数据表，因此不创建虚假
 Content 表；它接入 Supabase 运行时时继续保持数据库可选。
 
