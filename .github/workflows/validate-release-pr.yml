@@ -40,6 +40,12 @@ jobs:
     - name: Verify job gating is falsifiable
       run: python3 scripts/ci/workflow_gating_verify.py
 
+    # Over 25 workflow_dispatch inputs and the file stops being a workflow at
+    # all -- callers included. Cheap to assert here, expensive to discover on
+    # main.
+    - name: Verify workflow_dispatch inputs stay within GitHub's limit
+      run: bash .github/scripts/tests/workflow_dispatch_input_limit_test.sh
+
     - name: Verify Agent Proxy deployment variable contract
       run: bash .github/scripts/tests/platform_ops_agent_proxy_contract_test.sh
 
