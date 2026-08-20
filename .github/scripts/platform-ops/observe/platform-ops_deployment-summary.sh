@@ -18,6 +18,7 @@ render_summary() {
   printf 'Deployment environment: `%s`\n' "${DEPLOYMENT_ENV:-unknown}"
   printf 'Target domains: `%s`\n' "${TARGET_DOMAINS:-unknown}"
   printf 'Deploy tag: `%s`\n' "${DEPLOY_TAG:-unknown}"
+  printf 'Agent Proxy controller: `%s`\n' "${AGENT_CONTROLLER_URL:-not-configured}"
 }
 
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then

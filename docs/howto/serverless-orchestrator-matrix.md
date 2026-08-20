@@ -47,8 +47,10 @@ Every mode profile also declares the five public service entrances in
 | Agent-Proxy | public UUID validation | `agent-proxy-serverless-uat.onwalk.net` | `agent-proxy-vps-uat.onwalk.net` |
 
 The Serverless workflow actively reconciles and verifies Console, Accounts, and Billing. PostgreSQL
-and Agent-Proxy keep provider-owned authenticated/UUID validation paths until their deployment
-provider exposes an equivalent adapter.
+remains provider-owned. UAT's combined snapshot path dispatches the Selfhost workflow separately for
+Agent Proxy after Serverless readiness; it passes `agent_controller_url=https://accounts-serverless-
+uat.onwalk.net` so the native Agent Proxy registers to Serverless Accounts rather than creating a
+second controller. Standalone Selfhost runs keep the Selfhost Accounts fallback.
 
 The mode-qualified entries can coexist as separate DNS names. A normal Serverless deployment uses
 `dns_mode=none`, publishes only the `*-serverless-uat` entries, and verifies those entries directly;
