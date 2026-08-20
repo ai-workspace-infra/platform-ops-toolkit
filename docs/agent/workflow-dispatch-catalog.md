@@ -7,7 +7,7 @@
 "这个仓库具体是怎样"的事实，随 workflow 改动同步维护，不要让通用 skill 里出现会漂移的
 本仓库细节。
 
-更新时间：2026-08-14
+更新时间：2026-08-21
 
 ---
 
@@ -67,7 +67,30 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
 
 ---
 
-## 3. `platform-ops.yaml` —— 约 20 个输入，危险项最多
+## 3. `serverless-orchestrator.yml` —— UAT 自动发布与数据同步
+
+`daily-main-snapshot.yaml` 在服务快照构建完成后会自动派发
+`serverless-orchestrator.yml` 的 `deploy+migrate`。该调用明确传入
+`supabase_target_existing_strategy=accounts_merge`，因此 UAT 已有 public 表时不会因
+可复用迁移工作流的默认 `reject` 而中止；Accounts 的 `migratectl --merge` 只增量合并
+用户、身份和会话数据，不删除 UAT 行。手工派发也默认使用 `accounts_merge`。
+
+只有 UAT 可废弃且操作者明确确认时，才选择
+`supabase_target_existing_strategy=replace_public` 并勾选
+`supabase_target_confirm_replace=true`。流水线会先上传 public schema/data 备份，再清理
+目标 public 对象并导入 PROD 快照；未提供确认或选择 `reject` 时不会写入非空目标。
+
+这条自动链路也是 XWorkmate/OpenClaw 插件应调用的唯一入口：插件只负责派发带 immutable
+`uat-daily-build-*` tag 的工作流和轮询结果，不直接持有 Vault、数据库或 Cloudflare
+凭据。XWorkmate APP 应连接 `XWORKMATE_BRIDGE_SERVER_URL`（UAT 默认
+`https://bridge-uat.onwalk.net`）。`accounts-uat.onwalk.net` 是受用户密码 + MFA 保护的
+轻量 IAM/多租户管理面，应由 Bridge 代为校验和分发认证上下文；插件不能绕过 MFA 或直连
+Accounts 内部接口。完整
+工具契约见 [`xworkmate-openclaw-uat-automation.md`](xworkmate-openclaw-uat-automation.md)。
+验收至少包含 workflow conclusion、Accounts merge 的 no-op replay，以及 UAT
+`/panel/management` 顶部汇总和用户列表的真实接口响应。
+
+## 4. `platform-ops.yaml` —— 约 20 个输入，危险项最多
 
 ### 3.1 隐式规则（都是脚本/工作流硬编码的行为，不在 YAML schema 里可见）
 
@@ -129,7 +152,7 @@ dns_mode=none
 
 ---
 
-## 4. `data-migration.yaml`
+## 5. `data-migration.yaml`
 
 同时有 `workflow_call` 与 `workflow_dispatch` 两套 inputs，字段同名但类型不同
 （`workflow_call` 版是 string，`workflow_dispatch` 版是 choice）。Agent 只需要对
@@ -139,7 +162,7 @@ dns_mode=none
 
 ---
 
-## 5. 验收：run 绿不等于事情做成
+## 6. 验收：run 绿不等于事情做成
 
 这条流水线的历史故障几乎都是"绿而未成"，agent 派发后不能只看 run 的
 `conclusion`：
@@ -156,7 +179,7 @@ dns_mode=none
 
 ---
 
-## 6. 边界
+## 7. 边界
 
 Agent 只允许对本文档列出的四个 workflow 调用 `workflow_dispatch`，不得为了绕过触发
 规则新建分支/tag/PR，不得修改这些 workflow 本身、其脚本、或它们部署的目标仓库

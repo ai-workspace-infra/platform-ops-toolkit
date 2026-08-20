@@ -28,6 +28,8 @@ if "supabase_source_transport" in inputs:
 strategy = inputs["supabase_target_existing_strategy"]
 if strategy.get("options") != ["reject", "replace_public", "accounts_merge"]:
     raise SystemExit("serverless dispatch must expose all Supabase target strategies")
+if strategy.get("default") != "accounts_merge":
+    raise SystemExit("serverless UAT dispatch must default to the non-destructive Accounts merge")
 if inputs["supabase_target_confirm_replace"].get("default") is not False:
     raise SystemExit("serverless replace confirmation must default to false")
 
@@ -38,6 +40,8 @@ if "supabase_target_existing_strategy" not in with_args:
     raise SystemExit("serverless migration must pass the selected target strategy")
 if "supabase_target_confirm_replace" not in with_args:
     raise SystemExit("serverless migration must pass replace confirmation")
+if "accounts_merge" not in with_args["supabase_target_existing_strategy"]:
+    raise SystemExit("serverless migration must fall back to accounts_merge when omitted")
 PY
 
 echo "serverless_supabase_source_contract_test: PASS"
