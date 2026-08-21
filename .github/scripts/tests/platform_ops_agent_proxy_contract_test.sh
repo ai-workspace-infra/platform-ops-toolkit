@@ -48,6 +48,6 @@ assert_monitor_contains "needs: [provision, deploy_base, deploy_agent_proxy]"
 assert_monitor_contains "always() && !cancelled()"
 assert_monitor_contains "needs.deploy_agent_proxy.result == 'success'"
 assert_monitor_contains "Verify Xray to Billing ingest chain"
-assert_monitor_contains "VECTOR_BILLING_INGEST_URL: https://billing-"
+assert_monitor_contains 'VECTOR_BILLING_INGEST_URL: ${{ format('\''{0}/v1/ingest/snapshots'\'', needs.provision.outputs.billing_service_base_url) }}'
 
 echo "platform_ops_agent_proxy_contract_test: PASS"
