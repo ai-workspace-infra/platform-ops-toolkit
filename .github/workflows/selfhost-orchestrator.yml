@@ -650,7 +650,11 @@ jobs:
     # 顺序: 先恢复(bootstrap 之后、Doco-CD 把 caddy 拉起来之前), 让 caddy 一起来
     # 就发现证书已在, 根本不调 ACME; 部署末尾再备份, 把这一轮可能新签的证书存回去。
     - name: Restore domain TLS state from Vault before Caddy can issue
-      if: ${{ contains(needs.provision.outputs.target_domains, 'web-saas') || needs.provision.outputs.target_domains == 'all' }}
+      # Agent Proxy owns a public Caddy vhost too.  The combined UAT path
+      # deploys it after serverless web-saas, so restore the shared wildcard
+      # certificate for agent-proxy-only runs as well; otherwise the playbook
+      # correctly refuses to fall back to ACME on a fresh node.
+      if: ${{ contains(needs.provision.outputs.target_domains, 'web-saas') || contains(needs.provision.outputs.target_domains, 'agent-proxy') || needs.provision.outputs.target_domains == 'all' }}
       env:
         VAULT_ROLE: ${{ env.VAULT_ROLE }}
         VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
