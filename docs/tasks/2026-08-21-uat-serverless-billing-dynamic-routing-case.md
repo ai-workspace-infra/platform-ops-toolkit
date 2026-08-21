@@ -2,7 +2,7 @@
 
 日期：2026-08-21  
 环境：UAT  
-状态：已完成修正，待本 PR 合并后重新生成不可变快照并回归验证。
+状态：已完成修正并完成 UAT 回归验证。
 
 ## 目标与范围
 
@@ -17,9 +17,13 @@
 | Edge Gateway 内部服务鉴权 | [PR #19](https://github.com/ai-workspace-services/edge-gateway/pull/19)、[PR #20](https://github.com/ai-workspace-services/edge-gateway/pull/20)，均已合并 |
 | 平台动态 Billing 路由 | [PR #464](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/464)，已合并 |
 | 远端 `/bin/sh` 兼容修正 | [PR #465](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/465)，已合并 |
-| Daily Main Snapshot | [run 32437613574](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/32437613574)，成功 |
-| Serverless Orchestrator | [run 32437870330](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/32437870330)，重跑后成功；重复触发 [run 32438383639](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/32438383639) 亦成功 |
-| Selfhost Orchestrator | [run 32438806319](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/32438806319)，成功 |
+| 假绿验证修正与本 Case | [PR #466](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/466)，已合并 |
+| Daily Main Snapshot（输入 `r8`，实际解析 `r9`） | [run 32439620009](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/32439620009)，成功 |
+| 本次 Serverless Orchestrator（`r9`） | [run 32440119703](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/32440119703)，成功 |
+| 本次 Selfhost Orchestrator（`r9`） | [run 32440534755](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/32440534755)，成功 |
+| 前次 `r8` Daily Main Snapshot | [run 32437613574](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/32437613574)，成功 |
+| 前次 `r8` Serverless Orchestrator | [run 32437870330](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/32437870330)，重跑后成功；重复触发 [run 32438383639](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/32438383639) 亦成功 |
+| 前次 `r8` Selfhost Orchestrator | [run 32438806319](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/32438806319)，成功 |
 
 ## 现象
 
@@ -77,7 +81,15 @@ Xray
 - `/etc/xray-exporter.env` 的 `ACCOUNTS_BASE_URL` 为 `https://accounts-serverless-uat.onwalk.net`。
 - `/etc/vector/vector.toml` 的 Billing sink 为 `https://billing-serverless-uat.onwalk.net/v1/ingest/snapshots`，并配置了 Authorization（凭据未记录）。
 - Vector snapshot listener 监听 `127.0.0.1:8686`，Xray exporter 使用 `VECTOR_SNAPSHOT_URL=http://127.0.0.1:8686`。
-- 修正前的未鉴权探针得到 `HTTP 401`；该结果证明入口可达但鉴权缺失，不能计为成功。修正后应由带 Vector Authorization 的探针验证，401/403 会直接失败。
+- 修正前的未鉴权探针得到 `HTTP 401`；该结果证明入口可达但鉴权缺失，不能计为成功。
+- 本次 `r9` 回归日志确认 `VECTOR_BILLING_INGEST_URL=https://billing-serverless-uat.onwalk.net/v1/ingest/snapshots`，带 Vector Authorization 的探针返回 `HTTP 422`、243 字节；422 是业务接口对空测试 payload 的校验响应，说明请求已到达正确 Billing 服务，而不是未匹配代理的空 200。
+
+## 最终验证结果
+
+- Daily Main Snapshot 在检测到用户输入的 `uat-daily-build-2026.08.21-r8` 指向旧提交后，自动解析不可变修订 `uat-daily-build-2026.08.21-r9`；未覆盖既有 `r8`。
+- Serverless `operation=deploy+migrate` 全部成功，包含 Accounts/Billing/Content、Cloudflare Workers、Edge Gateway、Supabase Accounts merge migration 和 Verify/Summary。
+- Selfhost `agent-proxy` 使用同一 `r9` 完成 Vultr 部署、DNS 更新、Agent Proxy status、Vector/xray-exporter 部署及 Xray -> Billing 链路验证。
+- 验证脚本现在在正确入口收到 422（带响应体）时通过；401/403、404/405、5xx、000、空响应和未知状态均失败，避免再次假绿。
 
 ## 回归步骤与防复发
 
