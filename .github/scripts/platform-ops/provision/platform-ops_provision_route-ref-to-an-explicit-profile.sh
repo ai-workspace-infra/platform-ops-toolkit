@@ -265,6 +265,15 @@ if [ "${uat_dns_update}" = "true" ]; then
   fi
   case "${target_domains}" in
     all|web-saas|"web-saas + agent-proxy") ;;
+    agent-proxy)
+      # The combined UAT path deploys Web SaaS serverlessly and provisions
+      # only the Agent Proxy VPS. Its DNS stage publishes the agent-proxy A
+      # record without requiring a selfhost web_saas host.
+      if [[ "${INPUT_AGENT_CONTROLLER_URL:-}" != https://accounts-serverless-uat.onwalk.net ]]; then
+        echo "::error::uat-records with target_domains=agent-proxy requires the serverless Accounts controller URL." >&2
+        exit 1
+      fi
+      ;;
     *)
       echo "::error::uat_dns_update requires a target containing the web-saas domain." >&2
       exit 1

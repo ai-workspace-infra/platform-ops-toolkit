@@ -17,6 +17,10 @@ if [[ -z "${TARGET_DOMAIN_BASE:-}" || "${TARGET_DOMAIN_BASE}" == "${SOURCE_DOMAI
   exit 1
 fi
 readonly UAT_ZONE="${TARGET_DOMAIN_BASE}"
+agent_proxy_only=false
+if [[ "${TARGET_DOMAINS:-}" == "agent-proxy" ]]; then
+  agent_proxy_only=true
+fi
 
 command -v curl >/dev/null || { echo "::error::curl is required" >&2; exit 1; }
 command -v jq >/dev/null || { echo "::error::jq is required" >&2; exit 1; }
@@ -65,12 +69,14 @@ expected_billing_name="billing-selfhost-${DEPLOY_ENV}.${UAT_ZONE}"
 expected_postgresql_name="postgresql-selfhost-${DEPLOY_ENV}.${UAT_ZONE}"
 expected_agent_proxy_name="agent-proxy-vps-${DEPLOY_ENV}.${UAT_ZONE}"
 canonical_records_json="$(jq -c -er '.spec.runtime.routing.dns.canonical_records' "${GITOPS_ROUTING_CONFIG}")"
-actual_console_target="$(jq -r --arg name "${expected_console_name}" '.[$name] // empty' <<<"${canonical_records_json}")"
-actual_accounts_target="$(jq -r --arg name "${expected_accounts_name}" '.[$name] // empty' <<<"${canonical_records_json}")"
-if [[ "${actual_console_target}" != "${expected_console_target}" ||
-      "${actual_accounts_target}" != "${expected_accounts_target}" ]]; then
-  echo "::error::UAT DNS contract must map ${expected_console_name} -> ${expected_console_target} and ${expected_accounts_name} -> ${expected_accounts_target}." >&2
-  exit 1
+if [[ "${agent_proxy_only}" != true ]]; then
+  actual_console_target="$(jq -r --arg name "${expected_console_name}" '.[$name] // empty' <<<"${canonical_records_json}")"
+  actual_accounts_target="$(jq -r --arg name "${expected_accounts_name}" '.[$name] // empty' <<<"${canonical_records_json}")"
+  if [[ "${actual_console_target}" != "${expected_console_target}" ||
+        "${actual_accounts_target}" != "${expected_accounts_target}" ]]; then
+    echo "::error::UAT DNS contract must map ${expected_console_name} -> ${expected_console_target} and ${expected_accounts_name} -> ${expected_accounts_target}." >&2
+    exit 1
+  fi
 fi
 
 cmdb_file="${CMDB_FILE:-cmdb/cmdb.json}"
@@ -79,22 +85,25 @@ if [[ ! -f "${cmdb_file}" ]]; then
   exit 1
 fi
 
-mapfile -t web_saas_hosts < <(
-  jq -r 'to_entries[] | select((.value.groups // []) | index("web_saas")) | .key' "${cmdb_file}"
-)
-if [[ "${#web_saas_hosts[@]}" -ne 1 ]]; then
-  echo "::error::UAT DNS requires exactly one web_saas host in ${cmdb_file}; found ${#web_saas_hosts[@]}." >&2
-  exit 1
-fi
+web_saas_ip=""
+if [[ "${agent_proxy_only}" != true ]]; then
+  mapfile -t web_saas_hosts < <(
+    jq -r 'to_entries[] | select((.value.groups // []) | index("web_saas")) | .key' "${cmdb_file}"
+  )
+  if [[ "${#web_saas_hosts[@]}" -ne 1 ]]; then
+    echo "::error::UAT DNS requires exactly one web_saas host in ${cmdb_file}; found ${#web_saas_hosts[@]}." >&2
+    exit 1
+  fi
 
-web_saas_ip="$(jq -er --arg host "${web_saas_hosts[0]}" '.[$host].ip // empty' "${cmdb_file}")"
-if [[ ! "${web_saas_ip}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || ! jq -n -e --arg ip "${web_saas_ip}" '
-  ($ip | split(".")) as $octets
-  | ($octets | length == 4)
-  and all($octets[]; (tonumber >= 0 and tonumber <= 255))
-' >/dev/null; then
-  echo "::error::CMDB web_saas host has an invalid IPv4 address: ${web_saas_ip}" >&2
-  exit 1
+  web_saas_ip="$(jq -er --arg host "${web_saas_hosts[0]}" '.[$host].ip // empty' "${cmdb_file}")"
+  if [[ ! "${web_saas_ip}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || ! jq -n -e --arg ip "${web_saas_ip}" '
+    ($ip | split(".")) as $octets
+    | ($octets | length == 4)
+    and all($octets[]; (tonumber >= 0 and tonumber <= 255))
+  ' >/dev/null; then
+    echo "::error::CMDB web_saas host has an invalid IPv4 address: ${web_saas_ip}" >&2
+    exit 1
+  fi
 fi
 
 mapfile -t agent_proxy_hosts < <(
@@ -118,6 +127,11 @@ for agent_proxy_host in "${agent_proxy_hosts[@]}"; do
   fi
   agent_proxy_ips+=("${agent_proxy_ip}")
 done
+
+if [[ "${agent_proxy_only}" == true && "${#agent_proxy_ips[@]}" -eq 0 ]]; then
+  echo "::error::Agent Proxy-only UAT DNS requires at least one agent_proxy host in ${cmdb_file}." >&2
+  exit 1
+fi
 
 # Multiple CMDB entries may represent a future Agent Proxy pool.  A single
 # hostname is reconciled as one or more A records, while duplicate IPs are
@@ -289,26 +303,37 @@ adopt_or_yield_canonical_record() {
   echo "Created ${record_name} -> ${record_target} (CNAME)"
 }
 
-while IFS=$'\t' read -r record_name record_target; do
-  [[ -n "${record_name}" && -n "${record_target}" ]] || continue
-  adopt_or_yield_canonical_record "${record_name}" "${record_target}" "${dns_ttl}"
-done < <(jq -r '.spec.runtime.routing.dns.canonical_records | to_entries[] | [.key, .value] | @tsv' "${GITOPS_ROUTING_CONFIG}")
+if [[ "${agent_proxy_only}" != true ]]; then
+  while IFS=$'\t' read -r record_name record_target; do
+    [[ -n "${record_name}" && -n "${record_target}" ]] || continue
+    adopt_or_yield_canonical_record "${record_name}" "${record_target}" "${dns_ttl}"
+  done < <(jq -r '.spec.runtime.routing.dns.canonical_records | to_entries[] | [.key, .value] | @tsv' "${GITOPS_ROUTING_CONFIG}")
+fi
 
 # These are the deployment-domain records owned by this Web SaaS full-stack
 # deployment. The selected Selfhost route owns the mode-qualified endpoints;
 # serverless endpoints are reconciled by the serverless workflow.
-reconcile_record "${expected_console_selfhost_name}" A "${web_saas_ip}" 1
-reconcile_record "${expected_accounts_selfhost_name}" A "${web_saas_ip}" 1
-reconcile_record "${expected_billing_name}" A "${web_saas_ip}" 1
-reconcile_record "${expected_postgresql_name}" A "${web_saas_ip}" 1
+if [[ "${agent_proxy_only}" != true ]]; then
+  reconcile_record "${expected_console_selfhost_name}" A "${web_saas_ip}" 1
+  reconcile_record "${expected_accounts_selfhost_name}" A "${web_saas_ip}" 1
+  reconcile_record "${expected_billing_name}" A "${web_saas_ip}" 1
+  reconcile_record "${expected_postgresql_name}" A "${web_saas_ip}" 1
+fi
 
 if [[ "${#agent_proxy_ips[@]}" -gt 0 ]]; then
   reconcile_multi_a_records "${expected_agent_proxy_name}" 1 "${agent_proxy_ips[@]}"
 fi
 
-record_count=$((canonical_count + 4 + ${#agent_proxy_ips[@]}))
+record_count="${#agent_proxy_ips[@]}"
+if [[ "${agent_proxy_only}" != true ]]; then
+  record_count=$((canonical_count + 4 + ${#agent_proxy_ips[@]}))
+fi
 agent_proxy_summary=""
 if [[ "${#agent_proxy_ips[@]}" -gt 0 ]]; then
   agent_proxy_summary="$(IFS=', '; echo "${agent_proxy_ips[*]}")"
 fi
-echo "UAT DNS reconciliation completed for ${record_count} desired records in ${UAT_ZONE}; web-saas ${expected_console_selfhost_name} (${web_saas_ip})${agent_proxy_summary:+, agent-proxy [${agent_proxy_summary}]}; canonical public entries stay with their current owner."
+if [[ "${agent_proxy_only}" == true ]]; then
+  echo "UAT DNS reconciliation completed for ${record_count} Agent Proxy records in ${UAT_ZONE}; agent-proxy [${agent_proxy_summary}]."
+else
+  echo "UAT DNS reconciliation completed for ${record_count} desired records in ${UAT_ZONE}; web-saas ${expected_console_selfhost_name} (${web_saas_ip})${agent_proxy_summary:+, agent-proxy [${agent_proxy_summary}]}; canonical public entries stay with their current owner."
+fi

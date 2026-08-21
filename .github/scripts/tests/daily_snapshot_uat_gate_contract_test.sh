@@ -26,6 +26,7 @@ PY
 
 grep -Fq 'daily-build-' "${repo_root}/.github/scripts/snapshots/resolve-daily-snapshot-tag.sh"
 grep -Fq 'supabase_target_existing_strategy=accounts_merge' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
+grep -Fq 'dns_mode=uat-records' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
 grep -Fq 'target_domains=agent-proxy' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
 grep -Fq 'agent_controller_url' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
 

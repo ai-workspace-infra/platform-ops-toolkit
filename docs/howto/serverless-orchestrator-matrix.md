@@ -50,7 +50,9 @@ The Serverless workflow actively reconciles and verifies Console, Accounts, and 
 remains provider-owned. UAT's combined snapshot path dispatches the Selfhost workflow separately for
 Agent Proxy after Serverless readiness; it passes `agent_controller_url=https://accounts-serverless-
 uat.onwalk.net` so the native Agent Proxy registers to Serverless Accounts rather than creating a
-second controller. Standalone Selfhost runs keep the Selfhost Accounts fallback.
+second controller. The combined dispatch explicitly uses `dns_mode=uat-records` for both workflows;
+the Agent Proxy-only Selfhost DNS stage publishes `agent-proxy-vps-uat.onwalk.net` without requiring
+a selfhost Web SaaS host. Standalone Selfhost runs keep the Selfhost Accounts fallback.
 
 The mode-qualified entries can coexist as separate DNS names. A normal Serverless deployment uses
 `dns_mode=none`, publishes only the `*-serverless-uat` entries, and verifies those entries directly;
