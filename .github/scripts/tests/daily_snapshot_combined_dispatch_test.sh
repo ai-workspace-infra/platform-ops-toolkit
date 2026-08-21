@@ -42,8 +42,10 @@ selfhost_line="$(grep -n '^workflow run selfhost-orchestrator.yml ' "${workdir}/
 }
 
 grep -Fq -- '-f operation=deploy+migrate' "${workdir}/gh.log"
+grep -Fq -- '-f target_domains=web-saas' "${workdir}/gh.log"
 grep -Fq -- '-f vault_env_path=uat' "${workdir}/gh.log"
 grep -Fq -- '-f tag_ref=uat-daily-build-2026.08.21-r5' "${workdir}/gh.log"
+grep -Fq -- '-f dns_mode=uat-records' "${workdir}/gh.log"
 grep -Fq -- '-f operation=deploy' "${workdir}/gh.log"
 grep -Fq -- '-f target_domains=agent-proxy' "${workdir}/gh.log"
 grep -Fq -- '-f agent_proxy_plan=1C2G' "${workdir}/gh.log"

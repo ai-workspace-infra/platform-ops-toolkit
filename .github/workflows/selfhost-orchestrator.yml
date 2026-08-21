@@ -1048,6 +1048,8 @@ jobs:
       PROVISION_SOURCE_DOMAIN_BASE:  ${{ needs.provision.outputs.source_domain_base }}
       INPUT_RUN_INFRASTRUCTURE:      ${{ needs.provision.outputs.run_infrastructure }}
       DEPLOY_ENV:                    ${{ needs.provision.outputs.deployment_env }}
+      TARGET_DOMAINS:                ${{ needs.provision.outputs.target_domains }}
+      AGENT_CONTROLLER_URL:          ${{ needs.provision.outputs.agent_controller_url }}
       DNS_SERVICE_NAMES:             console accounts billing
       VAULT_ADDR:                    https://vault.svc.plus
       VAULT_ROLE:                    github-actions-platform-ops-toolkit-${{ needs.provision.outputs.vault_env_path }}

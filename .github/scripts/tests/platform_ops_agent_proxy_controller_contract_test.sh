@@ -29,7 +29,7 @@ INPUT_OFFLINE_MODE=off \
 INPUT_SOURCE_HOST=console.svc.plus \
 INPUT_SOURCE_DOMAIN_BASE=svc.plus \
 INPUT_TARGET_DOMAIN_BASE=onwalk.net \
-INPUT_DNS_MODE=none \
+INPUT_DNS_MODE=uat-records \
 INPUT_AGENT_CONTROLLER_URL=https://accounts-serverless-uat.onwalk.net \
 GITHUB_OUTPUT="${route_output}" \
 "${route}" >/dev/null

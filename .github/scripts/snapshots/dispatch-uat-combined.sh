@@ -45,10 +45,12 @@ dispatch_serverless() {
     --repo "${target_repo}" \
     --ref main \
     -f operation=deploy+migrate \
+    -f target_domains=web-saas \
     -f vault_env_path=uat \
     -f "tag_ref=${snapshot_tag}" \
     -f deploy_cloudflare=true \
     -f deploy_cloud_run=true \
+    -f dns_mode=uat-records \
     -f supabase_target_existing_strategy=accounts_merge \
     -f supabase_target_confirm_replace=false
 }
@@ -92,7 +94,7 @@ dispatch_selfhost() {
     -f source_host=console.svc.plus \
     -f source_domain_base=svc.plus \
     -f target_domain_base=onwalk.net \
-    -f dns_mode=none \
+    -f dns_mode=uat-records \
     -f "agent_controller_url=${agent_controller_url}"
 }
 
