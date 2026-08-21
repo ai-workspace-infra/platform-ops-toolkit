@@ -53,16 +53,23 @@ case "${vector_code}" in
     ;;
 esac
 
+billing_body=$(mktemp)
+trap 'rm -f "${billing_body}"' EXIT
 billing_code=$(curl --silent --show-error --max-time 15 -X POST \
-  -H 'Content-Type: application/json' --data '{}' -o /dev/null -w '%{http_code}' \
+  -H 'Content-Type: application/json' --data '{}' -o "${billing_body}" -w '%{http_code}' \
   "__BILLING_INGEST_URL__")
+billing_size=$(wc -c <"${billing_body}")
 case "${billing_code}" in
   404|000)
     echo "xray-billing-chain: Billing ingest endpoint is unavailable (HTTP ${billing_code})" >&2
     exit 1
     ;;
   *)
-    echo "xray-billing-chain: OK (Xray -> exporter -> Vector -> Billing endpoint HTTP ${billing_code})"
+    if [[ "${billing_size}" -eq 0 ]]; then
+      echo "xray-billing-chain: Billing ingest endpoint returned an empty response (HTTP ${billing_code}); this usually indicates an unmatched proxy route" >&2
+      exit 1
+    fi
+    echo "xray-billing-chain: OK (Xray -> exporter -> Vector -> Billing endpoint HTTP ${billing_code}, ${billing_size} bytes)"
     ;;
 esac
 REMOTE

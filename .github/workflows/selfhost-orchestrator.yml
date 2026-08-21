@@ -234,6 +234,7 @@ jobs:
       dns_mode:                 ${{ steps.route.outputs.dns_mode }}
       vault_env_path:           ${{ steps.route.outputs.vault_env_path }}
       agent_controller_url:     ${{ steps.route.outputs.agent_controller_url }}
+      billing_service_base_url: ${{ steps.route.outputs.billing_service_base_url }}
       cloud_provider:           ${{ steps.route.outputs.cloud_provider }}
       migration_target_host:    ${{ steps.resolve_migration_target.outputs.target_host }}
       hosts:              ${{ steps.matrix.outputs.hosts         || '[]' }}
@@ -1465,7 +1466,7 @@ jobs:
         AGENT_ID: ${{ matrix.host }}
         AGENT_PROXY_DOMAIN: ${{ format('agent-proxy-vps-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
         AGENT_DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
-        BILLING_SERVICE_BASE_URL: ${{ format('https://billing-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
+        BILLING_SERVICE_BASE_URL: ${{ needs.provision.outputs.billing_service_base_url }}
         AGENT_XRAY_ENABLED: "true"
         # UAT billing is fed by Exporter -> Vector -> Billing. Keep the
         # legacy agent-side collect/reconcile trigger enabled only outside
@@ -1609,7 +1610,7 @@ jobs:
         # HTTP source and pushes to the authenticated Billing ingress.
         VECTOR_BILLING_INGEST_ENABLED: ${{ needs.provision.outputs.deployment_env == 'uat' && contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && 'true' || 'false' }}
         VECTOR_BILLING_INGEST_ADDRESS: 127.0.0.1:8686
-        VECTOR_BILLING_INGEST_URL: ${{ format('https://billing-selfhost-{0}.{1}/v1/ingest/snapshots', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
+        VECTOR_BILLING_INGEST_URL: ${{ format('{0}/v1/ingest/snapshots', needs.provision.outputs.billing_service_base_url) }}
         VECTOR_SNAPSHOT_URL: ${{ needs.provision.outputs.deployment_env == 'uat' && contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && 'http://127.0.0.1:8686' || '' }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_monitor_agent.sh
 
@@ -1618,7 +1619,7 @@ jobs:
       env:
         MATRIX_HOST: ${{ matrix.host }}
         ANSIBLE_INVENTORY: ../cmdb/inventory.ini
-        VECTOR_BILLING_INGEST_URL: https://billing-selfhost-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/v1/ingest/snapshots
+        VECTOR_BILLING_INGEST_URL: ${{ format('{0}/v1/ingest/snapshots', needs.provision.outputs.billing_service_base_url) }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_verify-xray-billing-chain.sh
 
   trigger_data_migration:
