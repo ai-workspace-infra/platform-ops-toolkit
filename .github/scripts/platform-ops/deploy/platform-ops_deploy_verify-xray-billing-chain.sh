@@ -55,21 +55,36 @@ esac
 
 billing_body=$(mktemp)
 trap 'rm -f "${billing_body}"' EXIT
+billing_auth_header="$(sed -n '/^\[sinks\.billing_snapshot_ingest\.request\]/{n;s/^headers\.Authorization = "\(.*\)"$/\1/p;}' /etc/vector/vector.toml)"
+if [ -z "${billing_auth_header}" ]; then
+  echo "xray-billing-chain: Billing Authorization header is missing from Vector config" >&2
+  exit 1
+fi
 billing_code=$(curl --silent --show-error --max-time 15 -X POST \
-  -H 'Content-Type: application/json' --data '{}' -o "${billing_body}" -w '%{http_code}' \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: ${billing_auth_header}" \
+  --data '{}' -o "${billing_body}" -w '%{http_code}' \
   "__BILLING_INGEST_URL__")
 billing_size=$(wc -c <"${billing_body}")
 case "${billing_code}" in
-  404|000)
+  2??|3??|400|422)
+    if [ "${billing_size}" -eq 0 ]; then
+      echo "xray-billing-chain: Billing ingest endpoint returned an empty response (HTTP ${billing_code})" >&2
+      exit 1
+    fi
+    echo "xray-billing-chain: OK (Xray -> exporter -> Vector -> Billing endpoint HTTP ${billing_code}, ${billing_size} bytes)"
+    ;;
+  401|403)
+    echo "xray-billing-chain: Billing ingest authentication failed (HTTP ${billing_code})" >&2
+    exit 1
+    ;;
+  404|405|5??|000)
     echo "xray-billing-chain: Billing ingest endpoint is unavailable (HTTP ${billing_code})" >&2
     exit 1
     ;;
   *)
-    if [ "${billing_size}" -eq 0 ]; then
-      echo "xray-billing-chain: Billing ingest endpoint returned an empty response (HTTP ${billing_code}); this usually indicates an unmatched proxy route" >&2
-      exit 1
-    fi
-    echo "xray-billing-chain: OK (Xray -> exporter -> Vector -> Billing endpoint HTTP ${billing_code}, ${billing_size} bytes)"
+    echo "xray-billing-chain: Billing ingest endpoint returned unexpected HTTP ${billing_code}" >&2
+    exit 1
     ;;
 esac
 REMOTE
