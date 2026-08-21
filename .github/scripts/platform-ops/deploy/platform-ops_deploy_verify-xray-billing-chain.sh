@@ -65,7 +65,7 @@ case "${billing_code}" in
     exit 1
     ;;
   *)
-    if [[ "${billing_size}" -eq 0 ]]; then
+    if [ "${billing_size}" -eq 0 ]; then
       echo "xray-billing-chain: Billing ingest endpoint returned an empty response (HTTP ${billing_code}); this usually indicates an unmatched proxy route" >&2
       exit 1
     fi
