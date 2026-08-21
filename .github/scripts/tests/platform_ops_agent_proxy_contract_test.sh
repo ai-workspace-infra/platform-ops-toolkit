@@ -4,6 +4,11 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 workflow="${repo_root}/.github/workflows/selfhost-orchestrator.yml"
 
+grep -Fq "contains(needs.provision.outputs.target_domains, 'agent-proxy')" "${workflow}" || {
+  echo "agent-proxy-only deployments must restore the shared Vault TLS certificate" >&2
+  exit 1
+}
+
 deployment_block="$(sed -n '/- name: Deploy native agent-proxy services/,/^  deploy_ai_workspace:/p' "${workflow}")"
 monitor_block="$(sed -n '/^  deploy_monitor_agent:/,/^  trigger_data_migration:/p' "${workflow}")"
 
