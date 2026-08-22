@@ -84,7 +84,11 @@ fi
 
 wait_for_accounts
 
-stripe_secret_key="$(read_vault_key "kv/${VAULT_ENV_PATH}/billing-service" "STRIPE_SECRET_KEY")"
+case "${VAULT_ENV_PATH}" in
+  prod) vault_key_prefix="PROD" ;;
+  *) vault_key_prefix="SANDBOX" ;;
+esac
+stripe_secret_key="$(read_vault_key "kv/${VAULT_ENV_PATH}/billing-service" "${vault_key_prefix}_STRIPE_SECRET_KEY")"
 root_email="$(read_vault_key "kv/CICD" "ROOT_BOOTSTRAP_EMAIL" 2>/dev/null || true)"
 root_email="${root_email:-admin@svc.plus}"
 root_password="$(read_vault_key "kv/CICD" "ROOT_BOOTSTRAP_PASSWORD")"

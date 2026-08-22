@@ -711,10 +711,9 @@ jobs:
         # "failed to pull images: unauthorized" 结束, 从容器状态上看不出来。
         GHCR_USERNAME:                     ${{ steps.vault.outputs.GHCR_USERNAME }}
         GHCR_PASSWORD:                     ${{ steps.vault.outputs.GHCR_PASSWORD }}
-        # 计费域密钥, 见上面 Load Vault secrets 里 VAULT_KV_BILLING 那两行。
-        # 缺失时 accounts 自己的 stripe 客户端软性 disabled, 不阻塞部署。
-        STRIPE_SECRET_KEY:                 ${{ steps.vault.outputs.STRIPE_SECRET_KEY }}
-        STRIPE_WEBHOOK_SECRET:             ${{ steps.vault.outputs.STRIPE_WEBHOOK_SECRET }}
+        # 计费域密钥由上面的 optional-web-saas loader 写入 GITHUB_ENV。
+        # loader 将 SANDBOX_/PROD_ 前缀映射为这些运行时变量；缺失时
+        # accounts 的 Stripe 客户端保持 disabled，不阻塞其余服务启动。
         # Deploy and migration share one base-domain contract. The playbooks
         # derive Accounts' tenant host from TARGET_DOMAIN_BASE; no separate
         # source/forwarded-host input is accepted.
