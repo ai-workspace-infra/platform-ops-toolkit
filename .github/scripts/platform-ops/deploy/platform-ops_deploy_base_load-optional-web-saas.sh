@@ -121,9 +121,13 @@ if [[ -n "${VAULT_KV_BILLING:-}" ]]; then
     exit 1
   fi
 
-  for key in STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET; do
+  case "${DEPLOY_ENV:-uat}" in
+    prod) billing_key_prefix="PROD" ;;
+    *) billing_key_prefix="SANDBOX" ;;
+  esac
+  for key in STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET STRIPE_XCONNECT_PAY_URL; do
     if [[ "${billing_status}" == "200" ]]; then
-      val="$(jq -r --arg k "${key}" '.data.data[$k] // ""' < "${billing_body}")"
+      val="$(jq -r --arg prefixed "${billing_key_prefix}_${key}" --arg generic "${key}" '.data.data[$prefixed] // .data.data[$generic] // ""' < "${billing_body}")"
     else
       val=""
     fi

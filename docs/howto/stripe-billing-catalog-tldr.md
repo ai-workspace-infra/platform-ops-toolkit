@@ -21,8 +21,14 @@ self-hosted 入口是 `selfhost-orchestrator.yml` 的 `[4] Stripe catalog` job�
 
 ```text
 kv/<env>/billing-service
-  STRIPE_SECRET_KEY       # UAT/SIT 使用 sk_test_；生产使用独立 sk_live_
-  STRIPE_WEBHOOK_SECRET   # Accounts 服务校验 webhook 用
+  SANDBOX_STRIPE_SECRET_KEY       # UAT/SIT 使用 sk_test_
+  SANDBOX_STRIPE_WEBHOOK_SECRET   # UAT/SIT webhook secret
+  STRIPE_XCONNECT_PAY_URL         # 同环境 Payment Link
+
+kv/prod/billing-service
+  PROD_STRIPE_SECRET_KEY          # 生产独立 sk_live_
+  PROD_STRIPE_WEBHOOK_SECRET      # 生产 webhook secret
+  STRIPE_XCONNECT_PAY_URL          # 生产 Payment Link
 
 kv/CICD
   ROOT_BOOTSTRAP_EMAIL    # 可选；默认 admin@svc.plus
@@ -41,7 +47,7 @@ kv/CICD
 ```bash
 cd /Users/shenlan/workspaces/ai-workspace-services/accounts
 
-STRIPE_SECRET_KEY='从 Vault kv/uat/billing-service 读取' \
+STRIPE_SECRET_KEY='从 Vault kv/uat/billing-service/SANDBOX_STRIPE_SECRET_KEY 读取' \
 ACCOUNTS_ADMIN_TOKEN='短期 Accounts 管理员会话 token' \
 ACCOUNTS_BASE_URL='https://accounts-cloudflare-uat.onwalk.net' \
 scripts/stripe-sync-catalog.sh \
@@ -52,7 +58,7 @@ scripts/stripe-sync-catalog.sh \
 
 该命令会创建或复用 Stripe 对象，并通过 Accounts admin API 回写目录。它不会把 token
 或 Stripe key 写入文件。先用 `--dry-run` 审核会执行的操作；生产改为 `--env prod`、
-生产域名和 `kv/prod/billing-service` 的独立 `sk_live_`。
+生产域名和 `kv/prod/billing-service/PROD_STRIPE_SECRET_KEY` 的独立 `sk_live_`。
 
 ## 合并与发布顺序
 

@@ -52,6 +52,8 @@ if "bootstrap_stripe_catalog" not in selfhost["deployment_summary"].get("needs",
 script = Path(sys.argv[3]).read_text(encoding="utf-8")
 for required in (
     "kv/${VAULT_ENV_PATH}/billing-service",
+    'vault_key_prefix="PROD"',
+    'vault_key_prefix="SANDBOX"',
     "scripts/seed-billing-plans.sql",
     "--write-catalog",
     "Accounts bootstrap administrator login failed",
