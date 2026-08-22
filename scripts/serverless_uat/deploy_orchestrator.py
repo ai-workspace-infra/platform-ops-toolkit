@@ -43,6 +43,11 @@ def fetch_vault_path(path: str) -> dict:
     if not VAULT_TOKEN:
         log(f"Warning: VAULT_TOKEN not set, skipping Vault fetch for {path}")
         return {}
+
+def billing_secret(secrets: dict, key: str) -> str:
+    """Resolve the environment-prefixed Vault billing key at the boundary."""
+    prefix = "PROD" if VAULT_ENV_PATH == "prod" else "SANDBOX"
+    return str(secrets.get(f"{prefix}_{key}", secrets.get(key, ""))).strip()
     url = f"{VAULT_ADDR}/v1/{path.lstrip('/')}"
     req = urllib.request.Request(url, headers={"X-Vault-Token": VAULT_TOKEN})
     try:
@@ -250,6 +255,9 @@ def main():
     supabase_secrets = fetch_vault_secret("supabase") if (DEPLOY_CLOUD_RUN or VERIFY_SUPABASE) else {}
     runtime_secrets = fetch_vault_path("kv/data/WEB_SAAS") if DEPLOY_CLOUD_RUN else {}
     cicd_secrets = fetch_vault_path("kv/data/CICD") if DEPLOY_CLOUD_RUN else {}
+    billing_secrets = fetch_vault_path(
+        f"kv/data/{VAULT_ENV_PATH}/billing-service"
+    ) if DEPLOY_CLOUD_RUN else {}
 
     if DEPLOY_CLOUD_RUN or VERIFY_SUPABASE:
         require_supabase_secret(supabase_secrets)
@@ -325,6 +333,9 @@ def main():
         "SMTP_FROM": runtime_secrets.get(
             "SMTP_FROM", "XControl Account <no-reply@example.com>"
         ),
+        "STRIPE_SECRET_KEY": billing_secret(billing_secrets, "STRIPE_SECRET_KEY"),
+        "STRIPE_WEBHOOK_SECRET": billing_secret(billing_secrets, "STRIPE_WEBHOOK_SECRET"),
+        "STRIPE_XCONNECT_PAY_URL": billing_secret(billing_secrets, "STRIPE_XCONNECT_PAY_URL"),
     }
 
     script_dir = os.path.dirname(os.path.abspath(__file__))

@@ -63,6 +63,9 @@ for svc in "${SERVICES[@]}"; do
         "SMTP_HOST=${SMTP_HOST:-smtp.qq.com}"
         "SMTP_PORT=${SMTP_PORT:-587}"
         "SMTP_FROM=${SMTP_FROM:-XControl Account <no-reply@example.com>}"
+        "STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}"
+        "STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}"
+        "STRIPE_XCONNECT_PAY_URL=${STRIPE_XCONNECT_PAY_URL:-}"
       )
       # Browser origins the accounts CORS middleware must accept, derived by the
       # orchestrator from the GitOps console host. Without it gin-contrib/cors
