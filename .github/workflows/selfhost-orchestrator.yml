@@ -1149,6 +1149,59 @@ jobs:
         needs.provision.outputs.target_domains) }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops/dns/platform-ops_switch_dns_remove-temporary-agent-controller-host.sh
 
+  bootstrap_stripe_catalog:
+    name: "[4] Stripe catalog"
+    needs: [provision, initialize_web_saas_databases, switch_dns]
+    if: >-
+      ${{ always() && !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.initialize_web_saas_databases.result == 'success' &&
+      needs.switch_dns.result == 'success' &&
+      contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) }}
+    runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
+    steps:
+    - name: Checkout platform toolkit
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ needs.provision.outputs.toolkit_ref || github.sha }}
+
+    - name: Checkout Accounts catalog source
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-services/accounts
+        ref: ${{ needs.provision.outputs.deploy_tag || 'main' }}
+        path: accounts
+        sparse-checkout-cone-mode: false
+        sparse-checkout: |
+          scripts/stripe-catalog.yaml
+          scripts/stripe-sync-catalog.sh
+
+    - name: Install catalog bootstrap dependencies
+      run: python3 -m pip install --user pyyaml
+
+    - name: Install Vault CLI
+      run: ./.github/scripts/serverless/install_vault_cli.sh
+
+    - name: Authenticate to Vault with GitHub OIDC
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        method: jwt
+        role: github-actions-platform-ops-toolkit-${{ needs.provision.outputs.vault_env_path }}
+        jwtGithubAudience: vault
+        exportToken: true
+
+    - name: Synchronize Stripe catalog to Accounts
+      run: ./scripts/serverless_uat/bootstrap_stripe_catalog.sh
+      env:
+        VAULT_ADDR: ${{ env.VAULT_ADDR }}
+        VAULT_ENV_PATH: ${{ needs.provision.outputs.vault_env_path }}
+        ACCOUNTS_DIR: ${{ github.workspace }}/accounts
+        ACCOUNTS_BASE_URL: >-
+          https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}
+        DOMAIN_BASE: ${{ needs.provision.outputs.target_domain_base }}
+        SKIP_DATABASE_SEED: 'true'
+
   observe_web_saas_after_dns:
     name: "[4] Web SaaS status | ${{ matrix.host }}"
     needs: [provision, switch_dns]
@@ -1301,6 +1354,7 @@ jobs:
       switch_dns,
       observe_web_saas_after_dns,
       observe_agent_proxy_after_dns,
+      bootstrap_stripe_catalog,
       trigger_data_migration
     ]
     # Keep the summary alive after failed upstream jobs, but explicitly assert
@@ -1315,6 +1369,7 @@ jobs:
       needs.switch_dns.result != '' &&
       needs.observe_web_saas_after_dns.result != '' &&
       needs.observe_agent_proxy_after_dns.result != '' &&
+      needs.bootstrap_stripe_catalog.result != '' &&
       needs.trigger_data_migration.result != '' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     steps:
@@ -1332,6 +1387,7 @@ jobs:
         DNS_UPDATE_RESULT: ${{ needs.switch_dns.result }}
         WEB_SAAS_STATUS_RESULT: ${{ needs.observe_web_saas_after_dns.result }}
         AGENT_PROXY_STATUS_RESULT: ${{ needs.observe_agent_proxy_after_dns.result }}
+        STRIPE_CATALOG_RESULT: ${{ needs.bootstrap_stripe_catalog.result }}
         DATA_MIGRATION_RESULT: ${{ needs.trigger_data_migration.result }}
         DEPLOYMENT_ENV: ${{ needs.provision.outputs.deployment_env }}
         TARGET_DOMAINS: ${{ needs.provision.outputs.target_domains }}

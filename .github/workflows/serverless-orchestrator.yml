@@ -733,6 +733,85 @@ jobs:
       supabase_target_existing_strategy: ${{ inputs.supabase_target_existing_strategy || 'accounts_merge' }}
       supabase_target_confirm_replace: ${{ inputs.supabase_target_confirm_replace || false }}
 
+  stripe_catalog:
+    name: Stripe / Catalog Bootstrap
+    needs: [preflight, supabase, cloud_run, serverless_domains]
+    if: >-
+      ${{ always() && !cancelled() &&
+      needs.preflight.result == 'success' &&
+      contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) &&
+      inputs.deploy_cloud_run == true &&
+      inputs.deploy_cloudflare == true &&
+      (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') &&
+      (needs.cloud_run.result == 'success' || needs.cloud_run.result == 'skipped') &&
+      needs.serverless_domains.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Checkout Accounts catalog source
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-services/accounts
+          ref: ${{ inputs.tag_ref || 'main' }}
+          path: accounts
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            scripts/seed-billing-plans.sql
+            scripts/stripe-catalog.yaml
+            scripts/stripe-sync-catalog.sh
+
+      - name: Checkout GitOps runtime topology
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: main
+          path: gitops
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+
+      - name: Resolve Accounts catalog endpoint
+        run: |
+          ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+          accounts_host="$(jq -er '.spec.serverless.accounts_host' "${RUNNER_TEMP}/edge-routing.json")"
+          domain_base="${accounts_host#*.}"
+          [[ "${domain_base}" != "${accounts_host}" ]] || {
+            echo "invalid Accounts host in GitOps topology: ${accounts_host}" >&2
+            exit 1
+          }
+          echo "ACCOUNTS_BASE_URL=https://${accounts_host}" >> "${GITHUB_ENV}"
+          echo "DOMAIN_BASE=${domain_base}" >> "${GITHUB_ENV}"
+        env:
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
+
+      - name: Install catalog bootstrap dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+          python3 -m pip install --user pyyaml
+
+      - name: Install Vault CLI
+        run: ./.github/scripts/serverless/install_vault_cli.sh
+
+      - name: Authenticate to Vault with GitHub OIDC
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
+          jwtGithubAudience: vault
+          exportToken: true
+
+      - name: Bootstrap Stripe billing catalog
+        run: ./scripts/serverless_uat/bootstrap_stripe_catalog.sh
+        env:
+          VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
+          ACCOUNTS_DIR: ${{ github.workspace }}/accounts
+
   destroy:
     name: Destroy / Cloud Run ephemeral compute
     needs: preflight
@@ -775,7 +854,7 @@ jobs:
 
   verify:
     name: Verify / Summary
-    needs: [preflight, supabase, cloud_run, cloudflare_ssr, frontend_router, edge_gateway, static_pages, serverless_domains, trigger_data_migration]
+    needs: [preflight, supabase, cloud_run, cloudflare_ssr, frontend_router, edge_gateway, static_pages, serverless_domains, trigger_data_migration, stripe_catalog]
     if: >-
       ${{ always() && needs.preflight.result == 'success' &&
       contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) &&
@@ -786,6 +865,7 @@ jobs:
       needs.edge_gateway.result != 'cancelled' &&
       needs.static_pages.result != 'cancelled' &&
       needs.serverless_domains.result != 'cancelled' &&
+      (needs.stripe_catalog.result == 'success' || needs.stripe_catalog.result == 'skipped') &&
       (needs.trigger_data_migration.result == 'success' || needs.trigger_data_migration.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
