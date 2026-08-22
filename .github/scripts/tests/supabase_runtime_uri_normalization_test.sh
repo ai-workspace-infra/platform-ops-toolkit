@@ -8,7 +8,9 @@ orchestrator="${repo_root}/scripts/serverless_uat/deploy_orchestrator.py"
 
 python3 - "${orchestrator}" <<'EOF'
 import importlib.util
+import json
 import sys
+import urllib.request
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location(
@@ -17,6 +19,37 @@ spec = importlib.util.spec_from_file_location(
 )
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
+
+# Regression guard: when Vault authentication is present, fetch_vault_path must
+# execute the HTTP read and return a dict. A previous merge accidentally placed
+# that code after billing_secret(), so every authenticated fetch returned None
+# and deployment later failed with AttributeError: NoneType has no attribute get.
+mod.VAULT_TOKEN = "test-token"
+mod.VAULT_ADDR = "https://vault.example"
+
+class FakeResponse:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def read(self):
+        return json.dumps({"data": {"data": {"PROJECT_REF": "test-ref"}}}).encode()
+
+def fake_urlopen(request, timeout):
+    assert request.full_url == "https://vault.example/v1/kv/data/uat/serverless/supabase"
+    assert request.get_header("X-vault-token") == "test-token"
+    assert timeout == 10
+    return FakeResponse()
+
+original_urlopen = urllib.request.urlopen
+urllib.request.urlopen = fake_urlopen
+try:
+    fetched = mod.fetch_vault_path("kv/data/uat/serverless/supabase")
+finally:
+    urllib.request.urlopen = original_urlopen
+assert fetched == {"PROJECT_REF": "test-ref"}, fetched
 
 normalize = mod.normalize_runtime_database_uri
 
