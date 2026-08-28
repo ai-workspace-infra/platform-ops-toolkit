@@ -135,6 +135,10 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
         exit 1
         ;;
     esac
+    if [ "${operation}" = "destroy" ]; then
+      echo "::error::Production infrastructure is deletion-protected; destroy is not available through selfhost-orchestrator." >&2
+      exit 1
+    fi
   fi
   
   source_ref="${INPUT_SOURCE_REF:-}"

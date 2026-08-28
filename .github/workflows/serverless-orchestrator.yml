@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: '执行范围：plan 仅校验；init-schema 初始化 Supabase schema；deploy 部署应用；migrate 迁移；deploy+migrate 部署+迁移；destroy 销毁'
+        description: '执行范围：plan 仅校验；init-schema 初始化 Supabase schema；deploy 部署应用；migrate 迁移；deploy+migrate 部署+迁移；destroy 销毁（Prod 禁止）'
         required: true
         default: 'deploy'
         type: choice
@@ -105,6 +105,7 @@ on:
 jobs:
   preflight:
     name: Validate / Dispatch inputs
+    environment: ${{ inputs.vault_env_path == 'prod' && 'production' || '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout platform toolkit
