@@ -4,25 +4,40 @@ set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../platform-ops/provision/common_require_env.sh"
 require_env GH_TOKEN SNAPSHOT_TAG SNAPSHOT_REPOS SNAPSHOT_STATUS_FILE
 
-declare -A BUILD_WORKFLOWS=(
-  [ai-workspace-services/accounts]=ci-pipeline.yml
-  [ai-workspace-services/billing-service]=ci-pipeline.yml
-  [ai-workspace-services/content-service]=ci-pipeline.yml
-  [ai-workspace-services/portal]=ci-pipeline.yml
-  [ai-workspace-services/edge-gateway]=deploy.yml
-  [ai-workspace-lab/xworkmate-bridge]=pipeline.yml
-  [ai-workspace-services/postgresql.svc.plus]=ci-pipeline.yml
-  [ai-workspace-xstream/xray-exporter]=build-release-deploy.yml
-)
+workflow_for_repo() {
+  case "$1" in
+    ai-workspace-services/accounts|ai-workspace-services/billing-service|ai-workspace-services/content-service|ai-workspace-services/portal|ai-workspace-services/postgresql.svc.plus)
+      printf '%s\n' ci-pipeline.yml ;;
+    ai-workspace-services/edge-gateway) printf '%s\n' deploy.yml ;;
+    ai-workspace-lab/xworkmate-bridge) printf '%s\n' pipeline.yml ;;
+    ai-workspace-xstream/xray-exporter) printf '%s\n' build-release-deploy.yml ;;
+  esac
+}
 
-declare -A RELEASE_MANIFEST_REQUIRED=(
-  [ai-workspace-services/edge-gateway]=false
-  [ai-workspace-lab/xworkmate-bridge]=false
-)
+release_asset_for_repo() {
+  case "$1" in
+    ai-workspace-xstream/xray-exporter) printf '%s\n' xray-exporter-linux-amd64 ;;
+  esac
+}
 
-declare -A RELEASE_ASSET_REQUIRED=(
-  [ai-workspace-xstream/xray-exporter]=xray-exporter-linux-amd64
-)
+repo_requires_release_manifest() {
+  case "$1" in
+    ai-workspace-services/edge-gateway|ai-workspace-lab/xworkmate-bridge) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# Service CI publishes release-manifest.json only for the daily/UAT snapshot
+# tags.  Production v* tags use the same build workflows but intentionally do
+# not publish that intermediate snapshot artifact; their immutable tag and a
+# successful CI run are the release contract instead.  Requiring the manifest
+# for every tag makes a valid production release look like a failed snapshot.
+requires_release_manifest() {
+  case "${SNAPSHOT_TAG}" in
+    daily-build-*|uat-daily-build-*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
 timeout_seconds="${BUILD_TIMEOUT_SECONDS:-1800}"
 poll_seconds="${BUILD_POLL_SECONDS:-15}"
@@ -62,7 +77,7 @@ for repo in "${repos[@]}"; do
     continue
   fi
 
-  workflow="${BUILD_WORKFLOWS[$repo]:-}"
+  workflow="$(workflow_for_repo "$repo")"
   [[ -n "$workflow" ]] || continue
 
   # This is intentionally per repository.  A missing CI run may use its full
@@ -103,16 +118,16 @@ for repo in "${repos[@]}"; do
       break
     fi
 
-    if [[ -n "${RELEASE_ASSET_REQUIRED[$repo]:-}" ]]; then
+    required_asset="$(release_asset_for_repo "$repo")"
+    if [[ -n "${required_asset}" ]]; then
       assets="$(gh release view "$SNAPSHOT_TAG" -R "$repo" --json assets --jq '[.assets[].name]' 2>/dev/null || printf '[]')"
-      required_asset="${RELEASE_ASSET_REQUIRED[$repo]}"
       if jq -e --arg asset "${required_asset}" 'index($asset) != null' <<< "$assets" >/dev/null; then
         release_url="$(gh release view "$SNAPSHOT_TAG" -R "$repo" --json url --jq .url 2>/dev/null || true)"
         record "$repo" "build_succeeded" "$run_sha" "CI run ${run_id}; release asset ${required_asset} ${release_url}"
       else
         record "$repo" "asset_missing" "$run_sha" "CI run ${run_id} succeeded but ${required_asset} is missing from the GitHub Release"
       fi
-    elif [[ "${RELEASE_MANIFEST_REQUIRED[$repo]:-true}" == "false" ]]; then
+    elif ! repo_requires_release_manifest "$repo" || ! requires_release_manifest; then
       record "$repo" "build_succeeded" "$run_sha" "CI run ${run_id} completed"
     else
       assets="$(gh release view "$SNAPSHOT_TAG" -R "$repo" --json assets --jq '[.assets[].name]' 2>/dev/null || printf '[]')"
