@@ -58,6 +58,12 @@ def billing_secret(secrets: dict, key: str) -> str:
         log(f"Failed to fetch Vault secret at {url}: {e}")
         return {}
 
+
+def billing_secret(secrets: dict, key: str) -> str:
+    """Resolve the environment-prefixed Vault billing key at the boundary."""
+    prefix = "PROD" if VAULT_ENV_PATH == "prod" else "SANDBOX"
+    return str(secrets.get(f"{prefix}_{key}", secrets.get(key, ""))).strip()
+
 def resolve_console_origins(config_path: str) -> list:
     """Return the browser origins that accounts must accept for CORS.
 
