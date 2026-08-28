@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       snapshot_tag:
-        description: "手动选择发布 tag；daily/uat 使用 daily-build-*，Prod 仅允许 vYYYY.M.D 或 vX.Y.Z"
+        description: "手动选择发布 tag；daily/uat 使用 daily-build-*，Prod 使用 vYYYY.M.D[-rN] 或 vX.Y.Z[-rN]，且必须等于当前 workflow tag"
         required: false
         type: string
       snapshot_source_ref:
@@ -140,7 +140,7 @@ jobs:
         id: resolve_release_tag
         run: |
           [[ "${GITHUB_REF}" == refs/tags/v* ]] || exit 1
-          [[ "${GITHUB_REF_NAME}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})$ ]] || exit 1
+          [[ "${GITHUB_REF_NAME}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[1-9][0-9]*)?$ ]] || exit 1
           echo "release_tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Load GitHub App private key for UAT dispatch

@@ -67,7 +67,7 @@ SIT 验证。Daily Snapshot 不能把 `v*` 作为 `snapshot_tag`；否则服务 
 - `daily-build-*`：每日自动构建入口。
 - `uat-daily-build-*`：允许的 UAT 构建、重试与验证入口。
 - `release/*`（不含 `release/v*`）：UAT 路径，不得进入 PROD。
-- `v*`：只作为 `refs/tags/v*` 的正式稳定发布入口，不得作为日快照输入。
+- `vYYYY.M.D[-rN]` 或 `vX.Y.Z[-rN]`：只作为 `refs/tags/v*` 的正式稳定发布入口，不得作为日快照输入；同一天需要再次发布时递增 `-rN`（例如 `v2026.8.28-r1`、`v2026.8.28-r2`）。Prod 的 `snapshot_tag` 必须显式等于当前 workflow tag。
 
 `main`、非 `release/v*` 分支、`daily-build-*`、`uat-daily-build-*`、
 `sit-*`、`snapshot-*`、`prod-*` 以及任何其他 tag/branch 都是 PROD 禁止来源。
