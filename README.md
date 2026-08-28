@@ -67,7 +67,8 @@ The script creates three environment policies and six JWT roles. The two role fa
 | --- | --- | --- | --- |
 | `github-actions-platform-ops-toolkit-sit` | `...-sit` | Toolkit workflow allowlist | PR merge refs and any branch |
 | `github-actions-platform-ops-toolkit-uat` | `...-uat` | Toolkit workflow allowlist | `main`, `release/*`, `bugfix/*`, `daily-build-*` |
-| `github-actions-platform-ops-toolkit-prod` | `...-prod` | Toolkit workflow allowlist | `main`, `v*` tags |
+| `github-actions-platform-ops-toolkit-prod` | `...-prod` | Toolkit workflow allowlist | `v*` tags, `release/v*` branches |
+| `github-actions-platform-ops-toolkit-prod-release` | `...-prod` | Daily Main Snapshot only | protected `main`, solely to author a new `v*` tag from a verified source tag |
 | `github-actions-playbooks-sit` | `...-sit` | Playbooks domain-CD allowlist | PR merge refs and any branch |
 | `github-actions-playbooks-uat` | `...-uat` | Playbooks domain-CD allowlist | `main`, `release/*`, `bugfix/*`, `daily-build-*` |
 | `github-actions-playbooks-prod` | `...-prod` | Playbooks domain-CD allowlist | `main`, `v*` tags |
@@ -84,7 +85,9 @@ KV permission summary:
 | `kv/data/<env>/*` | `create/read/update/delete/list` | `create/read/update/list`; no delete |
 | `kv/metadata/<env>/*` | `list/read/delete` | `list/read`; no delete |
 
-The current script allows the `prod` role on `main` and `v*` tags. If production must be tag-only, change the script itself.
+The general `prod` role is tag/release-branch only. The narrowly scoped
+`prod-release` role lets Daily Main Snapshot run from protected `main` solely
+to create a new release tag from a verified immutable source tag.
 
 ### 3. Populate Vault KV
 

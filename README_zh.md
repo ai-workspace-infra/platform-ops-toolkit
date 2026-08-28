@@ -69,7 +69,8 @@ chmod +x scripts/create_vault_service_repo_roles.sh
 | --- | --- | --- | --- |
 | `github-actions-platform-ops-toolkit-sit` | `...-sit` | toolkit workflow allowlist | PR merge ref、任意分支 |
 | `github-actions-platform-ops-toolkit-uat` | `...-uat` | toolkit workflow allowlist | `main`、`release/*`、`bugfix/*`、`daily-build-*` |
-| `github-actions-platform-ops-toolkit-prod` | `...-prod` | toolkit workflow allowlist | `main`、`v*` tag |
+| `github-actions-platform-ops-toolkit-prod` | `...-prod` | toolkit workflow allowlist | `v*` tag、`release/v*` 分支 |
+| `github-actions-platform-ops-toolkit-prod-release` | `...-prod` | 仅 Daily Main Snapshot | 受保护的 `main`；仅用于从已验证 source tag 创建新的 `v*` tag |
 | `github-actions-playbooks-sit` | `...-sit` | playbooks domain-CD allowlist | PR merge ref、任意分支 |
 | `github-actions-playbooks-uat` | `...-uat` | playbooks domain-CD allowlist | `main`、`release/*`、`bugfix/*`、`daily-build-*` |
 | `github-actions-playbooks-prod` | `...-prod` | playbooks domain-CD allowlist | `main`、`v*` tag |
@@ -86,7 +87,8 @@ KV 权限摘要：
 | `kv/data/<env>/*` | `create/read/update/delete/list` | `create/read/update/list`，禁止 delete |
 | `kv/metadata/<env>/*` | `list/read/delete` | `list/read`，禁止 delete |
 
-当前脚本的 `prod` role 允许 `main` 和 `v*` tag；如果要改成仅 tag 发布，必须修改脚本本身。
+通用 `prod` role 仅允许 release tag / release 分支。受限的 `prod-release` role
+仅允许 Daily Main Snapshot 从受保护的 `main` 为已验证的不可变 source tag 创建新的 release tag。
 
 ### 3. 填充 Vault KV
 
