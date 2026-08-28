@@ -19,15 +19,14 @@ SNAPSHOT_ORGS=(
   ai-workspace-xstream
 )
 
-declare -A BUILD_WORKFLOWS=(
-  [ai-workspace-services/accounts]="ci-pipeline.yml"
-  [ai-workspace-services/billing-service]="ci-pipeline.yml"
-  [ai-workspace-services/content-service]="ci-pipeline.yml"
-  [ai-workspace-services/portal]="ci-pipeline.yml"
-  [ai-workspace-services/edge-gateway]="deploy.yml"
-  [ai-workspace-lab/xworkmate-bridge]="pipeline.yml"
-  [ai-workspace-services/postgresql.svc.plus]="ci-pipeline.yml"
-)
+workflow_for_repo() {
+  case "$1" in
+    ai-workspace-services/accounts|ai-workspace-services/billing-service|ai-workspace-services/content-service|ai-workspace-services/portal|ai-workspace-services/postgresql.svc.plus)
+      printf '%s\n' ci-pipeline.yml ;;
+    ai-workspace-services/edge-gateway) printf '%s\n' deploy.yml ;;
+    ai-workspace-lab/xworkmate-bridge) printf '%s\n' pipeline.yml ;;
+  esac
+}
 
 record_status() {
   local status="$1" repo="$2" sha="$3" detail="$4"
@@ -277,7 +276,7 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
     if [[ "${existing}" == "${sha}" ]]; then
       printf 'UNCHANGED\t%s\t%s\n' "${repo}" "${sha}"
       record_status "unchanged" "${repo}" "${sha}" "tag already points to selected ref"
-      workflow="${BUILD_WORKFLOWS[${repo}]:-}"
+      workflow="$(workflow_for_repo "${repo}")"
       if [[ -n "${workflow}" && "${APPLY}" == true && "${TRIGGER_BUILD}" == true ]]; then
         dispatch_build_workflow "${repo}" "${TAG}" "${workflow}" "${DEPLOY_ENV}"
         record_status "dispatched" "${repo}" "${sha}" "workflow ${workflow} dispatched"
@@ -298,7 +297,7 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
 
     record_status "created" "${repo}" "${sha}" "tag created"
 
-    workflow="${BUILD_WORKFLOWS[${repo}]:-}"
+    workflow="$(workflow_for_repo "${repo}")"
     if [[ -n "${workflow}" && "${TRIGGER_BUILD}" == true ]]; then
       dispatch_build_workflow "${repo}" "${TAG}" "${workflow}" "${DEPLOY_ENV}"
       record_status "dispatched" "${repo}" "${sha}" "workflow ${workflow} dispatched"

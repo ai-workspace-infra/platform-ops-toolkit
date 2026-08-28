@@ -42,7 +42,7 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
 - **tag 命名规范与强制约束**：
   - **必须包含 `daily-build-`**：脚本默认产出 `daily-build-YYYY.MM.DD`，自定义通常为 `uat-daily-build-YYYY.MM.DD-rN`。
   - **严禁使用 `v*`（如 `v2026.08.15`）或 `*-release-*` 等 release 形状的 tag**：
-    1. 各 Service CI 的 release asset 发布（`release-manifest.json`）仅对 `daily-build-*` 生效；非 daily-build tag 会导致 CI 虽绿但 manifest 缺失。
+    1. 各 Service CI 的 release asset 发布（`release-manifest.json`）仅对 `daily-build-*` 生效。快照等待器只会对 SIT/UAT 的 daily tag 校验该资产；受控的生产 `v*` tag 以不可变 tag 与成功的 CI run 为发布契约。
     2. `v*` tag 会被多环境路由规则直接路由给生产（`prod`）环境，产生灾难性误投产风险。
   - `docs/tasks/tag-ai-workspace-mains.sh` 的 `infer_deploy_env_from_tag()` 按前缀
     （`v*`→prod，`release/*`→uat，`sit-*`/`snapshot-*`→sit，`uat-*`→uat，`prod-*`→prod，
