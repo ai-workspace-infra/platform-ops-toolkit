@@ -43,11 +43,6 @@ def fetch_vault_path(path: str) -> dict:
     if not VAULT_TOKEN:
         log(f"Warning: VAULT_TOKEN not set, skipping Vault fetch for {path}")
         return {}
-
-def billing_secret(secrets: dict, key: str) -> str:
-    """Resolve the environment-prefixed Vault billing key at the boundary."""
-    prefix = "PROD" if VAULT_ENV_PATH == "prod" else "SANDBOX"
-    return str(secrets.get(f"{prefix}_{key}", secrets.get(key, ""))).strip()
     url = f"{VAULT_ADDR}/v1/{path.lstrip('/')}"
     req = urllib.request.Request(url, headers={"X-Vault-Token": VAULT_TOKEN})
     try:
@@ -63,6 +58,7 @@ def billing_secret(secrets: dict, key: str) -> str:
     """Resolve the environment-prefixed Vault billing key at the boundary."""
     prefix = "PROD" if VAULT_ENV_PATH == "prod" else "SANDBOX"
     return str(secrets.get(f"{prefix}_{key}", secrets.get(key, ""))).strip()
+
 
 def resolve_console_origins(config_path: str) -> list:
     """Return the browser origins that accounts must accept for CORS.
