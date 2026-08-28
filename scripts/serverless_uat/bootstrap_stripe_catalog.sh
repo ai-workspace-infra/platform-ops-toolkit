@@ -88,7 +88,18 @@ case "${VAULT_ENV_PATH}" in
   prod) vault_key_prefix="PROD" ;;
   *) vault_key_prefix="SANDBOX" ;;
 esac
-stripe_secret_key="$(read_vault_key "kv/${VAULT_ENV_PATH}/billing-service" "${vault_key_prefix}_STRIPE_SECRET_KEY")"
+stripe_secret_key="$(read_vault_key "kv/${VAULT_ENV_PATH}/billing-service" "${vault_key_prefix}_STRIPE_SECRET_KEY" 2>/dev/null || true)"
+if [[ -z "${stripe_secret_key}" ]]; then
+  # Older UAT Vault layouts used an unprefixed key. Keep the prefixed key as
+  # the canonical source, but allow an idempotent deploy while that layout is
+  # being migrated.
+  echo "Prefixed Stripe secret key not found; trying legacy STRIPE_SECRET_KEY." >&2
+  stripe_secret_key="$(read_vault_key "kv/${VAULT_ENV_PATH}/billing-service" "STRIPE_SECRET_KEY" 2>/dev/null || true)"
+fi
+if [[ -z "${stripe_secret_key}" ]]; then
+  echo "Stripe secret key is missing from kv/${VAULT_ENV_PATH}/billing-service (${vault_key_prefix}_STRIPE_SECRET_KEY or STRIPE_SECRET_KEY)." >&2
+  exit 1
+fi
 root_email="$(read_vault_key "kv/CICD" "ROOT_BOOTSTRAP_EMAIL" 2>/dev/null || true)"
 root_email="${root_email:-admin@svc.plus}"
 root_password="$(read_vault_key "kv/CICD" "ROOT_BOOTSTRAP_PASSWORD")"
