@@ -52,12 +52,14 @@ jobs:
 
       - name: Enforce production release provenance
         if: ${{ (inputs.deploy_env || 'uat') == 'prod' }}
+        env:
+          RELEASE_TAG: ${{ inputs.snapshot_tag || github.ref_name }}
         run: |
           [[ "${GITHUB_REF}" == refs/tags/v* ]] || {
             echo "::error::Production release publication must be dispatched from a v* tag." >&2
             exit 1
           }
-          [[ "${{ inputs.snapshot_tag }}" == "${GITHUB_REF_NAME}" ]] || {
+          [[ "${RELEASE_TAG}" == "${GITHUB_REF_NAME}" ]] || {
             echo "::error::snapshot_tag must equal the immutable workflow tag for prod." >&2
             exit 1
           }
@@ -93,7 +95,10 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
-          SNAPSHOT_TAG: ${{ inputs.snapshot_tag }}
+          # GitHub's workflow-dispatch UI can clear this optional input after
+          # selecting a tag ref.  For a production run the ref is immutable,
+          # so use it only when no explicit snapshot_tag was supplied.
+          SNAPSHOT_TAG: ${{ inputs.snapshot_tag || github.ref_name }}
           SNAPSHOT_ORGS: ${{ matrix.organization }}
           SNAPSHOT_REPOS: ${{ inputs.repositories }}
           SNAPSHOT_FILTER_BY_ORG: ${{ inputs.repositories != '' && 'true' || 'false' }}
