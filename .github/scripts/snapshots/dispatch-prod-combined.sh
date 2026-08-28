@@ -9,7 +9,7 @@ gh_token="${GH_TOKEN:?GH_TOKEN must be set}"
 release_tag="${RELEASE_TAG:?RELEASE_TAG must be set}"
 repo="${TARGET_REPOSITORY:-ai-workspace-infra/platform-ops-toolkit}"
 
-[[ "${release_tag}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})$ ]] || {
+[[ "${release_tag}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[1-9][0-9]*)?$ ]] || {
   echo "::error::RELEASE_TAG must be a formal immutable v* release tag." >&2
   exit 2
 }

@@ -94,8 +94,8 @@ if [[ "${operation}" == "deploy" || "${operation}" == "deploy+migrate" ]]; then
       fi
       ;;
     prod)
-      if [[ ! "${tag_ref}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})$ ]]; then
-        echo "TAG_REF for prod must be a formal release tag (for example v2026.08.17 or v1.2.3)" >&2
+      if [[ ! "${tag_ref}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[1-9][0-9]*)?$ ]]; then
+        echo "TAG_REF for prod must be a formal release tag (for example v2026.08.17-r1 or v1.2.3-r1)" >&2
         exit 2
       fi
       # A production-looking input is not authority.  The Vault prod role is
