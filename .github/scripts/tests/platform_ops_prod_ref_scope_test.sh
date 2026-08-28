@@ -45,11 +45,13 @@ tag_output="$(run_push_route refs/tags/v2026.08.15)"
 assert_output "${tag_output}" "deployment_env=prod"
 assert_output "${tag_output}" "resource_file=prod/web-saas"
 assert_output "${tag_output}" "deploy_tag=v2026.08.15"
+assert_output "${tag_output}" "target_domain_base=svc.plus"
 
 release_output="$(run_push_route refs/heads/release/v2026.08)"
 assert_output "${release_output}" "deployment_env=prod"
 assert_output "${release_output}" "resource_file=prod/web-saas"
 assert_output "${release_output}" "deploy_tag=v2026.08"
+assert_output "${release_output}" "target_domain_base=svc.plus"
 
 main_output="$(run_push_route refs/heads/main)"
 assert_output "${main_output}" "deployment_env=uat"

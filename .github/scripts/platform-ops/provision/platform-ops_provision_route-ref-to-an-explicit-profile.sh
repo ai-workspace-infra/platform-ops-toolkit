@@ -225,7 +225,10 @@ else
         run_infrastructure=true; run_application_deploy=false
         terraform_action=plan; toolkit_action=none; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
         cloud_provider="vultr-vps"
-    source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=""
+        # A v* tag is a production plan-only trigger.  It still renders and
+        # validates the production GitOps contract, whose public endpoints
+        # live under svc.plus rather than the UAT default onwalk.net.
+        source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="svc.plus"; target_domain_base="svc.plus"; env_suffix=""
         ;;
       refs/heads/release/*)
         deployment_env=uat; resource_file=uat/web-saas; terraform_workspace=uat-vultr-vps-platform-ops-toolkit-web-saas
