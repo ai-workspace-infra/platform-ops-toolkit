@@ -13,7 +13,7 @@ When triggered, `selfhost-orchestrator.yml` automatically routes selfhost infras
 | `refs/heads/main` or `refs/heads/release/*` except `refs/heads/release/v*` | `uat` | `uat/web-saas-uat.yaml` | `uat/vultr-vps/platform-ops-toolkit/web-saas.tfstate` |
 | `refs/heads/release/v*` push | `prod` | `prod/web-saas-prod.yaml` | `prod/vultr-vps/platform-ops-toolkit/web-saas.tfstate` |
 | `refs/tags/v*` push | `prod` | `prod/web-saas-prod.yaml` | `prod/vultr-vps/platform-ops-toolkit/web-saas.tfstate` |
-| `workflow_dispatch` | User selected, subject to the same ref allowlist | `[env]/web-saas-[env].yaml` | Environment specific |
+| `workflow_dispatch` | User selected; Daily Main Snapshot may author a `v*` release from `main` only when its source is a verified immutable tag | `[env]/web-saas-[env].yaml` | Environment specific |
 
 State keys MUST follow `<env>/<cloud>/<project>/<resource-set>.tfstate`.
 The Terraform workspace uses the same dimensions as `<env>-<cloud>-<project>-<resource-set>`.
@@ -38,20 +38,23 @@ selector; an existing tag is never moved or overwritten.
 The shared tagging script must receive the intended tag explicitly. Stable
 release publication and daily snapshot publication differ by the tag value and
 the selected environment, not by a second tag-creation implementation. A
-`v*` tag must never be passed as `SNAPSHOT_TAG` to the Daily Main Snapshot
-workflow. Daily automatic builds use `daily-build-*`; `uat-daily-build-*` is
-also allowed for explicit UAT retries and validation. This prevents a daily
-build from being routed into production.
+Daily Main Snapshot has one deliberately narrow production path: a manual run
+from protected `main` may take a verified immutable `v*` or
+`uat-daily-build-*` `snapshot_source_ref` and create a new immutable `v*`
+release tag. `main` is only the control-plane ref for that action; it is never
+the production artifact source. This path uses the dedicated
+`github-actions-platform-ops-toolkit-prod-release` Vault role, pinned to this
+workflow and `refs/heads/main`; it does not widen the general production role.
 
-Production is fail-closed to exactly two Git refs: `refs/tags/v*` and
-`refs/heads/release/v*`. `main`, other `release/*` branches, and all daily
-snapshot tags are not production sources. A manually selected `v*` tag and a
-`release/v*` branch use the same production policy boundary; the source ref is
-recorded in the deployment evidence.
+Production deployment is fail-closed to exactly two artifact refs:
+`refs/tags/v*` and `refs/heads/release/v*`. Apart from the dedicated release
+authoring path above, `main`, other `release/*` branches, and all daily
+snapshot tags are not production sources. The selected verified source tag and
+the resulting release tag must be recorded in deployment evidence.
 
 ### 1.2 PROD source allowlist (mandatory)
 
-The only refs that may target `prod` are:
+The only artifact refs that may target `prod` are:
 
 - `refs/tags/v*`
 - `refs/heads/release/v*`
@@ -63,7 +66,8 @@ input or tag prefix appears to request `prod`:
 - `refs/heads/release/*` except `refs/heads/release/v*`;
 - `refs/tags/daily-build-*`, `refs/tags/uat-daily-build-*`, `refs/tags/sit-*`,
   `refs/tags/snapshot-*`, and `refs/tags/prod-*`;
-- pull-request refs and a `workflow_dispatch` run from any non-allowlisted ref.
+- pull-request refs and a `workflow_dispatch` run from any non-allowlisted ref,
+  except the dedicated Daily Main Snapshot release-authoring workflow on `main`.
 
 An environment input, deploy tag, Vault role name, or helper-script inference
 must not widen this allowlist. A ref that is not allowlisted must fail closed
@@ -105,7 +109,7 @@ chmod +x docs/tasks/vault_auth_split.sh
 This script will automatically create:
 - Three environment-specific policies: `github-actions-platform-ops-toolkit-sit`, `-uat`, `-prod`
 - Three OIDC JWT authentication roles: `github-actions-platform-ops-toolkit-sit`, `-uat`, `-prod`
-- **Security constraints**: The `prod` role is strictly bound to only accept `refs/tags/v*` or `refs/heads/release/v*`, preventing hijacking from `main`, other branches, daily tags, or PRs.
+- **Security constraints**: The general `prod` role is strictly bound to only accept `refs/tags/v*` or `refs/heads/release/v*`. A separate role permits only Daily Main Snapshot on protected `main` to author a release tag from a verified immutable source.
 
 ## 3. Branch Roles and Delivery Lifecycle
 
@@ -128,8 +132,9 @@ We adhere strictly to the following branch roles, inherited from the application
 ### Release Cut and Publishing
 1. A `release/vMAJOR.MINOR` branch is cut from a stable `main` commit.
 2. Production is deployed **only** from an approved `refs/heads/release/v*`
-   branch push or an annotated `refs/tags/v*` tag pushed to an intentional
-   release point.
+   branch push or an immutable `refs/tags/v*` tag. Daily Main Snapshot authors
+   that tag from protected `main` by re-tagging an already verified immutable
+   source; it never deploys the `main` commit as production.
 3. Every production artifact and infrastructure state must be traceable to the
    exact source ref and immutable artifact digest recorded in deployment
    evidence.

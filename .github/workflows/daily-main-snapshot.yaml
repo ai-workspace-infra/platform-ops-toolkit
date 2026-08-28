@@ -7,16 +7,16 @@ on:
   workflow_dispatch:
     inputs:
       snapshot_tag:
-        description: "手动选择发布 tag；daily/uat 使用 daily-build-*，Prod 使用 vYYYY.M.D[-rN] 或 vX.Y.Z[-rN]，且必须等于当前 workflow tag"
+        description: "要发布的 tag：Prod 填新的 vYYYY.MM.DD[-rN] 或 vX.Y.Z[-rN]；SIT/UAT 填 daily-build-* 或 uat-daily-build-*。"
         required: false
         type: string
       snapshot_source_ref:
-        description: "新快照 tag 的 source ref；UAT 默认 main，Prod 必须选择已验证的 v* 或 uat-daily-build-* tag"
+        description: "引用的 tag/ref：Prod 填已验证的 v* 或 uat-daily-build-*；SIT/UAT 默认 main。"
         required: false
         default: main
         type: string
       deploy_env:
-        description: "人工选择发布环境；daily/uat tag 用 sit/uat，v* 只能用 prod"
+        description: "目标环境：选择 sit、uat 或 prod。"
         required: true
         default: uat
         type: choice
@@ -55,14 +55,15 @@ jobs:
         env:
           SNAPSHOT_SOURCE_REF: ${{ inputs.snapshot_source_ref || 'main' }}
         run: |
-          [[ "${GITHUB_REF}" == refs/tags/v* ]] || {
-            echo "::error::Production release publication must be dispatched from a v* tag." >&2
+          # `main` is only the protected control-plane ref for this manual
+          # workflow. The release artifact must be a *new* immutable v* tag.
+          [[ "${{ inputs.snapshot_tag }}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[1-9][0-9]*)?$ ]] || {
+            echo "::error::Prod snapshot_tag must be a new vYYYY.MM.DD[-rN] or vX.Y.Z[-rN] release tag." >&2
             exit 1
           }
-          [[ "${{ inputs.snapshot_tag }}" == "${GITHUB_REF_NAME}" ]] || {
-            echo "::error::snapshot_tag must equal the immutable workflow tag for prod." >&2
-            exit 1
-          }
+          # The tag script resolves this ref in every target repository, then
+          # creates the release tag at that exact commit. `main` is therefore
+          # never eligible as the production artifact source.
           [[ "${SNAPSHOT_SOURCE_REF}" =~ ^(v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[1-9][0-9]*)?|uat-daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?)$ ]] || {
             echo "::error::Prod snapshot_source_ref must be an existing verified v* or uat-daily-build-* tag; main is not allowed." >&2
             exit 1
@@ -74,9 +75,10 @@ jobs:
         with:
           url: https://vault.svc.plus
           method: jwt
-          # This role only tags repositories. Build workflows authenticate with
-          # their own daily-build-* roles; see docs/daily-snapshot-vault.md.
-          role: github-actions-platform-ops-toolkit-${{ inputs.deploy_env || 'uat' }}
+          # In prod, use the narrowly scoped authoring role: only this
+          # workflow on protected main can read the tag-creation credential.
+          # Downstream builds/deployments still authenticate on the v* tag.
+          role: ${{ (inputs.deploy_env || 'uat') == 'prod' && 'github-actions-platform-ops-toolkit-prod-release' || format('github-actions-platform-ops-toolkit-{0}', inputs.deploy_env || 'uat') }}
           jwtGithubAudience: vault
           secrets: |
             kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
@@ -145,9 +147,14 @@ jobs:
         if: ${{ (inputs.deploy_env || 'uat') == 'prod' && needs.snapshot.result == 'success' && (inputs.repositories || '') == '' }}
         id: resolve_release_tag
         run: |
-          [[ "${GITHUB_REF}" == refs/tags/v* ]] || exit 1
-          [[ "${GITHUB_REF_NAME}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[1-9][0-9]*)?$ ]] || exit 1
-          echo "release_tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          # This is the tag just created from SNAPSHOT_SOURCE_REF, not the
+          # ref that was used to dispatch this workflow.
+          release_tag="${{ inputs.snapshot_tag }}"
+          [[ "${release_tag}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[1-9][0-9]*)?$ ]] || {
+            echo "::error::Prod snapshot_tag must be a controlled v* release tag." >&2
+            exit 1
+          }
+          echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
 
       - name: Load GitHub App private key for UAT dispatch
         if: ${{ (inputs.deploy_env || 'uat') == 'uat' }}
@@ -187,7 +194,9 @@ jobs:
         with:
           url: https://vault.svc.plus
           method: jwt
-          role: github-actions-platform-ops-toolkit-prod
+          # Keep dispatch authorization in the same narrow release-authoring
+          # boundary; dispatched deployment workflows run from RELEASE_TAG.
+          role: github-actions-platform-ops-toolkit-prod-release
           jwtGithubAudience: vault
           secrets: |
             kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY

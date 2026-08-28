@@ -19,11 +19,13 @@
 | **`sit`** | `github-actions-platform-ops-toolkit-sit` | **`refs/pull/*/merge`**、**`refs/heads/*`** | Pull Request 验证，以及从分支发起的 `workflow_dispatch`。ref 仍然较宽，真正的收敛来自 `job_workflow_ref` 白名单。 |
 | **`uat`** | `github-actions-platform-ops-toolkit-uat` | **`refs/heads/main`**、**`refs/heads/release/*`**（生产例外见下行） | `main` 与非 `release/v*` 的 `release/*` push 路由到 UAT。 |
 | **`prod`** | `github-actions-platform-ops-toolkit-prod` | **仅 `refs/tags/v*` 或 `refs/heads/release/v*`** | 受控正式 tag 或受保护的版本发布分支。 |
+| **`prod` release authoring** | `github-actions-platform-ops-toolkit-prod-release` | **仅 `refs/heads/main` + `daily-main-snapshot.yaml`** | 只能把已验证的 immutable `v*` 或 `uat-daily-build-*` source tag 重新标记为全新 `v*` release tag。 |
 
-PROD 的 ref allowlist 是严格且封闭的：`refs/tags/v*` 与
-`refs/heads/release/v*` 之外的任何 ref 都必须拒绝。`main`、非 `release/v*`
-分支、`daily-build-*`、`uat-daily-build-*`、`sit-*`、`snapshot-*`、`prod-*`
-和其他 tag/branch 不得通过生产 role。
+通用 PROD role 的 ref allowlist 是严格且封闭的：`refs/tags/v*` 与
+`refs/heads/release/v*` 之外的任何 ref 都必须拒绝。`main` 只可通过专用
+release-authoring role 运行 Daily Main Snapshot，且不能作为制品来源；非
+`release/v*` 分支、`daily-build-*`、`uat-daily-build-*`、`sit-*`、`snapshot-*`、
+`prod-*` 和其他 tag/branch 不得通过通用生产 role。
 
 > **注**：在 `platform-ops.yaml` 流水线中，环境变量会通过逻辑计算自动映射：  
 > `VAULT_ROLE: github-actions-platform-ops-toolkit-${{ env.DEPLOY_ENV }}`
@@ -39,9 +41,10 @@ PROD 的 ref allowlist 是严格且封闭的：`refs/tags/v*` 与
 | `token_no_default_policy` | `true` | 不附加 `default` policy，最小权限。 |
 | `token_type` / `token_ttl` | `batch` / `20m` | 一次部署用不了 1 小时；batch token 不可续期。 |
 
-> ⚠️ **行为变更**：`prod` 现在只能由 `refs/tags/v*` 或
-> `refs/heads/release/v*` 触发。workflow 的 `prod` 输入、tag 名称或脚本推断都不能
-> 放宽该限制；其他来源必须在换取生产 token 前失败。
+> ⚠️ **行为约束**：通用 `prod` 只能由 `refs/tags/v*` 或
+> `refs/heads/release/v*` 触发。专用 `prod-release` role 是唯一例外，且仅授予
+> `daily-main-snapshot.yaml@refs/heads/main` 以创建新 release tag；workflow 输入、
+> tag 名称或脚本推断都不能再放宽这个范围。
 >
 > 已删除的死角色：`github-actions-platform-ops-toolkit-prod-tags` 从未被任何 workflow 请求过，职责已并入 `-prod`。
 

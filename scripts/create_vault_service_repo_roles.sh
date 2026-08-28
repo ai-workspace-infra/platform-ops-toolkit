@@ -192,6 +192,31 @@ ${ALLOWED_WORKFLOWS}
 EOF
 }
 
+# `main` can initiate a release but is never the release artifact: Daily Main
+# Snapshot re-tags an already verified immutable source as a new v* tag. This
+# role is deliberately pinned to that one workflow on protected main, so the
+# normal production role stays restricted to release tags / release branches.
+write_daily_snapshot_prod_release_role() {
+  vault write "auth/jwt/role/github-actions-platform-ops-toolkit-prod-release" - <<EOF
+{
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": ["vault"],
+  "bound_claims_type": "glob",
+  "bound_claims": {
+    "repository": "${REPO}",
+    "job_workflow_ref": "${WF_PREFIX}/daily-main-snapshot.yaml@*",
+    "ref": "refs/heads/main"
+  },
+  "token_policies": ["github-actions-platform-ops-toolkit-prod"],
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": "${TOKEN_TTL}",
+  "token_max_ttl": "${TOKEN_TTL}"
+}
+EOF
+}
+
 write_playbooks_role() {
   local suffix="$1" policy="$2" ref_claim="$3"
   vault write "auth/jwt/role/github-actions-playbooks-${suffix}" - <<EOF
@@ -225,6 +250,8 @@ echo "  Creating UAT role..."
 write_role uat github-actions-platform-ops-toolkit-uat '["refs/heads/main", "refs/heads/release/*", "refs/heads/bugfix/*", "refs/heads/daily-build-*", "refs/tags/daily-build-*"]'
 echo "  Creating PROD role..."
 write_role prod github-actions-platform-ops-toolkit-prod '["refs/tags/v*", "refs/heads/release/v*"]'
+echo "  Creating PROD release-authoring role..."
+write_daily_snapshot_prod_release_role
 
 echo "  Creating Playbooks SIT role..."
 write_playbooks_role sit github-actions-platform-ops-toolkit-sit '["refs/pull/*/merge", "refs/heads/*"]'

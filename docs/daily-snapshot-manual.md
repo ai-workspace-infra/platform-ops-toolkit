@@ -2,9 +2,9 @@
 
 `Daily Main Snapshot` 仅使用 GitHub App 认证。workflow 通过 GitHub OIDC 登录 Vault，读取 App 私钥并按目标组织生成 installation token。
 
-本手册只用于 SIT/UAT 快照构建。Daily Snapshot 不是 PROD 发布入口；即使
-workflow 暴露了 `deploy_env=prod` 输入，也不得用日快照或 UAT 快照进入生产。
-PROD 只接受 `refs/tags/v*` 或 `refs/heads/release/v*`，详见
+本手册也支持受控的 PROD 发布：从 `main` 启动 workflow，选择一个已验证的
+`snapshot_source_ref`，并为它创建一个新的不可变 `v*` release tag。生产来源由
+`snapshot_source_ref` 决定，而不是触发 workflow 的分支；详见
 [多环境交付与发布规范](standards/multi-environment-delivery-and-release-standard.md)。
 
 ## 前置配置
@@ -61,17 +61,29 @@ SIT 验证。Daily Snapshot 不能把 `v*` 作为 `snapshot_tag`；否则服务 
 路由组合约定：
 
 - `main + uat`：常规交付默认路径。
-- `refs/heads/release/v* + prod`：受控生产分支路径，必须经过生产审批。
-- `refs/tags/v* + prod`：受控正式稳定发布路径，tag 不可移动、覆盖或删除。
+- `main + prod`：从经过验证的 `snapshot_source_ref` 创建新的受控稳定发布 tag。
 - `main + sit`：低频手动验证，基本不参与日常调度。
 - `daily-build-*`：每日自动构建入口。
 - `uat-daily-build-*`：允许的 UAT 构建、重试与验证入口。
 - `release/*`（不含 `release/v*`）：UAT 路径，不得进入 PROD。
-- `vYYYY.M.D[-rN]` 或 `vX.Y.Z[-rN]`：只作为 `refs/tags/v*` 的正式稳定发布入口，不得作为日快照输入；同一天需要再次发布时递增 `-rN`（例如 `v2026.8.28-r1`、`v2026.8.28-r2`）。Prod 的 `snapshot_tag` 必须显式等于当前 workflow tag。
+- `vYYYY.M.D[-rN]` 或 `vX.Y.Z[-rN]`：Prod 使用的全新稳定发布 tag；同一天需要再次发布时递增 `-rN`（例如 `v2026.8.28-r1`、`v2026.8.28-r2`）。它由 workflow 在各目标仓库从已验证 source tag 创建，不得预先存在、移动、覆盖或删除。
 
-`main`、非 `release/v*` 分支、`daily-build-*`、`uat-daily-build-*`、
-`sit-*`、`snapshot-*`、`prod-*` 以及任何其他 tag/branch 都是 PROD 禁止来源。
-不能通过 `deploy_env`、`snapshot_tag` 或脚本的前缀推断绕过这一限制。
+`main` 只能作为 workflow 的控制面入口，不能作为 PROD 制品来源。PROD 的
+`snapshot_source_ref` 仅允许已验证的 `v*` 或 `uat-daily-build-*` tag；
+`daily-build-*`、`sit-*`、`snapshot-*`、`prod-*` 以及任何 branch 都不得作为
+PROD 来源。
+
+### 生产 release 的推荐发布顺序
+
+生产 tag 应从**已经成功验证的不可变 `v*` 或 `uat-daily-build-*` tag**派生，
+而不是直接从 `main` 切出。不要预先手动创建 release tag；Daily Main Snapshot 会在
+目标仓库中将所选 source tag 重新标记为新的不可变 `v*` tag。
+
+例如当天第二次发布可使用 `v2026.8.28-r2`，其 `snapshot_source_ref` 选择已成功
+验证的 `uat-daily-build-2026.8.28-rN`（或历史 `v*` tag）。从 `main` 运行 Daily
+Snapshot，Prod 预检会拒绝 `main` 作为 `snapshot_source_ref`，然后在每个目标仓库
+将所选 source tag 重新标记为新的 release tag。`v*` 只允许 Prod，UAT 仍使用
+`main` 默认值或 `uat-daily-build-*`。
 
 ### 生产 release 的推荐发布顺序
 

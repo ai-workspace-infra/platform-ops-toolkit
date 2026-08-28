@@ -47,10 +47,9 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
   - `docs/tasks/tag-ai-workspace-mains.sh` 的 `infer_deploy_env_from_tag()` 按前缀
     （`v*`→prod，`release/*`→uat，`sit-*`/`snapshot-*`→sit，`uat-*`→uat，`prod-*`→prod，
     其余一律兜底 `uat`）推断部署环境，从而决定换哪个 Vault role；这只是实现细节，不能
-    取代来源 ref 白名单。PROD **仅**允许 `refs/tags/v*` 或 `refs/heads/release/v*`，
-    `prod-*`、daily-build、uat-daily-build、sit、snapshot 及其他 branch/tag 均不得获得
-    PROD 权限。**默认让 `snapshot_tag` 留空、用 workflow 自带的默认值**；只有需要加入新
-    commit 时才指定带 revision 后缀的 tag（如 `uat-daily-build-2026.08.15-r6`）。
+    取代来源 ref 白名单。PROD 的 `snapshot_source_ref` **仅**允许已验证的 `v*` 或
+    `uat-daily-build-*` tag；`main` 仅可作为 workflow 触发 ref，不能作为生产制品来源。
+    PROD 必须显式提供新的 `v*` `snapshot_tag`；该 tag 从所选 source tag 创建且不可覆盖。
 - **tag 不可变性**：快照 tag 不会移动或覆盖已存在的 git tag。若 main 分支有新代码需构建，必须使用新的 revision 后缀（`-r2`, `-r3` 等）。
 - **tag 废弃与忽略准则（禁止物理删除）**：
   - 若某个 tag（如 `v2026.08.15` 或 `uat-daily-build-*`）因打错、严重缺陷或路由错误被废弃，**严禁从远端物理删除 tag**（保留审计历史与构建痕迹）。

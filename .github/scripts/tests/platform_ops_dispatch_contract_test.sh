@@ -70,10 +70,14 @@ assert_contains "${destroy_output}" "terraform_action=destroy"
 assert_contains "${destroy_output}" "dns_mode=none"
 assert_contains "${destroy_output}" "deploy_tag="
 
-destroy_prod_dns_output="$(run_route env GITHUB_REF=refs/heads/release/v2026.08 INPUT_VAULT_ENV_PATH=prod INPUT_OPERATION=destroy INPUT_DNS_MODE=prod-cutover)"
-assert_contains "${destroy_prod_dns_output}" "terraform_action=destroy"
-assert_contains "${destroy_prod_dns_output}" "dns_mode=none"
-assert_contains "${destroy_prod_dns_output}" "deploy_tag="
+prod_destroy_error="$(mktemp)"
+if run_route env GITHUB_REF=refs/heads/release/v2026.08 INPUT_VAULT_ENV_PATH=prod INPUT_OPERATION=destroy INPUT_DNS_MODE=prod-cutover >"${prod_destroy_error}" 2>&1; then
+  rm -f "${prod_destroy_error}"
+  echo "production destroy unexpectedly entered the deployment route" >&2
+  exit 1
+fi
+grep -Fq "Production infrastructure is deletion-protected" "${prod_destroy_error}"
+rm -f "${prod_destroy_error}"
 
 contract_fixture="${repo_root}/.github/scripts/tests/fixtures/selfhost-routing-migration-topology.json"
 contract_output="$(mktemp)"
