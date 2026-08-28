@@ -98,6 +98,13 @@ if [[ "${operation}" == "deploy" || "${operation}" == "deploy+migrate" ]]; then
         echo "TAG_REF for prod must be a formal release tag (for example v2026.08.17 or v1.2.3)" >&2
         exit 2
       fi
+      # A production-looking input is not authority.  The Vault prod role is
+      # also bound to this ref, but fail before any production credential is
+      # requested when a workflow was dispatched from main or another branch.
+      if [[ "${GITHUB_REF:-}" != "refs/tags/${tag_ref}" ]]; then
+        echo "PROD deployment must run from refs/tags/${tag_ref}; current ref is ${GITHUB_REF:-unset}." >&2
+        exit 2
+      fi
       ;;
     *)
       echo "VAULT_ENV_PATH must be one of: sit, uat, prod" >&2

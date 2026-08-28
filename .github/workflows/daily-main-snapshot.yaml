@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       snapshot_tag:
-        description: "手动选择发布 tag；允许 daily-build-*、uat-daily-build-* 或受控 v*；留空使用 daily-build-YYYY.MM.DD"
+        description: "手动选择发布 tag；daily/uat 使用 daily-build-*，Prod 仅允许 vYYYY.M.D 或 vX.Y.Z"
         required: false
         type: string
       snapshot_source_ref:
@@ -50,6 +50,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      - name: Enforce production release provenance
+        if: ${{ (inputs.deploy_env || 'uat') == 'prod' }}
+        run: |
+          [[ "${GITHUB_REF}" == refs/tags/v* ]] || {
+            echo "::error::Production release publication must be dispatched from a v* tag." >&2
+            exit 1
+          }
+          [[ "${{ inputs.snapshot_tag }}" == "${GITHUB_REF_NAME}" ]] || {
+            echo "::error::snapshot_tag must equal the immutable workflow tag for prod." >&2
+            exit 1
+          }
+
       - name: Load GitHub App private key from Vault
         id: vault
         uses: hashicorp/vault-action@v4
@@ -58,7 +70,7 @@ jobs:
           method: jwt
           # This role only tags repositories. Build workflows authenticate with
           # their own daily-build-* roles; see docs/daily-snapshot-vault.md.
-          role: github-actions-platform-ops-toolkit-uat
+          role: github-actions-platform-ops-toolkit-${{ inputs.deploy_env || 'uat' }}
           jwtGithubAudience: vault
           secrets: |
             kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
@@ -101,6 +113,7 @@ jobs:
     name: Summarize daily snapshot status
     needs: snapshot
     if: ${{ always() && needs.snapshot.result != 'skipped' }}
+    environment: ${{ (inputs.deploy_env || 'uat') == 'prod' && 'production' || '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -121,6 +134,14 @@ jobs:
         env:
           SNAPSHOT_STATUS_DIRECTORY: ${{ runner.temp }}/daily-snapshot-status
           SNAPSHOT_CANONICAL_ORGANIZATION: ai-workspace-services
+
+      - name: Resolve production release tag
+        if: ${{ (inputs.deploy_env || 'uat') == 'prod' && needs.snapshot.result == 'success' && (inputs.repositories || '') == '' }}
+        id: resolve_release_tag
+        run: |
+          [[ "${GITHUB_REF}" == refs/tags/v* ]] || exit 1
+          [[ "${GITHUB_REF_NAME}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})$ ]] || exit 1
+          echo "release_tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Load GitHub App private key for UAT dispatch
         if: ${{ (inputs.deploy_env || 'uat') == 'uat' }}
@@ -152,6 +173,34 @@ jobs:
           # Serverless Accounts is the controller for the separately deployed
           # UAT Agent Proxy. This is a public endpoint, not a credential.
           AGENT_CONTROLLER_URL: https://accounts-serverless-uat.onwalk.net
+
+      - name: Load GitHub App private key for production dispatch
+        if: ${{ (inputs.deploy_env || 'uat') == 'prod' && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' }}
+        id: prod-vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-prod
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
+
+      - name: Create GitHub App installation token for production dispatch
+        if: ${{ (inputs.deploy_env || 'uat') == 'prod' && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' }}
+        id: prod-app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: Iv23liNwStpQIiXajhpb
+          private-key: ${{ steps.prod-vault.outputs.APP_PRIVATE_KEY }}
+          owner: ai-workspace-infra
+
+      - name: Dispatch production serverless and selfhost deployment
+        if: ${{ (inputs.deploy_env || 'uat') == 'prod' && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' }}
+        run: ./.github/scripts/snapshots/dispatch-prod-combined.sh
+        env:
+          GH_TOKEN: ${{ steps.prod-app-token.outputs.token }}
+          RELEASE_TAG: ${{ steps.resolve_release_tag.outputs.release_tag }}
 
       - name: Publish unified snapshot matrix summary
         env:

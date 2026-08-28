@@ -193,6 +193,7 @@ jobs:
   # matrix fan-out remains readable: Prepare, Bootstrap, Workloads, Gate.
   provision:
     name: "[0] Prepare | profile + infra"
+    environment: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.vault_env_path == 'prod') && 'production' || ((startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'production' || '') }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     # Static job-level env: inputs known at job start (no step output refs allowed here)
     env:
