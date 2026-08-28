@@ -73,6 +73,26 @@ SIT 验证。Daily Snapshot 不能把 `v*` 作为 `snapshot_tag`；否则服务 
 `sit-*`、`snapshot-*`、`prod-*` 以及任何其他 tag/branch 都是 PROD 禁止来源。
 不能通过 `deploy_env`、`snapshot_tag` 或脚本的前缀推断绕过这一限制。
 
+### 生产 release 的推荐发布顺序
+
+生产 tag 应从**已经成功验证的不可变 `v*` 或 `uat-daily-build-*` tag**派生，
+而不是直接从 `main` 切出：
+
+```bash
+# verified_tag 必须是已成功完成 UAT/Prod 验证的历史 v* 或 uat-daily-build-* tag
+# new_tag 不能已存在
+git fetch origin --tags
+git tag -a new_tag verified_tag -m "Production release new_tag"
+git push origin new_tag
+```
+
+例如当天第二次发布可使用 `v2026.8.28-r2`，其父 tag 应是已验证的
+`v2026.8.28-r1`，其 `snapshot_source_ref` 可以选择已成功验证的
+`uat-daily-build-2026.8.28-rN`（或历史 `v*` tag）。运行 Daily Snapshot 时，
+Prod 的 `snapshot_source_ref` 选择该已验证 tag，`snapshot_tag` 必须等于当前
+workflow 使用的 release tag；选择 `main` 会在生产预检阶段被拒绝。`v*` 只允许
+Prod，UAT 仍使用 `main` 默认值或 `uat-daily-build-*`。
+
 手工创建重试快照 tag 时可执行：
 
 ```bash
