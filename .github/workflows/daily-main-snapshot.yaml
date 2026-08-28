@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       snapshot_tag:
-        description: "手动选择发布 tag；daily/uat 使用 daily-build-*，Prod 使用 vYYYY.M.D[-rN] 或 vX.Y.Z[-rN]，且必须等于当前 workflow tag"
+        description: "手动选择发布 tag；daily/uat 使用 daily-build-*，Prod 创建新的 vYYYY.M.D[-rN] 或 vX.Y.Z[-rN]"
         required: false
         type: string
       snapshot_source_ref:
@@ -53,14 +53,15 @@ jobs:
       - name: Enforce production release provenance
         if: ${{ (inputs.deploy_env || 'uat') == 'prod' }}
         env:
+          SNAPSHOT_TAG: ${{ inputs.snapshot_tag }}
           SNAPSHOT_SOURCE_REF: ${{ inputs.snapshot_source_ref || 'main' }}
         run: |
-          [[ "${GITHUB_REF}" == refs/tags/v* ]] || {
-            echo "::error::Production release publication must be dispatched from a v* tag." >&2
+          [[ "${SNAPSHOT_TAG}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[1-9][0-9]*)?$ ]] || {
+            echo "::error::Prod snapshot_tag must create a new vX.Y.Z[-rN] or vYYYY.MM.DD[-rN] release tag." >&2
             exit 1
           }
-          [[ "${{ inputs.snapshot_tag }}" == "${GITHUB_REF_NAME}" ]] || {
-            echo "::error::snapshot_tag must equal the immutable workflow tag for prod." >&2
+          [[ "${SNAPSHOT_TAG}" != "${SNAPSHOT_SOURCE_REF}" ]] || {
+            echo "::error::Prod snapshot_tag must differ from snapshot_source_ref; choose a new release tag." >&2
             exit 1
           }
           [[ "${SNAPSHOT_SOURCE_REF}" =~ ^(v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[1-9][0-9]*)?|uat-daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?)$ ]] || {
@@ -89,7 +90,7 @@ jobs:
           private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
           owner: ${{ matrix.organization }}
 
-      - name: Create cross-repository main snapshot
+      - name: Create cross-repository snapshot
         # The matrix owns one GitHub App token per organization. When an
         # explicit repository list is supplied, only the matrix entry that
         # owns at least one selected repository should invoke the snapshot
@@ -144,10 +145,14 @@ jobs:
       - name: Resolve production release tag
         if: ${{ (inputs.deploy_env || 'uat') == 'prod' && needs.snapshot.result == 'success' && (inputs.repositories || '') == '' }}
         id: resolve_release_tag
+        env:
+          RELEASE_TAG: ${{ inputs.snapshot_tag }}
         run: |
-          [[ "${GITHUB_REF}" == refs/tags/v* ]] || exit 1
-          [[ "${GITHUB_REF_NAME}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[1-9][0-9]*)?$ ]] || exit 1
-          echo "release_tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          [[ "${RELEASE_TAG}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[1-9][0-9]*)?$ ]] || {
+            echo "::error::Prod snapshot_tag must be a valid release tag." >&2
+            exit 1
+          }
+          echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Load GitHub App private key for UAT dispatch
         if: ${{ (inputs.deploy_env || 'uat') == 'uat' }}
