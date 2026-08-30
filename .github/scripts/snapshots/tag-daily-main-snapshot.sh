@@ -53,9 +53,9 @@ if [[ -n "${SNAPSHOT_STATUS_FILE:-}" ]]; then
   : > "${SNAPSHOT_STATUS_FILE}"
 fi
 
-# The scheduled snapshot is limited to the active build inventory below.  It
-# used to tag every non-archived repository in each organization before this
-# point, which could invoke unrelated legacy workflows.
+# The scheduled snapshot is limited to the active release inventory below. It
+# includes the control-plane repository so a production release tag exists on
+# the repository that owns the deployment workflows.
 build_config="${GITHUB_WORKSPACE:-.}/.github/daily-snapshot-builds.json"
 [[ -f "${build_config}" ]] || {
   echo "::error::Missing daily snapshot build configuration: ${build_config}" >&2
@@ -95,15 +95,27 @@ else
   tag_repos="${build_repos}"
 fi
 
-# Infra currently owns no active daily-build target. Leave an empty status
-# artifact so the matrix summary remains deterministic, but do not enumerate
-# and tag all of its repositories.
-if [[ -z "${tag_repos}" ]]; then
+# A production release must also tag the control plane. Its source ref is the
+# protected main branch because the UAT artifact tag may predate control-plane
+# tagging; the deployable repositories remain pinned to SNAPSHOT_SOURCE_REF.
+control_plane_repo="ai-workspace-infra/platform-ops-toolkit"
+control_plane_repos=""
+if [[ "${DEPLOY_ENV}" == prod && "${snapshot_organization}" == ai-workspace-infra ]]; then
+  control_plane_repos="${control_plane_repo}"
+  tag_repos="$(grep -Fxv "${control_plane_repo}" <<< "${tag_repos}" || true)"
+fi
+
+# Infra has no build target beyond the control plane. Leave an empty status
+# artifact for the build waiter, but still create the production control-plane
+# release tag below.
+if [[ -z "${tag_repos}" && -z "${control_plane_repos}" ]]; then
   echo "No active snapshot repositories for ${snapshot_organization}; skipping tag and CI wait."
   exit 0
 fi
 
-tag_repos="$(paste -sd, - <<< "${tag_repos}")"
+if [[ -n "${tag_repos}" ]]; then
+  tag_repos="$(paste -sd, - <<< "${tag_repos}")"
+fi
 
 # A scheduled snapshot must never wait on a stale CI run just because its
 # requested tag was already created for an older main commit.  Tags are
@@ -178,7 +190,28 @@ fi
 
 args=(--tag "${tag}" --ref "${SNAPSHOT_REF:-main}" --deploy-env "${DEPLOY_ENV}" --apply
   --org "${snapshot_organization}" --repo "${tag_repos}")
-bash docs/tasks/tag-ai-workspace-mains.sh "${args[@]}"
+if [[ -n "${tag_repos}" ]]; then
+  bash docs/tasks/tag-ai-workspace-mains.sh "${args[@]}"
+fi
+
+if [[ -n "${control_plane_repos}" ]]; then
+  control_plane_ref="${CONTROL_PLANE_REF:-main}"
+  control_plane_sha="$(gh api "repos/${control_plane_repo}/commits/${control_plane_ref}" --jq .sha)"
+  if control_plane_tag_json="$(gh api "repos/${control_plane_repo}/git/ref/tags/${tag}" 2>/dev/null)"; then
+    control_plane_existing="$(jq -r '.object.sha // empty' <<<"${control_plane_tag_json}")"
+    [[ "${control_plane_existing}" == "${control_plane_sha}" ]] || {
+      echo "::error::Control-plane release tag ${tag} already points to ${control_plane_existing}; choose a new immutable revision." >&2
+      exit 2
+    }
+  fi
+  bash docs/tasks/tag-ai-workspace-mains.sh \
+    --tag "${tag}" \
+    --ref "${control_plane_ref}" \
+    --deploy-env prod \
+    --org ai-workspace-infra \
+    --repo "${control_plane_repos}" \
+    --apply
+fi
 
 # Most build repositories start from the tag push.  xworkmate-bridge only
 # accepts v* tag pushes, so dispatch it explicitly after its immutable daily

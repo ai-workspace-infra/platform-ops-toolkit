@@ -3,8 +3,11 @@ set -euo pipefail
 
 # Production counterpart to dispatch-uat-combined.sh.  This script is called
 # only from an immutable v* tag after the production Environment approval.
+# The release tag is created on the control-plane repository as well as the
+# deployable repositories, so both orchestrator workflow files are available
+# at this ref.
 # It deliberately has no destroy path and pins both orchestrators to the same
-# tag, so no component can silently deploy main/latest.
+# immutable v* tag, so no component can silently deploy main/latest.
 gh_token="${GH_TOKEN:?GH_TOKEN must be set}"
 release_tag="${RELEASE_TAG:?RELEASE_TAG must be set}"
 repo="${TARGET_REPOSITORY:-ai-workspace-infra/platform-ops-toolkit}"
@@ -13,7 +16,6 @@ repo="${TARGET_REPOSITORY:-ai-workspace-infra/platform-ops-toolkit}"
   echo "::error::RELEASE_TAG must be a formal immutable v* release tag." >&2
   exit 2
 }
-
 export GH_TOKEN="${gh_token}"
 
 # The release gate includes the same explicit database migration stage as UAT.

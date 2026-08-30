@@ -2,6 +2,13 @@
   "version": 2,
   "repositories": [
     {
+      "repository": "ai-workspace-infra/platform-ops-toolkit",
+      "workflow": null,
+      "trigger": "none",
+      "environments": ["sit", "uat", "prod"],
+      "artifacts": ["workflow"]
+    },
+    {
       "repository": "ai-workspace-services/accounts",
       "workflow": "ci-pipeline.yml",
       "trigger": "push",
