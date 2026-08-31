@@ -98,11 +98,20 @@ if [[ "${operation}" == "deploy" || "${operation}" == "deploy+migrate" ]]; then
         echo "TAG_REF for prod must be a formal release tag (for example v2026.08.17-r1 or v1.2.3-r1)" >&2
         exit 2
       fi
-      # A production-looking input is not authority.  The Vault prod role is
-      # also bound to this ref, but fail before any production credential is
-      # requested when a workflow was dispatched from main or another branch.
-      if [[ "${GITHUB_REF:-}" != "refs/tags/${tag_ref}" ]]; then
-        echo "PROD deployment must run from refs/tags/${tag_ref}; current ref is ${GITHUB_REF:-unset}." >&2
+      # A production-looking input is not authority. Direct production runs
+      # remain tag-ref-only. The Daily Main Snapshot release path is the sole
+      # exception: its trusted bot dispatches the orchestrator from protected
+      # main and passes the immutable release tag as TAG_REF.
+      tag_ref_allowed=false
+      if [[ "${GITHUB_REF:-}" == "refs/tags/${tag_ref}" ]]; then
+        tag_ref_allowed=true
+      elif [[ "${GITHUB_EVENT_NAME:-}" == "workflow_dispatch" &&
+              "${GITHUB_REF:-}" == "refs/heads/main" &&
+              "${GITHUB_ACTOR:-}" == "daily-snapshot-tag[bot]" ]]; then
+        tag_ref_allowed=true
+      fi
+      if [[ "${tag_ref_allowed}" != true ]]; then
+        echo "PROD deployment must run from refs/tags/${tag_ref}, or from protected main via daily-snapshot-tag[bot]; current ref is ${GITHUB_REF:-unset}, actor is ${GITHUB_ACTOR:-unset}." >&2
         exit 2
       fi
       ;;
