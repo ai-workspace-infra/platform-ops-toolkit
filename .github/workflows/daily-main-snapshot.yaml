@@ -11,9 +11,8 @@ on:
         required: false
         type: string
       snapshot_source_ref:
-        description: "引用的 tag/ref：Prod 填已验证的 v* 或 uat-daily-build-*；SIT/UAT 默认 main。"
+        description: "引用的 tag/ref：Prod 必须填已验证的 v* 或 uat-daily-build-*；SIT/UAT 留空使用 main。"
         required: false
-        default: main
         type: string
       deploy_env:
         description: "目标环境：选择 sit、uat 或 prod。"
@@ -53,7 +52,7 @@ jobs:
       - name: Enforce production release provenance
         if: ${{ (inputs.deploy_env || 'uat') == 'prod' }}
         env:
-          SNAPSHOT_SOURCE_REF: ${{ inputs.snapshot_source_ref || 'main' }}
+          SNAPSHOT_SOURCE_REF: ${{ inputs.snapshot_source_ref }}
         run: |
           # `main` is only the protected control-plane ref for this manual
           # workflow. The release artifact must be a *new* immutable v* tag.
