@@ -169,8 +169,10 @@ manifest to every Cloudflare consumer. The manifest must define:
 Repository-local Cloudflare boundary JSON is not a deployment source of truth and is not used by
 the orchestrator.
 
-Preflight also compares Portal's UAT `dashboardUrl`, `authUrl`, and `apiBaseUrl` with these GitOps
-hosts. Readiness requires `X-Frontend-Route` on public and console HTML and CSS, validates the public
+Preflight compares SIT/UAT Portal `dashboardUrl`, `authUrl`, and `apiBaseUrl` with these GitOps
+hosts. Production Portal config intentionally uses customer-facing canonical domains; production
+DNS cutover is a separate approval and is not blocked by this internal-host parity check. Readiness
+requires `X-Frontend-Route` on public and console HTML and CSS, validates the public
 Tailwind marker, and reports both boundary CSS SHA-256 hashes; HTTP 200 and file size alone are not
 accepted as proof of a correct deployment.
 
