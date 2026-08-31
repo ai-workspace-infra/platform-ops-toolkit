@@ -195,7 +195,8 @@ jobs:
           url: https://vault.svc.plus
           method: jwt
           # Keep dispatch authorization in the same narrow release-authoring
-          # boundary; dispatched deployment workflows run from RELEASE_TAG.
+          # boundary; deployment workflows run from protected main and receive
+          # RELEASE_TAG as their immutable artifact input.
           role: github-actions-platform-ops-toolkit-prod-release
           jwtGithubAudience: vault
           secrets: |
