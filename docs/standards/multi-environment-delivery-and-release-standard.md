@@ -39,7 +39,7 @@ The shared tagging script must receive the intended tag explicitly. Stable
 release publication and daily snapshot publication differ by the tag value and
 the selected environment, not by a second tag-creation implementation. A
 Daily Main Snapshot has one deliberately narrow production path: a manual run
-from protected `main` may take a verified immutable `v*` or
+from protected `main` may take a verified immutable `v*`, `daily-build-*`, or
 `uat-daily-build-*` `snapshot_source_ref` and create a new immutable `v*`
 release tag. `main` is only the control-plane ref for that action; it is never
 the production artifact source. This path uses the dedicated
@@ -88,6 +88,11 @@ input or tag prefix appears to request `prod`:
   `refs/tags/snapshot-*`, and `refs/tags/prod-*`;
 - pull-request refs and a `workflow_dispatch` run from any non-allowlisted ref,
   except the dedicated Daily Main Snapshot release-authoring workflow on `main`.
+
+The dedicated Daily Main Snapshot release-authoring workflow on protected
+`main` is the sole exception for verified `daily-build-*` and
+`uat-daily-build-*` source tags; it promotes either source to a new immutable
+`v*` release tag and does not deploy the daily tag directly.
 
 An environment input, deploy tag, Vault role name, or helper-script inference
 must not widen this allowlist. A ref that is not allowlisted must fail closed
