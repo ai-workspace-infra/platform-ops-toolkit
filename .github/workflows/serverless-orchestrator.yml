@@ -129,7 +129,7 @@ jobs:
           path: portal-runtime-config
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            src/config/runtime-service-config.uat.yaml
+            src/config/runtime-service-config.${{ inputs.vault_env_path || 'uat' }}.yaml
 
       - name: Render GitOps serverless runtime topology
         run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
@@ -142,6 +142,7 @@ jobs:
         env:
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
           PORTAL_DIR: ${{ github.workspace }}/portal-runtime-config
+          PORTAL_ENV: ${{ inputs.vault_env_path || 'uat' }}
 
       - name: Validate serverless GitOps contract
         run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py

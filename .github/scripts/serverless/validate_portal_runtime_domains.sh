@@ -3,9 +3,10 @@ set -euo pipefail
 
 CONFIG_FILE="${CLOUDFLARE_BOUNDARY_CONFIG:?CLOUDFLARE_BOUNDARY_CONFIG is required}"
 PORTAL_DIR="${PORTAL_DIR:?PORTAL_DIR is required}"
-portal_config="${PORTAL_DIR}/src/config/runtime-service-config.uat.yaml"
+portal_env="${PORTAL_ENV:-uat}"
+portal_config="${PORTAL_DIR}/src/config/runtime-service-config.${portal_env}.yaml"
 
-test -f "${portal_config}" || { echo "Portal UAT runtime config not found: ${portal_config}" >&2; exit 1; }
+test -f "${portal_config}" || { echo "Portal ${portal_env} runtime config not found: ${portal_config}" >&2; exit 1; }
 
 console_host="$(jq -er '.spec.serverless.console_host' "${CONFIG_FILE}")"
 accounts_host="$(jq -er '.spec.serverless.accounts_host' "${CONFIG_FILE}")"
@@ -17,4 +18,4 @@ portal_api="$(awk '$1 == "apiBaseUrl:" {print $2}' "${portal_config}")"
 [[ "${portal_auth}" == "https://${accounts_host}" ]] || { echo "Portal authUrl (${portal_auth}) differs from GitOps Accounts (https://${accounts_host})" >&2; exit 1; }
 [[ "${portal_api}" == "https://${accounts_host}/api" ]] || { echo "Portal apiBaseUrl (${portal_api}) differs from GitOps Accounts API (https://${accounts_host}/api)" >&2; exit 1; }
 
-echo "Portal UAT domains match GitOps: Console=${console_host}, Accounts=${accounts_host}"
+echo "Portal ${portal_env} domains match GitOps: Console=${console_host}, Accounts=${accounts_host}"
