@@ -11,7 +11,7 @@ on:
         required: false
         type: string
       snapshot_source_ref:
-        description: "引用的 tag/ref：Prod 必须填写已验证的 v* 或 uat-daily-build-*；SIT/UAT 留空才使用 main。"
+        description: "引用的 tag/ref：Prod 必须填写已验证的 v*、daily-build-* 或 uat-daily-build-*；SIT/UAT 留空才使用 main。"
         required: false
         default: ''
         type: string
@@ -64,8 +64,8 @@ jobs:
           # The tag script resolves this ref in every target repository, then
           # creates the release tag at that exact commit. `main` is therefore
           # never eligible as the production artifact source.
-          [[ "${SNAPSHOT_SOURCE_REF}" =~ ^(v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[1-9][0-9]*)?|uat-daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?)$ ]] || {
-            echo "::error::Prod snapshot_source_ref must be an existing verified v* or uat-daily-build-* tag; main is not allowed." >&2
+          [[ "${SNAPSHOT_SOURCE_REF}" =~ ^(v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[1-9][0-9]*)?|(daily-build|uat-daily-build)-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?)$ ]] || {
+            echo "::error::Prod snapshot_source_ref must be an existing verified v*, daily-build-* or uat-daily-build-* tag; main is not allowed." >&2
             exit 1
           }
 
