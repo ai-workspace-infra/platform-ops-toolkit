@@ -35,6 +35,25 @@ targets, TTL, and desired mode are declared in:
 ai-workspace-infra/gitops/topology/uat/serverless/runtime-topology.yaml
 ```
 
+### PROD public entry cutover (manual)
+
+The PROD pipeline deploys the Cloudflare and Web SaaS mode-qualified services, but it does not
+automatically move the customer-facing aliases. After readiness and security verification, an
+operator performs the following CNAME cutover manually:
+
+| Public entry | CNAME target |
+| --- | --- |
+| `xworktech.com` | `console-cloudflare-prod.xworktech.com` |
+| `www.svc.plus` | `console-cloudflare-prod.svc.plus` |
+| `console.svc.plus` | `console-cloudflare-prod.svc.plus` |
+| `accounts.svc.plus` | `accounts-cloudflare-prod.svc.plus` |
+| `billing.svc.plus` | `billing-cloudflare-prod.svc.plus` |
+
+`assets.svc.plus` and `install.svc.plus` are outside this cutover list. The root
+`xworktech.com` record requires provider support for apex CNAME flattening (or an equivalent
+apex-alias feature). The deployment workflow must leave these canonical aliases unchanged unless
+an explicit, separately approved DNS cutover is requested.
+
 Every mode profile also declares the five public service entrances in
 `spec.public_endpoints` using `<service>-<mode>-<environment>.<base-domain>`:
 

@@ -11,8 +11,9 @@ on:
         required: false
         type: string
       snapshot_source_ref:
-        description: "引用的 tag/ref：Prod 必须填已验证的 v* 或 uat-daily-build-*；SIT/UAT 留空使用 main。"
+        description: "引用的 tag/ref：Prod 必须填写已验证的 v* 或 uat-daily-build-*；SIT/UAT 留空才使用 main。"
         required: false
+        default: ''
         type: string
       deploy_env:
         description: "目标环境：选择 sit、uat 或 prod。"
