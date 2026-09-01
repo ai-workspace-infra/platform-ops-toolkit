@@ -43,7 +43,7 @@ PATH="${workdir}:${PATH}" \
   SNAPSHOT_ORGANIZATION=ai-workspace-services \
   SNAPSHOT_REPOS=ai-workspace-services/accounts \
   SNAPSHOT_STATUS_FILE="${status_file}" \
-  BUILD_TIMEOUT_SECONDS=1 \
+  BUILD_TIMEOUT_SECONDS=5 \
   BUILD_POLL_SECONDS=0 \
   bash "${waiter}"
 
