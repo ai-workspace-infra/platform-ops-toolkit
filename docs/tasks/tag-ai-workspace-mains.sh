@@ -53,7 +53,10 @@ Usage:
 Without --apply/--push, print the selected ref SHA and planned tag operation only.
 Existing tags are never moved. --apply/--push creates missing lightweight tags.
 When --build is present, the matching image build workflow is dispatched with
-the same tag so the repository tag and GHCR image tag stay aligned.
+the same tag so the repository tag and GHCR image tag stay aligned. For a
+production service build, the workflow definition is dispatched from main and
+checks out the immutable tag as its source; this keeps an older promoted tag
+from selecting a stale workflow that cannot publish the Cloud Run image.
 
 Default environment resolution:
 
@@ -115,6 +118,17 @@ dispatch_build_workflow() {
 
   printf 'DISPATCH\t%s\t%s\t%s\n' "${repo}" "${workflow}" "${tag}"
 
+  dispatch_and_wait_for_production() {
+    local dispatch_output run_url
+    dispatch_output="$(gh workflow run "$@")"
+    run_url="$(grep -Eo 'https://github\.com/[^[:space:]]+/actions/runs/[0-9]+' <<<"${dispatch_output}" | tail -n 1)"
+    [[ -n "${run_url}" ]] || {
+      echo "::error::GitHub did not return the production workflow run URL for ${repo}." >&2
+      return 1
+    }
+    gh run watch "${run_url}" --repo "${repo}" --compact --exit-status
+  }
+
   case "${repo}" in
     ai-workspace-lab/xworkmate-bridge)
       gh workflow run "${workflow}" --repo "${repo}" --ref "${tag}" \
@@ -130,9 +144,28 @@ dispatch_build_workflow() {
         >/dev/null
       ;;
     ai-workspace-services/accounts)
-      gh workflow run "${workflow}" --repo "${repo}" --ref "${tag}" \
-        -f "deploy_env=${deploy_env}" \
-        >/dev/null
+      if [[ "${deploy_env}" == prod ]]; then
+        dispatch_and_wait_for_production "${workflow}" --repo "${repo}" --ref main \
+          -f "deploy_env=${deploy_env}" \
+          -f "source_ref=${tag}" \
+          -f "image_tag=${tag}"
+      else
+        gh workflow run "${workflow}" --repo "${repo}" --ref "${tag}" \
+          -f "deploy_env=${deploy_env}" \
+          >/dev/null
+      fi
+      ;;
+    ai-workspace-services/billing-service|ai-workspace-services/content-service)
+      if [[ "${deploy_env}" == prod ]]; then
+        dispatch_and_wait_for_production "${workflow}" --repo "${repo}" --ref main \
+          -f "deployment_environment=${deploy_env}" \
+          -f "source_ref=${tag}" \
+          -f "image_tag=${tag}"
+      else
+        gh workflow run "${workflow}" --repo "${repo}" --ref "${tag}" \
+          -f "deployment_environment=${deploy_env}" \
+          >/dev/null
+      fi
       ;;
     ai-workspace-services/edge-gateway)
       gh workflow run "${workflow}" --repo "${repo}" --ref "${tag}" \
