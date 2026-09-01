@@ -96,6 +96,11 @@ def main() -> int:
             raise SystemExit(f"domain {canonical} must define selfhost and serverless CNAME targets")
 
     serverless = spec.get("serverless", {})
+    console_aliases = serverless.get("console_aliases", [])
+    if not isinstance(console_aliases, list) or any(not isinstance(alias, str) or not alias.strip() for alias in console_aliases):
+        raise SystemExit("GitOps serverless.console_aliases must be a list of non-empty hostnames")
+    if environment == "prod" and "console-serverless-prod.xworktech.com" not in console_aliases:
+        raise SystemExit("PROD serverless.console_aliases must include console-serverless-prod.xworktech.com")
     if len(serverless.get("ssr", [])) != 5:
         raise SystemExit("GitOps routing manifest must define exactly five SSR boundaries")
     if len(serverless.get("edge_gateway", {}).get("boundaries", [])) != 3:

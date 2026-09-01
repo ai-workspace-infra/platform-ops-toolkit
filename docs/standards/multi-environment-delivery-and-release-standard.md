@@ -57,20 +57,25 @@ the resulting release tag must be recorded in deployment evidence.
 Production deployment and customer-facing DNS cutover are separate approvals. The deployment
 pipeline may publish and verify the mode-qualified Cloudflare/Web SaaS services, but must not
 automatically switch the following canonical aliases. An operator performs this CNAME change only
-after readiness and security checks pass:
+after readiness and security checks pass. The serverless target names are the canonical
+`*-serverless-prod.*` names; the retired `*-cloudflare-prod.*` variant must not be used:
 
 | Public entry | CNAME target |
 |---|---|
-| `xworktech.com` | `console-cloudflare-prod.xworktech.com` |
-| `www.svc.plus` | `console-cloudflare-prod.svc.plus` |
-| `console.svc.plus` | `console-cloudflare-prod.svc.plus` |
-| `accounts.svc.plus` | `accounts-cloudflare-prod.svc.plus` |
-| `billing.svc.plus` | `billing-cloudflare-prod.svc.plus` |
+| `xworktech.com` | `console-serverless-prod.xworktech.com` |
+| `www.svc.plus` | `console-serverless-prod.svc.plus` |
+| `console.svc.plus` | `console-serverless-prod.svc.plus` |
+| `accounts.svc.plus` | `accounts-serverless-prod.svc.plus` |
+| `billing.svc.plus` | `billing-serverless-prod.svc.plus` |
 
 `assets.svc.plus` and `install.svc.plus` are not part of this cutover. The apex
 `xworktech.com` record requires CNAME flattening or an equivalent apex-alias capability at the DNS
-provider. Any workflow input or script that uses `billing-cloudflare-prod..svc.plus` is invalid;
-the canonical target is `billing-cloudflare-prod.svc.plus`.
+provider. Any workflow input or script that uses a `*-cloudflare-prod.*` name is invalid; use the
+declared `*-serverless-prod.*` or `*-selfhost-prod.*` endpoint instead.
+
+Both `console-serverless-prod.svc.plus` and `console-serverless-prod.xworktech.com` are bound to
+the `frontend-router-prod` Worker. The Pages project is only the static asset origin and must not
+claim either Console hostname.
 
 ### 1.3 PROD source allowlist (mandatory)
 

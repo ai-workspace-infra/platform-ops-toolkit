@@ -49,6 +49,7 @@ cat >"${test_dir}/routing.json" <<'EOF'
     },
     "serverless": {
       "console_host": "console-serverless-uat.onwalk.net",
+      "console_aliases": ["console-serverless-uat.example.com"],
       "accounts_host": "accounts-serverless-uat.onwalk.net",
       "billing_host": "billing-serverless-uat.onwalk.net",
       "billing_origin_host": "billing-origin-serverless-uat.onwalk.net",
@@ -134,11 +135,12 @@ if grep -Fq $'POST\thttps://cloudflare.invalid/client/v4/accounts/account-1/page
   exit 1
 fi
 worker_puts="$(grep -Fc $'PUT\thttps://cloudflare.invalid/client/v4/accounts/account-1/workers/domains' "${test_dir}/curl.log")"
-test "${worker_puts}" -eq 4
+test "${worker_puts}" -eq 5
 worker_bodies="$(cut -f3 "${test_dir}/curl.log" | jq -s '[.[] | select(type == "object" and .hostname != null)]')"
 if ! jq -e '
   ((map(select(.hostname == "billing-serverless-uat.onwalk.net" and .service == "edge-gateway-core-uat")) | length) == 1)
   and ((map(select(.hostname == "console-uat.onwalk.net" and .service == "frontend-router-uat")) | length) == 1)
+  and ((map(select(.hostname == "console-serverless-uat.example.com" and .service == "frontend-router-uat" and .zone_name == "example.com")) | length) == 1)
   and ((map(select(.hostname == "accounts-uat.onwalk.net")) | length) == 0)
 ' <<<"${worker_bodies}" >/dev/null; then
   echo "Unexpected Worker custom-domain bindings: ${worker_bodies}" >&2
