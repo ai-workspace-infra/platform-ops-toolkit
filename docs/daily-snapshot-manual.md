@@ -28,6 +28,11 @@ GitHub App `daily-snapshot-tag`（App ID `4405545`）需要安装到四个目标
 - `Contents: Read and write`
 - `Actions: Read and write`
 
+生产快照在写入第一个 tag 前会使用 installation token 预检全部目标仓库。
+如果预检通过但创建 `refs/tags/v*` 仍返回 403，应检查目标组织中该 App 对仓库的
+实际安装范围，以及组织级 tag ruleset 是否允许 `daily-snapshot-tag` 绕过；不要通过
+手工删除或移动已有 tag 来重试，因为快照 tag 是不可变的。
+
 ## 执行步骤
 
 1. 打开 `platform-ops-toolkit` 的 `Actions`。

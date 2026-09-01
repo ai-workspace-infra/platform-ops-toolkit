@@ -291,9 +291,14 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
 
   printf '%s\t%s\t%s\n' "$([[ "${APPLY}" == true ]] && echo CREATE || echo PLAN)" "${repo}" "${sha}"
   if [[ "${APPLY}" == true ]]; then
-    gh api --method POST "repos/${repo}/git/refs" \
+    if ! tag_error="$(gh api --method POST "repos/${repo}/git/refs" \
       -f "ref=refs/tags/${TAG}" \
-      -f "sha=${sha}" >/dev/null
+      -f "sha=${sha}" 2>&1 >/dev/null)"; then
+      [[ -n "${tag_error}" ]] && printf '%s\n' "${tag_error}" >&2
+      record_status "failed" "${repo}" "${sha}" "GitHub App denied tag creation"
+      echo "::error::GitHub App denied tag creation for ${repo} (${TAG}). Verify the daily-snapshot-tag installation access and any organization tag ruleset/bypass actor for refs/tags/v*." >&2
+      exit 1
+    fi
 
     record_status "created" "${repo}" "${sha}" "tag created"
 
