@@ -291,14 +291,28 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
 
   printf '%s\t%s\t%s\n' "$([[ "${APPLY}" == true ]] && echo CREATE || echo PLAN)" "${repo}" "${sha}"
   if [[ "${APPLY}" == true ]]; then
-    if ! tag_error="$(gh api --method POST "repos/${repo}/git/refs" \
+    tag_response_file="$(mktemp)"
+    if ! gh api --include --method POST "repos/${repo}/git/refs" \
       -f "ref=refs/tags/${TAG}" \
-      -f "sha=${sha}" 2>&1 >/dev/null)"; then
-      [[ -n "${tag_error}" ]] && printf '%s\n' "${tag_error}" >&2
-      record_status "failed" "${repo}" "${sha}" "GitHub App denied tag creation"
+      -f "sha=${sha}" >"${tag_response_file}" 2>&1; then
+      tag_diagnostics="$(awk '
+        BEGIN { IGNORECASE = 1 }
+        /^(HTTP\/|x-accepted-github-permissions:|x-github-request-id:)/ {
+          gsub(/\r/, "")
+          print
+        }
+      ' "${tag_response_file}" | paste -sd ';' -)"
+      tag_message="$(sed -n '/^\r\{0,1\}$/,$p' "${tag_response_file}" | jq -r '.message // empty' 2>/dev/null || true)"
+      [[ -n "${tag_message}" ]] && printf 'gh: %s\n' "${tag_message}" >&2
+      [[ -n "${tag_diagnostics}" ]] && printf 'GitHub API diagnostics: %s\n' "${tag_diagnostics}" >&2
+      tag_detail="GitHub App denied tag creation"
+      [[ -n "${tag_diagnostics}" ]] && tag_detail+="; ${tag_diagnostics}"
+      record_status "failed" "${repo}" "${sha}" "${tag_detail}"
+      rm -f "${tag_response_file}"
       echo "::error::GitHub App denied tag creation for ${repo} (${TAG}). Verify the daily-snapshot-tag installation access and any organization tag ruleset/bypass actor for refs/tags/v*." >&2
       exit 1
     fi
+    rm -f "${tag_response_file}"
 
     record_status "created" "${repo}" "${sha}" "tag created"
 
