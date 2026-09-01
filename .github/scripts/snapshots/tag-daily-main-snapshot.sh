@@ -105,6 +105,36 @@ fi
 
 tag_repos="$(paste -sd, - <<< "${tag_repos}")"
 
+# An installation token can only see the repositories granted to its GitHub
+# App installation. Check that scope before creating any tag: otherwise a
+# token that can write the first repository can leave a cross-repository
+# snapshot half-created when a later repository returns HTTP 403.
+verify_installation_access() {
+  [[ "${SNAPSHOT_VERIFY_INSTALLATION_ACCESS:-false}" == true ]] || return 0
+
+  local accessible missing=() repo
+  if ! accessible="$(gh api --paginate 'installation/repositories?per_page=100' \
+    --jq '.repositories[]?.full_name' 2>/dev/null)"; then
+    echo "::error::Unable to inspect the GitHub App installation repository scope; refusing to create a partial snapshot." >&2
+    exit 1
+  fi
+
+  while IFS= read -r repo; do
+    [[ -n "${repo}" ]] || continue
+    if ! grep -Fqx -- "${repo}" <<<"${accessible}"; then
+      missing+=("${repo}")
+    fi
+  done < <(tr ',' '\n' <<<"${tag_repos}")
+
+  if [[ "${#missing[@]}" -gt 0 ]]; then
+    echo "::error::The GitHub App installation token cannot access: ${missing[*]}." >&2
+    echo "::error::Grant daily-snapshot-tag access to these repositories before retrying; also review any organization tag ruleset for refs/tags/v* and its bypass actors." >&2
+    exit 1
+  fi
+}
+
+verify_installation_access
+
 # A scheduled snapshot must never wait on a stale CI run just because its
 # requested tag was already created for an older main commit.  Tags are
 # immutable, so advance the revision for the whole selected repository set

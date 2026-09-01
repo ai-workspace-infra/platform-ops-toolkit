@@ -173,6 +173,9 @@ jobs:
           SNAPSHOT_REPOS: ${{ inputs.repositories }}
           SNAPSHOT_FILTER_BY_ORG: ${{ inputs.repositories != '' && 'true' || 'false' }}
           SNAPSHOT_REF: ${{ inputs.snapshot_source_ref || 'main' }}
+          # Fail before the first tag if this installation cannot access one
+          # of the selected repositories. This prevents partial snapshots.
+          SNAPSHOT_VERIFY_INSTALLATION_ACCESS: true
           SNAPSHOT_STATUS_FILE: ${{ runner.temp }}/daily-snapshot-status/${{ matrix.organization }}.jsonl
         run: ${{ github.workspace }}/.github/scripts/snapshots/tag-daily-main-snapshot.sh
 

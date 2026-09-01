@@ -58,6 +58,9 @@ jobs:
     - name: Verify serverless then Agent Proxy dispatch ordering
       run: bash .github/scripts/tests/daily_snapshot_combined_dispatch_test.sh
 
+    - name: Verify daily snapshot installation preflight
+      run: bash .github/scripts/tests/daily_snapshot_installation_access_test.sh
+
     - name: Verify UAT Serverless migration source contract
       run: bash .github/scripts/tests/serverless_supabase_source_contract_test.sh
 

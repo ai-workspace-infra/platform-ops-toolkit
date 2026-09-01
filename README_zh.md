@@ -140,6 +140,8 @@ KV 权限摘要：
 - 在 matrix 中的每个组织安装同一个 GitHub App：`ai-workspace-infra`、`ai-workspace-lab`、`ai-workspace-services`、`ai-workspace-xstream`。
 - App installation 必须能访问目标仓库；尽量使用 selected repositories 收敛范围。
 - 至少授予 `Contents: Read and write` 和 `Actions: Read and write`。
+- 生产快照会在首个 tag 写入前预检 installation token 的全部目标仓库；如果随后创建
+  `refs/tags/v*` 返回 403，还要检查组织级 tag ruleset 是否允许该 App 作为 bypass actor。
 - App 私钥存放在 `kv/data/CICD/github-app/daily-snapshot` 的 `app_private_key`。
 - `owner: matrix.organization` 必须与 App installation 的组织一致。
 
