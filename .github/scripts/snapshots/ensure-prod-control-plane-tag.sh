@@ -3,20 +3,20 @@ set -euo pipefail
 
 repo="${TARGET_REPOSITORY:-ai-workspace-infra/platform-ops-toolkit}"
 release_tag="${RELEASE_TAG:?RELEASE_TAG must be set}"
-source_ref="${SNAPSHOT_SOURCE_REF:?SNAPSHOT_SOURCE_REF must be set}"
+control_plane_sha="${CONTROL_PLANE_SHA:?CONTROL_PLANE_SHA must be set}"
 gh_token="${GH_TOKEN:?GH_TOKEN must be set}"
 
 [[ "${release_tag}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[1-9][0-9]*)?$ ]] || {
   echo "::error::RELEASE_TAG must be a formal immutable v* release tag." >&2
   exit 2
 }
-[[ "${source_ref}" =~ ^(v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[1-9][0-9]*)?|uat-daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?)$ ]] || {
-  echo "::error::SNAPSHOT_SOURCE_REF must be an existing verified release or UAT snapshot tag." >&2
+[[ "${control_plane_sha}" =~ ^[0-9a-f]{40}$ ]] || {
+  echo "::error::CONTROL_PLANE_SHA must be the protected workflow commit SHA." >&2
   exit 2
 }
 
 export GH_TOKEN="${gh_token}"
-source_sha="$(gh api "repos/${repo}/commits/${source_ref}" --jq .sha)"
+source_sha="$(gh api "repos/${repo}/commits/${control_plane_sha}" --jq .sha)"
 existing_sha="$(gh api "repos/${repo}/git/ref/tags/${release_tag}" --jq '.object.sha // empty' 2>/dev/null || true)"
 
 if [[ -n "${existing_sha}" ]]; then
