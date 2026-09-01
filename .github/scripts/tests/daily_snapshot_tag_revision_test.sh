@@ -72,7 +72,7 @@ SNAPSHOT_TAG=uat-daily-build-2026.08.19-r1 \
 SNAPSHOT_ORGS=ai-workspace-services \
 SNAPSHOT_REPOS=ai-workspace-services/portal \
 SNAPSHOT_STATUS_FILE="${status_file}" \
-BUILD_TIMEOUT_SECONDS=1 \
+  BUILD_TIMEOUT_SECONDS=5 \
 BUILD_POLL_SECONDS=0 \
 bash "${snapshot_script}"
 
