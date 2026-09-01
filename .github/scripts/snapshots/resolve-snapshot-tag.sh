@@ -70,6 +70,19 @@ gh_for_repo() {
   GH_TOKEN="$(token_for_repo "${repo}")" gh api "$@"
 }
 
+resolve_commit() {
+  local repo="$1" ref="$2" attempt sha
+  for attempt in 1 2 3; do
+    sha="$(gh_for_repo "${repo}" "repos/${repo}/commits/${ref}" --jq .sha 2>/dev/null || true)"
+    if [[ -n "${sha}" ]]; then
+      printf '%s' "${sha}"
+      return 0
+    fi
+    [[ "${attempt}" -lt 3 ]] && sleep "${attempt}"
+  done
+  return 1
+}
+
 repo_selected() {
   local repo="$1"
   [[ -z "${SNAPSHOT_REPOS:-}" ]] && return 0
@@ -98,7 +111,7 @@ done
 
 tag_conflict=false
 for repo in "${eligible_repos[@]}"; do
-  expected_sha="$(gh_for_repo "${repo}" "repos/${repo}/commits/${snapshot_ref}" --jq .sha 2>/dev/null || true)"
+  expected_sha="$(resolve_commit "${repo}" "${snapshot_ref}" || true)"
   [[ -n "${expected_sha}" ]] || {
     echo "::error::Cannot resolve ${snapshot_ref} in ${repo}; refusing to choose a release tag." >&2
     exit 1
