@@ -180,6 +180,17 @@ dispatch_build_workflow() {
   esac
 }
 
+dispatch_snapshot_build() {
+  local repo="$1"
+  local sha="$2"
+  local workflow
+  workflow="$(workflow_for_repo "${repo}")"
+  if [[ -n "${workflow}" && "${APPLY}" == true && "${TRIGGER_BUILD}" == true ]]; then
+    dispatch_build_workflow "${repo}" "${TAG}" "${workflow}" "${DEPLOY_ENV}"
+    record_status "dispatched" "${repo}" "${sha}" "workflow ${workflow} dispatched"
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tag)
@@ -310,11 +321,7 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
     if [[ "${existing}" == "${sha}" ]]; then
       printf 'UNCHANGED\t%s\t%s\n' "${repo}" "${sha}"
       record_status "unchanged" "${repo}" "${sha}" "tag already points to selected ref"
-      workflow="$(workflow_for_repo "${repo}")"
-      if [[ -n "${workflow}" && "${APPLY}" == true && "${TRIGGER_BUILD}" == true ]]; then
-        dispatch_build_workflow "${repo}" "${TAG}" "${workflow}" "${DEPLOY_ENV}"
-        record_status "dispatched" "${repo}" "${sha}" "workflow ${workflow} dispatched"
-      fi
+      dispatch_snapshot_build "${repo}" "${sha}"
       continue
     fi
     printf 'SKIP\t%s\ttag %s already points to %s; ref %s is %s (use a new immutable tag, for example %s-r1)\n' \
@@ -337,6 +344,16 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
         }
       ' "${tag_response_file}" | paste -sd ';' -)"
       tag_message="$(sed -n '/^\r\{0,1\}$/,$p' "${tag_response_file}" | jq -r '.message // empty' 2>/dev/null || true)"
+      if [[ "${tag_message}" == "Reference already exists" ]] \
+        && concurrent_ref_json="$(gh api "repos/${repo}/git/ref/tags/${TAG}" 2>/dev/null)" \
+        && concurrent_sha="$(jq -r '.object.sha // empty' <<<"${concurrent_ref_json}")" \
+        && [[ "${concurrent_sha}" == "${sha}" ]]; then
+        printf 'UNCHANGED\t%s\t%s\n' "${repo}" "${sha}"
+        record_status "unchanged" "${repo}" "${sha}" "tag was created concurrently and points to selected ref"
+        rm -f "${tag_response_file}"
+        dispatch_snapshot_build "${repo}" "${sha}"
+        continue
+      fi
       [[ -n "${tag_message}" ]] && printf 'gh: %s\n' "${tag_message}" >&2
       [[ -n "${tag_diagnostics}" ]] && printf 'GitHub API diagnostics: %s\n' "${tag_diagnostics}" >&2
       tag_detail="GitHub App denied tag creation"
@@ -350,11 +367,7 @@ for repo in "${SNAPSHOT_REPOS[@]}"; do
 
     record_status "created" "${repo}" "${sha}" "tag created"
 
-    workflow="$(workflow_for_repo "${repo}")"
-    if [[ -n "${workflow}" && "${TRIGGER_BUILD}" == true ]]; then
-      dispatch_build_workflow "${repo}" "${TAG}" "${workflow}" "${DEPLOY_ENV}"
-      record_status "dispatched" "${repo}" "${sha}" "workflow ${workflow} dispatched"
-    fi
+    dispatch_snapshot_build "${repo}" "${sha}"
   else
     record_status "planned" "${repo}" "${sha}" "tag creation planned"
   fi
