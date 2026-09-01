@@ -16,6 +16,14 @@ command -v sha256sum >/dev/null 2>&1 || { echo "sha256sum is required" >&2; exit
 console_host="$(jq -er '.spec.serverless.console_host' "${CONFIG_FILE}")"
 static_cdn_url="$(jq -r '.spec.cloudflare.static_cdn_url // empty' "${CONFIG_FILE}")"
 static_cdn_origin="${static_cdn_url:-https://${console_host}}"
+static_cdn_origin="${static_cdn_origin%/}"
+# A direct Pages/static CDN response does not pass through Frontend Router and
+# therefore has no X-Frontend-Route header. Only require that header when the
+# asset request is intentionally routed through the Console Worker.
+require_css_route=false
+if [[ "${static_cdn_origin}" == "https://${console_host}" ]]; then
+  require_css_route=true
+fi
 probe_root="$(mktemp -d)"
 trap 'rc=$?; rm -rf "${probe_root}"; exit ${rc}' EXIT
 
@@ -56,8 +64,13 @@ for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
     public_css_route="$(header_value "${public_css_headers}" 'X-Frontend-Route')"
     console_css_route="$(header_value "${console_css_headers}" 'X-Frontend-Route')"
 
+    css_routes_ok=true
+    if [[ "${require_css_route}" == true &&
+          ( "${public_css_route}" != "ssr-public" || "${console_css_route}" != "ssr-console" ) ]]; then
+      css_routes_ok=false
+    fi
     if [[ "${public_css_status}" == "200" && "${console_css_status}" == "200" &&
-          "${public_css_route}" == "ssr-public" && "${console_css_route}" == "ssr-console" ]] &&
+          "${css_routes_ok}" == true ]] &&
        grep -Fq '.text-4xl' "${public_css_body}"; then
       public_hash="$(sha256sum "${public_css_body}" | awk '{print $1}')"
       console_hash="$(sha256sum "${console_css_body}" | awk '{print $1}')"
