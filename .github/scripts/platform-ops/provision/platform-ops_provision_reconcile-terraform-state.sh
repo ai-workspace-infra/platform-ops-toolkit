@@ -36,23 +36,63 @@ jq -e . >/dev/null <<<"${state_json}" || {
   exit 1
 }
 
-# root_module 及其所有 child_modules 里的托管资源。data 源(mode=="data")不进
-# state 的删除范围: 它们每次 plan 重新求值, 没有会陈旧的 ID。
+# `terraform state pull` 的输出是后端 state 格式, 资源在顶层 `resources[]`;
+# `terraform show -json` 才是 `values.root_module`/`child_modules` 格式。这里
+# 同时兼容两种格式, 否则脚本会误报 workspace 为空, 让后面的 refresh 再次
+# 撞上已被 Vultr 删除的实例。
+#
+# root_module 及其所有 child_modules, 或 legacy resources[] 里的托管资源。
+# data 源(mode=="data")不进 state 的删除范围: 它们每次 plan 重新求值, 没有
+# 会陈旧的 ID。
 entries=()
 while IFS= read -r entry; do
   [[ -n "${entry}" ]] && entries+=("${entry}")
 done < <(
   jq -r '
-    # Terraform nests module resources under child_modules. Walk the module
-    # tree explicitly; a root-only query silently misses stale instances in
-    # addresses such as module.compute_console_nat_onwalk_net.vultr_instance.this.
+    def managed_vultr:
+      select(.mode == "managed")
+      | select(.type == "vultr_instance" or .type == "vultr_ssh_key");
+
+    # `terraform show -json` nests module resources under child_modules. Walk
+    # the module tree explicitly; a root-only query silently misses stale
+    # instances in addresses such as module.compute_console_nat_onwalk_net.vultr_instance.this.
     def module_resources:
       (.resources[]?),
       (.child_modules[]? | module_resources);
-    [ (.values.root_module? // empty) | module_resources ]
-    | map(select(.mode == "managed"))
-    | map(select(.type == "vultr_instance" or .type == "vultr_ssh_key"))
-    | .[] | [.address, .type, (.values.id // "")] | @tsv
+
+    def modern_entries:
+      [ (.values.root_module? // empty) | module_resources ]
+      | map(managed_vultr)
+      | .[] | [.address, .type, (.values.id // "")] | @tsv;
+
+    # `terraform state pull` uses the legacy state shape. One resource object
+    # can contain multiple instances, so preserve count/for_each index keys in
+    # the address passed to `terraform state rm`.
+    def legacy_address:
+      ((.module // "") as $module
+       | (if $module == "" then "" else ($module + ".") end)
+       + .type + "." + .name);
+
+    def legacy_index:
+      if has("index_key") then
+        if (.index_key | type) == "number"
+        then "[" + (.index_key | tostring) + "]"
+        else "[" + (.index_key | tojson) + "]"
+        end
+      else ""
+      end;
+
+    def legacy_entries:
+      [ .resources[]? | managed_vultr as $resource
+        | ($resource.instances[]? // {}) as $instance
+        | [($resource | legacy_address) + ($instance | legacy_index), $resource.type,
+           ($instance.attributes.id // "")] | @tsv
+      ] | .[];
+
+    if (.values.root_module? != null)
+    then modern_entries
+    else legacy_entries
+    end
   ' <<<"${state_json}"
 )
 

@@ -73,4 +73,33 @@ bash "${script}"
 
 grep -Fq 'module.compute_console_nat_onwalk_net.vultr_instance.this' "${workdir}/state-rm-args"
 grep -Fq 'removed 1 state entr' "${workdir}/summary.md"
+
+# `terraform state pull` returns the legacy top-level resources[] shape. Keep
+# the same nested module address covered so the production failure cannot
+# regress when the backend state is read directly.
+cat >"${workdir}/state.json" <<'JSON'
+{
+  "resources": [
+    {
+      "module": "module.compute_agent_proxy_node_uat",
+      "mode": "managed",
+      "type": "vultr_instance",
+      "name": "this",
+      "instances": [
+        {"attributes": {"id": "stale-agent-proxy-id"}}
+      ]
+    }
+  ]
+}
+JSON
+
+TEST_WORKDIR="${workdir}" \
+PATH="${workdir}/bin:${PATH}" \
+ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE=test-workspace \
+VULTR_API_KEY=test-key \
+GITHUB_STEP_SUMMARY="${workdir}/summary.md" \
+bash "${script}"
+
+grep -Fq 'module.compute_agent_proxy_node_uat.vultr_instance.this' "${workdir}/state-rm-args"
+grep -Fq 'removed 1 state entr' "${workdir}/summary.md"
 echo "nested module stale-state reconcile test passed"
