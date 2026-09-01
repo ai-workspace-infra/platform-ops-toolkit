@@ -75,7 +75,8 @@ declared `*-serverless-prod.*` or `*-selfhost-prod.*` endpoint instead.
 
 Both `console-serverless-prod.svc.plus` and `console-serverless-prod.xworktech.com` are bound to
 the `frontend-router-prod` Worker. The Pages project is only the static asset origin and must not
-claim either Console hostname.
+claim either Console hostname. The declared production `static_cdn_url` (`assets.svc.plus`) is the
+Pages custom domain and is reconciled separately with its Pages CNAME.
 
 ### 1.3 PROD source allowlist (mandatory)
 

@@ -10,6 +10,8 @@ command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
 command -v sha256sum >/dev/null 2>&1 || { echo "sha256sum is required" >&2; exit 1; }
 
 console_host="$(jq -er '.spec.serverless.console_host' "${CONFIG_FILE}")"
+static_cdn_url="$(jq -r '.spec.cloudflare.static_cdn_url // empty' "${CONFIG_FILE}")"
+static_cdn_origin="${static_cdn_url:-https://${console_host}}"
 probe_root="$(mktemp -d)"
 trap 'rc=$?; rm -rf "${probe_root}"; exit ${rc}' EXIT
 
@@ -45,8 +47,8 @@ for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
     public_css_body="${probe_root}/public.css"
     console_css_headers="${probe_root}/console-css.headers"
     console_css_body="${probe_root}/console.css"
-    public_css_status="$(curl --silent --show-error --compressed --dump-header "${public_css_headers}" --output "${public_css_body}" --write-out '%{http_code}' --max-time 30 "https://${console_host}${public_css}" || true)"
-    console_css_status="$(curl --silent --show-error --compressed --dump-header "${console_css_headers}" --output "${console_css_body}" --write-out '%{http_code}' --max-time 30 "https://${console_host}${console_css}" || true)"
+    public_css_status="$(curl --silent --show-error --compressed --dump-header "${public_css_headers}" --output "${public_css_body}" --write-out '%{http_code}' --max-time 30 "${static_cdn_origin}${public_css}" || true)"
+    console_css_status="$(curl --silent --show-error --compressed --dump-header "${console_css_headers}" --output "${console_css_body}" --write-out '%{http_code}' --max-time 30 "${static_cdn_origin}${console_css}" || true)"
     public_css_route="$(header_value "${public_css_headers}" 'X-Frontend-Route')"
     console_css_route="$(header_value "${console_css_headers}" 'X-Frontend-Route')"
 

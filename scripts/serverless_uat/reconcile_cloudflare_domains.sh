@@ -41,6 +41,9 @@ jq -e '
 
 zone_name="$(jq -er '.spec.cloudflare.zone_name' "${CONFIG_FILE}")"
 pages_project="$(jq -er '.spec.cloudflare.pages_project' "${CONFIG_FILE}")"
+static_cdn_url="$(jq -r '.spec.cloudflare.static_cdn_url // empty' "${CONFIG_FILE}")"
+static_cdn_host="${static_cdn_url#*://}"
+static_cdn_host="${static_cdn_host%%/*}"
 console_host="$(jq -er '.spec.serverless.console_host' "${CONFIG_FILE}")"
 accounts_host="$(jq -er '.spec.serverless.accounts_host' "${CONFIG_FILE}")"
 billing_host="$(jq -er '.spec.serverless.billing_host' "${CONFIG_FILE}")"
@@ -97,6 +100,24 @@ zone_id_for_hostname() {
   local response
   response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones?name=${requested_zone}&status=active")"
   jq -er '.result | if length == 1 then .[0].id else error("expected exactly one active zone") end' <<<"${response}"
+}
+
+ensure_pages_custom_domain() {
+  local hostname="$1"
+  [[ -n "${hostname}" && "${hostname}" != *.pages.dev ]] || return 0
+  local domains_url="${CLOUDFLARE_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${pages_project}/domains"
+  local domains_response
+  local existing_status
+  local body
+  domains_response="$(api_request GET "${domains_url}")"
+  existing_status="$(jq -r --arg hostname "${hostname}" 'first(.result[]? | select(.name == $hostname) | .status) // empty' <<<"${domains_response}")"
+  if [[ -n "${existing_status}" ]]; then
+    echo "Pages custom domain present: ${hostname} (status=${existing_status})"
+    return 0
+  fi
+  body="$(jq -cn --arg name "${hostname}" '{name: $name}')"
+  api_request POST "${domains_url}" "${body}" >/dev/null
+  echo "Pages custom domain attached: ${hostname} -> ${pages_project}"
 }
 
 safeguard_pages_domain() {
@@ -250,6 +271,10 @@ reconcile_cname_record() {
   fi
 }
 
+if [[ -n "${static_cdn_host}" && "${static_cdn_host}" != *.pages.dev ]]; then
+  ensure_pages_custom_domain "${static_cdn_host}"
+  reconcile_cname_record "${static_cdn_host}" "${pages_project}.pages.dev"
+fi
 safeguard_pages_domain "${console_host}"
 while IFS= read -r console_alias; do
   [[ -n "${console_alias}" ]] || continue

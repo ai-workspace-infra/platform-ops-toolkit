@@ -59,7 +59,8 @@ an explicit, separately approved DNS cutover is requested.
 The production Console hosts `console-serverless-prod.svc.plus` and
 `console-serverless-prod.xworktech.com` are both custom domains of
 `frontend-router-prod`; neither is a Pages custom-domain owner. Pages remains the static asset
-origin for the Worker.
+origin for the Worker. The production `static_cdn_url` (`assets.svc.plus`) is separately bound to
+`ai-workspace-portal-prod` and its CNAME is reconciled by the Serverless domains job.
 
 Every mode profile also declares the five public service entrances in
 `spec.public_endpoints` using `<service>-<mode>-<environment>.<base-domain>`:
