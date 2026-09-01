@@ -217,7 +217,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.prod-app-token.outputs.token }}
           RELEASE_TAG: ${{ steps.resolve_release_tag.outputs.release_tag }}
-          SNAPSHOT_SOURCE_REF: ${{ inputs.snapshot_source_ref }}
+          CONTROL_PLANE_SHA: ${{ github.sha }}
 
       - name: Dispatch production serverless and selfhost deployment
         if: ${{ (inputs.deploy_env || 'uat') == 'prod' && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' }}
