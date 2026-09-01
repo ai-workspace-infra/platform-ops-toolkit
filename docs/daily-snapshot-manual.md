@@ -27,6 +27,7 @@ GitHub App `daily-snapshot-tag`（App ID `4405545`）需要安装到四个目标
 
 - `Contents: Read and write`
 - `Actions: Read and write`
+- `Workflows: Read and write`（生产 `v*` tag 会触发目标仓库 CI）
 
 生产快照在写入第一个 tag 前会使用 installation token 预检全部目标仓库。
 如果预检通过但创建 `refs/tags/v*` 仍返回 403，应检查目标组织中该 App 对仓库的

@@ -94,6 +94,7 @@ jobs:
             postgresql.svc.plus
           permission-contents: write
           permission-actions: write
+          permission-workflows: write
 
       - name: Create GitHub App installation token for xstream
         id: app-token-xstream
@@ -157,6 +158,7 @@ jobs:
           repositories: ${{ matrix.organization == 'ai-workspace-services' && 'accounts,billing-service,content-service,portal,edge-gateway,postgresql.svc.plus' || '' }}
           permission-contents: write
           permission-actions: write
+          permission-workflows: write
 
       - name: Create cross-repository main snapshot
         # The matrix owns one GitHub App token per organization. When an
