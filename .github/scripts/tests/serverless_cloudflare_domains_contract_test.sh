@@ -130,6 +130,11 @@ CLOUDFLARE_API_BASE_OVERRIDE="https://cloudflare.invalid/client/v4" \
 SERVERLESS_DNS_MODE="uat-records" \
 "${reconciler}"
 
+if grep -F $'GET	https://cloudflare.invalid/client/v4/zones?name=' "${test_dir}/curl.log" | grep -vF 'account.id=account-1' >/dev/null; then
+  echo "Zone discovery must be scoped to the configured Cloudflare account" >&2
+  exit 1
+fi
+
 if grep -Fq $'POST\thttps://cloudflare.invalid/client/v4/accounts/account-1/pages/projects/ai-workspace-portal-uat/domains' "${test_dir}/curl.log"; then
   echo "Pages must not receive the Console custom domain" >&2
   exit 1
