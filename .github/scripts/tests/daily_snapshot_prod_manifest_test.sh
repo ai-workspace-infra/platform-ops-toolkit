@@ -55,4 +55,9 @@ jq -se '
 [[ "$(grep -Fxc -- '--ref "${release_tag}" \\' "${prod_dispatcher}")" -eq 2 ]]
 ! grep -Fq -- '--ref main' "${prod_dispatcher}"
 
+# The routine production snapshot must not implicitly require the separate
+# PROD accounts-migration SSH contract.
+grep -Fq -- '-f operation=deploy -f target_domains=web-saas' "${prod_dispatcher}"
+! grep -Fq -- '-f operation=deploy+migrate' "${prod_dispatcher}"
+
 echo "daily_snapshot_prod_manifest_test: PASS"

@@ -778,12 +778,21 @@ jobs:
         run: |
           ./.github/scripts/serverless/prepare_gitops_routing_config.sh
           accounts_host="$(jq -er '.spec.serverless.accounts_host' "${RUNNER_TEMP}/edge-routing.json")"
+          accounts_run_url="$(jq -er '.spec.serverless.cloud_run.accounts' "${RUNNER_TEMP}/edge-routing.json")"
           domain_base="${accounts_host#*.}"
           [[ "${domain_base}" != "${accounts_host}" ]] || {
             echo "invalid Accounts host in GitOps topology: ${accounts_host}" >&2
             exit 1
           }
-          echo "ACCOUNTS_BASE_URL=https://${accounts_host}" >> "${GITHUB_ENV}"
+          [[ "${accounts_run_url}" =~ ^https://[^/]+\.run\.app$ ]] || {
+            echo "invalid Accounts Cloud Run URL in GitOps topology: ${accounts_run_url}" >&2
+            exit 1
+          }
+          # The public Accounts hostname is protected by Cloudflare. Catalog
+          # bootstrap runs on a GitHub-hosted runner, so use the GitOps-owned
+          # Cloud Run origin for its authenticated API calls and retain the
+          # public domain only for domain-derived catalog metadata.
+          echo "ACCOUNTS_BASE_URL=${accounts_run_url}" >> "${GITHUB_ENV}"
           echo "DOMAIN_BASE=${domain_base}" >> "${GITHUB_ENV}"
         env:
           GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
