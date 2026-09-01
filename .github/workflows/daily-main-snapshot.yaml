@@ -172,7 +172,7 @@ jobs:
   snapshot-summary:
     name: Summarize daily snapshot status
     needs: [resolve-snapshot-tag, snapshot]
-    if: ${{ always() && needs.snapshot.result != 'skipped' }}
+    if: ${{ always() && needs.resolve-snapshot-tag.result == 'success' && needs.snapshot.result != 'skipped' }}
     environment: ${{ (inputs.deploy_env || 'uat') == 'prod' && 'production' || '' }}
     runs-on: ubuntu-latest
     steps:
