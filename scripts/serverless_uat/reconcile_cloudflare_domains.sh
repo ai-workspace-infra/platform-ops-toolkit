@@ -87,20 +87,33 @@ api_request() {
 zone_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones?name=${zone_name}&status=active")"
 zone_id="$(jq -er '.result | if length == 1 then .[0].id else error("expected exactly one active zone") end' <<<"${zone_response}")"
 
+zone_id_for_hostname() {
+  local hostname="$1"
+  local requested_zone="${hostname#*.}"
+  if [[ "${requested_zone}" == "${zone_name}" ]]; then
+    printf '%s' "${zone_id}"
+    return
+  fi
+  local response
+  response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones?name=${requested_zone}&status=active")"
+  jq -er '.result | if length == 1 then .[0].id else error("expected exactly one active zone") end' <<<"${response}"
+}
+
 safeguard_pages_domain() {
+  local hostname="$1"
   local domains_url="${CLOUDFLARE_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${pages_project}/domains"
   local domains_response
   local existing_name
   local existing_status
   domains_response="$(api_request GET "${domains_url}" || echo '{"result":[]}')"
-  existing_name="$(jq -r --arg hostname "${console_host}" 'first(.result[]? | select(.name == $hostname) | .name) // empty' <<<"${domains_response}")"
-  existing_status="$(jq -r --arg hostname "${console_host}" 'first(.result[]? | select(.name == $hostname) | .status // "unknown")' <<<"${domains_response}")"
+  existing_name="$(jq -r --arg hostname "${hostname}" 'first(.result[]? | select(.name == $hostname) | .name) // empty' <<<"${domains_response}")"
+  existing_status="$(jq -r --arg hostname "${hostname}" 'first(.result[]? | select(.name == $hostname) | .status // "unknown")' <<<"${domains_response}")"
 
   if [[ -n "${existing_name}" ]]; then
     echo "Detaching stale Pages domain (${existing_name}, status=${existing_status}) to allow Worker custom domain binding..."
     api_request DELETE "${domains_url}/${existing_name}" >/dev/null || true
   fi
-  echo "Pages does not own the Console target: ${console_host}"
+  echo "Pages does not own the Worker Console target: ${hostname}"
 }
 
 reconcile_worker_domain() {
@@ -111,6 +124,9 @@ reconcile_worker_domain() {
   local existing
   local conflicting_service
   local body
+  local target_zone_name="${hostname#*.}"
+  local target_zone_id
+  target_zone_id="$(zone_id_for_hostname "${hostname}")"
   domains_response="$(api_request GET "${domains_url}")"
   existing="$(jq -r --arg hostname "${hostname}" --arg service "${service}" '
     first(.result[]? | select(.hostname == $hostname and .service == $service) | [.hostname, .service] | @tsv) // empty
@@ -130,8 +146,8 @@ reconcile_worker_domain() {
   body="$(jq -cn \
     --arg hostname "${hostname}" \
     --arg service "${service}" \
-    --arg zone_id "${zone_id}" \
-    --arg zone_name "${zone_name}" \
+    --arg zone_id "${target_zone_id}" \
+    --arg zone_name "${target_zone_name}" \
     '{hostname: $hostname, service: $service, zone_id: $zone_id, zone_name: $zone_name}')"
   api_request PUT "${CLOUDFLARE_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/domains" "${body}" >/dev/null
   echo "Worker custom domain attached: ${hostname} -> ${service}"
@@ -140,7 +156,9 @@ reconcile_worker_domain() {
 remove_worker_routes_for_host() {
   local hostname="$1"
   local expected_service="${2:-}"
-  local routes_url="${CLOUDFLARE_API_BASE}/zones/${zone_id}/workers/routes"
+  local routes_zone_id
+  routes_zone_id="$(zone_id_for_hostname "${hostname}")"
+  local routes_url="${CLOUDFLARE_API_BASE}/zones/${routes_zone_id}/workers/routes"
   local routes_response
   local route_id
   local pattern
@@ -232,12 +250,24 @@ reconcile_cname_record() {
   fi
 }
 
-safeguard_pages_domain
+safeguard_pages_domain "${console_host}"
+while IFS= read -r console_alias; do
+  [[ -n "${console_alias}" ]] || continue
+  safeguard_pages_domain "${console_alias}"
+done < <(jq -r '.spec.serverless.console_aliases[]? // empty' "${CONFIG_FILE}")
 reconcile_worker_domain "${console_host}" "${frontend_router_worker}"
+while IFS= read -r console_alias; do
+  [[ -n "${console_alias}" ]] || continue
+  reconcile_worker_domain "${console_alias}" "${frontend_router_worker}"
+done < <(jq -r '.spec.serverless.console_aliases[]? // empty' "${CONFIG_FILE}")
 # A Worker custom domain is the only supported owner for Console. Explicit
 # Worker Routes take precedence over it and can bypass Frontend Router, so
 # remove every route on the GitOps-declared Console host.
 remove_worker_routes_for_host "${console_host}"
+while IFS= read -r console_alias; do
+  [[ -n "${console_alias}" ]] || continue
+  remove_worker_routes_for_host "${console_alias}"
+done < <(jq -r '.spec.serverless.console_aliases[]? // empty' "${CONFIG_FILE}")
 reconcile_worker_domain "${accounts_host}" "${core_worker}"
 remove_declared_cname "${billing_host}" "${billing_upstream#https://}"
 reconcile_worker_domain "${billing_host}" "${core_worker}"

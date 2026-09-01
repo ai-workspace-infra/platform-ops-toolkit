@@ -39,20 +39,27 @@ ai-workspace-infra/gitops/topology/uat/serverless/runtime-topology.yaml
 
 The PROD pipeline deploys the Cloudflare and Web SaaS mode-qualified services, but it does not
 automatically move the customer-facing aliases. After readiness and security verification, an
-operator performs the following CNAME cutover manually:
+operator performs the following CNAME cutover manually. Production serverless targets use the
+`serverless` role name; `*-cloudflare-prod.*` is retired and must not be used by deployments or
+verification probes:
 
 | Public entry | CNAME target |
 | --- | --- |
-| `xworktech.com` | `console-cloudflare-prod.xworktech.com` |
-| `www.svc.plus` | `console-cloudflare-prod.svc.plus` |
-| `console.svc.plus` | `console-cloudflare-prod.svc.plus` |
-| `accounts.svc.plus` | `accounts-cloudflare-prod.svc.plus` |
-| `billing.svc.plus` | `billing-cloudflare-prod.svc.plus` |
+| `xworktech.com` | `console-serverless-prod.xworktech.com` |
+| `www.svc.plus` | `console-serverless-prod.svc.plus` |
+| `console.svc.plus` | `console-serverless-prod.svc.plus` |
+| `accounts.svc.plus` | `accounts-serverless-prod.svc.plus` |
+| `billing.svc.plus` | `billing-serverless-prod.svc.plus` |
 
 `assets.svc.plus` and `install.svc.plus` are outside this cutover list. The root
 `xworktech.com` record requires provider support for apex CNAME flattening (or an equivalent
 apex-alias feature). The deployment workflow must leave these canonical aliases unchanged unless
 an explicit, separately approved DNS cutover is requested.
+
+The production Console hosts `console-serverless-prod.svc.plus` and
+`console-serverless-prod.xworktech.com` are both custom domains of
+`frontend-router-prod`; neither is a Pages custom-domain owner. Pages remains the static asset
+origin for the Worker.
 
 Every mode profile also declares the five public service entrances in
 `spec.public_endpoints` using `<service>-<mode>-<environment>.<base-domain>`:
@@ -78,6 +85,21 @@ The mode-qualified entries can coexist as separate DNS names. A normal Serverles
 it does not rewrite `console-uat.onwalk.net` or `accounts-uat.onwalk.net`. The Serverless workflow
 may change the canonical aliases only with the explicit `dns_mode=uat-records` or
 `dns_mode=prod-cutover` input.
+
+The production mode-qualified internal service entrances are:
+
+| Service | Serverless | Selfhost |
+| --- | --- | --- |
+| Console | `console-serverless-prod.svc.plus` | `console-selfhost-prod.svc.plus` |
+| Accounts | `accounts-serverless-prod.svc.plus` | `accounts-selfhost-prod.svc.plus` |
+| Billing | `billing-serverless-prod.svc.plus` | `billing-selfhost-prod.svc.plus` |
+| PostgreSQL | `postgresql-serverless-prod.svc.plus` | `postgresql-selfhost-prod.svc.plus` |
+| Agent Proxy | `agent-proxy-serverless-prod.svc.plus` | `agent-proxy-selfhost-prod.svc.plus` |
+
+Post-deployment verification must use these declared names. The Serverless orchestrator verifies
+the deployed Console, Accounts, and Billing edge chain; PostgreSQL and Agent Proxy remain
+provider-owned and are verified by the Selfhost/provider readiness gates rather than being
+silently treated as Serverless deployments.
 
 Ownership of the canonical aliases is asymmetric, and deliberately so. `dns_mode=uat-records`
 binds `console-uat.onwalk.net` as a Worker custom domain, and Cloudflare then refuses to delete

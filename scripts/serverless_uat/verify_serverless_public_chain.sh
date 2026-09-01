@@ -46,6 +46,15 @@ for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
   accounts_dns="$(dig +short @1.1.1.1 "${accounts_probe_host}" | sed -n '1p')"
   billing_dns="$(dig +short @1.1.1.1 "${billing_host}" | sed -n '1p')"
   console_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 20 "${origin}/" || true)"
+  aliases_ready=true
+  while IFS= read -r console_alias; do
+    [[ -n "${console_alias}" ]] || continue
+    alias_dns="$(dig +short @1.1.1.1 "${console_alias}" | sed -n '1p')"
+    alias_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 20 "https://${console_alias}/" || true)"
+    if [[ -z "${alias_dns}" || ! "${alias_status}" =~ ^(200|301|302|307|308)$ ]]; then
+      aliases_ready=false
+    fi
+  done < <(jq -r '.spec.serverless.console_aliases[]? // empty' "${CONFIG_FILE}")
   preflight_headers="$(curl --silent --show-error --dump-header - --output /dev/null --max-time 20 \
     --request OPTIONS "${api_origin}/api/v1/health" \
     --header "Origin: ${origin}" \
@@ -60,6 +69,7 @@ for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
   billing_route="$(awk 'BEGIN { IGNORECASE=1 } /^X-Upstream-Route:/ {sub(/\r$/, "", $2); print $2}' <<<"${billing_headers}" | tail -1)"
 
   if [[ -n "${console_dns}" && -n "${accounts_dns}" && -n "${billing_dns}" &&
+        "${aliases_ready}" == true &&
         "${console_status}" =~ ^(200|301|302|307|308)$ && "${preflight_status}" == "204" &&
         "${billing_status}" == "200" && "${billing_route}" == "cloud-run-billing" &&
         "${preflight_headers}" =~ [Aa]ccess-[Cc]ontrol-[Aa]llow-[Oo]rigin: ]]; then
@@ -67,7 +77,7 @@ for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
     exit 0
   fi
 
-  echo "Waiting for serverless public chain (${attempt}/${VERIFY_ATTEMPTS}): console=${console_probe_host} dns=${console_dns:-missing}, accounts=${accounts_probe_host} dns=${accounts_dns:-missing}, billing=${billing_host} dns=${billing_dns:-missing}, console_http=${console_status}, preflight=${preflight_status:-missing}, billing_http=${billing_status:-missing}, billing_route=${billing_route:-missing}" >&2
+  echo "Waiting for serverless public chain (${attempt}/${VERIFY_ATTEMPTS}): console=${console_probe_host} dns=${console_dns:-missing}, aliases_ready=${aliases_ready}, accounts=${accounts_probe_host} dns=${accounts_dns:-missing}, billing=${billing_host} dns=${billing_dns:-missing}, console_http=${console_status}, preflight=${preflight_status:-missing}, billing_http=${billing_status:-missing}, billing_route=${billing_route:-missing}" >&2
   if (( attempt < VERIFY_ATTEMPTS )); then
     sleep "${VERIFY_INTERVAL_SECONDS}"
   fi
