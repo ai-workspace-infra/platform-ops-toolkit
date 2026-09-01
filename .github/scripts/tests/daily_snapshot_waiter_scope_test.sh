@@ -24,6 +24,8 @@ case "$1" in
       list)
         if [[ " $* " == *" ai-workspace-services/portal "* ]]; then
           printf '%s\n' '[{"databaseId":42,"event":"push","status":"completed","headBranch":"uat-daily-build-test","headSha":"test-sha"}]'
+        elif [[ " $* " == *" ai-workspace-lab/xworkmate-bridge "* ]]; then
+          printf '%s\n' '[{"databaseId":41,"event":"push","status":"completed","conclusion":"cancelled","headBranch":"uat-daily-build-test","headSha":"test-sha"},{"databaseId":43,"event":"workflow_dispatch","status":"completed","headBranch":"uat-daily-build-test","headSha":"test-sha"}]'
         else
           printf '[]\n'
         fi
@@ -78,5 +80,20 @@ if grep -q 'xworkmate-bridge' "${status_file}"; then
   echo "cross-organization repository was not filtered" >&2
   exit 1
 fi
+
+lab_status_file="${workdir}/lab-status.jsonl"
+PATH="${workdir}:${PATH}" \
+  GH_TOKEN=test \
+  SNAPSHOT_TAG=uat-daily-build-test \
+  SNAPSHOT_ORGANIZATION=ai-workspace-lab \
+  SNAPSHOT_REPOS=ai-workspace-lab/xworkmate-bridge \
+  SNAPSHOT_STATUS_FILE="${lab_status_file}" \
+  BUILD_TIMEOUT_SECONDS=1 \
+  BUILD_POLL_SECONDS=0 \
+  bash "${waiter}"
+jq -se '
+  [ .[] | select(.repository == "ai-workspace-lab/xworkmate-bridge" and .status == "build_succeeded") ]
+  | length == 1
+' "${lab_status_file}" >/dev/null
 
 echo "daily_snapshot_waiter_scope_test: PASS"

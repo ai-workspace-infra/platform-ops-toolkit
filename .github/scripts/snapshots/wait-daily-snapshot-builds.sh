@@ -27,6 +27,13 @@ repo_requires_release_manifest() {
   esac
 }
 
+ci_trigger_for_repo() {
+  case "$1" in
+    ai-workspace-lab/xworkmate-bridge) printf '%s\n' workflow_dispatch ;;
+    *) printf '%s\n' push ;;
+  esac
+}
+
 # Service CI publishes release-manifest.json only for the daily/UAT snapshot
 # tags.  Production v* tags use the same build workflows but intentionally do
 # not publish that intermediate snapshot artifact; their immutable tag and a
@@ -91,12 +98,14 @@ for repo in "${repos[@]}"; do
     continue
   fi
   run_sha="$expected_sha"
+  expected_event="$(ci_trigger_for_repo "$repo")"
   while [[ -z "$run_id" && $(date +%s) -lt $deadline ]]; do
     runs="$(gh run list -R "$repo" -w "$workflow" -L 50 --json databaseId,event,status,headBranch,headSha 2>/dev/null || printf '[]')"
     run_id="$(jq -r \
       --arg tag "$SNAPSHOT_TAG" \
       --arg sha "$expected_sha" \
-      '[.[] | select((.event == "push" or .event == "workflow_dispatch") and .headBranch == $tag and .headSha == $sha)] | first | .databaseId // empty' \
+      --arg event "$expected_event" \
+      '[.[] | select(.event == $event and .headBranch == $tag and .headSha == $sha)] | first | .databaseId // empty' \
       <<< "$runs")"
     [[ -n "$run_id" ]] || sleep "$poll_seconds"
   done
