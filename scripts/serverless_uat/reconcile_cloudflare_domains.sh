@@ -87,8 +87,9 @@ api_request() {
   printf '%s' "${response}"
 }
 
-zone_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones?name=${zone_name}&status=active")"
-zone_id="$(jq -er '.result | if length == 1 then .[0].id else error("expected exactly one active zone") end' <<<"${zone_response}")"
+zone_query="name=${zone_name}&status=active&account.id=${CLOUDFLARE_ACCOUNT_ID}&per_page=100"
+zone_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones?${zone_query}")"
+zone_id="$(jq -er '.result | if length == 1 then .[0].id else error("expected exactly one active zone in the configured account") end' <<<"${zone_response}")"
 
 zone_id_for_hostname() {
   local hostname="$1"
@@ -98,8 +99,8 @@ zone_id_for_hostname() {
     return
   fi
   local response
-  response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones?name=${requested_zone}&status=active")"
-  jq -er '.result | if length == 1 then .[0].id else error("expected exactly one active zone") end' <<<"${response}"
+  response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones?name=${requested_zone}&status=active&account.id=${CLOUDFLARE_ACCOUNT_ID}&per_page=100")"
+  jq -er '.result | if length == 1 then .[0].id else error("expected exactly one active zone in the configured account") end' <<<"${response}"
 }
 
 ensure_pages_custom_domain() {
