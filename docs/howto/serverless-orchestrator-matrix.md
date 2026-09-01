@@ -120,6 +120,11 @@ Supabase verification/migration is executed as a separate gated stage. No databa
 Cloudflare token, GCP credential, or other secret is stored in the repository or exposed as a
 workflow input.
 
+The production snapshot dispatches both Serverless and Selfhost orchestrators from that same
+`v*` control-plane tag, rather than `main`. The resulting GitHub OIDC `ref` claim matches the
+Vault PROD role's `refs/tags/v*` binding; do not widen that general role to `main` to recover a
+failed deployment.
+
 ## Deployment stages and dependencies
 
 Deployment order is intentionally separate from request topology. The application targets run in
