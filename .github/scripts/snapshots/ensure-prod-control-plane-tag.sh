@@ -17,7 +17,13 @@ gh_token="${GH_TOKEN:?GH_TOKEN must be set}"
 
 export GH_TOKEN="${gh_token}"
 source_sha="$(gh api "repos/${repo}/commits/${control_plane_sha}" --jq .sha)"
-existing_sha="$(gh api "repos/${repo}/git/ref/tags/${release_tag}" --jq '.object.sha // empty' 2>/dev/null || true)"
+if existing_sha="$(gh api "repos/${repo}/git/ref/tags/${release_tag}" --jq '.object.sha // empty' 2>/dev/null)"; then
+  :
+else
+  # `gh api` writes the 404 response body to stdout.  Do not let that JSON be
+  # mistaken for a tag SHA; a missing tag is the normal create path.
+  existing_sha=""
+fi
 
 if [[ -n "${existing_sha}" ]]; then
   [[ "${existing_sha}" == "${source_sha}" ]] || {
