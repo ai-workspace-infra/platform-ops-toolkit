@@ -5,6 +5,7 @@
       "repository": "ai-workspace-services/accounts",
       "workflow": "ci-pipeline.yml",
       "trigger": "push",
+      "production_promotion": true,
       "dispatch_inputs": {"deploy_env": "${DEPLOY_ENV}"},
       "artifacts": ["image", "binary", "zip", "release-manifest"]
     },
@@ -12,6 +13,7 @@
       "repository": "ai-workspace-services/billing-service",
       "workflow": "ci-pipeline.yml",
       "trigger": "push",
+      "production_promotion": true,
       "dispatch_inputs": {"deployment_environment": "${DEPLOY_ENV}"},
       "artifacts": ["image", "binary", "zip", "release-manifest"]
     },
@@ -19,6 +21,7 @@
       "repository": "ai-workspace-services/content-service",
       "workflow": "ci-pipeline.yml",
       "trigger": "push",
+      "production_promotion": true,
       "dispatch_inputs": {"deployment_environment": "${DEPLOY_ENV}"},
       "artifacts": ["image", "binary", "zip", "release-manifest"]
     },

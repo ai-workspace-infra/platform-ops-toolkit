@@ -235,6 +235,36 @@ if [[ -n "${dispatch_repos}" ]]; then
     --build
 fi
 
+# Production Cloud Run services must publish an Artifact Registry image with
+# the immutable v* tag before the production orchestrator starts. Their
+# snapshot tag push may execute an older workflow definition from the source
+# tag, so the configured promotion repositories are dispatched from main by
+# the tag helper. The helper checks out that immutable tag as source_ref and
+# waits for the dispatched workflow to finish.
+if [[ "${DEPLOY_ENV}" == prod ]]; then
+  production_promotion_repos="$(jq -r \
+    --arg org "${snapshot_organization}" \
+    --arg selected "${tag_repos}" \
+    '[.repositories[]
+      | select(.production_promotion == true)
+      | .repository
+      | select(startswith($org + "/"))
+      | select(. as $repo | ($selected | split(",") | index($repo)))
+    ] | .[]' \
+    "${build_config}")"
+  if [[ -n "${production_promotion_repos}" ]]; then
+    production_promotion_repos="$(paste -sd, - <<< "${production_promotion_repos}")"
+    bash docs/tasks/tag-ai-workspace-mains.sh \
+      --tag "${tag}" \
+      --ref "${SNAPSHOT_REF:-main}" \
+      --deploy-env prod \
+      --org "${snapshot_organization}" \
+      --repo "${production_promotion_repos}" \
+      --apply \
+      --build
+  fi
+fi
+
 if [[ -n "${build_repos}" ]]; then
   build_repos="$(paste -sd, - <<< "${build_repos}")"
   SNAPSHOT_ORGANIZATION="${snapshot_organization}" \
