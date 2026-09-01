@@ -87,9 +87,55 @@ api_request() {
   printf '%s' "${response}"
 }
 
-zone_query="name=${zone_name}&status=active&account.id=${CLOUDFLARE_ACCOUNT_ID}&per_page=100"
-zone_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones?${zone_query}")"
-zone_id="$(jq -er '.result | if length == 1 then .[0].id else error("expected exactly one active zone in the configured account") end' <<<"${zone_response}")"
+resolve_zone_id() {
+  local requested_zone="$1"
+  local query="name=${requested_zone}&status=active&account.id=${CLOUDFLARE_ACCOUNT_ID}&per_page=100"
+  local response
+  local candidate_count
+  local public_nameservers
+  local selected_id
+
+  response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones?${query}")"
+  candidate_count="$(jq '.result | length' <<<"${response}")"
+  if [[ "${candidate_count}" == "1" ]]; then
+    jq -er '.result[0].id' <<<"${response}"
+    return
+  fi
+
+  # Cloudflare can retain more than one active zone record with the same name
+  # in an account. The authoritative nameservers identify which zone actually
+  # serves the hostname; never select an arbitrary candidate for a write.
+  if ! command -v dig >/dev/null 2>&1; then
+    echo "Cannot disambiguate active Cloudflare zones for ${requested_zone}: dig is required" >&2
+    return 1
+  fi
+  public_nameservers="$(dig +short NS "${requested_zone}" | sed 's/[.]$//' | awk 'NF' | sort -u)"
+  if [[ -z "${public_nameservers}" ]]; then
+    echo "Cannot disambiguate active Cloudflare zones for ${requested_zone}: authoritative nameservers not found" >&2
+    return 1
+  fi
+
+  selected_id="$(jq -r --arg nameservers "${public_nameservers}" '
+    ($nameservers | split("\\n") | map(ascii_downcase)) as $public
+    | [.result[]
+       | select(any(.name_servers[]?;
+           . as $nameserver
+           | ($public | index(($nameserver | ascii_downcase | rtrimstr(".")))) != null
+         ))
+       | .id]
+    | unique
+    | if length == 1 then .[0] else empty end
+  ' <<<"${response}")"
+  if [[ -n "${selected_id}" ]]; then
+    printf '%s' "${selected_id}"
+    return
+  fi
+
+  echo "Expected exactly one authoritative active Cloudflare zone for ${requested_zone}; candidates=${candidate_count}, nameservers=${public_nameservers}" >&2
+  return 1
+}
+
+zone_id="$(resolve_zone_id "${zone_name}")"
 
 zone_id_for_hostname() {
   local hostname="$1"
@@ -98,9 +144,7 @@ zone_id_for_hostname() {
     printf '%s' "${zone_id}"
     return
   fi
-  local response
-  response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones?name=${requested_zone}&status=active&account.id=${CLOUDFLARE_ACCOUNT_ID}&per_page=100")"
-  jq -er '.result | if length == 1 then .[0].id else error("expected exactly one active zone in the configured account") end' <<<"${response}"
+  resolve_zone_id "${requested_zone}"
 }
 
 ensure_pages_custom_domain() {
