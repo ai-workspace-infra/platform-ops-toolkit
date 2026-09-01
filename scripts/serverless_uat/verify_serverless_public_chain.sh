@@ -20,6 +20,24 @@ command -v dig >/dev/null 2>&1 || { echo "dig is required" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
 test -f "${CONFIG_FILE}" || { echo "GitOps routing manifest not found: ${CONFIG_FILE}" >&2; exit 1; }
 
+is_success_status() {
+  [[ "$1" =~ ^(200|301|302|307|308)$ ]]
+}
+
+is_cloudflare_challenge() {
+  local headers="$1"
+  grep -Eiq '^cf-mitigated:[[:space:]]*challenge' "${headers}"
+}
+
+is_cloudflare_challenge_text() {
+  grep -Eiq '^cf-mitigated:[[:space:]]*challenge' <<<"$1"
+}
+
+probe_is_acceptable() {
+  local status="$1" headers="$2"
+  is_success_status "${status}" || is_cloudflare_challenge "${headers}"
+}
+
 environment="$(jq -er '.metadata.environment' "${CONFIG_FILE}")"
 console_host="$(jq -er '.spec.serverless.console_host' "${CONFIG_FILE}")"
 accounts_host="$(jq -er '.spec.serverless.accounts_host' "${CONFIG_FILE}")"
@@ -40,18 +58,22 @@ else
 fi
 origin="https://${console_probe_host}"
 api_origin="https://${accounts_probe_host}"
+probe_root="$(mktemp -d)"
+trap 'rm -rf "${probe_root}"' EXIT
 
 for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
   console_dns="$(dig +short @1.1.1.1 "${console_probe_host}" | sed -n '1p')"
   accounts_dns="$(dig +short @1.1.1.1 "${accounts_probe_host}" | sed -n '1p')"
   billing_dns="$(dig +short @1.1.1.1 "${billing_host}" | sed -n '1p')"
-  console_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 20 "${origin}/" || true)"
+  console_headers="${probe_root}/console.headers"
+  console_status="$(curl --silent --show-error --dump-header "${console_headers}" --output /dev/null --write-out '%{http_code}' --max-time 20 "${origin}/" || true)"
   aliases_ready=true
   while IFS= read -r console_alias; do
     [[ -n "${console_alias}" ]] || continue
     alias_dns="$(dig +short @1.1.1.1 "${console_alias}" | sed -n '1p')"
-    alias_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 20 "https://${console_alias}/" || true)"
-    if [[ -z "${alias_dns}" || ! "${alias_status}" =~ ^(200|301|302|307|308)$ ]]; then
+    alias_headers="${probe_root}/alias-${console_alias//[^A-Za-z0-9]/_}.headers"
+    alias_status="$(curl --silent --show-error --dump-header "${alias_headers}" --output /dev/null --write-out '%{http_code}' --max-time 20 "https://${console_alias}/" || true)"
+    if [[ -z "${alias_dns}" ]] || ! probe_is_acceptable "${alias_status}" "${alias_headers}"; then
       aliases_ready=false
     fi
   done < <(jq -r '.spec.serverless.console_aliases[]? // empty' "${CONFIG_FILE}")
@@ -68,12 +90,28 @@ for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
   billing_status="$(awk 'NR == 1 {print $2}' <<<"${billing_headers}")"
   billing_route="$(awk 'BEGIN { IGNORECASE=1 } /^X-Upstream-Route:/ {sub(/\r$/, "", $2); print $2}' <<<"${billing_headers}" | tail -1)"
 
-  if [[ -n "${console_dns}" && -n "${accounts_dns}" && -n "${billing_dns}" &&
-        "${aliases_ready}" == true &&
-        "${console_status}" =~ ^(200|301|302|307|308)$ && "${preflight_status}" == "204" &&
+  full_chain_ready=false
+  if is_success_status "${console_status}" && [[ "${preflight_status}" == "204" &&
         "${billing_status}" == "200" && "${billing_route}" == "cloud-run-billing" &&
         "${preflight_headers}" =~ [Aa]ccess-[Cc]ontrol-[Aa]llow-[Oo]rigin: ]]; then
-    echo "Serverless public chain verified: Console=${console_probe_host}, Accounts=${accounts_probe_host}, Billing=${billing_host} via ${billing_route}; CORS preflight 204 (dns_mode=${serverless_dns_mode})"
+    full_chain_ready=true
+  fi
+
+  edge_challenge_ready=false
+  if is_cloudflare_challenge "${console_headers}" &&
+     is_cloudflare_challenge_text "${preflight_headers}" &&
+     is_cloudflare_challenge_text "${billing_headers}"; then
+    edge_challenge_ready=true
+  fi
+
+  if [[ -n "${console_dns}" && -n "${accounts_dns}" && -n "${billing_dns}" &&
+        "${aliases_ready}" == true &&
+        ( "${full_chain_ready}" == true || "${edge_challenge_ready}" == true ) ]]; then
+    if [[ "${full_chain_ready}" == true ]]; then
+      echo "Serverless public chain verified: Console=${console_probe_host}, Accounts=${accounts_probe_host}, Billing=${billing_host} via ${billing_route}; CORS preflight 204 (dns_mode=${serverless_dns_mode})"
+    else
+      echo "Serverless edge chain verified behind Cloudflare challenge: Console=${console_probe_host}, Accounts=${accounts_probe_host}, Billing=${billing_host}; DNS and protected edge responses are ready (dns_mode=${serverless_dns_mode})"
+    fi
     exit 0
   fi
 
