@@ -102,6 +102,11 @@ on:
         required: false
         default: 'ubuntu-latest'
         type: string
+      repair_prod_gcp:
+        description: '一次性修复 PROD Vault GCP 子项：复制 UAT 的 GCP 配置（仅显式勾选时执行）'
+        required: false
+        default: false
+        type: boolean
 jobs:
   preflight:
     name: Validate / Dispatch inputs
@@ -161,6 +166,80 @@ jobs:
           DEPLOY_CLOUDFLARE: ${{ inputs.deploy_cloudflare }}
           DEPLOY_CLOUD_RUN: ${{ inputs.deploy_cloud_run }}
           SERVERLESS_DNS_MODE: ${{ inputs.dns_mode || 'none' }}
+
+  repair-prod-gcp:
+    name: Repair / Production Vault GCP identity
+    needs: preflight
+    if: ${{ needs.preflight.result == 'success' && inputs.vault_env_path == 'prod' && inputs.repair_prod_gcp == true }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Load UAT GCP configuration with UAT JWT role
+        id: uat_vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-uat
+          jwtGithubAudience: vault
+          exportEnv: false
+          secrets: |
+            kv/data/uat/serverless/gcp GCP_WORKLOAD_IDENTITY_PROVIDER | UAT_GCP_WORKLOAD_IDENTITY_PROVIDER ;
+            kv/data/uat/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | UAT_GCP_SERVICE_ACCOUNT_EMAIL ;
+            kv/data/uat/serverless/gcp GCP_PROJECT_ID | UAT_GCP_PROJECT_ID ;
+            kv/data/uat/serverless/gcp GCP_REGION | UAT_GCP_REGION
+
+      - name: Authenticate to PROD Vault with PROD JWT role
+        id: prod_vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-prod
+          jwtGithubAudience: vault
+          outputToken: true
+
+      - name: Copy UAT GCP configuration to PROD Vault
+        env:
+          VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          VAULT_TOKEN: ${{ steps.prod_vault.outputs.vault_token }}
+          UAT_GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ steps.uat_vault.outputs.UAT_GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          UAT_GCP_SERVICE_ACCOUNT_EMAIL: ${{ steps.uat_vault.outputs.UAT_GCP_SERVICE_ACCOUNT_EMAIL }}
+          UAT_GCP_PROJECT_ID: ${{ steps.uat_vault.outputs.UAT_GCP_PROJECT_ID }}
+          UAT_GCP_REGION: ${{ steps.uat_vault.outputs.UAT_GCP_REGION }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          addr = os.environ["VAULT_ADDR"].rstrip("/")
+          token = os.environ.get("VAULT_TOKEN", "")
+          if not token:
+              raise SystemExit("PROD Vault JWT authentication did not return a token")
+
+          data = {
+              "GCP_WORKLOAD_IDENTITY_PROVIDER": os.environ["UAT_GCP_WORKLOAD_IDENTITY_PROVIDER"],
+              "GCP_SERVICE_ACCOUNT_EMAIL": os.environ["UAT_GCP_SERVICE_ACCOUNT_EMAIL"],
+              "GCP_PROJECT_ID": os.environ["UAT_GCP_PROJECT_ID"],
+              "GCP_REGION": os.environ["UAT_GCP_REGION"],
+          }
+          if any(not value.strip() for value in data.values()):
+              raise SystemExit("UAT Vault GCP configuration is incomplete")
+
+          request = urllib.request.Request(
+              f"{addr}/v1/kv/data/prod/serverless/gcp",
+              data=json.dumps({"data": data}).encode(),
+              headers={
+                  "Content-Type": "application/json",
+                  "X-Vault-Token": token,
+              },
+              method="POST",
+          )
+          with urllib.request.urlopen(request, timeout=10) as response:
+              if response.status not in (200, 204):
+                  raise SystemExit(f"Vault write returned HTTP {response.status}")
+          print("Copied the four UAT GCP fields to kv/data/prod/serverless/gcp.")
+          PY
 
   supabase:
     name: Supabase / xworktech
