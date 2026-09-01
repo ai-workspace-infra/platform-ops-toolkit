@@ -44,6 +44,10 @@ case "$1" in
         printf '%s\n' '[{"databaseId":42,"event":"push","status":"completed","conclusion":"success","headBranch":"v2026.09.01-r99","headSha":"test-sha"}]'
         ;;
       watch)
+        [[ "$3" =~ ^[0-9]+$ && "$4" == "--repo" ]] || {
+          echo "production workflow must be watched by run ID" >&2
+          exit 1
+        }
         exit 0
         ;;
       view)

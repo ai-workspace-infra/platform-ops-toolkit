@@ -119,14 +119,15 @@ dispatch_build_workflow() {
   printf 'DISPATCH\t%s\t%s\t%s\n' "${repo}" "${workflow}" "${tag}"
 
   dispatch_and_wait_for_production() {
-    local dispatch_output run_url
+    local dispatch_output run_url run_id
     dispatch_output="$(gh workflow run "$@")"
     run_url="$(grep -Eo 'https://github\.com/[^[:space:]]+/actions/runs/[0-9]+' <<<"${dispatch_output}" | tail -n 1)"
     [[ -n "${run_url}" ]] || {
       echo "::error::GitHub did not return the production workflow run URL for ${repo}." >&2
       return 1
     }
-    gh run watch "${run_url}" --repo "${repo}" --compact --exit-status
+    run_id="${run_url##*/}"
+    gh run watch "${run_id}" --repo "${repo}" --compact --exit-status
   }
 
   case "${repo}" in
