@@ -82,6 +82,18 @@ jobs:
           client-id: Iv23liNwStpQIiXajhpb
           private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
           owner: ai-workspace-services
+          # Keep the release-authoring token limited to the canonical build
+          # inventory. Explicit permissions also make a missing installation
+          # grant fail at token creation instead of halfway through tagging.
+          repositories: |
+            accounts
+            billing-service
+            content-service
+            portal
+            edge-gateway
+            postgresql.svc.plus
+          permission-contents: write
+          permission-actions: write
 
       - name: Create GitHub App installation token for xstream
         id: app-token-xstream
@@ -142,6 +154,9 @@ jobs:
           client-id: Iv23liNwStpQIiXajhpb
           private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
           owner: ${{ matrix.organization }}
+          repositories: ${{ matrix.organization == 'ai-workspace-services' && 'accounts,billing-service,content-service,portal,edge-gateway,postgresql.svc.plus' || '' }}
+          permission-contents: write
+          permission-actions: write
 
       - name: Create cross-repository main snapshot
         # The matrix owns one GitHub App token per organization. When an
