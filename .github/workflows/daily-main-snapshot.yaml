@@ -34,9 +34,80 @@ permissions:
   actions: write
   id-token: write
 
+concurrency:
+  group: daily-main-snapshot-${{ inputs.deploy_env || 'uat' }}-${{ inputs.snapshot_tag || 'scheduled' }}
+  cancel-in-progress: false
+
 jobs:
+  resolve-snapshot-tag:
+    name: Resolve immutable snapshot tag
+    runs-on: ubuntu-latest
+    outputs:
+      snapshot_tag: ${{ steps.resolve.outputs.snapshot_tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Load GitHub App private key from Vault
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: ${{ (inputs.deploy_env || 'uat') == 'prod' && 'github-actions-platform-ops-toolkit-prod-release' || format('github-actions-platform-ops-toolkit-{0}', inputs.deploy_env || 'uat') }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
+
+      - name: Create GitHub App installation token for infra
+        id: app-token-infra
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: Iv23liNwStpQIiXajhpb
+          private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
+          owner: ai-workspace-infra
+
+      - name: Create GitHub App installation token for lab
+        id: app-token-lab
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: Iv23liNwStpQIiXajhpb
+          private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
+          owner: ai-workspace-lab
+
+      - name: Create GitHub App installation token for services
+        id: app-token-services
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: Iv23liNwStpQIiXajhpb
+          private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
+          owner: ai-workspace-services
+
+      - name: Create GitHub App installation token for xstream
+        id: app-token-xstream
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: Iv23liNwStpQIiXajhpb
+          private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
+          owner: ai-workspace-xstream
+
+      - name: Resolve snapshot tag across all organizations
+        id: resolve
+        run: ./.github/scripts/snapshots/resolve-snapshot-tag.sh
+        env:
+          DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
+          SNAPSHOT_TAG: ${{ inputs.snapshot_tag }}
+          SNAPSHOT_SOURCE_REF: ${{ inputs.snapshot_source_ref }}
+          SNAPSHOT_REF: ${{ inputs.snapshot_source_ref || 'main' }}
+          SNAPSHOT_REPOS: ${{ inputs.repositories }}
+          SNAPSHOT_TOKEN_AI_WORKSPACE_INFRA: ${{ steps.app-token-infra.outputs.token }}
+          SNAPSHOT_TOKEN_AI_WORKSPACE_LAB: ${{ steps.app-token-lab.outputs.token }}
+          SNAPSHOT_TOKEN_AI_WORKSPACE_SERVICES: ${{ steps.app-token-services.outputs.token }}
+          SNAPSHOT_TOKEN_AI_WORKSPACE_XSTREAM: ${{ steps.app-token-xstream.outputs.token }}
+
   snapshot:
     name: Tag and build main snapshot
+    needs: resolve-snapshot-tag
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -49,25 +120,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-
-      - name: Enforce production release provenance
-        if: ${{ (inputs.deploy_env || 'uat') == 'prod' }}
-        env:
-          SNAPSHOT_SOURCE_REF: ${{ inputs.snapshot_source_ref }}
-        run: |
-          # `main` is only the protected control-plane ref for this manual
-          # workflow. The release artifact must be a *new* immutable v* tag.
-          [[ "${{ inputs.snapshot_tag }}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[1-9][0-9]*)?$ ]] || {
-            echo "::error::Prod snapshot_tag must be a new vYYYY.MM.DD[-rN] or vX.Y.Z[-rN] release tag." >&2
-            exit 1
-          }
-          # The tag script resolves this ref in every target repository, then
-          # creates the release tag at that exact commit. `main` is therefore
-          # never eligible as the production artifact source.
-          [[ "${SNAPSHOT_SOURCE_REF}" =~ ^(v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[1-9][0-9]*)?|(daily-build|uat-daily-build)-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?)$ ]] || {
-            echo "::error::Prod snapshot_source_ref must be an existing verified v*, daily-build-* or uat-daily-build-* tag; main is not allowed." >&2
-            exit 1
-          }
 
       - name: Load GitHub App private key from Vault
         id: vault
@@ -101,7 +153,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
-          SNAPSHOT_TAG: ${{ inputs.snapshot_tag }}
+          SNAPSHOT_TAG: ${{ needs.resolve-snapshot-tag.outputs.snapshot_tag }}
           SNAPSHOT_ORGS: ${{ matrix.organization }}
           SNAPSHOT_REPOS: ${{ inputs.repositories }}
           SNAPSHOT_FILTER_BY_ORG: ${{ inputs.repositories != '' && 'true' || 'false' }}
@@ -119,8 +171,8 @@ jobs:
 
   snapshot-summary:
     name: Summarize daily snapshot status
-    needs: snapshot
-    if: ${{ always() && needs.snapshot.result != 'skipped' }}
+    needs: [resolve-snapshot-tag, snapshot]
+    if: ${{ always() && needs.resolve-snapshot-tag.result == 'success' && needs.snapshot.result != 'skipped' }}
     environment: ${{ (inputs.deploy_env || 'uat') == 'prod' && 'production' || '' }}
     runs-on: ubuntu-latest
     steps:
@@ -149,7 +201,7 @@ jobs:
         run: |
           # This is the tag just created from SNAPSHOT_SOURCE_REF, not the
           # ref that was used to dispatch this workflow.
-          release_tag="${{ inputs.snapshot_tag }}"
+          release_tag="${{ needs.resolve-snapshot-tag.outputs.snapshot_tag }}"
           [[ "${release_tag}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[1-9][0-9]*)?$ ]] || {
             echo "::error::Prod snapshot_tag must be a controlled v* release tag." >&2
             exit 1
