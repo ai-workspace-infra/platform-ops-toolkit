@@ -103,6 +103,28 @@ the public host separately. This avoids Cloudflare Origin Rule Host/SNI override
 an Enterprise plan. `billing_origin_host` is a retired compatibility field; reconciliation removes
 its old DNS-only CNAME when present and does not create or update an Origin Ruleset.
 
+## PROD resource inventory
+
+The PROD release deploys the following resources. The application pipeline prepares and verifies
+these resources; canonical public-entry CNAME cutover remains a separate manual operation.
+
+| Resource | Quantity | Responsibility | Dependency |
+|---|---:|---|---|
+| Cloudflare Pages | 1 project | Static portal assets, Pages deployment | Cloudflare account/token from Vault |
+| Cloudflare Workers | 8 Workers | 5 SSR boundaries, 3 edge gateways (`auth`, `admin`, `core`) | Cloudflare account/token and routing manifest |
+| Google Cloud Run | 3 services | `accounts`, `content-service`, `billing-service` backend services | GCP workload identity from Vault |
+| Supabase Cloud DB | 1 project | PROD database, schema verification and selected migration | PROD DB credentials from Vault |
+
+The shared immutable PROD release tag is passed to Pages, all Workers, and all Cloud Run services.
+Supabase verification/migration is executed as a separate gated stage. No database password,
+Cloudflare token, GCP credential, or other secret is stored in the repository or exposed as a
+workflow input.
+
+The production snapshot dispatches both Serverless and Selfhost orchestrators from that same
+`v*` control-plane tag, rather than `main`. The resulting GitHub OIDC `ref` claim matches the
+Vault PROD role's `refs/tags/v*` binding; do not widen that general role to `main` to recover a
+failed deployment.
+
 ## Deployment stages and dependencies
 
 Deployment order is intentionally separate from request topology. The application targets run in

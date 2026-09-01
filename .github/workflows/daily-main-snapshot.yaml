@@ -263,6 +263,14 @@ jobs:
           private-key: ${{ steps.prod-vault.outputs.APP_PRIVATE_KEY }}
           owner: ai-workspace-infra
 
+      - name: Ensure control-plane production tag before dispatch
+        if: ${{ (inputs.deploy_env || 'uat') == 'prod' && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' }}
+        run: ./.github/scripts/snapshots/ensure-prod-control-plane-tag.sh
+        env:
+          GH_TOKEN: ${{ steps.prod-app-token.outputs.token }}
+          RELEASE_TAG: ${{ steps.resolve_release_tag.outputs.release_tag }}
+          CONTROL_PLANE_SHA: ${{ github.sha }}
+
       - name: Dispatch production serverless and selfhost deployment
         if: ${{ (inputs.deploy_env || 'uat') == 'prod' && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' }}
         run: ./.github/scripts/snapshots/dispatch-prod-combined.sh
