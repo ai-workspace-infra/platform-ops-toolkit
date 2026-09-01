@@ -2,7 +2,11 @@
 set -euo pipefail
 
 CONFIG_FILE="${CLOUDFLARE_BOUNDARY_CONFIG:?CLOUDFLARE_BOUNDARY_CONFIG is required}"
-VERIFY_ATTEMPTS="${VERIFY_ATTEMPTS:-12}"
+# Cloudflare may finish the Worker deployment before the Pages asset hostname
+# and edge cache are ready. Keep the default window long enough for that
+# propagation, while retaining VERIFY_ATTEMPTS/VERIFY_INTERVAL_SECONDS as
+# explicit workflow overrides for faster or slower environments.
+VERIFY_ATTEMPTS="${VERIFY_ATTEMPTS:-30}"
 VERIFY_INTERVAL_SECONDS="${VERIFY_INTERVAL_SECONDS:-10}"
 
 command -v curl >/dev/null 2>&1 || { echo "curl is required" >&2; exit 1; }
