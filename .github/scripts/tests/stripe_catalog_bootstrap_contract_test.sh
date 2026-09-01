@@ -57,6 +57,8 @@ for required in (
     "scripts/seed-billing-plans.sql",
     "--write-catalog",
     "Accounts bootstrap administrator login failed",
+    ".spec.serverless.cloud_run.accounts",
+    "ACCOUNTS_BASE_URL=${accounts_run_url}",
 ):
     if required not in script:
         raise SystemExit(f"Stripe bootstrap script is missing {required!r}")

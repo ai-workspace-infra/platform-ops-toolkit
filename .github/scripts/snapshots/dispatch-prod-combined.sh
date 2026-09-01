@@ -17,10 +17,14 @@ repo="${TARGET_REPOSITORY:-ai-workspace-infra/platform-ops-toolkit}"
 
 export GH_TOKEN="${gh_token}"
 
-# The release gate includes the same explicit database migration stage as UAT.
-# The reusable migration workflow owns its backup and target checks.
+# A production daily snapshot publishes the immutable application artifacts.
+# Database migration is a separate, explicitly approved operation: the
+# migration workflow requires a dedicated source SSH key that is intentionally
+# provisioned only when the production source contract is ready. Keeping it
+# out of the routine release prevents a missing migration secret from blocking
+# an otherwise healthy production deployment.
 serverless_url="$(gh workflow run serverless-orchestrator.yml --repo "${repo}" --ref "${release_tag}" \
-  -f operation=deploy+migrate -f target_domains=web-saas -f vault_env_path=prod \
+  -f operation=deploy -f target_domains=web-saas -f vault_env_path=prod \
   -f "tag_ref=${release_tag}" -f deploy_cloudflare=true -f deploy_cloud_run=true \
   -f dns_mode=none -f supabase_target_existing_strategy=reject \
   -f supabase_target_confirm_replace=false | tail -n 1)"
