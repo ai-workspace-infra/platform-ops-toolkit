@@ -25,14 +25,23 @@ set -euo pipefail
 
 terraform workspace select -or-create "${ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE}"
 
-# terraform show 只读 state, 不触发 provider refresh —— 这正是这一步的前提:
-# refresh 恰恰是我们要保护的那个会崩的环节。全新 workspace 没有 state 时它输出
-# 一个不含 values 的骨架, jq 侧按空处理。
-state_json="$(terraform show -json 2>/dev/null || echo '{}')"
+# Read the backend state directly instead of `terraform show -json`.  `show`
+# may emit a diagnostic instead of JSON when a provider cannot refresh a
+# legacy object, which previously made jq treat a non-empty workspace as empty
+# and allowed the later plan to hit the same 404.  A parse failure is unsafe:
+# stop before changing either state or infrastructure.
+state_json="$(terraform state pull)"
+jq -e . >/dev/null <<<"${state_json}" || {
+  echo "::error::Unable to parse Terraform state for ${ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE}; refusing to reconcile state automatically." >&2
+  exit 1
+}
 
 # root_module 及其所有 child_modules 里的托管资源。data 源(mode=="data")不进
 # state 的删除范围: 它们每次 plan 重新求值, 没有会陈旧的 ID。
-mapfile -t entries < <(
+entries=()
+while IFS= read -r entry; do
+  [[ -n "${entry}" ]] && entries+=("${entry}")
+done < <(
   jq -r '
     # Terraform nests module resources under child_modules. Walk the module
     # tree explicitly; a root-only query silently misses stale instances in
@@ -117,7 +126,7 @@ fi
 # 改远端 state 之前留一份 runner 本地副本。backend 自己也有版本, 但这份副本
 # 让"对账到一半失败"可以当场诊断, 而不必把 state 作为 artifact 暴露出去。
 state_backup="${RUNNER_TEMP:-/tmp}/terraform-state-before-reconcile-${ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE}.json"
-terraform state pull > "${state_backup}"
+printf '%s\n' "${state_json}" > "${state_backup}"
 
 terraform state rm "${orphans[@]}"
 

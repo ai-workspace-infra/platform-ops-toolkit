@@ -36,10 +36,9 @@ cat >"${workdir}/bin/terraform" <<'SCRIPT'
 set -euo pipefail
 case "${1:-}" in
   workspace) exit 0 ;;
-  show) cat "${TEST_WORKDIR}/state.json" ;;
   state)
     if [[ "${2:-}" == pull ]]; then
-      echo '{}'
+      cat "${TEST_WORKDIR}/state.json"
     elif [[ "${2:-}" == rm ]]; then
       printf '%s\n' "${*:3}" >"${TEST_WORKDIR}/state-rm-args"
     fi
