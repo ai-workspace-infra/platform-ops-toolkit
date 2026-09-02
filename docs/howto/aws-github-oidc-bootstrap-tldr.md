@@ -95,6 +95,9 @@ iam:GetOpenIDConnectProvider
 iam:ListOpenIDConnectProviders
 iam:CreateOpenIDConnectProvider
 iam:AddClientIDToOpenIDConnectProvider
+iam:CreateRole
+iam:ListAttachedRolePolicies
+iam:AttachRolePolicy
 ```
 
 常规路径不要用 AWS root 用户作为流水线身份。仅首次恢复且经 Production 环境审批时，才允许
@@ -105,21 +108,24 @@ iam:AddClientIDToOpenIDConnectProvider
 > workflow 绑定、Production 审批、`allow_root_break_glass=true` 的显式确认、极短会话期限和
 > CloudTrail 审计来限制其使用。运行时会打印 root-principal 警告与本 Action 的固定 API 范围。
 
-当前 Action 的 AWS 写入范围严格为：创建 GitHub OIDC Provider、补齐其
-`sts.amazonaws.com` audience、更新 `GithubAction_IAC_Deploy_Role` trust policy。它**不**创建
-S3 bucket、S3 state role、任意 IAM role 或附加 IAM policy。若要 bootstrap S3 state / IaC role，
-必须使用独立的 Terraform bootstrap 流程和专用非 root 短期角色，不能隐式扩展本 Action。
+当前 Action 自动初始化的 AWS 写入范围严格为：创建 GitHub OIDC Provider、补齐其
+`sts.amazonaws.com` audience、创建**唯一指定的** `GithubAction_IAC_Deploy_Role`、为该 Role
+附加现有 IaC 默认的 AWS 托管策略 `arn:aws:iam::aws:policy/AdministratorAccess`，并更新该 Role
+的 GitOps trust policy。它不创建自定义/内联 IAM policy、任意其他 IAM role、S3 bucket 或 S3
+state role。`AdministratorAccess` 是高权限生产授权：仅限这个固定 Role，必须经过 Production
+environment 审批，并使用 `plan` 审阅后才可 `apply`。
 
 ## 一次性 bootstrap 流程
 
 1. 将经审批的短期 AWS break-glass 凭据写入 `kv/data/CICD/prod/aws-bootstrap`。
 2. 运行 `AWS OIDC Bootstrap Recovery`，选择 `action=plan`。它从 GitOps 声明计算所需变更：
    创建缺失的 `token.actions.githubusercontent.com` Provider、补齐 `sts.amazonaws.com`
-   audience，以及更新 `GithubAction_IAC_Deploy_Role` 的 trust policy。
-3. 审阅 plan 输出只涉及上述 OIDC Provider 和目标 Role 后，选择 `action=apply`；如果调用者是
+   audience、创建缺失的 `GithubAction_IAC_Deploy_Role`、附加 IaC 默认的
+   `AdministratorAccess`，以及更新该 Role 的 trust policy。
+3. 审阅 plan 输出只涉及上述 OIDC Provider、目标 Role、固定的 AWS 托管策略和 trust policy 后，选择 `action=apply`；如果调用者是
    root-principal break-glass session，同时设置 `allow_root_break_glass=true`。
-4. 将 Action 创建的 Provider import 到现有 Terraform `bootstrap/identity` state，使后续 IaC
-   持续管理它，而不是重复创建。
+4. 将 Action 创建的 Provider、Role 及其 `AdministratorAccess` attachment import 到现有 Terraform
+   `bootstrap/identity` state，使后续 IaC 持续管理它们，而不是重复创建。
 5. 以新的生产 release tag 重跑 Selfhost Orchestrator，验证 `AssumeRoleWithWebIdentity`
    成功。
 6. 结束 break-glass 会话，删除/撤销 `aws-bootstrap` 中的临时根账号会话，并保留
@@ -150,8 +156,9 @@ AWS_SESSION_TOKEN             # 可选；使用 STS/IAM Identity Center 临时�
 ## 验收
 
 - GitOps `github-actions-oidc.json` 已合并，且没有密钥；
-- Bootstrap plan/apply 仅创建 GitHub OIDC Provider、补齐其 audience 并更新目标 Role trust；
-- Provider 已导入 Terraform state，后续 Terraform plan 没有创建或替换非 IAM/OIDC 资源；
+- Bootstrap plan/apply 仅创建 GitHub OIDC Provider、补齐其 audience、创建目标 Role、附加固定的
+  `AdministratorAccess`，并更新目标 Role trust；
+- Provider、Role 及其 policy attachment 已导入 Terraform state，后续 Terraform plan 没有创建或替换非 IAM/OIDC 资源；
 - AWS Role trust policy 包含 `main` 与 `v*` 的两个生产 subject；
 - 发布流水线能取得 OIDC 凭据；
 - 没有长期 root Access Key 存在于 KV、GitHub Secrets、日志或仓库；一次性短期
