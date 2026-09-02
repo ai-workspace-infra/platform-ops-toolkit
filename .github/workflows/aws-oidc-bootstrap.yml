@@ -1,0 +1,62 @@
+name: AWS OIDC Bootstrap Recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "plan validates the generated trust policy; apply updates only GithubAction_IAC_Deploy_Role after Production approval."
+        type: choice
+        required: true
+        default: plan
+        options: [plan, apply]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: aws-oidc-bootstrap-production
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    name: Bootstrap AWS GitHub OIDC trust
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+    - name: Checkout platform operations source
+      uses: actions/checkout@v7
+
+    - name: Checkout production GitOps OIDC declaration
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/gitops
+        ref: main
+        path: gitops
+        sparse-checkout-cone-mode: false
+        sparse-checkout: |
+          resources/svc.plus/prod/aws/github-actions-oidc.json
+
+    - name: Load one-time AWS bootstrap credentials
+      id: vault
+      uses: hashicorp/vault-action@v4
+      with:
+        url: https://vault.svc.plus
+        method: jwt
+        role: github-actions-platform-ops-toolkit-prod-aws-bootstrap
+        jwtGithubAudience: vault
+        ignoreNotFound: true
+        secrets: |
+          kv/data/CICD/prod/aws-bootstrap AWS_ACCESS_KEY_ID | AWS_ACCESS_KEY_ID ;
+          kv/data/CICD/prod/aws-bootstrap AWS_SECRET_ACCESS_KEY | AWS_SECRET_ACCESS_KEY ;
+          kv/data/CICD/prod/aws-bootstrap AWS_SESSION_TOKEN | AWS_SESSION_TOKEN
+
+    - name: Reconcile GitHub OIDC trust
+      env:
+        AWS_ACCESS_KEY_ID: ${{ steps.vault.outputs.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ steps.vault.outputs.AWS_SECRET_ACCESS_KEY }}
+        AWS_SESSION_TOKEN: ${{ steps.vault.outputs.AWS_SESSION_TOKEN }}
+        AWS_DEFAULT_REGION: ap-northeast-1
+        BOOTSTRAP_ACTION: ${{ inputs.action }}
+        GITOPS_AWS_OIDC_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/prod/aws/github-actions-oidc.json
+      run: .github/scripts/aws/reconcile_github_oidc_trust.sh
