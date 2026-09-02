@@ -4,6 +4,7 @@ set -euo pipefail
 action="${BOOTSTRAP_ACTION:?BOOTSTRAP_ACTION is required}"
 config_file="${GITOPS_AWS_OIDC_CONFIG:?GITOPS_AWS_OIDC_CONFIG is required}"
 readonly expected_repository="ai-workspace-infra/platform-ops-toolkit"
+readonly allowed_iam_actions="iam:ListOpenIDConnectProviders, iam:GetOpenIDConnectProvider, iam:CreateOpenIDConnectProvider, iam:AddClientIDToOpenIDConnectProvider, iam:GetRole, iam:UpdateAssumeRolePolicy"
 
 case "${action}" in
   plan|apply) ;;
@@ -57,11 +58,23 @@ subjects="$(jq -ec '.spec.subjects' "${config_file}")"
 provider_host="${provider_url#https://}"
 provider_arn="arn:aws:iam::${account_id}:oidc-provider/${provider_host}"
 
-caller_account="$(aws sts get-caller-identity --query Account --output text)"
+caller_identity="$(aws sts get-caller-identity --output json)"
+caller_account="$(jq -er '.Account' <<<"${caller_identity}")"
+caller_arn="$(jq -er '.Arn' <<<"${caller_identity}")"
 test "${caller_account}" = "${account_id}" || {
   echo "Bootstrap credentials belong to AWS account ${caller_account}, expected ${account_id}." >&2
   exit 1
 }
+
+if [ "${caller_arn}" = "arn:aws:iam::${account_id}:root" ]; then
+  echo "::warning::Using a root-principal break-glass session. Root permissions cannot be scope-limited; this workflow is limited by its Vault JWT binding, Production approval, explicit confirmation, and short credential lifetime."
+  if [ "${action}" = "apply" ] && [ "${ALLOW_ROOT_BREAK_GLASS:-false}" != "true" ]; then
+    echo "Refusing apply with root-principal credentials until allow_root_break_glass=true is explicitly supplied." >&2
+    exit 1
+  fi
+fi
+
+echo "AWS bootstrap workflow API scope: ${allowed_iam_actions}."
 
 aws iam get-role --role-name "${role_name}" --query 'Role.Arn' --output text | grep -Fx "${role_arn}" >/dev/null
 

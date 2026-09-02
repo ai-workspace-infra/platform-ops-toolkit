@@ -9,6 +9,11 @@ on:
         required: true
         default: plan
         options: [plan, apply]
+      allow_root_break_glass:
+        description: "Required only for apply when the Vault credentials identify as the AWS account root principal. The credentials must be a short-lived, approved break-glass session."
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -74,5 +79,6 @@ jobs:
         AWS_SECRET_ACCESS_KEY: ${{ steps.vault.outputs.AWS_SECRET_ACCESS_KEY }}
         AWS_DEFAULT_REGION: ap-northeast-1
         BOOTSTRAP_ACTION: ${{ inputs.action }}
+        ALLOW_ROOT_BREAK_GLASS: ${{ inputs.allow_root_break_glass }}
         GITOPS_AWS_OIDC_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/prod/aws/github-actions-oidc.json
       run: .github/scripts/aws/reconcile_github_oidc_trust.sh

@@ -101,13 +101,23 @@ iam:AddClientIDToOpenIDConnectProvider
 把 MFA 保护、显式短期过期的 break-glass 根账号会话写入 `aws-bootstrap`；该凭据只用于一次
 `plan`/`apply`，完成后必须立即撤销或让其过期。
 
+> **范围警告**：根账号会话本身不能被 IAM policy 收窄。Action 只能通过 Vault JWT role 的
+> workflow 绑定、Production 审批、`allow_root_break_glass=true` 的显式确认、极短会话期限和
+> CloudTrail 审计来限制其使用。运行时会打印 root-principal 警告与本 Action 的固定 API 范围。
+
+当前 Action 的 AWS 写入范围严格为：创建 GitHub OIDC Provider、补齐其
+`sts.amazonaws.com` audience、更新 `GithubAction_IAC_Deploy_Role` trust policy。它**不**创建
+S3 bucket、S3 state role、任意 IAM role 或附加 IAM policy。若要 bootstrap S3 state / IaC role，
+必须使用独立的 Terraform bootstrap 流程和专用非 root 短期角色，不能隐式扩展本 Action。
+
 ## 一次性 bootstrap 流程
 
 1. 将经审批的短期 AWS break-glass 凭据写入 `kv/data/CICD/prod/aws-bootstrap`。
 2. 运行 `AWS OIDC Bootstrap Recovery`，选择 `action=plan`。它从 GitOps 声明计算所需变更：
    创建缺失的 `token.actions.githubusercontent.com` Provider、补齐 `sts.amazonaws.com`
    audience，以及更新 `GithubAction_IAC_Deploy_Role` 的 trust policy。
-3. 审阅 plan 输出只涉及上述 OIDC Provider 和目标 Role 后，选择 `action=apply`。
+3. 审阅 plan 输出只涉及上述 OIDC Provider 和目标 Role 后，选择 `action=apply`；如果调用者是
+   root-principal break-glass session，同时设置 `allow_root_break_glass=true`。
 4. 将 Action 创建的 Provider import 到现有 Terraform `bootstrap/identity` state，使后续 IaC
    持续管理它，而不是重复创建。
 5. 以新的生产 release tag 重跑 Selfhost Orchestrator，验证 `AssumeRoleWithWebIdentity`
