@@ -93,32 +93,27 @@ iam:GetRole
 iam:UpdateAssumeRolePolicy
 iam:GetOpenIDConnectProvider
 iam:ListOpenIDConnectProviders
+iam:CreateOpenIDConnectProvider
+iam:AddClientIDToOpenIDConnectProvider
 ```
 
-如 Terraform plan 显示需要读取或管理现有 OIDC Provider，可在同一个受限策略中加入相应
-只读权限。不要用 AWS root 用户作为流水线身份。
+常规路径不要用 AWS root 用户作为流水线身份。仅首次恢复且经 Production 环境审批时，才允许
+把 MFA 保护、显式短期过期的 break-glass 根账号会话写入 `aws-bootstrap`；该凭据只用于一次
+`plan`/`apply`，完成后必须立即撤销或让其过期。
 
 ## 一次性 bootstrap 流程
 
-1. 使用 AWS 账户 `950604983695` 的 IAM Identity Center 管理员角色或经审批的
-   break-glass 角色进入一次性执行环境。
-2. 用 GitHub JWT 登录 Vault，从 `aws/creds/iac-bootstrap-prod` 读取短期
-   `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` 与 `AWS_SESSION_TOKEN`。
-3. 检出已合并的 `iac_modules/main` 和 `gitops/main`，设置配置路径：
-
-   ```bash
-   export BOOTSTRAP_CONFIG_PATH=/controlled/bootstrap.yaml
-   export GITHUB_ACTIONS_OIDC_CONFIG_PATH=/controlled/gitops/resources/svc.plus/prod/aws/github-actions-oidc.json
-   ```
-
-4. `BOOTSTRAP_CONFIG_PATH` 指向受控 bootstrap YAML；它仍提供 account、region、state 与
-   Terraform deploy role 的既有配置。OIDC 的账号、Role ARN 和允许的 GitHub subjects 则只从
-   `GITHUB_ACTIONS_OIDC_CONFIG_PATH` 指向的 GitOps 声明读取。
-5. 在 `terraform-hcl-standard/aws-cloud/bootstrap/identity` 先执行 `plan`。确认变更只涉及
-   `GithubAction_IAC_Deploy_Role` 的 OIDC trust policy，再执行 `apply`。
-6. 以新的生产 release tag 重跑 Selfhost Orchestrator，验证 `AssumeRoleWithWebIdentity`
+1. 将经审批的短期 AWS break-glass 凭据写入 `kv/data/CICD/prod/aws-bootstrap`。
+2. 运行 `AWS OIDC Bootstrap Recovery`，选择 `action=plan`。它从 GitOps 声明计算所需变更：
+   创建缺失的 `token.actions.githubusercontent.com` Provider、补齐 `sts.amazonaws.com`
+   audience，以及更新 `GithubAction_IAC_Deploy_Role` 的 trust policy。
+3. 审阅 plan 输出只涉及上述 OIDC Provider 和目标 Role 后，选择 `action=apply`。
+4. 将 Action 创建的 Provider import 到现有 Terraform `bootstrap/identity` state，使后续 IaC
+   持续管理它，而不是重复创建。
+5. 以新的生产 release tag 重跑 Selfhost Orchestrator，验证 `AssumeRoleWithWebIdentity`
    成功。
-7. 结束 break-glass 会话并保留 Vault/AWS CloudTrail 审计记录；不要保留 root Key。
+6. 结束 break-glass 会话，删除/撤销 `aws-bootstrap` 中的临时根账号会话，并保留
+   Vault/AWS CloudTrail 审计记录。
 
 ## 不推荐但可短期救援的方案
 
@@ -145,7 +140,9 @@ AWS_SESSION_TOKEN             # 可选；使用 STS/IAM Identity Center 临时�
 ## 验收
 
 - GitOps `github-actions-oidc.json` 已合并，且没有密钥；
-- Terraform plan 没有创建或替换非 IAM/OIDC 资源；
+- Bootstrap plan/apply 仅创建 GitHub OIDC Provider、补齐其 audience 并更新目标 Role trust；
+- Provider 已导入 Terraform state，后续 Terraform plan 没有创建或替换非 IAM/OIDC 资源；
 - AWS Role trust policy 包含 `main` 与 `v*` 的两个生产 subject；
 - 发布流水线能取得 OIDC 凭据；
-- 没有 root Access Key 存在于 KV、GitHub Secrets、日志或仓库。
+- 没有长期 root Access Key 存在于 KV、GitHub Secrets、日志或仓库；一次性短期
+  break-glass 会话在 bootstrap 后已撤销或过期。

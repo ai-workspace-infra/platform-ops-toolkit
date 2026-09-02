@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "plan validates the generated trust policy; apply updates only GithubAction_IAC_Deploy_Role after Production approval."
+        description: "plan reports the GitHub OIDC provider and trust-policy changes; apply creates the missing provider if needed, then updates GithubAction_IAC_Deploy_Role after Production approval."
         type: choice
         required: true
         default: plan

@@ -51,9 +51,11 @@ jq -e --arg repository "${expected_repository}" '
 account_id="$(jq -er '.spec.aws.account_id' "${config_file}")"
 role_name="$(jq -er '.spec.aws.role_name' "${config_file}")"
 role_arn="$(jq -er '.spec.aws.role_arn' "${config_file}")"
+provider_url="$(jq -er '.spec.provider_url' "${config_file}")"
 audience="$(jq -er '.spec.audience' "${config_file}")"
 subjects="$(jq -ec '.spec.subjects' "${config_file}")"
-provider_arn="arn:aws:iam::${account_id}:oidc-provider/token.actions.githubusercontent.com"
+provider_host="${provider_url#https://}"
+provider_arn="arn:aws:iam::${account_id}:oidc-provider/${provider_host}"
 
 caller_account="$(aws sts get-caller-identity --query Account --output text)"
 test "${caller_account}" = "${account_id}" || {
@@ -61,10 +63,28 @@ test "${caller_account}" = "${account_id}" || {
   exit 1
 }
 
-aws iam get-open-id-connect-provider --open-id-connect-provider-arn "${provider_arn}" >/dev/null
 aws iam get-role --role-name "${role_name}" --query 'Role.Arn' --output text | grep -Fx "${role_arn}" >/dev/null
 
+provider_arns="$(aws iam list-open-id-connect-providers --query 'OpenIDConnectProviderList[].Arn' --output json)"
+provider_exists=false
+provider_needs_audience=false
+
+if jq -e --arg provider_arn "${provider_arn}" 'index($provider_arn) != null' <<<"${provider_arns}" >/dev/null; then
+  provider_exists=true
+  provider_details="$(aws iam get-open-id-connect-provider --open-id-connect-provider-arn "${provider_arn}")"
+
+  jq -e --arg provider_host "${provider_host}" '.Url == $provider_host' <<<"${provider_details}" >/dev/null || {
+    echo "Existing OIDC provider URL does not match GitOps declaration: ${provider_arn}." >&2
+    exit 1
+  }
+
+  if ! jq -e --arg audience "${audience}" '.ClientIDList | index($audience) != null' <<<"${provider_details}" >/dev/null; then
+    provider_needs_audience=true
+  fi
+fi
+
 policy_file="$(mktemp)"
+trap 'rm -f "${policy_file}"' EXIT
 jq -n \
   --arg provider_arn "${provider_arn}" \
   --arg audience "${audience}" \
@@ -83,13 +103,41 @@ jq -n \
   }
 ' > "${policy_file}"
 
-echo "Validated GitOps OIDC declaration, AWS account, provider, and target role."
+echo "Validated GitOps OIDC declaration, AWS account, and target role."
 echo "Permitted subjects: $(jq -r '.[]' <<<"${subjects}" | paste -sd ', ' -)"
 
 if [ "${action}" = "plan" ]; then
-  echo "Plan complete. No AWS IAM change was made. Re-run with action=apply after reviewing this subject list."
+  if [ "${provider_exists}" = false ]; then
+    echo "Plan: would create OIDC provider ${provider_arn} with audience ${audience}."
+  elif [ "${provider_needs_audience}" = true ]; then
+    echo "Plan: would add audience ${audience} to OIDC provider ${provider_arn}."
+  else
+    echo "Plan: OIDC provider ${provider_arn} already matches GitOps."
+  fi
+  echo "Plan: would update ${role_name} trust policy from the GitOps declaration."
+  echo "Plan complete. No AWS IAM change was made. Re-run with action=apply after reviewing this output."
   exit 0
 fi
+
+if [ "${provider_exists}" = false ]; then
+  created_provider_arn="$(aws iam create-open-id-connect-provider \
+    --url "${provider_url}" \
+    --client-id-list "${audience}" \
+    --query 'OpenIDConnectProviderArn' \
+    --output text)"
+  test "${created_provider_arn}" = "${provider_arn}" || {
+    echo "Created unexpected OIDC provider ARN: ${created_provider_arn}." >&2
+    exit 1
+  }
+  echo "Created OIDC provider ${provider_arn}."
+elif [ "${provider_needs_audience}" = true ]; then
+  aws iam add-client-id-to-open-id-connect-provider \
+    --open-id-connect-provider-arn "${provider_arn}" \
+    --client-id "${audience}"
+  echo "Added audience ${audience} to OIDC provider ${provider_arn}."
+fi
+
+aws iam get-open-id-connect-provider --open-id-connect-provider-arn "${provider_arn}" >/dev/null
 
 aws iam update-assume-role-policy \
   --role-name "${role_name}" \
