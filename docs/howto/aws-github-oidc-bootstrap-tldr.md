@@ -44,7 +44,29 @@ SSH_PRIVATE_DEPLOY_KEY_B64
 `TF_STATE_*` 仅用于 Terraform state 后端；它们不是 AWS IAM 管理凭据，不能用于修复
 `GithubAction_IAC_Deploy_Role` 的信任策略。
 
-## Vault：首次 AWS bootstrap 的正确方式
+## Vault：当前首次 bootstrap 路径
+
+本次已创建两个生产 KV v2 路径：
+
+```text
+kv/data/CICD/prod/aws-bootstrap
+kv/data/CICD/prod/iac_state
+```
+
+它们的职责必须分开：
+
+| 路径 | 用途 | 允许的字段 |
+| --- | --- | --- |
+| `aws-bootstrap` | 一次性 AWS 控制面身份 | `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`、可选 `AWS_SESSION_TOKEN` |
+| `iac_state` | Terraform state 后端与受控 bootstrap 配置 | `TF_STATE_ENDPOINT`、`TF_STATE_BUCKET`、`TF_STATE_ACCESS_KEY`、`TF_STATE_SECRET_KEY`、`TF_STATE_REGION`、`BOOTSTRAP_CONFIG_B64` |
+
+`BOOTSTRAP_CONFIG_B64` 是现有 bootstrap YAML 的 base64 编码；流水线仅在临时工作目录解码，
+不得打印其内容。它需要提供已有的 account、region、state 和 Terraform deploy role 配置。
+
+这两个 KV 路径只允许专用 bootstrap JWT role 读取，不能直接扩展给通用 PROD role、UAT role
+或任何普通应用部署工作流。
+
+## Vault：目标状态
 
 使用 Vault AWS Secrets Engine 发放短期凭据，而不是 KV：
 
@@ -99,22 +121,25 @@ iam:ListOpenIDConnectProviders
 
 ## 不推荐但可短期救援的方案
 
-如果 Vault AWS Secrets Engine 尚未建立，才可使用专用、一次性的 KV：
+当前创建的 KV 路径是 Vault AWS Secrets Engine 建立前的受控过渡方案：
 
 ```text
 kv/data/CICD/prod/aws-bootstrap
+kv/data/CICD/prod/iac_state
 ```
 
-字段仅限：
+`aws-bootstrap` 字段仅限：
 
 ```text
 AWS_ACCESS_KEY_ID
 AWS_SECRET_ACCESS_KEY
-AWS_SESSION_TOKEN
+AWS_SESSION_TOKEN             # 可选；使用 STS/IAM Identity Center 临时凭据时必须提供
 ```
 
-该路径只授予 bootstrap JWT role、设置极短 TTL 或变更窗口，并在 apply 审计完成后立即删除。
-它是过渡方案；最终必须替换为 Vault 动态 AWS 凭据。
+`iac_state` 只放 Terraform backend 和已审计的 bootstrap 配置，不能混入 AWS 控制面凭据。
+
+两个路径均只授予 bootstrap JWT role、设置极短 TTL 或变更窗口，并在 apply 审计完成后立即删除
+`aws-bootstrap` 的控制面凭据。最终仍应替换为 Vault 动态 AWS 凭据。
 
 ## 验收
 
