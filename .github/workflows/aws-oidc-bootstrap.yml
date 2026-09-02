@@ -45,10 +45,28 @@ jobs:
         method: jwt
         role: github-actions-platform-ops-toolkit-prod-aws-bootstrap
         jwtGithubAudience: vault
+        outputToken: true
         ignoreNotFound: true
         secrets: |
           kv/data/CICD/prod/aws-bootstrap AWS_ACCESS_KEY_ID | AWS_ACCESS_KEY_ID ;
           kv/data/CICD/prod/aws-bootstrap AWS_SECRET_ACCESS_KEY | AWS_SECRET_ACCESS_KEY
+
+    - name: Load optional AWS session token
+      shell: bash
+      env:
+        VAULT_ADDR: https://vault.svc.plus
+        VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
+      run: |
+        set -euo pipefail
+
+        response="$(curl --fail --silent --show-error \
+          --header "X-Vault-Token: ${VAULT_TOKEN}" \
+          "${VAULT_ADDR}/v1/kv/data/CICD/prod/aws-bootstrap")"
+        session_token="$(jq -r '.data.data.AWS_SESSION_TOKEN // empty' <<<"${response}")"
+        if [ -n "${session_token}" ]; then
+          echo "::add-mask::${session_token}"
+          printf 'AWS_SESSION_TOKEN=%s\n' "${session_token}" >> "${GITHUB_ENV}"
+        fi
 
     - name: Reconcile GitHub OIDC trust
       env:
