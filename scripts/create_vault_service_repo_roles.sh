@@ -214,6 +214,8 @@ write_daily_snapshot_prod_release_role() {
   "token_ttl": "${TOKEN_TTL}",
   "token_max_ttl": "${TOKEN_TTL}"
 }
+EOF
+}
 
 write_aws_oidc_bootstrap_policy() {
   vault policy write github-actions-platform-ops-toolkit-prod-aws-bootstrap - <<'EOF'
@@ -243,8 +245,6 @@ write_aws_oidc_bootstrap_role() {
   "token_type": "batch",
   "token_ttl": "20m",
   "token_max_ttl": "20m"
-}
-EOF
 }
 EOF
 }
