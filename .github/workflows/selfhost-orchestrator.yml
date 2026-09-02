@@ -274,8 +274,8 @@ jobs:
         ${{ (steps.route.outputs.run_infrastructure == 'true' ||
         steps.route.outputs.toolkit_action == 'migrate') &&
         steps.route.outputs.terraform_action != 'destroy' &&
-        contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'),
-        steps.route.outputs.target_domains) }}
+        (contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'),
+        steps.route.outputs.target_domains) || steps.route.outputs.cloud_provider == 'aws-cloud') }}
       uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/gitops
@@ -284,6 +284,7 @@ jobs:
         sparse-checkout-cone-mode: false
         sparse-checkout: |
           topology/${{ steps.route.outputs.deployment_env }}/selfhost/runtime-topology.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/github-actions-oidc.json
 
     - name: Render GitOps selfhost routing declaration
       if: >-
@@ -342,12 +343,21 @@ jobs:
           ${{ env.VAULT_KV_BASE }} TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
           ${{ env.VAULT_KV_BASE }} TF_STATE_REGION   | TF_STATE_REGION
 
+    - name: Resolve AWS OIDC deployment configuration from GitOps
+      id: aws_oidc
+      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'aws-cloud'
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/provision/resolve_gitops_aws_oidc_config.sh
+      env:
+        GITOPS_AWS_OIDC_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/github-actions-oidc.json
+        EXPECTED_DEPLOYMENT_ENV: ${{ steps.route.outputs.deployment_env }}
+
     - name: Configure AWS Credentials (OIDC)
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'aws-cloud'
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        aws-region: ap-northeast-1
-        role-to-assume: arn:aws:iam::950604983695:role/GithubAction_IAC_Deploy_Role
+        aws-region: ${{ steps.aws_oidc.outputs.region }}
+        role-to-assume: ${{ steps.aws_oidc.outputs.role_arn }}
+        audience: ${{ steps.aws_oidc.outputs.audience }}
 
     - name: Configure GCP Credentials (OIDC)
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'gcp-cloud'
