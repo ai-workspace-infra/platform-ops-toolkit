@@ -54,14 +54,22 @@ for required in (
     "kv/${VAULT_ENV_PATH}/billing-service",
     'vault_key_prefix="PROD"',
     'vault_key_prefix="SANDBOX"',
+    "STRIPE_WEBHOOK_SECRET",
+    "STRIPE_WEBHOOK_URL",
     "scripts/seed-billing-plans.sql",
     "--write-catalog",
     "Accounts bootstrap administrator login failed",
-    ".spec.serverless.cloud_run.accounts",
-    "ACCOUNTS_BASE_URL=${accounts_run_url}",
 ):
     if required not in script:
         raise SystemExit(f"Stripe bootstrap script is missing {required!r}")
+
+workflow_text = Path(sys.argv[1]).read_text(encoding="utf-8")
+for required in (
+    ".spec.serverless.cloud_run.accounts",
+    "ACCOUNTS_BASE_URL=${accounts_run_url}",
+):
+    if required not in workflow_text:
+        raise SystemExit(f"Stripe workflow is missing {required!r}")
 PY
 
 echo "stripe_catalog_bootstrap_contract_test: PASS"

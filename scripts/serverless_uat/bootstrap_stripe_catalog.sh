@@ -100,6 +100,16 @@ if [[ -z "${stripe_secret_key}" ]]; then
   echo "Stripe secret key is missing from kv/${VAULT_ENV_PATH}/billing-service (${vault_key_prefix}_STRIPE_SECRET_KEY or STRIPE_SECRET_KEY)." >&2
   exit 1
 fi
+stripe_webhook_secret="$(read_vault_key "kv/${VAULT_ENV_PATH}/billing-service" "${vault_key_prefix}_STRIPE_WEBHOOK_SECRET" 2>/dev/null || true)"
+if [[ -z "${stripe_webhook_secret}" ]]; then
+  echo "Stripe webhook secret is missing from kv/${VAULT_ENV_PATH}/billing-service (${vault_key_prefix}_STRIPE_WEBHOOK_SECRET)." >&2
+  exit 1
+fi
+stripe_webhook_url="$(read_vault_key "kv/${VAULT_ENV_PATH}/billing-service" "${vault_key_prefix}_STRIPE_WEBHOOK_URL" 2>/dev/null || true)"
+if [[ -z "${stripe_webhook_url}" ]]; then
+  echo "Stripe webhook URL is missing from kv/${VAULT_ENV_PATH}/billing-service (${vault_key_prefix}_STRIPE_WEBHOOK_URL)." >&2
+  exit 1
+fi
 root_email="$(read_vault_key "kv/CICD" "ROOT_BOOTSTRAP_EMAIL" 2>/dev/null || true)"
 root_email="${root_email:-admin@svc.plus}"
 root_password="$(read_vault_key "kv/CICD" "ROOT_BOOTSTRAP_PASSWORD")"
@@ -118,6 +128,8 @@ accounts_admin_token="$(jq -er '.token // empty' < "${login_body}")"
 
 echo "Synchronizing Stripe Products, Prices, webhook, and catalog snapshots..."
 STRIPE_SECRET_KEY="${stripe_secret_key}" \
+STRIPE_WEBHOOK_SECRET="${stripe_webhook_secret}" \
+STRIPE_WEBHOOK_URL="${stripe_webhook_url}" \
 ACCOUNTS_ADMIN_TOKEN="${accounts_admin_token}" \
 ACCOUNTS_BASE_URL="${ACCOUNTS_BASE_URL}" \
 "${SYNC_SCRIPT}" --env "${VAULT_ENV_PATH}" --domain-base "${DOMAIN_BASE}" --write-catalog

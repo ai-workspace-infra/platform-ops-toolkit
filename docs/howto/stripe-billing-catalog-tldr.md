@@ -2,12 +2,13 @@
 
 ## 结论
 
-部署**新环境**时，不要手工在 Stripe Dashboard 创建 Product、Price 或 Webhook。
+部署新环境时，Product 和 Price 由编排同步；Webhook 必须由受控的 Stripe
+配置流程预先创建。编排只校验该 endpoint，不会创建、修改或输出其 signing secret。
 套餐定义来自 `ai-workspace-services/accounts/scripts/stripe-catalog.yaml`；发布编排会在
 Accounts、数据库和公网域名健康后自动完成以下操作：
 
 1. 新数据库没有 `PRO-MONTHLY` 时写入幂等套餐种子；
-2. 创建或复用 Stripe Product、Price 和 Webhook；
+2. 创建或复用 Stripe Product、Price，并校验 Vault 指定的 Stripe Webhook；
 3. 把实际 Stripe `price_*`、`priceAmount`、`priceCurrency`、`priceUnit` 回写到
    Accounts 的 `billing_plans`；
 4. 失败即让部署失败，避免出现 Stripe 已有价格但应用目录没有对应记录的半成品状态。
@@ -23,11 +24,13 @@ self-hosted 入口是 `selfhost-orchestrator.yml` 的 `[4] Stripe catalog` job�
 kv/<env>/billing-service
   SANDBOX_STRIPE_SECRET_KEY       # UAT/SIT 使用 sk_test_
   SANDBOX_STRIPE_WEBHOOK_SECRET   # UAT/SIT webhook secret
+  SANDBOX_STRIPE_WEBHOOK_URL      # UAT/SIT 预先创建的 https endpoint
   STRIPE_XCONNECT_PAY_URL         # 同环境 Payment Link
 
 kv/prod/billing-service
   PROD_STRIPE_SECRET_KEY          # 生产独立 sk_live_
   PROD_STRIPE_WEBHOOK_SECRET      # 生产 webhook secret
+  PROD_STRIPE_WEBHOOK_URL         # 生产预先创建的 https endpoint
   STRIPE_XCONNECT_PAY_URL          # 生产 Payment Link
 
 kv/CICD
@@ -56,9 +59,10 @@ scripts/stripe-sync-catalog.sh \
   --write-catalog
 ```
 
-该命令会创建或复用 Stripe 对象，并通过 Accounts admin API 回写目录。它不会把 token
-或 Stripe key 写入文件。先用 `--dry-run` 审核会执行的操作；生产改为 `--env prod`、
-生产域名和 `kv/prod/billing-service/PROD_STRIPE_SECRET_KEY` 的独立 `sk_live_`。
+该命令会创建或复用 Product、Price，校验预先创建的 Webhook endpoint，并通过 Accounts
+admin API 回写目录。它不会把 token、Stripe key 或 webhook signing secret 写入文件或
+日志。先用 `--dry-run` 审核会执行的操作；生产改为 `--env prod`、生产域名和
+`kv/prod/billing-service` 中的 `PROD_STRIPE_*` 配置。
 
 ## 合并与发布顺序
 
