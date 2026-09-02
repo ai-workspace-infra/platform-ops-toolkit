@@ -40,6 +40,11 @@ if grep -Fq 'AWS_ROOT_ACCESS_KEY' "${workflow}" "${script}"; then
   exit 1
 fi
 
+if grep -Fq 'AWS_SESSION_TOKEN' "${workflow}"; then
+  echo "AWS OIDC bootstrap must match the configured two-field aws-bootstrap secret" >&2
+  exit 1
+fi
+
 for required in \
   'write_aws_oidc_bootstrap_policy' \
   'write_aws_oidc_bootstrap_role' \
