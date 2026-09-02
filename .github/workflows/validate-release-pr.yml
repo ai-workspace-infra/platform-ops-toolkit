@@ -76,6 +76,9 @@ jobs:
     - name: Verify Agent Proxy controller registration contract
       run: bash .github/scripts/tests/platform_ops_agent_proxy_controller_contract_test.sh
 
+    - name: Verify AWS OIDC is resolved from GitOps
+      run: bash .github/scripts/tests/aws_oidc_gitops_contract_test.sh
+
     - name: Verify Web SaaS VPS alias contract
       run: bash .github/scripts/tests/platform_ops_web_saas_public_alias_contract_test.sh
 
