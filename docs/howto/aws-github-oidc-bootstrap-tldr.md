@@ -64,8 +64,8 @@ kv/data/CICD/prod/iac_state
 不能假设可从空 state 安全执行完整的 Terraform identity apply；恢复流水线只更新由 GitOps
 声明生成的 IAM trust policy。后续常规 Terraform apply 再以现有 state 为准进行漂移校验。
 
-这两个 KV 路径只允许专用 bootstrap JWT role 读取，不能直接扩展给通用 PROD role、UAT role
-或任何普通应用部署工作流。
+首次 OIDC 恢复流水线只读取 `aws-bootstrap`，不读取 `iac_state`；后者继续由既有 IaC/state
+流程按最小权限消费。两条路径都不能直接扩展给通用 PROD role、UAT role或普通应用部署工作流。
 
 ## Vault：目标状态
 
