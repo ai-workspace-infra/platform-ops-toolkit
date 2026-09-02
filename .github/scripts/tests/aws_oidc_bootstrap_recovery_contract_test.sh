@@ -16,6 +16,8 @@ for required in \
   'kv/data/CICD/prod/aws-bootstrap' \
   'environment: production' \
   'options: [plan, apply]' \
+  'allow_root_break_glass' \
+  'ALLOW_ROOT_BREAK_GLASS' \
   'reconcile_github_oidc_trust.sh'; do
   grep -Fq -- "${required}" "${workflow}" || {
     echo "AWS OIDC bootstrap workflow missing contract: ${required}" >&2
@@ -29,6 +31,9 @@ for required in \
   'aws iam add-client-id-to-open-id-connect-provider' \
   'aws iam get-open-id-connect-provider' \
   'aws iam update-assume-role-policy' \
+  'AWS bootstrap workflow API scope:' \
+  'root-principal break-glass session' \
+  'allow_root_break_glass=true' \
   'Plan: would create OIDC provider' \
   'if [ "${action}" = "plan" ]' \
   'refs/tags/v*'; do
@@ -36,6 +41,17 @@ for required in \
     echo "AWS OIDC bootstrap script missing safety contract: ${required}" >&2
     exit 1
   }
+done
+
+for forbidden in \
+  'aws iam create-role' \
+  'aws iam attach-role-policy' \
+  'aws iam put-role-policy' \
+  'aws s3 '; do
+  if grep -Fq -- "${forbidden}" "${script}"; then
+    echo "AWS OIDC bootstrap scope must not include: ${forbidden}" >&2
+    exit 1
+  fi
 done
 
 bash -n "${vault_roles}" || {
