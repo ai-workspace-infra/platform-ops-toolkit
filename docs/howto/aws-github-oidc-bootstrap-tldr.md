@@ -58,10 +58,11 @@ kv/data/CICD/prod/iac_state
 | 路径 | 用途 | 允许的字段 |
 | --- | --- | --- |
 | `aws-bootstrap` | 一次性 AWS 控制面身份 | `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`、可选 `AWS_SESSION_TOKEN` |
-| `iac_state` | Terraform state 后端与受控 bootstrap 配置 | `TF_STATE_ENDPOINT`、`TF_STATE_BUCKET`、`TF_STATE_ACCESS_KEY`、`TF_STATE_SECRET_KEY`、`TF_STATE_REGION`、`BOOTSTRAP_CONFIG_B64` |
+| `iac_state` | 现有基础设施与 Terraform state 后端 | `VULTR_API_KEY`、`TF_STATE_ENDPOINT`、`TF_STATE_BUCKET`、`TF_STATE_ACCESS_KEY`、`TF_STATE_SECRET_KEY`、`TF_STATE_REGION`、`SSH_PRIVATE_DEPLOY_KEY_B64` |
 
-`BOOTSTRAP_CONFIG_B64` 是现有 bootstrap YAML 的 base64 编码；流水线仅在临时工作目录解码，
-不得打印其内容。它需要提供已有的 account、region、state 和 Terraform deploy role 配置。
+`iac_state` 不包含现有 Terraform identity state 或 bootstrap YAML。因此首次 OIDC 故障恢复
+不能假设可从空 state 安全执行完整的 Terraform identity apply；恢复流水线只更新由 GitOps
+声明生成的 IAM trust policy。后续常规 Terraform apply 再以现有 state 为准进行漂移校验。
 
 这两个 KV 路径只允许专用 bootstrap JWT role 读取，不能直接扩展给通用 PROD role、UAT role
 或任何普通应用部署工作流。
@@ -136,7 +137,7 @@ AWS_SECRET_ACCESS_KEY
 AWS_SESSION_TOKEN             # 可选；使用 STS/IAM Identity Center 临时凭据时必须提供
 ```
 
-`iac_state` 只放 Terraform backend 和已审计的 bootstrap 配置，不能混入 AWS 控制面凭据。
+`iac_state` 只放现有基础设施和 Terraform state 后端凭据，不能混入 AWS 控制面凭据。
 
 两个路径均只授予 bootstrap JWT role、设置极短 TTL 或变更窗口，并在 apply 审计完成后立即删除
 `aws-bootstrap` 的控制面凭据。最终仍应替换为 Vault 动态 AWS 凭据。
