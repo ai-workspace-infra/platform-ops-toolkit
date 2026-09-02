@@ -25,8 +25,11 @@ done
 
 for required in \
   'BOOTSTRAP_ACTION must be plan or apply' \
+  'aws iam create-open-id-connect-provider' \
+  'aws iam add-client-id-to-open-id-connect-provider' \
   'aws iam get-open-id-connect-provider' \
   'aws iam update-assume-role-policy' \
+  'Plan: would create OIDC provider' \
   'if [ "${action}" = "plan" ]' \
   'refs/tags/v*'; do
   grep -Fq -- "${required}" "${script}" || {
@@ -34,6 +37,11 @@ for required in \
     exit 1
   }
 done
+
+bash -n "${vault_roles}" || {
+  echo "Vault bootstrap role provisioning script must have valid shell syntax" >&2
+  exit 1
+}
 
 if grep -Fq 'AWS_ROOT_ACCESS_KEY' "${workflow}" "${script}"; then
   echo "AWS OIDC bootstrap must not use root access-key fields" >&2
