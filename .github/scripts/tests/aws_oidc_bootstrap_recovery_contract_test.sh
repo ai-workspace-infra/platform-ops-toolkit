@@ -40,10 +40,17 @@ if grep -Fq 'AWS_ROOT_ACCESS_KEY' "${workflow}" "${script}"; then
   exit 1
 fi
 
-if grep -Fq 'AWS_SESSION_TOKEN' "${workflow}"; then
-  echo "AWS OIDC bootstrap must match the configured two-field aws-bootstrap secret" >&2
-  exit 1
-fi
+for required in \
+  'outputToken: true' \
+  'Load optional AWS session token' \
+  'AWS_SESSION_TOKEN // empty' \
+  'AWS_SESSION_TOKEN=%s' \
+  'steps.vault.outputs.vault_token'; do
+  grep -Fq -- "${required}" "${workflow}" || {
+    echo "AWS OIDC bootstrap optional session-token contract missing: ${required}" >&2
+    exit 1
+  }
+done
 
 for required in \
   'write_aws_oidc_bootstrap_policy' \
