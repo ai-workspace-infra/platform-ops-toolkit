@@ -4,7 +4,8 @@ set -euo pipefail
 action="${BOOTSTRAP_ACTION:?BOOTSTRAP_ACTION is required}"
 config_file="${GITOPS_AWS_OIDC_CONFIG:?GITOPS_AWS_OIDC_CONFIG is required}"
 readonly expected_repository="ai-workspace-infra/platform-ops-toolkit"
-readonly allowed_iam_actions="iam:ListOpenIDConnectProviders, iam:GetOpenIDConnectProvider, iam:CreateOpenIDConnectProvider, iam:AddClientIDToOpenIDConnectProvider, iam:GetRole, iam:UpdateAssumeRolePolicy"
+readonly deploy_role_policy_arn="arn:aws:iam::aws:policy/AdministratorAccess"
+readonly allowed_iam_actions="iam:ListOpenIDConnectProviders, iam:GetOpenIDConnectProvider, iam:CreateOpenIDConnectProvider, iam:AddClientIDToOpenIDConnectProvider, iam:GetRole, iam:CreateRole, iam:ListAttachedRolePolicies, iam:AttachRolePolicy, iam:UpdateAssumeRolePolicy"
 
 case "${action}" in
   plan|apply) ;;
@@ -76,7 +77,33 @@ fi
 
 echo "AWS bootstrap workflow API scope: ${allowed_iam_actions}."
 
-aws iam get-role --role-name "${role_name}" --query 'Role.Arn' --output text | grep -Fx "${role_arn}" >/dev/null
+role_exists=false
+role_needs_admin_policy=false
+role_details="$(aws iam get-role --role-name "${role_name}" 2>&1)" || {
+  if ! grep -Fq 'NoSuchEntity' <<<"${role_details}"; then
+    printf '%s\n' "${role_details}" >&2
+    exit 1
+  fi
+  role_details=""
+}
+
+if [ -n "${role_details}" ]; then
+  role_exists=true
+  role_actual_arn="$(jq -er '.Role.Arn' <<<"${role_details}")"
+  test "${role_actual_arn}" = "${role_arn}" || {
+    echo "Existing role ARN does not match GitOps declaration: ${role_actual_arn}." >&2
+    exit 1
+  }
+
+  attached_policy_arns="$(aws iam list-attached-role-policies \
+    --role-name "${role_name}" \
+    --query 'AttachedPolicies[].PolicyArn' \
+    --output json)"
+  if ! jq -e --arg policy_arn "${deploy_role_policy_arn}" \
+    'index($policy_arn) != null' <<<"${attached_policy_arns}" >/dev/null; then
+    role_needs_admin_policy=true
+  fi
+fi
 
 provider_arns="$(aws iam list-open-id-connect-providers --query 'OpenIDConnectProviderList[].Arn' --output json)"
 provider_exists=false
@@ -127,6 +154,13 @@ if [ "${action}" = "plan" ]; then
   else
     echo "Plan: OIDC provider ${provider_arn} already matches GitOps."
   fi
+  if [ "${role_exists}" = false ]; then
+    echo "Plan: would create ${role_name} with managed policy ${deploy_role_policy_arn}."
+  elif [ "${role_needs_admin_policy}" = true ]; then
+    echo "Plan: would attach managed policy ${deploy_role_policy_arn} to ${role_name}."
+  else
+    echo "Plan: ${role_name} already has managed policy ${deploy_role_policy_arn}."
+  fi
   echo "Plan: would update ${role_name} trust policy from the GitOps declaration."
   echo "Plan complete. No AWS IAM change was made. Re-run with action=apply after reviewing this output."
   exit 0
@@ -151,6 +185,27 @@ elif [ "${provider_needs_audience}" = true ]; then
 fi
 
 aws iam get-open-id-connect-provider --open-id-connect-provider-arn "${provider_arn}" >/dev/null
+
+if [ "${role_exists}" = false ]; then
+  created_role_arn="$(aws iam create-role \
+    --role-name "${role_name}" \
+    --assume-role-policy-document "file://${policy_file}" \
+    --query 'Role.Arn' \
+    --output text)"
+  test "${created_role_arn}" = "${role_arn}" || {
+    echo "Created unexpected IAM role ARN: ${created_role_arn}." >&2
+    exit 1
+  }
+  role_needs_admin_policy=true
+  echo "Created ${role_name} from the GitOps trust policy."
+fi
+
+if [ "${role_needs_admin_policy}" = true ]; then
+  aws iam attach-role-policy \
+    --role-name "${role_name}" \
+    --policy-arn "${deploy_role_policy_arn}"
+  echo "Attached managed policy ${deploy_role_policy_arn} to ${role_name}."
+fi
 
 aws iam update-assume-role-policy \
   --role-name "${role_name}" \

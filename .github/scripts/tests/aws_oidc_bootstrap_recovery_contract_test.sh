@@ -30,11 +30,16 @@ for required in \
   'aws iam create-open-id-connect-provider' \
   'aws iam add-client-id-to-open-id-connect-provider' \
   'aws iam get-open-id-connect-provider' \
+  'aws iam create-role' \
+  'aws iam list-attached-role-policies' \
+  'aws iam attach-role-policy' \
+  'arn:aws:iam::aws:policy/AdministratorAccess' \
   'aws iam update-assume-role-policy' \
   'AWS bootstrap workflow API scope:' \
   'root-principal break-glass session' \
   'allow_root_break_glass=true' \
   'Plan: would create OIDC provider' \
+  'Plan: would create ${role_name}' \
   'if [ "${action}" = "plan" ]' \
   'refs/tags/v*'; do
   grep -Fq -- "${required}" "${script}" || {
@@ -44,8 +49,7 @@ for required in \
 done
 
 for forbidden in \
-  'aws iam create-role' \
-  'aws iam attach-role-policy' \
+  'aws iam create-policy' \
   'aws iam put-role-policy' \
   'aws s3 '; do
   if grep -Fq -- "${forbidden}" "${script}"; then
