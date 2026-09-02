@@ -214,6 +214,38 @@ write_daily_snapshot_prod_release_role() {
   "token_ttl": "${TOKEN_TTL}",
   "token_max_ttl": "${TOKEN_TTL}"
 }
+
+write_aws_oidc_bootstrap_policy() {
+  vault policy write github-actions-platform-ops-toolkit-prod-aws-bootstrap - <<'EOF'
+path "kv/data/CICD/prod/aws-bootstrap" {
+  capabilities = ["read"]
+}
+path "kv/metadata/CICD/prod/aws-bootstrap" {
+  capabilities = ["read"]
+}
+EOF
+}
+
+write_aws_oidc_bootstrap_role() {
+  vault write auth/jwt/role/github-actions-platform-ops-toolkit-prod-aws-bootstrap - <<EOF
+{
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": ["vault"],
+  "bound_claims_type": "glob",
+  "bound_claims": {
+    "repository": "${REPO}",
+    "job_workflow_ref": "${WF_PREFIX}/aws-oidc-bootstrap.yml@*",
+    "ref": "refs/heads/main"
+  },
+  "token_policies": ["github-actions-platform-ops-toolkit-prod-aws-bootstrap"],
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": "20m",
+  "token_max_ttl": "20m"
+}
+EOF
+}
 EOF
 }
 
@@ -252,6 +284,9 @@ echo "  Creating PROD role..."
 write_role prod github-actions-platform-ops-toolkit-prod '["refs/tags/v*", "refs/heads/release/v*"]'
 echo "  Creating PROD release-authoring role..."
 write_daily_snapshot_prod_release_role
+echo "  Creating dedicated AWS OIDC bootstrap role..."
+write_aws_oidc_bootstrap_policy
+write_aws_oidc_bootstrap_role
 
 echo "  Creating Playbooks SIT role..."
 write_playbooks_role sit github-actions-platform-ops-toolkit-sit '["refs/pull/*/merge", "refs/heads/*"]'
