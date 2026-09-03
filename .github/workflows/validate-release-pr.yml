@@ -52,6 +52,9 @@ jobs:
     - name: Verify production snapshot tag auto-revision
       run: bash .github/scripts/tests/daily_snapshot_prod_tag_revision_test.sh
 
+    - name: Verify production Agent Proxy DNS scope
+      run: bash .github/scripts/tests/prod_agent_proxy_dns_scope_test.sh
+
     - name: Verify complete-snapshot combined UAT gate
       run: bash .github/scripts/tests/daily_snapshot_uat_gate_contract_test.sh
 

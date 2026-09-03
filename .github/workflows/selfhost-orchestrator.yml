@@ -1689,6 +1689,7 @@ jobs:
       run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_monitor_agent.sh
 
     - name: Verify Xray to Billing ingest chain
+      if: ${{ needs.provision.outputs.deployment_env == 'uat' && contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) }}
       working-directory: playbooks
       env:
         MATRIX_HOST: ${{ matrix.host }}
