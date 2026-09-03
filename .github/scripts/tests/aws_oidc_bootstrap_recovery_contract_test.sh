@@ -49,7 +49,8 @@ for required in \
   'Plan: would create ${role_name}' \
   'GITHUB_OUTPUT' \
   'if [ "${action}" = "plan" ]' \
-  'refs/tags/v*'; do
+  'refs/tags/v*' \
+  'environment:production'; do
   grep -Fq -- "${required}" "${script}" || {
     echo "AWS OIDC bootstrap script missing safety contract: ${required}" >&2
     exit 1

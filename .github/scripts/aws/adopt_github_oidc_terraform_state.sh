@@ -49,7 +49,8 @@ jq -e \
   .spec.audience == "sts.amazonaws.com" and
   .spec.aws.account_id == $account_id and
   .spec.aws.role_name == $role_name and
-  .spec.aws.role_arn == ("arn:aws:iam::" + $account_id + ":role/" + $role_name)
+  .spec.aws.role_arn == ("arn:aws:iam::" + $account_id + ":role/" + $role_name) and
+  (.spec.subjects | index("repo:ai-workspace-infra/platform-ops-toolkit:environment:production"))
 ' "${gitops_config}" >/dev/null || {
   echo "GitOps OIDC declaration failed the Terraform state-adoption contract." >&2
   exit 1

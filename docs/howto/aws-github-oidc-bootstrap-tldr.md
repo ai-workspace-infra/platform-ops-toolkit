@@ -19,6 +19,7 @@ resources/svc.plus/prod/aws/github-actions-oidc.json
 ```text
 repo:ai-workspace-infra/platform-ops-toolkit:ref:refs/heads/main
 repo:ai-workspace-infra/platform-ops-toolkit:ref:refs/tags/v*
+repo:ai-workspace-infra/platform-ops-toolkit:environment:production
 ```
 
 ## Vault：现有生产 KV
@@ -155,7 +156,7 @@ AWS_SESSION_TOKEN             # 可选；使用 STS/IAM Identity Center 临时�
 
 `iac_state` 只放现有基础设施和 Terraform state 后端凭据，不能混入 AWS 控制面凭据。
 
-两个路径均只授予 bootstrap JWT role、设置极短 TTL 或变更窗口，并在 apply 审计完成后立即删除
+这些路径均只授予 bootstrap JWT role、设置极短 TTL 或变更窗口，并在 apply 审计完成后立即删除
 `aws-bootstrap` 的控制面凭据。最终仍应替换为 Vault 动态 AWS 凭据。
 
 在首次启用自动 state adoption 前，Vault 管理员必须在合并后的 `main` 运行
@@ -169,7 +170,7 @@ AWS_SESSION_TOKEN             # 可选；使用 STS/IAM Identity Center 临时�
 - Bootstrap plan/apply 仅创建 GitHub OIDC Provider、补齐其 audience、创建目标 Role、附加固定的
   `AdministratorAccess`，并更新目标 Role trust；
 - Provider、Role 及其 policy attachment 已自动导入 Terraform state，target Terraform plan 没有漂移；
-- AWS Role trust policy 包含 `main` 与 `v*` 的两个生产 subject；
+- AWS Role trust policy 包含 `main`、`v*` 和固定 `production` environment 的三个生产 subject；
 - 发布流水线能取得 OIDC 凭据；
 - 没有长期 root Access Key 存在于 KV、GitHub Secrets、日志或仓库；一次性短期
   break-glass 会话在 bootstrap 后已撤销或过期。
