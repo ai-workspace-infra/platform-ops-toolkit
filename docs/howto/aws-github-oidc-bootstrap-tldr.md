@@ -115,6 +115,11 @@ iam:AttachRolePolicy
 state role。`AdministratorAccess` 是高权限生产授权：仅限这个固定 Role，必须经过 Production
 environment 审批，并使用 `plan` 审阅后才可 `apply`。
 
+`apply` 成功创建/修正 AWS 资源后，会使用刚创建的 GitHub OIDC Role 读取 `iac_state`，仅把
+这三个固定资源导入 `platform-ops-toolkit/prod/aws-cloud/bootstrap/identity/terraform.tfstate`，再以
+`terraform plan -target` 验证无漂移。导入步骤不执行 `terraform apply` 或 `terraform destroy`。
+该 state key、生产 bootstrap YAML 和 GitOps 引用由 `iac_modules` 管理。
+
 ## 一次性 bootstrap 流程
 
 1. 将经审批的短期 AWS break-glass 凭据写入 `kv/data/CICD/prod/aws-bootstrap`。
@@ -124,8 +129,8 @@ environment 审批，并使用 `plan` 审阅后才可 `apply`。
    `AdministratorAccess`，以及更新该 Role 的 trust policy。
 3. 审阅 plan 输出只涉及上述 OIDC Provider、目标 Role、固定的 AWS 托管策略和 trust policy 后，选择 `action=apply`；如果调用者是
    root-principal break-glass session，同时设置 `allow_root_break_glass=true`。
-4. 将 Action 创建的 Provider、Role 及其 `AdministratorAccess` attachment import 到现有 Terraform
-   `bootstrap/identity` state，使后续 IaC 持续管理它们，而不是重复创建。
+4. `apply` 自动将 Provider、Role 及其 `AdministratorAccess` attachment import 到唯一的 Terraform
+   `bootstrap/identity` state 并完成 target drift check；若发现漂移，Action 失败而不执行 Terraform apply。
 5. 以新的生产 release tag 重跑 Selfhost Orchestrator，验证 `AssumeRoleWithWebIdentity`
    成功。
 6. 结束 break-glass 会话，删除/撤销 `aws-bootstrap` 中的临时根账号会话，并保留
@@ -153,12 +158,17 @@ AWS_SESSION_TOKEN             # 可选；使用 STS/IAM Identity Center 临时�
 两个路径均只授予 bootstrap JWT role、设置极短 TTL 或变更窗口，并在 apply 审计完成后立即删除
 `aws-bootstrap` 的控制面凭据。最终仍应替换为 Vault 动态 AWS 凭据。
 
+在首次启用自动 state adoption 前，Vault 管理员必须在合并后的 `main` 运行
+`scripts/create_vault_service_repo_roles.sh` 一次，使专用 bootstrap JWT role 获得对
+`kv/data/CICD/prod/iac_state` 的只读权限。该权限只绑定 `aws-oidc-bootstrap.yml` 的 `main`，不授予
+常规生产部署工作流。
+
 ## 验收
 
 - GitOps `github-actions-oidc.json` 已合并，且没有密钥；
 - Bootstrap plan/apply 仅创建 GitHub OIDC Provider、补齐其 audience、创建目标 Role、附加固定的
   `AdministratorAccess`，并更新目标 Role trust；
-- Provider、Role 及其 policy attachment 已导入 Terraform state，后续 Terraform plan 没有创建或替换非 IAM/OIDC 资源；
+- Provider、Role 及其 policy attachment 已自动导入 Terraform state，target Terraform plan 没有漂移；
 - AWS Role trust policy 包含 `main` 与 `v*` 的两个生产 subject；
 - 发布流水线能取得 OIDC 凭据；
 - 没有长期 root Access Key 存在于 KV、GitHub Secrets、日志或仓库；一次性短期

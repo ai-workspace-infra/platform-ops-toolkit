@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "plan reports the GitHub OIDC provider and trust-policy changes; apply creates the missing provider if needed, then updates GithubAction_IAC_Deploy_Role after Production approval."
+        description: "plan reports the GitHub OIDC changes; apply reconciles them, adopts the three fixed resources into Terraform state, then verifies no IaC drift."
         type: choice
         required: true
         default: plan
@@ -42,6 +42,14 @@ jobs:
         sparse-checkout: |
           resources/svc.plus/prod/aws/github-actions-oidc.json
 
+    - name: Checkout AWS IaC identity module
+      if: ${{ inputs.action == 'apply' }}
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/iac_modules
+        ref: main
+        path: iac_modules
+
     - name: Load one-time AWS bootstrap credentials
       id: vault
       uses: hashicorp/vault-action@v4
@@ -73,7 +81,24 @@ jobs:
           printf 'AWS_SESSION_TOKEN=%s\n' "${session_token}" >> "${GITHUB_ENV}"
         fi
 
+    - name: Load Terraform state credentials
+      id: iac_state
+      if: ${{ inputs.action == 'apply' }}
+      uses: hashicorp/vault-action@v4
+      with:
+        url: https://vault.svc.plus
+        method: jwt
+        role: github-actions-platform-ops-toolkit-prod-aws-bootstrap
+        jwtGithubAudience: vault
+        secrets: |
+          kv/data/CICD/prod/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
+          kv/data/CICD/prod/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
+          kv/data/CICD/prod/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+          kv/data/CICD/prod/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+          kv/data/CICD/prod/iac_state TF_STATE_REGION | TF_STATE_REGION
+
     - name: Reconcile GitHub OIDC trust
+      id: reconcile
       env:
         AWS_ACCESS_KEY_ID: ${{ steps.vault.outputs.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ steps.vault.outputs.AWS_SECRET_ACCESS_KEY }}
@@ -82,3 +107,28 @@ jobs:
         ALLOW_ROOT_BREAK_GLASS: ${{ inputs.allow_root_break_glass }}
         GITOPS_AWS_OIDC_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/prod/aws/github-actions-oidc.json
       run: .github/scripts/aws/reconcile_github_oidc_trust.sh
+
+    - name: Configure AWS credentials through the new GitHub OIDC role
+      if: ${{ inputs.action == 'apply' }}
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ steps.reconcile.outputs.role_arn }}
+        role-session-name: platform-ops-oidc-state-adoption
+        aws-region: ap-northeast-1
+
+    - name: Set up Terraform
+      if: ${{ inputs.action == 'apply' }}
+      uses: hashicorp/setup-terraform@v4
+
+    - name: Adopt GitHub OIDC resources into Terraform state
+      if: ${{ inputs.action == 'apply' }}
+      env:
+        IAC_MODULES_ROOT: ${{ github.workspace }}/iac_modules
+        GITOPS_AWS_OIDC_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/prod/aws/github-actions-oidc.json
+        IAC_BOOTSTRAP_CONFIG: ${{ github.workspace }}/iac_modules/terraform-hcl-standard/aws-cloud/config/bootstrap/prod.yaml
+        TF_STATE_ENDPOINT: ${{ steps.iac_state.outputs.TF_STATE_ENDPOINT }}
+        TF_STATE_BUCKET: ${{ steps.iac_state.outputs.TF_STATE_BUCKET }}
+        TF_STATE_ACCESS_KEY: ${{ steps.iac_state.outputs.TF_STATE_ACCESS_KEY }}
+        TF_STATE_SECRET_KEY: ${{ steps.iac_state.outputs.TF_STATE_SECRET_KEY }}
+        TF_STATE_REGION: ${{ steps.iac_state.outputs.TF_STATE_REGION }}
+      run: .github/scripts/aws/adopt_github_oidc_terraform_state.sh

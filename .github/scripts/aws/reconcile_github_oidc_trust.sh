@@ -5,7 +5,8 @@ action="${BOOTSTRAP_ACTION:?BOOTSTRAP_ACTION is required}"
 config_file="${GITOPS_AWS_OIDC_CONFIG:?GITOPS_AWS_OIDC_CONFIG is required}"
 readonly expected_repository="ai-workspace-infra/platform-ops-toolkit"
 readonly deploy_role_policy_arn="arn:aws:iam::aws:policy/AdministratorAccess"
-readonly allowed_iam_actions="iam:ListOpenIDConnectProviders, iam:GetOpenIDConnectProvider, iam:CreateOpenIDConnectProvider, iam:AddClientIDToOpenIDConnectProvider, iam:GetRole, iam:CreateRole, iam:ListAttachedRolePolicies, iam:AttachRolePolicy, iam:UpdateAssumeRolePolicy"
+readonly github_actions_thumbprint="6938fd4d98bab03faadb97b34396831e3780aea1"
+readonly allowed_iam_actions="iam:ListOpenIDConnectProviders, iam:GetOpenIDConnectProvider, iam:CreateOpenIDConnectProvider, iam:AddClientIDToOpenIDConnectProvider, iam:UpdateOpenIDConnectProviderThumbprint, iam:GetRole, iam:CreateRole, iam:ListAttachedRolePolicies, iam:AttachRolePolicy, iam:TagRole, iam:UpdateAssumeRolePolicy"
 
 case "${action}" in
   plan|apply) ;;
@@ -59,6 +60,13 @@ subjects="$(jq -ec '.spec.subjects' "${config_file}")"
 provider_host="${provider_url#https://}"
 provider_arn="arn:aws:iam::${account_id}:oidc-provider/${provider_host}"
 
+if [ -n "${GITHUB_ENV:-}" ]; then
+  printf 'GITHUB_ACTIONS_DEPLOY_ROLE_ARN=%s\n' "${role_arn}" >> "${GITHUB_ENV}"
+fi
+if [ -n "${GITHUB_OUTPUT:-}" ]; then
+  printf 'role_arn=%s\n' "${role_arn}" >> "${GITHUB_OUTPUT}"
+fi
+
 caller_identity="$(aws sts get-caller-identity --output json)"
 caller_account="$(jq -er '.Account' <<<"${caller_identity}")"
 caller_arn="$(jq -er '.Arn' <<<"${caller_identity}")"
@@ -108,6 +116,7 @@ fi
 provider_arns="$(aws iam list-open-id-connect-providers --query 'OpenIDConnectProviderList[].Arn' --output json)"
 provider_exists=false
 provider_needs_audience=false
+provider_needs_thumbprint=false
 
 if jq -e --arg provider_arn "${provider_arn}" 'index($provider_arn) != null' <<<"${provider_arns}" >/dev/null; then
   provider_exists=true
@@ -120,6 +129,9 @@ if jq -e --arg provider_arn "${provider_arn}" 'index($provider_arn) != null' <<<
 
   if ! jq -e --arg audience "${audience}" '.ClientIDList | index($audience) != null' <<<"${provider_details}" >/dev/null; then
     provider_needs_audience=true
+  fi
+  if ! jq -e --arg thumbprint "${github_actions_thumbprint}" '.ThumbprintList | index($thumbprint) != null' <<<"${provider_details}" >/dev/null; then
+    provider_needs_thumbprint=true
   fi
 fi
 
@@ -154,6 +166,9 @@ if [ "${action}" = "plan" ]; then
   else
     echo "Plan: OIDC provider ${provider_arn} already matches GitOps."
   fi
+  if [ "${provider_exists}" = false ] || [ "${provider_needs_thumbprint}" = true ]; then
+    echo "Plan: would set GitHub OIDC thumbprint ${github_actions_thumbprint} on ${provider_arn}."
+  fi
   if [ "${role_exists}" = false ]; then
     echo "Plan: would create ${role_name} with managed policy ${deploy_role_policy_arn}."
   elif [ "${role_needs_admin_policy}" = true ]; then
@@ -162,6 +177,7 @@ if [ "${action}" = "plan" ]; then
     echo "Plan: ${role_name} already has managed policy ${deploy_role_policy_arn}."
   fi
   echo "Plan: would update ${role_name} trust policy from the GitOps declaration."
+  echo "Plan: would reconcile Name and Environment=prod tags on ${role_name}."
   echo "Plan complete. No AWS IAM change was made. Re-run with action=apply after reviewing this output."
   exit 0
 fi
@@ -170,6 +186,7 @@ if [ "${provider_exists}" = false ]; then
   created_provider_arn="$(aws iam create-open-id-connect-provider \
     --url "${provider_url}" \
     --client-id-list "${audience}" \
+    --thumbprint-list "${github_actions_thumbprint}" \
     --query 'OpenIDConnectProviderArn' \
     --output text)"
   test "${created_provider_arn}" = "${provider_arn}" || {
@@ -184,12 +201,20 @@ elif [ "${provider_needs_audience}" = true ]; then
   echo "Added audience ${audience} to OIDC provider ${provider_arn}."
 fi
 
+if [ "${provider_exists}" = true ] && [ "${provider_needs_thumbprint}" = true ]; then
+  aws iam update-open-id-connect-provider-thumbprint \
+    --open-id-connect-provider-arn "${provider_arn}" \
+    --thumbprint-list "${github_actions_thumbprint}"
+  echo "Set GitHub OIDC thumbprint on ${provider_arn}."
+fi
+
 aws iam get-open-id-connect-provider --open-id-connect-provider-arn "${provider_arn}" >/dev/null
 
 if [ "${role_exists}" = false ]; then
   created_role_arn="$(aws iam create-role \
     --role-name "${role_name}" \
     --assume-role-policy-document "file://${policy_file}" \
+    --tags "Key=Name,Value=${role_name}" "Key=Environment,Value=prod" \
     --query 'Role.Arn' \
     --output text)"
   test "${created_role_arn}" = "${role_arn}" || {
@@ -206,6 +231,11 @@ if [ "${role_needs_admin_policy}" = true ]; then
     --policy-arn "${deploy_role_policy_arn}"
   echo "Attached managed policy ${deploy_role_policy_arn} to ${role_name}."
 fi
+
+aws iam tag-role \
+  --role-name "${role_name}" \
+  --tags "Key=Name,Value=${role_name}" "Key=Environment,Value=prod"
+echo "Reconciled Name and Environment=prod tags on ${role_name}."
 
 aws iam update-assume-role-policy \
   --role-name "${role_name}" \
