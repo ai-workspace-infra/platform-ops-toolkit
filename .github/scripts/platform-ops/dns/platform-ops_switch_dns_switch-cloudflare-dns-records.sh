@@ -48,8 +48,13 @@ DNS_ALIAS_RECORDS_JSON="$(
        {name: (.+"-"+$env+"."+$base), source_group: "web_saas", ttl: 1, proxied: false} ]'
 )"
 
+# Pass the rendered aliases as a JSON object. Ansible treats `key=value`
+# extra-vars as a string even when the value looks like `[]`, which makes the
+# playbook iterate over characters and fail while deduplicating records.
+DNS_ALIAS_RECORDS_ARG=(-e "{\"cloudflare_dns_alias_records\":${DNS_ALIAS_RECORDS_JSON}}")
+
 ansible-playbook -i "$INVENTORY_PATH" update_site_dns.yml \
   -e "target_domain=${PROVISION_TARGET_DOMAIN_BASE}" \
   -e "source_domain=${PROVISION_SOURCE_DOMAIN_BASE}" \
-  -e "cloudflare_dns_alias_records=${DNS_ALIAS_RECORDS_JSON}" \
+  "${DNS_ALIAS_RECORDS_ARG[@]}" \
   "${SOURCE_HOSTS_ARG[@]}"
