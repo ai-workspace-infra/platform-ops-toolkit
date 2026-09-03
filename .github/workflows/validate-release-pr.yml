@@ -76,6 +76,9 @@ jobs:
     - name: Verify AWS deploy key derivation contract
       run: bash .github/scripts/tests/aws_deploy_key_derivation_test.sh
 
+    - name: Validate AWS selfhost rootless SSH contract
+      run: bash .github/scripts/tests/aws_selfhost_rootless_ssh_test.sh
+
     - name: Verify Agent Proxy controller registration contract
       run: bash .github/scripts/tests/platform_ops_agent_proxy_controller_contract_test.sh
 

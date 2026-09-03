@@ -72,15 +72,17 @@ wait_for_package_init() {
   configure_ssh_options 10
   local timeout_secs="${HOST_INIT_WAIT_TIMEOUT:-120}"
   local interval_secs=3
+  local privileged_shell='bash -s'
+  [[ "${target_user}" == "root" ]] || privileged_shell='sudo -n bash -s'
 
   echo "Disabling unattended-upgrades on ${ACTION_MATRIX_HOST} (${target_ip})..."
-  ssh "${ssh_options[@]}" "${target_user}@${target_ip}" '
+  ssh "${ssh_options[@]}" "${target_user}@${target_ip}" "${privileged_shell}" <<'REMOTE' 2>/dev/null || true
     if command -v systemctl >/dev/null 2>&1; then
       systemctl stop unattended-upgrades.service >/dev/null 2>&1 || true
       systemctl disable unattended-upgrades.service >/dev/null 2>&1 || true
     fi
     pkill -f unattended-upgrade >/dev/null 2>&1 || true
-  ' 2>/dev/null || true
+REMOTE
 
   local probe
   probe="$(cat <<'REMOTE'
@@ -101,7 +103,7 @@ REMOTE
 
   local deadline=$((SECONDS + timeout_secs)) last='' out=''
   while ((SECONDS < deadline)); do
-    if out="$(ssh "${ssh_options[@]}" "${target_user}@${target_ip}" 'bash -s' <<<"${probe}" 2>/dev/null)" && [[ "${out}" == *READY* ]]; then
+    if out="$(ssh "${ssh_options[@]}" "${target_user}@${target_ip}" "${privileged_shell}" <<<"${probe}" 2>/dev/null)" && [[ "${out}" == *READY* ]]; then
       echo "Host ${ACTION_MATRIX_HOST} (${target_ip}) finished first-boot package work."
       return
     fi
