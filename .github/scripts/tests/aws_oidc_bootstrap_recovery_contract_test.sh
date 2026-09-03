@@ -18,6 +18,11 @@ for required in \
   'options: [plan, apply]' \
   'allow_root_break_glass' \
   'ALLOW_ROOT_BREAK_GLASS' \
+  'Checkout AWS IaC identity module' \
+  'Load Terraform state credentials' \
+  'kv/data/CICD/prod/iac_state' \
+  'Configure AWS credentials through the new GitHub OIDC role' \
+  'Adopt GitHub OIDC resources into Terraform state' \
   'reconcile_github_oidc_trust.sh'; do
   grep -Fq -- "${required}" "${workflow}" || {
     echo "AWS OIDC bootstrap workflow missing contract: ${required}" >&2
@@ -29,10 +34,12 @@ for required in \
   'BOOTSTRAP_ACTION must be plan or apply' \
   'aws iam create-open-id-connect-provider' \
   'aws iam add-client-id-to-open-id-connect-provider' \
+  'aws iam update-open-id-connect-provider-thumbprint' \
   'aws iam get-open-id-connect-provider' \
   'aws iam create-role' \
   'aws iam list-attached-role-policies' \
   'aws iam attach-role-policy' \
+  'aws iam tag-role' \
   'arn:aws:iam::aws:policy/AdministratorAccess' \
   'aws iam update-assume-role-policy' \
   'AWS bootstrap workflow API scope:' \
@@ -40,12 +47,39 @@ for required in \
   'allow_root_break_glass=true' \
   'Plan: would create OIDC provider' \
   'Plan: would create ${role_name}' \
+  'GITHUB_OUTPUT' \
   'if [ "${action}" = "plan" ]' \
   'refs/tags/v*'; do
   grep -Fq -- "${required}" "${script}" || {
     echo "AWS OIDC bootstrap script missing safety contract: ${required}" >&2
     exit 1
   }
+done
+
+test -x "${repo_root}/.github/scripts/aws/adopt_github_oidc_terraform_state.sh" || {
+  echo "Terraform state-adoption script must be executable" >&2
+  exit 1
+}
+
+for required in \
+  'platform-ops-toolkit/prod/aws-cloud/bootstrap/identity/terraform.tfstate' \
+  'aws_iam_openid_connect_provider.github_actions' \
+  'aws_iam_role.github_actions_deploy_role' \
+  'aws_iam_role_policy_attachment.github_actions_deploy_role_admin' \
+  'import -input=false' \
+  '-detailed-exitcode' \
+  'Terraform state adoption found drift'; do
+  grep -Fq -- "${required}" "${repo_root}/.github/scripts/aws/adopt_github_oidc_terraform_state.sh" || {
+    echo "Terraform state-adoption script missing contract: ${required}" >&2
+    exit 1
+  }
+done
+
+for forbidden in 'terraform apply' 'terraform destroy'; do
+  if grep -Fq -- "${forbidden}" "${repo_root}/.github/scripts/aws/adopt_github_oidc_terraform_state.sh"; then
+    echo "Terraform state adoption must not run: ${forbidden}" >&2
+    exit 1
+  fi
 done
 
 for forbidden in \
@@ -84,6 +118,7 @@ for required in \
   'write_aws_oidc_bootstrap_policy' \
   'write_aws_oidc_bootstrap_role' \
   'kv/data/CICD/prod/aws-bootstrap' \
+  'kv/data/CICD/prod/iac_state' \
   'aws-oidc-bootstrap.yml@*' \
   '"ref": "refs/heads/main"' \
   '"token_ttl": "20m"'; do
