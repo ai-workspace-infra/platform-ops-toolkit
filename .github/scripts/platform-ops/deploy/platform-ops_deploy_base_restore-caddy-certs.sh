@@ -33,6 +33,11 @@ matrix_ip="$(jq -r --arg host "${MATRIX_HOST}" '.[$host].ip // empty' "${cmdb_fi
   echo "::error::No CMDB IP found for ${MATRIX_HOST}; refusing to bootstrap through stale DNS." >&2
   exit 1
 }
+matrix_user="$(jq -r --arg host "${MATRIX_HOST}" '.[$host].ansible_user // "root"' "${cmdb_file}")"
+[[ -n "${matrix_user}" && "${matrix_user}" != "null" ]] || {
+  echo "::error::No CMDB SSH user found for ${MATRIX_HOST}." >&2
+  exit 1
+}
 
 # 临近到期就不恢复了, 直接让 Caddy 签新的。恢复一张还剩三天的证书, 只会让
 # Caddy 一起来立刻进入续期流程 —— 白白多一次重启窗口, 还可能在续期成功前就
@@ -41,7 +46,7 @@ matrix_ip="$(jq -r --arg host "${MATRIX_HOST}" '.[$host].ip // empty' "${cmdb_fi
 renew_margin_days="${CADDY_CERT_RENEW_MARGIN_DAYS:-14}"
 
 ssh_opts=(-i ~/.ssh/id_deploy -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=20)
-host="root@${matrix_ip}"
+host="${matrix_user}@${matrix_ip}"
 
 # 1. 用 GitHub 的 OIDC id-token 换 Vault JWT 登录用的 JWT。
 oidc="$(curl -sS --retry 3 \
@@ -218,8 +223,13 @@ REMOTE
   # document would replace the archive before ssh can forward it.
   local success=false
   for attempt in 1 2 3 4 5; do
+    local remote_command
+    remote_command="env DOMAIN_TLS_DIR=$(printf '%q' "${DOMAIN_TLS_DIR}") CERT_FINGERPRINT=$(printf '%q' "${cert_fingerprint}") bash -c \"\$(printf %s '${remote_script_b64}' | base64 -d)\""
+    if [[ "${matrix_user}" != "root" ]]; then
+      remote_command="sudo -n ${remote_command}"
+    fi
     if tar -C "${pem_tmp}" -czf - fullchain.pem cert.pem key.pem ca.pem trust-bundle.pem | ssh "${ssh_opts[@]}" "${host}" \
-      "DOMAIN_TLS_DIR=$(printf '%q' "${DOMAIN_TLS_DIR}") CERT_FINGERPRINT=$(printf '%q' "${cert_fingerprint}") bash -c \"\$(printf %s '${remote_script_b64}' | base64 -d)\""; then
+      "${remote_command}"; then
       success=true
       break
     fi
