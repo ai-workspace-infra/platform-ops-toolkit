@@ -19,6 +19,13 @@ else
   SOURCE_HOSTS_ARG=()
 fi
 
+# An AWS Agent Proxy-only production delivery must own exactly its dedicated
+# selfhost endpoint.  Do not reconcile the legacy shared agent-proxy hostname
+# or unrelated static records while publishing this node's EIP.
+if [ "${TARGET_DOMAINS:-}" = "agent-proxy" ]; then
+  SOURCE_HOSTS_ARG=(-e '{"cloudflare_dns_source_hosts": ["agent_proxy"], "cloudflare_dns_static_records": []}')
+fi
+
 # UAT service domains do not have production source-domain counterparts in
 # CMDB. Render their names from the delivery parameters and resolve the
 # address from the current web_saas inventory group; never hardcode a VPS IP.

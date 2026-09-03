@@ -59,5 +59,6 @@ jq -se '
 # PROD accounts-migration SSH contract.
 grep -Fq -- '-f operation=deploy -f target_domains=web-saas' "${prod_dispatcher}"
 ! grep -Fq -- '-f operation=deploy+migrate' "${prod_dispatcher}"
+grep -Fq -- '-f target_domain_base=svc.plus -f dns_mode=prod-cutover' "${prod_dispatcher}"
 
 echo "daily_snapshot_prod_manifest_test: PASS"
