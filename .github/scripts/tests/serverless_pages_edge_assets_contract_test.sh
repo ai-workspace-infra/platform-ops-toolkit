@@ -54,6 +54,15 @@ for stub in yarn corepack; do
   cat > "${workdir}/bin/${stub}" <<'STUB'
 #!/usr/bin/env bash
 echo "stub: $(basename "$0") $*" >> "${STUB_LOG}"
+if [[ "$*" == *"wrangler pages deploy"* && -n "${STUB_TRANSIENT_DEPLOY_MARKER:-}" && ! -f "${STUB_TRANSIENT_DEPLOY_MARKER}" ]]; then
+  touch "${STUB_TRANSIENT_DEPLOY_MARKER}"
+  echo "An unknown error occurred. [code: 8000000]" >&2
+  exit 1
+fi
+if [[ "$*" == *"wrangler pages deploy"* && -n "${STUB_FATAL_DEPLOY:-}" ]]; then
+  echo "Cloudflare authentication failed" >&2
+  exit 42
+fi
 exit 0
 STUB
   chmod +x "${workdir}/bin/${stub}"
@@ -110,6 +119,32 @@ run_deploy EDGE_ASSETS_DIR="${workdir}/edge-assets" > "${workdir}/merged.log" 2>
 test -f "${workdir}/portal/static-dashboard/out/_edge/public/_next/static/app.js"
 test -f "${workdir}/portal/static-dashboard/out/_edge/auth/_next/static/app.js"
 grep -Fq "wrangler pages deploy static-dashboard/out" "${workdir}/stub.log"
+
+# Cloudflare occasionally accepts the upload and then returns code 8000000
+# while Wrangler polls deployment-history logs. The deploy is content-addressed,
+# so the script must retry that specific transient response without masking
+# unrelated Wrangler failures.
+: > "${workdir}/stub.log"
+run_deploy \
+  EDGE_ASSETS_DIR="${workdir}/edge-assets" \
+  STUB_TRANSIENT_DEPLOY_MARKER="${workdir}/transient-pages-deploy" \
+  PAGES_DEPLOY_RETRY_DELAY_SECONDS=0 > "${workdir}/retry.log" 2>&1
+test "$(grep -Fc "wrangler pages deploy static-dashboard/out" "${workdir}/stub.log")" -eq 2
+grep -Fq "retrying (2/3)" "${workdir}/retry.log"
+
+: > "${workdir}/stub.log"
+if run_deploy \
+  EDGE_ASSETS_DIR="${workdir}/edge-assets" \
+  STUB_FATAL_DEPLOY=1 \
+  PAGES_DEPLOY_RETRY_DELAY_SECONDS=0 > "${workdir}/fatal.log" 2>&1; then
+  echo "expected a non-transient Pages deployment failure to propagate" >&2
+  exit 1
+fi
+test "$(grep -Fc "wrangler pages deploy static-dashboard/out" "${workdir}/stub.log")" -eq 1
+if grep -Fq "retrying" "${workdir}/fatal.log"; then
+  echo "a non-transient Pages deployment failure must not be retried" >&2
+  exit 1
+fi
 
 # The Pages hostname only holds the static export, so SSR entry points such as
 # /login must hand the visitor back to the console host instead of rendering the
