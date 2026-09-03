@@ -1542,20 +1542,19 @@ jobs:
         AGENT_DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
         BILLING_SERVICE_BASE_URL: ${{ needs.provision.outputs.billing_service_base_url }}
         AGENT_XRAY_ENABLED: "true"
-        # UAT billing is fed by Exporter -> Vector -> Billing. Keep the
-        # legacy agent-side collect/reconcile trigger enabled only outside
-        # UAT so this deployment cannot reintroduce Billing direct-pull.
-        AGENT_BILLING_ENABLED: ${{ needs.provision.outputs.deployment_env != 'uat' && 'true' || 'false' }}
+        # Usage is always exported through the local Vector hand-off. The
+        # route step derives BILLING_SERVICE_BASE_URL from deployment_env, so
+        # a production node can only publish to its production Billing origin
+        # and a UAT node can only publish to its UAT Billing origin.
+        # Keep the legacy direct-pull collector disabled in every environment.
+        AGENT_BILLING_ENABLED: "false"
         EXPORTER_ENV: ${{ needs.provision.outputs.deployment_env }}
         ACCOUNTS_BASE_URL: ${{ needs.provision.outputs.agent_controller_url }}
         XRAY_EXPORTER_RELEASE_REPOSITORY: ${{ steps.xray_exporter.outputs.repository }}
         XRAY_EXPORTER_VERSION: ${{ steps.xray_exporter.outputs.version }}
         XRAY_EXPORTER_LISTEN_ADDR: ${{ needs.provision.outputs.deployment_env == 'uat' && '0.0.0.0:8080' || '127.0.0.1:8080' }}
         XRAY_EXPORTER_TCP_LISTEN_ADDR: ${{ needs.provision.outputs.deployment_env == 'uat' && '0.0.0.0:8081' || '127.0.0.1:8081' }}
-        # UAT keeps the exporter -> local Vector hand-off on the agent host.
-        # Production remains on the upstream-compatible default unless a
-        # production delivery explicitly opts into a separate contract.
-        VECTOR_SNAPSHOT_URL: ${{ needs.provision.outputs.deployment_env == 'uat' && 'http://127.0.0.1:8686' || '' }}
+        VECTOR_SNAPSHOT_URL: http://127.0.0.1:8686
       run: >-
         ansible-playbook -i ../cmdb/inventory.ini setup-agent-proxy-domain.yml
         --limit "${MATRIX_HOST}"
@@ -1679,13 +1678,13 @@ jobs:
         # or passed as a command-line argument.
         POSTGRESQL_ADMIN_PASSWORD: ${{ steps.vault.outputs.POSTGRESQL_ADMIN_PASSWORD }}
         INTERNAL_SERVICE_TOKEN: ${{ steps.vault.outputs.INTERNAL_SERVICE_TOKEN }}
-        # The billing fan-out is deliberately UAT-only and is enabled only
-        # when this delivery includes agent-proxy. Vector keeps the local
-        # HTTP source and pushes to the authenticated Billing ingress.
-        VECTOR_BILLING_INGEST_ENABLED: ${{ needs.provision.outputs.deployment_env == 'uat' && contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && 'true' || 'false' }}
+        # The billing fan-out uses the same contract in every environment.
+        # billing_service_base_url is derived from deployment_env, preserving
+        # strict production/UAT endpoint and data-plane separation.
+        VECTOR_BILLING_INGEST_ENABLED: ${{ contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && 'true' || 'false' }}
         VECTOR_BILLING_INGEST_ADDRESS: 127.0.0.1:8686
         VECTOR_BILLING_INGEST_URL: ${{ format('{0}/v1/ingest/snapshots', needs.provision.outputs.billing_service_base_url) }}
-        VECTOR_SNAPSHOT_URL: ${{ needs.provision.outputs.deployment_env == 'uat' && contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && 'http://127.0.0.1:8686' || '' }}
+        VECTOR_SNAPSHOT_URL: ${{ contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && 'http://127.0.0.1:8686' || '' }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_monitor_agent.sh
 
     - name: Verify Xray to Billing ingest chain
