@@ -45,7 +45,8 @@ jq -e --arg repository "${expected_repository}" '
   .spec.aws.role_arn == ("arn:aws:iam::" + .spec.aws.account_id + ":role/" + .spec.aws.role_name) and
   (.spec.subjects | type == "array") and
   (.spec.subjects | index("repo:" + $repository + ":ref:refs/heads/main")) and
-  (.spec.subjects | index("repo:" + $repository + ":ref:refs/tags/v*"))
+  (.spec.subjects | index("repo:" + $repository + ":ref:refs/tags/v*")) and
+  (.spec.subjects | index("repo:" + $repository + ":environment:production"))
 ' "${config_file}" >/dev/null || {
   echo "GitOps AWS OIDC declaration failed the production recovery contract." >&2
   exit 1
