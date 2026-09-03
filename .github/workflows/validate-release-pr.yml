@@ -73,6 +73,9 @@ jobs:
     - name: Verify Agent Proxy deployment variable contract
       run: bash .github/scripts/tests/platform_ops_agent_proxy_contract_test.sh
 
+    - name: Verify AWS deploy key derivation contract
+      run: bash .github/scripts/tests/aws_deploy_key_derivation_test.sh
+
     - name: Verify Agent Proxy controller registration contract
       run: bash .github/scripts/tests/platform_ops_agent_proxy_controller_contract_test.sh
 

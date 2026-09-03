@@ -23,6 +23,11 @@ resolve_host_ip() {
     echo "::error::No IP for ${ACTION_MATRIX_HOST} in ${ACTION_CMDB_FILE}" >&2
     exit 1
   }
+  target_user="$(jq -r --arg host "${ACTION_MATRIX_HOST}" '.[$host].ansible_user // "root"' "${ACTION_CMDB_FILE}")"
+  [[ -n "${target_user}" && "${target_user}" != "null" ]] || {
+    echo "::error::No SSH user for ${ACTION_MATRIX_HOST} in ${ACTION_CMDB_FILE}" >&2
+    exit 1
+  }
 }
 
 configure_ssh_key() {
@@ -49,9 +54,9 @@ configure_ssh_options() {
 wait_for_ssh() {
   resolve_host_ip
   configure_ssh_options 5
-  echo "Waiting for SSH to become ready on ${ACTION_MATRIX_HOST} (${target_ip})..."
+  echo "Waiting for SSH to become ready on ${ACTION_MATRIX_HOST} (${target_user}@${target_ip})..."
   for _ in $(seq 1 60); do
-    if ssh "${ssh_options[@]}" "root@${target_ip}" true 2>/dev/null; then
+    if ssh "${ssh_options[@]}" "${target_user}@${target_ip}" true 2>/dev/null; then
       echo "SSH is ready on ${ACTION_MATRIX_HOST} (${target_ip})."
       return
     fi
@@ -69,7 +74,7 @@ wait_for_package_init() {
   local interval_secs=3
 
   echo "Disabling unattended-upgrades on ${ACTION_MATRIX_HOST} (${target_ip})..."
-  ssh "${ssh_options[@]}" "root@${target_ip}" '
+  ssh "${ssh_options[@]}" "${target_user}@${target_ip}" '
     if command -v systemctl >/dev/null 2>&1; then
       systemctl stop unattended-upgrades.service >/dev/null 2>&1 || true
       systemctl disable unattended-upgrades.service >/dev/null 2>&1 || true
@@ -96,7 +101,7 @@ REMOTE
 
   local deadline=$((SECONDS + timeout_secs)) last='' out=''
   while ((SECONDS < deadline)); do
-    if out="$(ssh "${ssh_options[@]}" "root@${target_ip}" 'bash -s' <<<"${probe}" 2>/dev/null)" && [[ "${out}" == *READY* ]]; then
+    if out="$(ssh "${ssh_options[@]}" "${target_user}@${target_ip}" 'bash -s' <<<"${probe}" 2>/dev/null)" && [[ "${out}" == *READY* ]]; then
       echo "Host ${ACTION_MATRIX_HOST} (${target_ip}) finished first-boot package work."
       return
     fi

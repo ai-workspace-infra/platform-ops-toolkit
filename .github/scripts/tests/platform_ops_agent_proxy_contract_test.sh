@@ -39,6 +39,8 @@ assert_monitor_contains() {
 assert_contains "-e agent_proxy_manage_source_checkout=true"
 assert_contains "-e agent_proxy_build_on_target=true"
 assert_contains "-e agent_proxy_wait_for_runtime_config=false"
+assert_contains "AGENT_PROXY_DOMAIN: \${{ format('agent-proxy-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}"
+assert_absent "agent-proxy-vps-"
 
 assert_absent "agent_svc_plus_manage_source_checkout"
 assert_absent "agent_svc_plus_build_on_target"

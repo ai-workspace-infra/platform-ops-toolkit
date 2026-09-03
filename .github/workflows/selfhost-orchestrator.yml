@@ -341,7 +341,8 @@ jobs:
           ${{ env.VAULT_KV_BASE }} TF_STATE_BUCKET   | TF_STATE_BUCKET ;
           ${{ env.VAULT_KV_BASE }} TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
           ${{ env.VAULT_KV_BASE }} TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
-          ${{ env.VAULT_KV_BASE }} TF_STATE_REGION   | TF_STATE_REGION
+          ${{ env.VAULT_KV_BASE }} TF_STATE_REGION   | TF_STATE_REGION ;
+          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | SSH_PRIVATE_DEPLOY_KEY_B64
 
     - name: Resolve AWS OIDC deployment configuration from GitOps
       id: aws_oidc
@@ -390,6 +391,12 @@ jobs:
         echo "TF_STATE_ENDPOINT=${{ steps.vault.outputs.TF_STATE_ENDPOINT }}"     >> "$GITHUB_ENV"
         echo "TF_STATE_BUCKET=${{ steps.vault.outputs.TF_STATE_BUCKET }}"         >> "$GITHUB_ENV"
         echo "TF_STATE_REGION=${{ steps.vault.outputs.TF_STATE_REGION }}"         >> "$GITHUB_ENV"
+
+    - name: Derive AWS EC2 public key from the Vault deploy key
+      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'aws-cloud'
+      env:
+        SSH_PRIVATE_DEPLOY_KEY_B64: ${{ steps.vault.outputs.SSH_PRIVATE_DEPLOY_KEY_B64 }}
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_derive-ssh-public-key.sh
 
     - name: Checkout iac_modules
       if: steps.route.outputs.run_infrastructure == 'true'
@@ -1531,7 +1538,7 @@ jobs:
         AGENT_CONTROLLER_IP: ${{ steps.controller.outputs.ip }}
         AGENT_REPO_VERSION: ${{ contains(needs.provision.outputs.deploy_tag, 'daily-build') && 'main' || needs.provision.outputs.deploy_tag }}
         AGENT_ID: ${{ matrix.host }}
-        AGENT_PROXY_DOMAIN: ${{ format('agent-proxy-vps-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
+        AGENT_PROXY_DOMAIN: ${{ format('agent-proxy-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
         AGENT_DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
         BILLING_SERVICE_BASE_URL: ${{ needs.provision.outputs.billing_service_base_url }}
         AGENT_XRAY_ENABLED: "true"
