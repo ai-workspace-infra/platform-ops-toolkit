@@ -5,13 +5,10 @@ set -euo pipefail
 : "${ANSIBLE_INVENTORY:?ANSIBLE_INVENTORY is required}"
 : "${VECTOR_BILLING_INGEST_URL:?VECTOR_BILLING_INGEST_URL is required}"
 
-case "${VECTOR_BILLING_INGEST_URL}" in
-  https://billing-*-*/v1/ingest/snapshots) ;;
-  *)
-    echo "::error::VECTOR_BILLING_INGEST_URL must be an HTTPS Billing ingest endpoint: ${VECTOR_BILLING_INGEST_URL}" >&2
-    exit 1
-    ;;
-esac
+if [[ ! "${VECTOR_BILLING_INGEST_URL}" =~ ^https://[^/]+/v1/ingest/snapshots$ ]]; then
+  echo "::error::VECTOR_BILLING_INGEST_URL must be an HTTPS Billing ingest endpoint: ${VECTOR_BILLING_INGEST_URL}" >&2
+  exit 1
+fi
 
 remote_script=$(cat <<'REMOTE'
 set -eu
