@@ -5,6 +5,22 @@ config_file="${GITOPS_AWS_OIDC_CONFIG:?GITOPS_AWS_OIDC_CONFIG is required}"
 expected_environment="${EXPECTED_DEPLOYMENT_ENV:?EXPECTED_DEPLOYMENT_ENV is required}"
 readonly expected_repository="ai-workspace-infra/platform-ops-toolkit"
 
+# Immutable release references are environment-specific. Production releases
+# are tagged v*, whereas the daily UAT pipeline deliberately uses its own
+# uat-daily-build-* namespace.
+case "${expected_environment}" in
+  prod)
+    required_tag_subject="repo:${expected_repository}:ref:refs/tags/v*"
+    ;;
+  uat)
+    required_tag_subject="repo:${expected_repository}:ref:refs/tags/uat-daily-build-*"
+    ;;
+  *)
+    echo "Unsupported AWS OIDC deployment environment: ${expected_environment}" >&2
+    exit 1
+    ;;
+esac
+
 test -f "${config_file}" || {
   echo "GitOps AWS OIDC declaration not found: ${config_file}" >&2
   exit 1
@@ -29,9 +45,9 @@ jq -e \
   .spec.aws.role_arn == ("arn:aws:iam::" + .spec.aws.account_id + ":role/" + .spec.aws.role_name) and
   (.spec.subjects | type == "array") and
   (.spec.subjects | index("repo:" + $repository + ":ref:refs/heads/main")) and
-  (.spec.subjects | index("repo:" + $repository + ":ref:refs/tags/v*"))
-' "${config_file}" >/dev/null || {
-  echo "GitOps AWS OIDC declaration failed the production trust contract: ${config_file}" >&2
+  (.spec.subjects | index($required_tag_subject))
+' --arg required_tag_subject "${required_tag_subject}" "${config_file}" >/dev/null || {
+  echo "GitOps AWS OIDC declaration failed the ${expected_environment} trust contract: ${config_file}" >&2
   exit 1
 }
 
