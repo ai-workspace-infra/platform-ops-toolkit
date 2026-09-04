@@ -1,7 +1,7 @@
 #!/bin/bash
 PLAN="${INPUT_INSTANCE_PLAN:-${INPUT_INSTANCE_PLAN_____4C8G_:-}}"
 PROVIDER="${INPUT_CLOUD_PROVIDER:-vultr-vps}"
-AGENT_PROXY_PLAN="${INPUT_AGENT_PROXY_PLAN:-2C2G}"
+AGENT_PROXY_PLAN="${INPUT_AGENT_PROXY_PLAN:-2C1G}"
 
 case "${PLAN}" in
   1C2G|2C4G|4C8G) ;;
@@ -12,9 +12,9 @@ case "${PLAN}" in
 esac
 
 case "${AGENT_PROXY_PLAN}" in
-  1C1G|1C2G|2C2G) ;;
+  1C1G|1C2G|2C1G|2C2G) ;;
   *)
-    echo "::error::Unsupported agent_proxy_plan='${AGENT_PROXY_PLAN}'. Expected 1C1G, 1C2G, or 2C2G." >&2
+    echo "::error::Unsupported agent_proxy_plan='${AGENT_PROXY_PLAN}'. Expected 1C1G, 1C2G, 2C1G, or 2C2G." >&2
     exit 1
     ;;
 esac
@@ -39,7 +39,7 @@ else
 fi
 
 if [ "$PROVIDER" == "aws-cloud" ]; then
-  if [ "$AGENT_PROXY_PLAN" == "1C1G" ]; then
+  if [ "$AGENT_PROXY_PLAN" == "1C1G" ] || [ "$AGENT_PROXY_PLAN" == "2C1G" ]; then
     echo "agent_api=t4g.micro" >> "$GITHUB_OUTPUT"
   elif [ "$AGENT_PROXY_PLAN" == "1C2G" ]; then
     echo "agent_api=t4g.small" >> "$GITHUB_OUTPUT"

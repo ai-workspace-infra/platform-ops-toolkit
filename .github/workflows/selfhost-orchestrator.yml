@@ -111,13 +111,14 @@ on:
         - 2C4G
         - 1C2G
       agent_proxy_plan:
-        description: "Agent Proxy 运行时规格（AWS 默认 2C2G，使用 T4g）"
+        description: "Agent Proxy 运行时规格（AWS 默认 2C1G，使用 T4g.micro）"
         required: true
-        default: "2C2G"
+        default: "2C1G"
         type: choice
         options:
         - 1C1G
         - 1C2G
+        - 2C1G
         - 2C2G
       dns_mode:
         description: "DNS 行为：none 不发布；uat-records 更新 SIT all-in-one 或 UAT 固定记录；prod-cutover 接管生产流量；destroy 操作始终忽略 DNS 输入"
@@ -202,7 +203,7 @@ jobs:
       INPUT_VAULT_ENV_PATH:        ${{ github.event.inputs.vault_env_path }}
       INPUT_TARGET_DOMAINS:        ${{ github.event.inputs.target_domains }}
       INPUT_INSTANCE_PLAN:          ${{ inputs.instance_plan || github.event.inputs.instance_plan || '4C8G' }}
-      INPUT_AGENT_PROXY_PLAN:       ${{ inputs.agent_proxy_plan || github.event.inputs.agent_proxy_plan || '2C2G' }}
+      INPUT_AGENT_PROXY_PLAN:       ${{ inputs.agent_proxy_plan || github.event.inputs.agent_proxy_plan || '2C1G' }}
       INPUT_OPERATION:             ${{ github.event.inputs.operation }}
       INPUT_SOURCE_REF:            ${{ github.event.inputs.source_ref }}
       INPUT_OFFLINE_MODE:          ${{ github.event.inputs.offline_mode }}
