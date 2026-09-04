@@ -1553,6 +1553,7 @@ jobs:
         ACCOUNTS_BASE_URL: ${{ needs.provision.outputs.agent_controller_url }}
         XRAY_EXPORTER_RELEASE_REPOSITORY: ${{ steps.xray_exporter.outputs.repository }}
         XRAY_EXPORTER_VERSION: ${{ steps.xray_exporter.outputs.version }}
+        XRAY_EXPORTER_SNAPSHOT_FEATURES_ENABLED: "true"
         XRAY_EXPORTER_LISTEN_ADDR: ${{ needs.provision.outputs.deployment_env == 'uat' && '0.0.0.0:8080' || '127.0.0.1:8080' }}
         XRAY_EXPORTER_TCP_LISTEN_ADDR: ${{ needs.provision.outputs.deployment_env == 'uat' && '0.0.0.0:8081' || '127.0.0.1:8081' }}
         VECTOR_SNAPSHOT_URL: http://127.0.0.1:8686
@@ -1689,7 +1690,7 @@ jobs:
       run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_monitor_agent.sh
 
     - name: Verify Xray to Billing ingest chain
-      if: ${{ needs.provision.outputs.deployment_env == 'uat' && contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) }}
+      if: ${{ contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) }}
       working-directory: playbooks
       env:
         MATRIX_HOST: ${{ matrix.host }}
