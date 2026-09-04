@@ -92,7 +92,7 @@ on:
         - agent-proxy
         - web-saas + agent-proxy
       cloud_provider:
-        description: "云服务商 (多云选项为预留; 目前这条环境副本链路实际能跑的是 vultr-vps, 选择其它云会在 provision 阶段明确失败)"
+        description: "云服务商（已接线：vultr-vps、aws-cloud；其余选项为预留）"
         required: true
         default: "vultr-vps"
         type: choice

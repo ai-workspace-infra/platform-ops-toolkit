@@ -11,10 +11,10 @@ target_repo="${TARGET_REPOSITORY:-ai-workspace-infra/platform-ops-toolkit}"
 serverless_workflow="${SERVERLESS_WORKFLOW:-serverless-orchestrator.yml}"
 selfhost_workflow="${SELFHOST_WORKFLOW:-selfhost-orchestrator.yml}"
 agent_controller_url="${AGENT_CONTROLLER_URL:-https://accounts-serverless-uat.onwalk.net}"
-# The UAT Agent Proxy golden image currently occupies 55 GB.  Keep the
-# combined path on the smallest compatible Vultr plan; callers may override it
-# explicitly when the image contract changes.
-agent_proxy_plan="${AGENT_PROXY_PLAN:-1C2G}"
+# UAT validates on an ephemeral AWS Graviton Spot node. T4g.small supplies
+# 2 vCPU / 2 GiB; its one-hour lifetime and lack of an EIP are declared in
+# the AWS UAT resource configuration.
+agent_proxy_plan="${AGENT_PROXY_PLAN:-2C2G}"
 wait_timeout_seconds="${UAT_SERVERLESS_WAIT_TIMEOUT_SECONDS:-3600}"
 wait_interval_seconds="${UAT_SERVERLESS_WAIT_INTERVAL_SECONDS:-20}"
 
@@ -28,8 +28,8 @@ wait_interval_seconds="${UAT_SERVERLESS_WAIT_INTERVAL_SECONDS:-20}"
   exit 2
 }
 
-[[ "${agent_proxy_plan}" =~ ^(1C1G|1C2G)$ ]] || {
-  echo "::error::AGENT_PROXY_PLAN must be 1C1G or 1C2G." >&2
+[[ "${agent_proxy_plan}" =~ ^(1C1G|1C2G|2C1G|2C2G)$ ]] || {
+  echo "::error::AGENT_PROXY_PLAN must be 1C1G, 1C2G, 2C1G, or 2C2G." >&2
   exit 2
 }
 
@@ -88,7 +88,7 @@ dispatch_selfhost() {
     -f operation=deploy \
     -f vault_env_path=uat \
     -f target_domains=agent-proxy \
-    -f cloud_provider=vultr-vps \
+    -f cloud_provider=aws-cloud \
     -f "agent_proxy_plan=${agent_proxy_plan}" \
     -f "deploy_tag=${snapshot_tag}" \
     -f source_host=console.svc.plus \
