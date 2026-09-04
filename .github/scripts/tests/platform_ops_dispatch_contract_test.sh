@@ -147,11 +147,19 @@ rm -f "${daily_alias_output}"
 
 daily_retry_output="$(mktemp)"
 GITHUB_OUTPUT="${daily_retry_output}" DEPLOYMENT_ENV=uat DEPLOY_TAG=daily-build-2026.08.15-r3 \
-  XRAY_EXPORTER_RELEASES_JSON='[{"tag_name":"daily-build-2026.08.15-r3","assets":[{"name":"xray-exporter-linux-amd64"}]}]' \
+  XRAY_EXPORTER_RELEASES_JSON='[{"tag_name":"daily-build-2026.08.15-r3","assets":[{"name":"xray-exporter-linux-amd64"},{"name":"xray-exporter-linux-arm64"}]}]' \
   "${xray_script}"
 assert_contains "$(cat "${daily_retry_output}")" "repository=ai-workspace-xstream/xray-exporter"
 assert_contains "$(cat "${daily_retry_output}")" "version=daily-build-2026.08.15-r3"
 rm -f "${daily_retry_output}"
+
+prod_xray_output="$(mktemp)"
+GITHUB_OUTPUT="${prod_xray_output}" DEPLOYMENT_ENV=prod DEPLOY_TAG=v2026.09.04-r6 \
+  XRAY_EXPORTER_RELEASES_JSON='[{"tag_name":"uat-daily-build-2026.09.04-r10","assets":[{"name":"xray-exporter-linux-amd64"},{"name":"xray-exporter-linux-arm64"}]},{"tag_name":"daily-build-2026.09.03-r4","assets":[{"name":"xray-exporter-linux-amd64"},{"name":"xray-exporter-linux-arm64"}]},{"tag_name":"daily-build-2026.09.04-r1","assets":[{"name":"xray-exporter-linux-amd64"},{"name":"xray-exporter-linux-arm64"}]}]' \
+  "${xray_script}"
+assert_contains "$(cat "${prod_xray_output}")" "repository=ai-workspace-xstream/xray-exporter"
+assert_contains "$(cat "${prod_xray_output}")" "version=daily-build-2026.09.04-r1"
+rm -f "${prod_xray_output}"
 
 invalid_output="$(mktemp)"
 if GITHUB_OUTPUT="${invalid_output}" DEPLOYMENT_ENV=uat DEPLOY_TAG=uat-daily-build-2026.08.12-r14 \

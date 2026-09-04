@@ -28,15 +28,22 @@ load_release_tags() {
     }
   fi
 
-  # Test fixtures may omit assets; live releases must contain the Linux amd64
-  # asset because that is the only artifact this VPS deployment can consume.
+  # Test fixtures may omit assets. Live releases must contain both Linux
+  # architectures because UAT and PROD Agent Proxy nodes can run on either
+  # amd64 VPS hosts or AWS T4G arm64 hosts.
   release_tags="$(jq -r '
     .[]
     | select(
         (.tag_name | startswith("daily-build-")) or
         (.tag_name | startswith("uat-daily-build-"))
       )
-    | select((.assets | type != "array") or any(.assets[]?.name; . == "xray-exporter-linux-amd64"))
+    | select(
+        (.assets | type != "array") or
+        (
+          any(.assets[]?.name; . == "xray-exporter-linux-amd64") and
+          any(.assets[]?.name; . == "xray-exporter-linux-arm64")
+        )
+      )
     | .tag_name
   ' <<<"${release_json}" | sort -V)"
 }
@@ -106,6 +113,34 @@ case "${deployment_env}" in
         echo "::warning::No exact UAT Xray Exporter release for ${requested_version}; using ${default_version}."
       fi
       echo "Resolved UAT Xray Exporter ${default_version} for application tag ${deploy_tag}."
+    fi
+    ;;
+  prod)
+    default_repository="ai-workspace-xstream/xray-exporter"
+    default_version=""
+    if [[ -z "${INPUT_XRAY_EXPORTER_IMAGE:-}" ]]; then
+      if [[ ! "${deploy_tag}" =~ ^v([0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[0-9]+)?$ ]]; then
+        echo "::error::PROD Xray Exporter auto-resolution requires a date release tag (vYYYY.MM.DD[-rN]); pass xray_exporter_image explicitly for ${deploy_tag}." >&2
+        exit 1
+      fi
+
+      release_date="${BASH_REMATCH[1]}"
+      load_release_tags "${default_repository}"
+      daily_release_tags="$(grep -E '^daily-build-' <<<"${release_tags}" || true)"
+      same_day_tags="$(grep -E "^daily-build-${release_date}(-r[0-9]+)?$" <<<"${daily_release_tags}" || true)"
+      default_version="$(latest_release_at_or_before "" "${same_day_tags}")"
+
+      # A production release may run before that day's exporter build. In
+      # that case use the newest immutable daily release no later than the
+      # production date; never fall back to the upstream metrics-only binary.
+      if [[ -z "${default_version}" ]]; then
+        default_version="$(latest_release_at_or_before "daily-build-${release_date}-r999999" "${daily_release_tags}")"
+      fi
+      if [[ -z "${default_version}" ]]; then
+        echo "::error::No snapshot-capable PROD Xray Exporter release is available for ${deploy_tag}. Pass xray_exporter_image explicitly." >&2
+        exit 1
+      fi
+      echo "Resolved PROD Xray Exporter ${default_version} for application tag ${deploy_tag}."
     fi
     ;;
   *)
