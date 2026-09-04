@@ -32,7 +32,9 @@ for required in \
   'https://token.actions.githubusercontent.com' \
   'sts.amazonaws.com' \
   'refs/heads/main' \
-  'refs/tags/v*'; do
+  'refs/tags/v*' \
+  'refs/tags/uat-daily-build-*' \
+  'Unsupported AWS OIDC deployment environment'; do
   grep -Fq -- "${required}" "${resolver}" || {
     echo "AWS OIDC resolver is missing required validation: ${required}" >&2
     exit 1
