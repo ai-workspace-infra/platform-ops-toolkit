@@ -737,6 +737,12 @@ jobs:
 
   stripe_catalog:
     name: Stripe / Catalog Bootstrap
+    # Stripe catalog synchronization is a post-deploy reconciliation task.
+    # An Accounts administrator may require interactive MFA, which cannot be
+    # completed by a GitHub runner. Do not roll back or mark the core PROD
+    # deployment failed for that condition; retain the job log for the
+    # follow-up run with a non-interactive service credential.
+    continue-on-error: true
     needs: [preflight, supabase, cloud_run, serverless_domains]
     if: >-
       ${{ always() && !cancelled() &&
