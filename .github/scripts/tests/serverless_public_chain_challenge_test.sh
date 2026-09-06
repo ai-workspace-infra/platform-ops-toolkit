@@ -36,6 +36,11 @@ if [[ "${url}" == "https://www.xworktech.com/" && "${ALIAS_STATUS:-403}" != "403
     headers+=$'\r\nLocation: https://console.xworktech.com/\r\n'
   fi
 fi
+if [[ "${url}" == https://www.xworktech.com/login || "${url}" == https://xworktech.com/login || "${url}" == https://www.xworktech.com/ai-workspace* || "${url}" == https://xworktech.com/ai-workspace* ]]; then
+  status=302
+  path="/${url#*://*/}"
+  headers="$(printf 'HTTP/2 302\r\nLocation: %s%s\r\n' "${WEBSITE_DEST:-https://svc.plus}" "${path}")"
+fi
 if [[ "${dump_header}" == "-" ]]; then
   printf '%s' "${headers}"
 elif [[ -n "${dump_header}" ]]; then
@@ -53,7 +58,8 @@ cat >"${test_dir}/routing.json" <<'EOF'
   "spec": {
     "serverless": {
       "console_host": "console-serverless-prod.svc.plus",
-      "console_aliases": ["console-serverless-prod.xworktech.com", "www.xworktech.com"],
+      "console_aliases": [],
+      "frontend_router": {"website": {"hosts": ["xworktech.com", "www.xworktech.com"], "platform_origin": "https://svc.plus"}},
       "accounts_host": "accounts-serverless-prod.svc.plus",
       "billing_host": "billing-serverless-prod.svc.plus"
     }
@@ -84,4 +90,11 @@ for status in 200 301 302 307 308 500; do
     grep -Fq "https://www.xworktech.com/ HTTP ${status}" "${output}"
   fi
 done
+if PATH="${test_dir}/bin:${PATH}" CLOUDFLARE_BOUNDARY_CONFIG="${test_dir}/routing.json" \
+  SERVERLESS_DNS_MODE=none VERIFY_ATTEMPTS=1 VERIFY_INTERVAL_SECONDS=0 \
+  WEBSITE_DEST=https://console.xworktech.com bash "${script}" >"${output}" 2>&1; then
+  echo "Website platform redirect to the wrong domain was accepted" >&2
+  exit 1
+fi
+grep -Fq 'Website platform boundary failed:' "${output}"
 echo "serverless_public_chain_challenge_test: PASS"

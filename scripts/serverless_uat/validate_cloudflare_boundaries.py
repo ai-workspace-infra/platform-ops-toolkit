@@ -106,6 +106,23 @@ def main() -> int:
     frontend_router = serverless.get("frontend_router")
     if not isinstance(frontend_router, dict):
         raise SystemExit(f"GitOps {mode} topology must define frontend_router")
+    website = frontend_router.get("website")
+    if website is not None:
+        if not isinstance(website, dict):
+            raise SystemExit("frontend_router.website must be an object")
+        hosts = website.get("hosts", [])
+        zone = website.get("zone_name", "")
+        if not isinstance(zone, str) or "." not in zone:
+            raise SystemExit("website.zone_name must be a DNS zone")
+        if not isinstance(hosts, list) or not hosts or any(
+            not isinstance(host, str) or not (host == zone or host.endswith("." + zone))
+            for host in hosts
+        ):
+            raise SystemExit("website.hosts must belong to website.zone_name")
+        if set(hosts) & set(console_aliases):
+            raise SystemExit("website hosts must not be full Console aliases")
+        if website.get("platform_origin") != "https://svc.plus":
+            raise SystemExit("website.platform_origin must be https://svc.plus")
     required_router_fields = {"worker_name", "host", "pages_origin", "api_origin", "static_prefixes", "bindings"}
     missing_router_fields = required_router_fields - set(frontend_router)
     if missing_router_fields:
