@@ -44,6 +44,14 @@ jobs:
           for region in ap-northeast-1 us-east-1; do
             instances="$(aws ec2 describe-instances --region "$region" --filters 'Name=tag:Name,Values=*agent-proxy*,ap-prod-*' 'Name=instance-state-name,Values=pending,running,stopping,stopped' --output json)"
             jq --arg region "$region" '{region:$region,instances:[.Reservations[].Instances[]|{InstanceId,State,ImageId,InstanceType,Architecture,LaunchTime,PublicIpAddress,SubnetId,VpcId,SecurityGroups,Name:(.Tags|map(select(.Key=="Name"))|.[0].Value)}]}' <<<"$instances"
+            while read -r ip; do
+              [[ -n "$ip" ]] || continue
+              if ssh-keyscan -T 10 "$ip" >/dev/null 2>/dev/null; then
+                echo "SSH host-key handshake available: $ip"
+              else
+                echo "SSH host-key handshake unavailable: $ip"
+              fi
+            done < <(jq -r '.Reservations[].Instances[].PublicIpAddress // empty' <<<"$instances")
             while read -r instance; do
               [[ -n "$instance" ]] || continue
               aws ec2 describe-instance-status --region "$region" --instance-ids "$instance" --include-all-instances
