@@ -62,28 +62,30 @@ after readiness and security checks pass. The serverless target names are the ca
 
 | Public entry | CNAME target |
 |---|---|
-| `xworktech.com` | `console-serverless-prod.xworktech.com` |
 | `www.svc.plus` | `console-serverless-prod.svc.plus` |
 | `console.svc.plus` | `console-serverless-prod.svc.plus` |
 | `accounts.svc.plus` | `accounts-serverless-prod.svc.plus` |
 | `billing.svc.plus` | `billing-serverless-prod.svc.plus` |
 
-`assets.svc.plus` and `install.svc.plus` are not part of this cutover. The apex
-`xworktech.com` record requires CNAME flattening or an equivalent apex-alias capability at the DNS
-provider. Any workflow input or script that uses a `*-cloudflare-prod.*` name is invalid; use the
+`assets.svc.plus` and `install.svc.plus` are not part of this cutover.
+Any workflow input or script that uses a `*-cloudflare-prod.*` name is invalid; use the
 declared `*-serverless-prod.*` or `*-selfhost-prod.*` endpoint instead.
 
-`console-serverless-prod.svc.plus`, `console-serverless-prod.xworktech.com`, and
-`www.xworktech.com` are bound to the `frontend-router-prod` Worker. The Pages project is only the static asset origin and must not
-claim these UI hostnames. The declared production `static_cdn_url` (`assets.svc.plus`) is the
-Pages custom domain and is reconciled separately with its Pages CNAME.
+Production platform entrypoints use the `svc.plus` domain family.
+`frontend_router.website` declares `xworktech.com` and `www.xworktech.com` as
+homepage-only custom domains of `frontend-router-prod`, in zone `xworktech.com`.
+They are not `console_aliases` and are not added as authentication origins.
+The router serves `/` and homepage assets in place; other read paths go to
+`https://svc.plus` with their path and query preserved. Non-read requests are
+rejected on the website domains. The domains job reconciles both hosts even
+with `dns_mode=none`, using the declared zone for the apex binding.
 
-GitOps `spec.serverless.console_aliases` declares `www.xworktech.com` for production
-serverless and hybrid topology. The Serverless domains job reconciles it even with
-`dns_mode=none`. Its homepage must serve in place without redirecting to
-`console.xworktech.com`. Public-chain verification rejects HTTP redirects on all
-declared frontend aliases. A Cloudflare 403 challenge retains the protected-edge
-acceptance path; it does not prove application content readiness.
+Deploy a frontend-router release with website policy support before domain
+reconciliation. Readiness verifies that both homepages do not redirect and
+that `/login` and `/ai-workspace?entry=trial` lead to `svc.plus`. Existing legacy
+bindings are not deleted by removing them from GitOps; retire them separately
+when their callers have migrated. Pages remains the static asset origin, with
+`assets.svc.plus` reconciled separately as its custom domain.
 
 ### 1.3 PROD source allowlist (mandatory)
 
