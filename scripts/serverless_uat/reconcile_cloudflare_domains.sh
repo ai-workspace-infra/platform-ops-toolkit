@@ -311,15 +311,17 @@ remove_worker_domain_dns_records() {
   local record_id
   local record_type
   local record_content
+  local hostname_zone_id
 
   # Worker custom domains cannot coexist with any DNS record for the same
   # hostname. Only the explicit production cutover is allowed to remove
   # records, and only for a hostname declared as a Worker custom domain below.
   [[ "${serverless_dns_mode}" == "prod-cutover" ]] || return 0
-  records_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records?name=${hostname}&per_page=100")"
+  hostname_zone_id="$(zone_id_for_hostname "${hostname}")"
+  records_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones/${hostname_zone_id}/dns_records?name=${hostname}&per_page=100")"
   while IFS=$'\t' read -r record_id record_type record_content; do
     [[ -n "${record_id}" ]] || continue
-    api_request DELETE "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records/${record_id}" >/dev/null
+    api_request DELETE "${CLOUDFLARE_API_BASE}/zones/${hostname_zone_id}/dns_records/${record_id}" >/dev/null
     echo "Removed DNS record for Worker custom domain: ${hostname} (${record_type} -> ${record_content})"
   done < <(jq -r '.result[]? | [.id, .type, .content] | @tsv' <<<"${records_response}")
 }
