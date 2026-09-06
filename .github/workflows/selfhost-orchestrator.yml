@@ -1555,10 +1555,13 @@ jobs:
         AGENT_CONTROLLER_IP: ${{ steps.controller.outputs.ip }}
         AGENT_REPO_VERSION: ${{ contains(needs.provision.outputs.deploy_tag, 'daily-build') && 'main' || needs.provision.outputs.deploy_tag }}
         AGENT_ID: ${{ matrix.host }}
-        AGENT_PROXY_DOMAIN: ${{ format('agent-proxy-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
+        # The CMDB key is the first service domain declared for this host.
+        # Use it per matrix entry so a regional pool does not render the same
+        # Caddy/Xray hostname on every node.
+        AGENT_PROXY_DOMAIN: ${{ matrix.host }}
         # Keep the legacy PROD hostname usable when it is a CNAME to the new
         # node. UAT receives no production alias.
-        AGENT_PROXY_LEGACY_DOMAIN: ${{ needs.provision.outputs.deployment_env == 'prod' && 'tky-proxy.svc.plus' || '' }}
+        AGENT_PROXY_LEGACY_DOMAIN: ${{ needs.provision.outputs.deployment_env == 'prod' && matrix.host == format('agent-proxy-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) && 'tky-proxy.svc.plus' || '' }}
         AGENT_DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
         BILLING_SERVICE_BASE_URL: ${{ needs.provision.outputs.billing_service_base_url }}
         AGENT_XRAY_ENABLED: "true"

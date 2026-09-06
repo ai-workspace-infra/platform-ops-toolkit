@@ -42,8 +42,8 @@ assert_contains "-e agent_proxy_wait_for_runtime_config=false"
 assert_contains 'AGENT_BILLING_ENABLED: "false"'
 assert_contains 'XRAY_EXPORTER_SNAPSHOT_FEATURES_ENABLED: "true"'
 assert_contains "VECTOR_SNAPSHOT_URL: http://127.0.0.1:8686"
-assert_contains "AGENT_PROXY_DOMAIN: \${{ format('agent-proxy-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}"
-assert_contains "AGENT_PROXY_LEGACY_DOMAIN: \${{ needs.provision.outputs.deployment_env == 'prod' && 'tky-proxy.svc.plus' || '' }}"
+assert_contains 'AGENT_PROXY_DOMAIN: ${{ matrix.host }}'
+assert_contains "AGENT_PROXY_LEGACY_DOMAIN: \${{ needs.provision.outputs.deployment_env == 'prod' && matrix.host == format('agent-proxy-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) && 'tky-proxy.svc.plus' || '' }}"
 assert_absent "agent-proxy-vps-"
 
 assert_absent "agent_svc_plus_manage_source_checkout"

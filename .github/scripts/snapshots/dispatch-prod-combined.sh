@@ -39,4 +39,4 @@ selfhost_url="$(gh workflow run selfhost-orchestrator.yml --repo "${repo}" --ref
   -f source_host=install.svc.plus -f source_domain_base=svc.plus \
   -f target_domain_base=svc.plus -f dns_mode=prod-cutover \
   -f agent_controller_url=https://accounts-serverless-prod.svc.plus | tail -n 1)"
-echo "Dispatched AWS T4g.micro (2C1G) deletion-protected production Agent Proxy deployment: ${selfhost_url}"
+echo "Dispatched production Agent Proxy pool (Tokyo on-demand 2C1G + US T4g.small Spot 2C2G/60m): ${selfhost_url}"
