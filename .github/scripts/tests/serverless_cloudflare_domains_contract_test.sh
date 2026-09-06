@@ -141,11 +141,11 @@ if grep -Fq $'POST\thttps://cloudflare.invalid/client/v4/accounts/account-1/page
   exit 1
 fi
 worker_puts="$(grep -Fc $'PUT\thttps://cloudflare.invalid/client/v4/accounts/account-1/workers/domains' "${test_dir}/curl.log")"
-test "${worker_puts}" -eq 7
+test "${worker_puts}" -eq 6
 worker_bodies="$(cut -f3 "${test_dir}/curl.log" | jq -s '[.[] | select(type == "object" and .hostname != null)]')"
 if ! jq -e '
   ((map(select(.hostname == "billing-serverless-uat.onwalk.net" and .service == "edge-gateway-core-uat")) | length) == 1)
-  and ((map(select(.hostname == "console-uat.onwalk.net" and .service == "frontend-router-uat")) | length) == 1)
+  and ((map(select(.hostname == "console-uat.onwalk.net")) | length) == 0)
   and ((map(select(.hostname == "console-serverless-uat.example.com" and .service == "frontend-router-uat" and .zone_name == "example.com")) | length) == 1)
   and ((map(select(.hostname == "accounts-uat.onwalk.net")) | length) == 0)
 ' <<<"${worker_bodies}" >/dev/null; then
@@ -153,11 +153,12 @@ if ! jq -e '
   exit 1
 fi
 dns_deletes="$(grep -Fc $'DELETE\thttps://cloudflare.invalid/client/v4/zones/zone-1/dns_records/' "${test_dir}/curl.log")"
-test "${dns_deletes}" -eq 3
+test "${dns_deletes}" -eq 2
 cname_bodies="$(cut -f3 "${test_dir}/curl.log" | jq -s '[.[] | select(.type == "CNAME")]')"
-test "$(jq 'length' <<<"${cname_bodies}")" -eq 1
+test "$(jq 'length' <<<"${cname_bodies}")" -eq 2
 jq -e '
-  any(.[]; .name == "accounts-uat.onwalk.net" and .content == "accounts-serverless-uat.onwalk.net" and .proxied == true)
+  any(.[]; .name == "console-uat.onwalk.net" and .content == "console-serverless-uat.onwalk.net" and .proxied == true)
+  and any(.[]; .name == "accounts-uat.onwalk.net" and .content == "accounts-serverless-uat.onwalk.net" and .proxied == true)
 ' <<<"${cname_bodies}" >/dev/null
 if grep -Fq '/rulesets' "${test_dir}/curl.log"; then
   echo "Billing must not depend on Enterprise-only Cloudflare Origin Rules" >&2

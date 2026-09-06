@@ -106,6 +106,20 @@ def main() -> int:
     frontend_router = serverless.get("frontend_router")
     if not isinstance(frontend_router, dict):
         raise SystemExit(f"GitOps {mode} topology must define frontend_router")
+    canonical_records = ((runtime.get("routing", {}) or {}).get("dns", {}) or {}).get("canonical_records", {})
+    if not isinstance(canonical_records, dict):
+        raise SystemExit("GitOps runtime DNS must define canonical_records as a map")
+    canonical_console_target = canonical_records.get("console.svc.plus")
+    if environment == "prod":
+        expected_router_url = "https://frontend-router-prod.manbuzhe2008.workers.dev"
+        if frontend_router.get("worker_url") != expected_router_url:
+            raise SystemExit(f"GitOps frontend_router.worker_url must be {expected_router_url}")
+        if canonical_console_target is not None:
+            raise SystemExit("GitOps canonical_records.console.svc.plus must be omitted when it is a Worker custom domain")
+        if "console.svc.plus" not in console_aliases:
+            raise SystemExit("GitOps serverless.console_aliases must include console.svc.plus")
+    elif canonical_console_target != serverless.get("console_host"):
+        raise SystemExit("GitOps canonical console.svc.plus must CNAME to serverless.console_host")
     website = frontend_router.get("website")
     if website is not None:
         if not isinstance(website, dict):
