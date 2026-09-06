@@ -8,6 +8,7 @@ set -euo pipefail
 # pinning every component to the release tag.
 gh_token="${GH_TOKEN:?GH_TOKEN must be set}"
 release_tag="${RELEASE_TAG:?RELEASE_TAG must be set}"
+skip_stripe_catalog="${SKIP_STRIPE_CATALOG:-false}"
 repo="${TARGET_REPOSITORY:-ai-workspace-infra/platform-ops-toolkit}"
 
 [[ "${release_tag}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[1-9][0-9]*)?$ ]] || {
@@ -27,7 +28,7 @@ serverless_url="$(gh workflow run serverless-orchestrator.yml --repo "${repo}" -
   -f operation=deploy -f target_domains=web-saas -f vault_env_path=prod \
   -f "tag_ref=${release_tag}" -f deploy_cloudflare=true -f deploy_cloud_run=true \
   -f dns_mode=prod-cutover -f supabase_target_existing_strategy=reject \
-  -f supabase_target_confirm_replace=false | tail -n 1)"
+  -f supabase_target_confirm_replace=false -f skip_stripe_catalog="${skip_stripe_catalog}" | tail -n 1)"
 serverless_id="${serverless_url##*/}"
 echo "Dispatched production serverless deployment: ${serverless_url}"
 gh run watch "${serverless_id}" --repo "${repo}" --exit-status --compact
