@@ -416,16 +416,17 @@ fi
 if [[ "${serverless_dns_mode}" != "none" ]]; then
   while IFS=$'\t' read -r record_name record_target; do
     [[ -n "${record_name}" && -n "${record_target}" ]] || continue
-    # Canonical public names remain DNS CNAMEs. Only the mode-qualified target
-    # hostnames above are Worker custom domains; never bind a canonical name
-    # directly to a Worker.
+    # A canonical hostname must be the Worker custom domain itself. Pointing a
+    # proxied CNAME at another Worker custom domain makes the target an origin
+    # and can produce a 522/self-fetch loop. Cloudflare creates the DNS record
+    # for the custom domain after the old record is removed.
     if [[ "${record_target%.}" == "${accounts_host%.}" ]]; then
-      detach_worker_domain "${record_name}" "${core_worker}"
+      expected_worker="${core_worker}"
     else
-      detach_worker_domain "${record_name}" "${frontend_router_worker}"
+      expected_worker="${frontend_router_worker}"
     fi
     remove_address_records "${record_name}"
-    reconcile_cname_record "${record_name}" "${record_target}"
+    reconcile_worker_domain "${record_name}" "${expected_worker}"
   done < <(jq -r '.spec.runtime.routing.dns.canonical_records // {} | to_entries[] | [.key, .value] | @tsv' "${CONFIG_FILE}")
 else
   while IFS=$'\t' read -r record_name record_target; do

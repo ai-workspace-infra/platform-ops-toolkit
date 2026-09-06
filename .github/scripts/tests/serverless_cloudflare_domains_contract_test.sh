@@ -153,13 +153,9 @@ if ! jq -e '
   exit 1
 fi
 dns_deletes="$(grep -Fc $'DELETE\thttps://cloudflare.invalid/client/v4/zones/zone-1/dns_records/' "${test_dir}/curl.log")"
-test "${dns_deletes}" -eq 2
+test "${dns_deletes}" -eq 4
 cname_bodies="$(cut -f3 "${test_dir}/curl.log" | jq -s '[.[] | select(.type == "CNAME")]')"
-test "$(jq 'length' <<<"${cname_bodies}")" -eq 2
-jq -e '
-  any(.[]; .name == "console-uat.onwalk.net" and .content == "console-serverless-uat.onwalk.net" and .proxied == true)
-  and any(.[]; .name == "accounts-uat.onwalk.net" and .content == "accounts-serverless-uat.onwalk.net" and .proxied == true)
-' <<<"${cname_bodies}" >/dev/null
+test "$(jq 'length' <<<"${cname_bodies}")" -eq 0
 if grep -Fq '/rulesets' "${test_dir}/curl.log"; then
   echo "Billing must not depend on Enterprise-only Cloudflare Origin Rules" >&2
   exit 1
