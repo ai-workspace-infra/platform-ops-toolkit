@@ -57,7 +57,8 @@ cat >"${test_dir}/routing.json" <<'EOF'
         "billing_service": "https://uat-billing-service-1004637461064.asia-northeast1.run.app"
       },
       "frontend_router": {
-        "worker_name": "frontend-router-uat"
+        "worker_name": "frontend-router-uat",
+        "website": {"zone_name": "xworktech.com", "hosts": ["xworktech.com", "www.xworktech.com"], "platform_origin": "https://svc.plus"}
       },
       "edge_gateway": {
         "boundaries": [
@@ -140,7 +141,7 @@ if grep -Fq $'POST\thttps://cloudflare.invalid/client/v4/accounts/account-1/page
   exit 1
 fi
 worker_puts="$(grep -Fc $'PUT\thttps://cloudflare.invalid/client/v4/accounts/account-1/workers/domains' "${test_dir}/curl.log")"
-test "${worker_puts}" -eq 4
+test "${worker_puts}" -eq 6
 worker_bodies="$(cut -f3 "${test_dir}/curl.log" | jq -s '[.[] | select(type == "object" and .hostname != null)]')"
 if ! jq -e '
   ((map(select(.hostname == "billing-serverless-uat.onwalk.net" and .service == "edge-gateway-core-uat")) | length) == 1)
@@ -166,6 +167,13 @@ fi
 grep -Fq $'DELETE\thttps://cloudflare.invalid/client/v4/zones/zone-1/workers/routes/stale-console-route' "${test_dir}/curl.log"
 if grep -Fq $'DELETE\thttps://cloudflare.invalid/client/v4/zones/zone-1/workers/routes/current-accounts-route' "${test_dir}/curl.log"; then
   echo "Accounts boundary routes must be preserved" >&2
+  exit 1
+fi
+for hostname in xworktech.com www.xworktech.com; do
+  grep -F 'PUT' "${test_dir}/curl.log" | grep -F "\"hostname\":\"${hostname}\"" | grep -Fq '"zone_name":"xworktech.com"'
+done
+if grep -Fq '/zones?name=com&' "${test_dir}/curl.log"; then
+  echo "Apex website binding used the TLD instead of its declared zone" >&2
   exit 1
 fi
 echo "serverless_cloudflare_domains_contract_test: PASS"

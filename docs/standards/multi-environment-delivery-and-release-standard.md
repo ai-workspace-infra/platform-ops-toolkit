@@ -60,26 +60,32 @@ automatically switch the following canonical aliases. An operator performs this 
 after readiness and security checks pass. The serverless target names are the canonical
 `*-serverless-prod.*` names; the retired `*-cloudflare-prod.*` variant must not be used:
 
-| Public entry | Production target |
+| Public entry | CNAME target |
 |---|---|
-| `xworktech.com` | `console-serverless-prod.xworktech.com` |
-| `www.xworktech.com` | `console-serverless-prod.xworktech.com` |
 | `www.svc.plus` | `console-serverless-prod.svc.plus` |
-| `console.svc.plus` | `frontend-router-prod` Custom Domain |
+| `console.svc.plus` | `console-serverless-prod.svc.plus` |
 | `accounts.svc.plus` | `accounts-serverless-prod.svc.plus` |
 | `billing.svc.plus` | `billing-serverless-prod.svc.plus` |
 
-`assets.svc.plus` and `install.svc.plus` are not part of this cutover. The apex
-`xworktech.com` record requires CNAME flattening or an equivalent apex-alias capability at the DNS
-provider. Any workflow input or script that uses a `*-cloudflare-prod.*` name is invalid; use the
+`assets.svc.plus` and `install.svc.plus` are not part of this cutover.
+Any workflow input or script that uses a `*-cloudflare-prod.*` name is invalid; use the
 declared `*-serverless-prod.*` or `*-selfhost-prod.*` endpoint instead.
 
-The target hosts `console-serverless-prod.svc.plus` and `console-serverless-prod.xworktech.com`,
-along with `console.svc.plus`, are bound directly to the `frontend-router-prod` Worker. Cloudflare
-manages the `console.svc.plus` proxied DNS record and certificate. The Pages project is only the
-static asset origin and must not claim the public aliases. The declared production
-`static_cdn_url` (`assets.svc.plus`) is the
-Pages custom domain and is reconciled separately with its Pages CNAME.
+Production platform entrypoints use the `svc.plus` domain family.
+`frontend_router.website` declares `xworktech.com` and `www.xworktech.com` as
+homepage-only custom domains of `frontend-router-prod`, in zone `xworktech.com`.
+They are not `console_aliases` and are not added as authentication origins.
+The router serves `/` and homepage assets in place; other read paths go to
+`https://svc.plus` with their path and query preserved. Non-read requests are
+rejected on the website domains. The domains job reconciles both hosts even
+with `dns_mode=none`, using the declared zone for the apex binding.
+
+Deploy a frontend-router release with website policy support before domain
+reconciliation. Readiness verifies that both homepages do not redirect and
+that `/login` and `/ai-workspace?entry=trial` lead to `svc.plus`. Existing legacy
+bindings are not deleted by removing them from GitOps; retire them separately
+when their callers have migrated. Pages remains the static asset origin, with
+`assets.svc.plus` reconciled separately as its custom domain.
 
 ### 1.3 PROD source allowlist (mandatory)
 

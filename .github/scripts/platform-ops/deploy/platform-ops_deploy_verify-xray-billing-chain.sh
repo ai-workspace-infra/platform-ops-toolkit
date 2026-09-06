@@ -5,13 +5,10 @@ set -euo pipefail
 : "${ANSIBLE_INVENTORY:?ANSIBLE_INVENTORY is required}"
 : "${VECTOR_BILLING_INGEST_URL:?VECTOR_BILLING_INGEST_URL is required}"
 
-case "${VECTOR_BILLING_INGEST_URL}" in
-  https://billing-*-*/v1/ingest/snapshots) ;;
-  *)
-    echo "::error::VECTOR_BILLING_INGEST_URL must be an HTTPS Billing ingest endpoint: ${VECTOR_BILLING_INGEST_URL}" >&2
-    exit 1
-    ;;
-esac
+if [[ ! "${VECTOR_BILLING_INGEST_URL}" =~ ^https://[^/]+/v1/ingest/snapshots$ ]]; then
+  echo "::error::VECTOR_BILLING_INGEST_URL must be an HTTPS Billing ingest endpoint: ${VECTOR_BILLING_INGEST_URL}" >&2
+  exit 1
+fi
 
 remote_script=$(cat <<'REMOTE'
 set -eu
@@ -36,10 +33,44 @@ grep -Fq '[sources.xray_snapshot_input]' /etc/vector/vector.toml
 grep -Fq '[sinks.billing_snapshot_ingest]' /etc/vector/vector.toml
 grep -Fq "__BILLING_INGEST_URL__" /etc/vector/vector.toml
 
+for unit in xray-exporter-xhttp.service xray-exporter-tcp.service; do
+  unit_definition="$(systemctl cat "${unit}")"
+  printf '%s\n' "${unit_definition}" | grep -Fq -- '--node-id '
+  printf '%s\n' "${unit_definition}" | grep -Fq -- '--snapshot-store-path '
+done
+
 for endpoint in http://127.0.0.1:8080/scrape http://127.0.0.1:8081/scrape; do
   code=$(curl --silent --show-error --max-time 10 -o /dev/null -w '%{http_code}' "${endpoint}")
   test "${code}" = 200 || {
     echo "xray-billing-chain: ${endpoint} returned HTTP ${code}" >&2
+    exit 1
+  }
+done
+
+# A configured listener does not prove that the exporter supports snapshots.
+# Wait for both transport-specific stores so an old metrics-only binary cannot
+# pass the deployment while leaving Billing/PostgreSQL permanently empty.
+snapshot_deadline=$(( $(date +%s) + 150 ))
+while :; do
+  if test -s /var/lib/xray-exporter/xhttp-snapshots.json &&
+     test -s /var/lib/xray-exporter/tcp-snapshots.json; then
+    break
+  fi
+  if [ "$(date +%s)" -ge "${snapshot_deadline}" ]; then
+    echo "xray-billing-chain: exporters did not create both snapshot stores within 150 seconds" >&2
+    exit 1
+  fi
+  sleep 5
+done
+
+for snapshot_store in /var/lib/xray-exporter/xhttp-snapshots.json /var/lib/xray-exporter/tcp-snapshots.json; do
+  jq -e '
+    type == "array" and length > 0 and
+    (.[-1].node_id | type == "string" and length > 0) and
+    (.[-1].env | type == "string" and length > 0) and
+    (.[-1].collected_at | type == "string" and length > 0)
+  ' "${snapshot_store}" >/dev/null || {
+    echo "xray-billing-chain: invalid or empty snapshot store ${snapshot_store}" >&2
     exit 1
   }
 done
@@ -72,7 +103,7 @@ case "${billing_code}" in
       echo "xray-billing-chain: Billing ingest endpoint returned an empty response (HTTP ${billing_code})" >&2
       exit 1
     fi
-    echo "xray-billing-chain: OK (Xray -> exporter -> Vector -> Billing endpoint HTTP ${billing_code}, ${billing_size} bytes)"
+    echo "xray-billing-chain: OK (Xray -> exporter snapshots -> Vector -> Billing endpoint HTTP ${billing_code}, ${billing_size} bytes)"
     ;;
   401|403)
     echo "xray-billing-chain: Billing ingest authentication failed (HTTP ${billing_code})" >&2

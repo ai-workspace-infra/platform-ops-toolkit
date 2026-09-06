@@ -19,6 +19,13 @@ else
   SOURCE_HOSTS_ARG=()
 fi
 
+# An AWS Agent Proxy-only production delivery must own exactly its dedicated
+# selfhost endpoint.  Do not reconcile the legacy shared agent-proxy hostname
+# or unrelated static records while publishing this node's EIP.
+if [ "${TARGET_DOMAINS:-}" = "agent-proxy" ]; then
+  SOURCE_HOSTS_ARG=(-e '{"cloudflare_dns_source_hosts": ["agent_proxy"], "cloudflare_dns_static_records": []}')
+fi
+
 # UAT service domains do not have production source-domain counterparts in
 # CMDB. Render their names from the delivery parameters and resolve the
 # address from the current web_saas inventory group; never hardcode a VPS IP.
@@ -41,8 +48,13 @@ DNS_ALIAS_RECORDS_JSON="$(
        {name: (.+"-"+$env+"."+$base), source_group: "web_saas", ttl: 1, proxied: false} ]'
 )"
 
+# Pass the rendered aliases as a JSON object. Ansible treats `key=value`
+# extra-vars as a string even when the value looks like `[]`, which makes the
+# playbook iterate over characters and fail while deduplicating records.
+DNS_ALIAS_RECORDS_ARG=(-e "{\"cloudflare_dns_alias_records\":${DNS_ALIAS_RECORDS_JSON}}")
+
 ansible-playbook -i "$INVENTORY_PATH" update_site_dns.yml \
   -e "target_domain=${PROVISION_TARGET_DOMAIN_BASE}" \
   -e "source_domain=${PROVISION_SOURCE_DOMAIN_BASE}" \
-  -e "cloudflare_dns_alias_records=${DNS_ALIAS_RECORDS_JSON}" \
+  "${DNS_ALIAS_RECORDS_ARG[@]}" \
   "${SOURCE_HOSTS_ARG[@]}"

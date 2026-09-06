@@ -33,9 +33,13 @@ is_cloudflare_challenge_text() {
   grep -Eiq '^cf-mitigated:[[:space:]]*challenge' <<<"$1"
 }
 
-probe_is_acceptable() {
+alias_probe_is_acceptable() {
   local status="$1" headers="$2"
-  is_success_status "${status}" || is_cloudflare_challenge "${headers}"
+  # Custom-domain aliases serve the homepage in place. A redirect can hide
+  # an incorrect host binding (for example www -> console) and must fail.
+  [[ "${status}" == "200" ]] || {
+    [[ "${status}" == "403" ]] && is_cloudflare_challenge "${headers}"
+  }
 }
 
 environment="$(jq -er '.metadata.environment' "${CONFIG_FILE}")"
@@ -73,10 +77,24 @@ for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
     alias_dns="$(dig +short @1.1.1.1 "${console_alias}" | sed -n '1p')"
     alias_headers="${probe_root}/alias-${console_alias//[^A-Za-z0-9]/_}.headers"
     alias_status="$(curl --silent --show-error --dump-header "${alias_headers}" --output /dev/null --write-out '%{http_code}' --max-time 20 "https://${console_alias}/" || true)"
-    if [[ -z "${alias_dns}" ]] || ! probe_is_acceptable "${alias_status}" "${alias_headers}"; then
+    if [[ -z "${alias_dns}" ]] || ! alias_probe_is_acceptable "${alias_status}" "${alias_headers}"; then
+      echo "Alias homepage not ready: https://${console_alias}/ HTTP ${alias_status}; expected 200 without redirect (or Cloudflare challenge)" >&2
       aliases_ready=false
     fi
-  done < <(jq -r '.spec.serverless.console_aliases[]? // empty' "${CONFIG_FILE}")
+  done < <(jq -r '(.spec.serverless.console_aliases // []) + (.spec.serverless.frontend_router.website.hosts // []) | unique[]' "${CONFIG_FILE}")
+  platform_origin="$(jq -r '.spec.serverless.frontend_router.website.platform_origin // empty' "${CONFIG_FILE}")"
+  while IFS= read -r website_host; do
+    [[ -n "${website_host}" ]] || continue
+    for platform_path in '/login' '/ai-workspace?entry=trial'; do
+      website_headers="${probe_root}/website.headers"
+      website_status="$(curl --silent --show-error --dump-header "${website_headers}" --output /dev/null --write-out '%{http_code}' --max-time 20 "https://${website_host}${platform_path}" || true)"
+      website_location="$(awk 'tolower($1) == "location:" {sub(/\r$/, "", $2); print $2}' "${website_headers}" | tail -1)"
+      if [[ "${website_status}" != 302 || "${website_location}" != "${platform_origin}${platform_path}" ]]; then
+        echo "Website platform boundary failed: ${website_host}${platform_path} HTTP ${website_status} Location=${website_location}" >&2
+        aliases_ready=false
+      fi
+    done
+  done < <(jq -r '.spec.serverless.frontend_router.website.hosts[]? // empty' "${CONFIG_FILE}")
   preflight_headers="$(curl --silent --show-error --dump-header - --output /dev/null --max-time 20 \
     --request OPTIONS "${api_origin}/api/v1/health" \
     --header "Origin: ${origin}" \

@@ -139,7 +139,12 @@ zone_id="$(resolve_zone_id "${zone_name}")"
 
 zone_id_for_hostname() {
   local hostname="$1"
-  local requested_zone="${hostname#*.}"
+  local requested_zone
+  requested_zone="$(jq -r --arg hostname "${hostname}" '
+    .spec.serverless.frontend_router.website // {} |
+    if ((.hosts // []) | index($hostname)) != null then .zone_name else empty end
+  ' "${CONFIG_FILE}")"
+  requested_zone="${requested_zone:-${hostname#*.}}"
   if [[ "${requested_zone}" == "${zone_name}" ]]; then
     printf '%s' "${zone_id}"
     return
@@ -190,7 +195,12 @@ reconcile_worker_domain() {
   local existing
   local conflicting_service
   local body
-  local target_zone_name="${hostname#*.}"
+  local target_zone_name
+  target_zone_name="$(jq -r --arg hostname "${hostname}" '
+    .spec.serverless.frontend_router.website // {} |
+    if ((.hosts // []) | index($hostname)) != null then .zone_name else empty end
+  ' "${CONFIG_FILE}")"
+  target_zone_name="${target_zone_name:-${hostname#*.}}"
   local target_zone_id
   target_zone_id="$(zone_id_for_hostname "${hostname}")"
   domains_response="$(api_request GET "${domains_url}")"
@@ -295,6 +305,25 @@ remove_declared_cname() {
   done < <(jq -r '.result[]? | [.id, .content] | @tsv' <<<"${records_response}")
 }
 
+remove_worker_domain_dns_records() {
+  local hostname="$1"
+  local records_response
+  local record_id
+  local record_type
+  local record_content
+
+  # Worker custom domains cannot coexist with any DNS record for the same
+  # hostname. Only the explicit production cutover is allowed to remove
+  # records, and only for a hostname declared as a Worker custom domain below.
+  [[ "${serverless_dns_mode}" == "prod-cutover" ]] || return 0
+  records_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records?name=${hostname}&per_page=100")"
+  while IFS=$'\t' read -r record_id record_type record_content; do
+    [[ -n "${record_id}" ]] || continue
+    api_request DELETE "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records/${record_id}" >/dev/null
+    echo "Removed DNS record for Worker custom domain: ${hostname} (${record_type} -> ${record_content})"
+  done < <(jq -r '.result[]? | [.id, .type, .content] | @tsv' <<<"${records_response}")
+}
+
 reconcile_cname_record() {
   local name="$1"
   local target="$2"
@@ -342,12 +371,13 @@ safeguard_pages_domain "${console_host}"
 while IFS= read -r console_alias; do
   [[ -n "${console_alias}" ]] || continue
   safeguard_pages_domain "${console_alias}"
-done < <(jq -r '.spec.serverless.console_aliases[]? // empty' "${CONFIG_FILE}")
+done < <(jq -r '(.spec.serverless.console_aliases // []) + (.spec.serverless.frontend_router.website.hosts // []) | unique[]' "${CONFIG_FILE}")
 reconcile_worker_domain "${console_host}" "${frontend_router_worker}"
 while IFS= read -r console_alias; do
   [[ -n "${console_alias}" ]] || continue
+  remove_worker_domain_dns_records "${console_alias}"
   reconcile_worker_domain "${console_alias}" "${frontend_router_worker}"
-done < <(jq -r '.spec.serverless.console_aliases[]? // empty' "${CONFIG_FILE}")
+done < <(jq -r '(.spec.serverless.console_aliases // []) + (.spec.serverless.frontend_router.website.hosts // []) | unique[]' "${CONFIG_FILE}")
 # A Worker custom domain is the only supported owner for Console. Explicit
 # Worker Routes take precedence over it and can bypass Frontend Router, so
 # remove every route on the GitOps-declared Console host.
@@ -355,7 +385,7 @@ remove_worker_routes_for_host "${console_host}"
 while IFS= read -r console_alias; do
   [[ -n "${console_alias}" ]] || continue
   remove_worker_routes_for_host "${console_alias}"
-done < <(jq -r '.spec.serverless.console_aliases[]? // empty' "${CONFIG_FILE}")
+done < <(jq -r '(.spec.serverless.console_aliases // []) + (.spec.serverless.frontend_router.website.hosts // []) | unique[]' "${CONFIG_FILE}")
 reconcile_worker_domain "${accounts_host}" "${core_worker}"
 remove_declared_cname "${billing_host}" "${billing_upstream#https://}"
 reconcile_worker_domain "${billing_host}" "${core_worker}"

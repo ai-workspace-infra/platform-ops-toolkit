@@ -1,0 +1,134 @@
+name: AWS OIDC Bootstrap Recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "plan reports the GitHub OIDC changes; apply reconciles them, adopts the three fixed resources into Terraform state, then verifies no IaC drift."
+        type: choice
+        required: true
+        default: plan
+        options: [plan, apply]
+      allow_root_break_glass:
+        description: "Required only for apply when the Vault credentials identify as the AWS account root principal. The credentials must be a short-lived, approved break-glass session."
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: aws-oidc-bootstrap-production
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    name: Bootstrap AWS GitHub OIDC trust
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+    - name: Checkout platform operations source
+      uses: actions/checkout@v7
+
+    - name: Checkout production GitOps OIDC declaration
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/gitops
+        ref: main
+        path: gitops
+        sparse-checkout-cone-mode: false
+        sparse-checkout: |
+          resources/svc.plus/prod/aws/github-actions-oidc.json
+
+    - name: Checkout AWS IaC identity module
+      if: ${{ inputs.action == 'apply' }}
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/iac_modules
+        ref: main
+        path: iac_modules
+
+    - name: Load one-time AWS bootstrap credentials
+      id: vault
+      uses: hashicorp/vault-action@v4
+      with:
+        url: https://vault.svc.plus
+        method: jwt
+        role: github-actions-platform-ops-toolkit-prod-aws-bootstrap
+        jwtGithubAudience: vault
+        outputToken: true
+        ignoreNotFound: true
+        secrets: |
+          kv/data/CICD/prod/aws-bootstrap AWS_ACCESS_KEY_ID | AWS_ACCESS_KEY_ID ;
+          kv/data/CICD/prod/aws-bootstrap AWS_SECRET_ACCESS_KEY | AWS_SECRET_ACCESS_KEY
+
+    - name: Load optional AWS session token
+      shell: bash
+      env:
+        VAULT_ADDR: https://vault.svc.plus
+        VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
+      run: |
+        set -euo pipefail
+
+        response="$(curl --fail --silent --show-error \
+          --header "X-Vault-Token: ${VAULT_TOKEN}" \
+          "${VAULT_ADDR}/v1/kv/data/CICD/prod/aws-bootstrap")"
+        session_token="$(jq -r '.data.data.AWS_SESSION_TOKEN // empty' <<<"${response}")"
+        if [ -n "${session_token}" ]; then
+          echo "::add-mask::${session_token}"
+          printf 'AWS_SESSION_TOKEN=%s\n' "${session_token}" >> "${GITHUB_ENV}"
+        fi
+
+    - name: Load Terraform state credentials
+      id: iac_state
+      if: ${{ inputs.action == 'apply' }}
+      uses: hashicorp/vault-action@v4
+      with:
+        url: https://vault.svc.plus
+        method: jwt
+        role: github-actions-platform-ops-toolkit-prod-aws-bootstrap
+        jwtGithubAudience: vault
+        secrets: |
+          kv/data/CICD/prod/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
+          kv/data/CICD/prod/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
+          kv/data/CICD/prod/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+          kv/data/CICD/prod/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+          kv/data/CICD/prod/iac_state TF_STATE_REGION | TF_STATE_REGION
+
+    - name: Reconcile GitHub OIDC trust
+      id: reconcile
+      env:
+        AWS_ACCESS_KEY_ID: ${{ steps.vault.outputs.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ steps.vault.outputs.AWS_SECRET_ACCESS_KEY }}
+        AWS_DEFAULT_REGION: ap-northeast-1
+        BOOTSTRAP_ACTION: ${{ inputs.action }}
+        ALLOW_ROOT_BREAK_GLASS: ${{ inputs.allow_root_break_glass }}
+        GITOPS_AWS_OIDC_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/prod/aws/github-actions-oidc.json
+      run: .github/scripts/aws/reconcile_github_oidc_trust.sh
+
+    - name: Configure AWS credentials through the new GitHub OIDC role
+      if: ${{ inputs.action == 'apply' }}
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ steps.reconcile.outputs.role_arn }}
+        role-session-name: platform-ops-oidc-state-adoption
+        aws-region: ap-northeast-1
+
+    - name: Set up Terraform
+      if: ${{ inputs.action == 'apply' }}
+      uses: hashicorp/setup-terraform@v4
+
+    - name: Adopt GitHub OIDC resources into Terraform state
+      if: ${{ inputs.action == 'apply' }}
+      env:
+        IAC_MODULES_ROOT: ${{ github.workspace }}/iac_modules
+        GITOPS_AWS_OIDC_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/prod/aws/github-actions-oidc.json
+        IAC_BOOTSTRAP_CONFIG: ${{ github.workspace }}/iac_modules/terraform-hcl-standard/aws-cloud/config/bootstrap/prod.yaml
+        TF_STATE_ENDPOINT: ${{ steps.iac_state.outputs.TF_STATE_ENDPOINT }}
+        TF_STATE_BUCKET: ${{ steps.iac_state.outputs.TF_STATE_BUCKET }}
+        TF_STATE_ACCESS_KEY: ${{ steps.iac_state.outputs.TF_STATE_ACCESS_KEY }}
+        TF_STATE_SECRET_KEY: ${{ steps.iac_state.outputs.TF_STATE_SECRET_KEY }}
+        TF_STATE_REGION: ${{ steps.iac_state.outputs.TF_STATE_REGION }}
+      run: .github/scripts/aws/adopt_github_oidc_terraform_state.sh

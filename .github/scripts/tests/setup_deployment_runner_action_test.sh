@@ -27,7 +27,7 @@ test "${mode}" = 600
 test "$(ssh-keygen -y -f "${workdir}/home/.ssh/id_deploy")" = "$(cat "${workdir}/input/id_deploy.pub")"
 
 mkdir -p "${workdir}/bin"
-printf '%s\n' '{"console-uat.onwalk.net":{"ip":"192.0.2.10"}}' >"${workdir}/cmdb.json"
+printf '%s\n' '{"console-uat.onwalk.net":{"ip":"192.0.2.10","ansible_user":"admin"}}' >"${workdir}/cmdb.json"
 cat >"${workdir}/bin/ssh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"${SSH_LOG}"
@@ -47,7 +47,7 @@ ACTION_INSTALL_ANSIBLE=false \
 ACTION_ASSERT_ANSIBLE_TARGET=false \
 ACTION_ANSIBLE_INVENTORY="${workdir}/inventory.ini" \
 bash "${script}"
-grep -Fq 'root@192.0.2.10 true' "${workdir}/ssh.log"
+grep -Fq 'admin@192.0.2.10 true' "${workdir}/ssh.log"
 
 cat >"${workdir}/bin/python3" <<'EOF'
 #!/usr/bin/env bash

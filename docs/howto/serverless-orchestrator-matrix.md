@@ -43,27 +43,32 @@ operator performs the following CNAME cutover manually. Production serverless ta
 `serverless` role name; `*-cloudflare-prod.*` is retired and must not be used by deployments or
 verification probes:
 
-| Public entry | Production target |
+| Public entry | CNAME target |
 | --- | --- |
-| `xworktech.com` | `console-serverless-prod.xworktech.com` |
-| `www.xworktech.com` | `console-serverless-prod.xworktech.com` |
 | `www.svc.plus` | `console-serverless-prod.svc.plus` |
-| `console.svc.plus` | `frontend-router-prod` Custom Domain |
+| `console.svc.plus` | `console-serverless-prod.svc.plus` |
 | `accounts.svc.plus` | `accounts-serverless-prod.svc.plus` |
 | `billing.svc.plus` | `billing-serverless-prod.svc.plus` |
 
-`assets.svc.plus` and `install.svc.plus` are outside this cutover list. The root
-`xworktech.com` record requires provider support for apex CNAME flattening (or an equivalent
-apex-alias feature). The deployment workflow must leave these canonical aliases unchanged unless
+`assets.svc.plus` and `install.svc.plus` are outside this cutover list.
+The deployment workflow must leave these canonical aliases unchanged unless
 an explicit, separately approved DNS cutover is requested.
 
-The production target hosts `console-serverless-prod.svc.plus` and
-`console-serverless-prod.xworktech.com` remain Worker custom domains, and
-`console.svc.plus` is also bound directly to `frontend-router-prod` as a Custom
-Domain. Cloudflare manages its proxied DNS record and certificate. Pages remains
-the static asset origin for the Worker.
-The production `static_cdn_url` (`assets.svc.plus`) is separately bound to
-`ai-workspace-portal-prod` and its CNAME is reconciled by the Serverless domains job.
+Production platform entrypoints use the `svc.plus` domain family.
+`frontend_router.website` declares `xworktech.com` and `www.xworktech.com` as
+homepage-only custom domains of `frontend-router-prod`, in zone `xworktech.com`.
+They are not `console_aliases` and are not added as authentication origins.
+The router serves `/` and homepage assets in place; other read paths go to
+`https://svc.plus` with their path and query preserved. Non-read requests are
+rejected on the website domains. The domains job reconciles both hosts even
+with `dns_mode=none`, using the declared zone for the apex binding.
+
+Deploy a frontend-router release with website policy support before domain
+reconciliation. Readiness verifies that both homepages do not redirect and
+that `/login` and `/ai-workspace?entry=trial` lead to `svc.plus`. Existing legacy
+bindings are not deleted by removing them from GitOps; retire them separately
+when their callers have migrated. Pages remains the static asset origin, with
+`assets.svc.plus` reconciled separately as its custom domain.
 
 Every mode profile also declares the five public service entrances in
 `spec.public_endpoints` using `<service>-<mode>-<environment>.<base-domain>`:

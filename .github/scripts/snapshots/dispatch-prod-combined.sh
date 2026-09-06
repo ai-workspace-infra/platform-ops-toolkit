@@ -26,7 +26,7 @@ export GH_TOKEN="${gh_token}"
 serverless_url="$(gh workflow run serverless-orchestrator.yml --repo "${repo}" --ref "${release_tag}" \
   -f operation=deploy -f target_domains=web-saas -f vault_env_path=prod \
   -f "tag_ref=${release_tag}" -f deploy_cloudflare=true -f deploy_cloud_run=true \
-  -f dns_mode=none -f supabase_target_existing_strategy=reject \
+  -f dns_mode=prod-cutover -f supabase_target_existing_strategy=reject \
   -f supabase_target_confirm_replace=false | tail -n 1)"
 serverless_id="${serverless_url##*/}"
 echo "Dispatched production serverless deployment: ${serverless_url}"
@@ -34,9 +34,9 @@ gh run watch "${serverless_id}" --repo "${repo}" --exit-status --compact
 
 selfhost_url="$(gh workflow run selfhost-orchestrator.yml --repo "${repo}" --ref "${release_tag}" \
   -f operation=deploy -f vault_env_path=prod -f target_domains=agent-proxy \
-  -f cloud_provider=aws-cloud -f agent_proxy_plan=2C2G \
+  -f cloud_provider=aws-cloud -f agent_proxy_plan=2C1G \
   -f "deploy_tag=${release_tag}" \
   -f source_host=install.svc.plus -f source_domain_base=svc.plus \
-  -f target_domain_base=svc.plus -f dns_mode=none \
+  -f target_domain_base=svc.plus -f dns_mode=prod-cutover \
   -f agent_controller_url=https://accounts-serverless-prod.svc.plus | tail -n 1)"
-echo "Dispatched AWS T4g.small (2C2G) deletion-protected production Agent Proxy deployment: ${selfhost_url}"
+echo "Dispatched production Agent Proxy pool (Tokyo on-demand 2C1G + US T4g.small Spot 2C2G/60m): ${selfhost_url}"

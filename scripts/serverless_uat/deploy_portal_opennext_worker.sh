@@ -21,8 +21,17 @@ fi
 
 CONFIG_FILE="${CLOUDFLARE_BOUNDARY_CONFIG:-}"
 STATIC_CDN_URL=""
+ACCOUNT_SERVICE_URL=""
 if [[ -n "${CONFIG_FILE}" && -f "${CONFIG_FILE}" ]]; then
   STATIC_CDN_URL="$(jq -r '.spec.cloudflare.static_cdn_url // empty' "${CONFIG_FILE}" 2>/dev/null || true)"
+  accounts_host="$(jq -er '.spec.serverless.accounts_host' "${CONFIG_FILE}")"
+  case "${accounts_host}" in
+    ""|*[!A-Za-z0-9.-]*)
+      echo "GitOps serverless.accounts_host must be a hostname" >&2
+      exit 1
+      ;;
+  esac
+  ACCOUNT_SERVICE_URL="https://${accounts_host}"
 fi
 
 test -f "${PORTAL_DIR}/package.json"
@@ -33,7 +42,23 @@ env -u CLOUDFLARE_ENV \
   PORTAL_DEPLOYMENT_ENV="${CLOUDFLARE_ENV}" \
   RUNTIME_ENV="${CLOUDFLARE_ENV}" \
   NEXT_PUBLIC_STATIC_CDN_URL="${STATIC_CDN_URL}" \
+  ACCOUNT_SERVICE_URL="${ACCOUNT_SERVICE_URL}" \
   yarn "build:ssr:${PORTAL_SSR_BOUNDARY}"
+
+# Portal's runtime YAML intentionally keeps the canonical self-host service
+# names for the monolithic production build. A Serverless boundary must use
+# the mode-qualified Accounts host from GitOps instead. Pass the same value at
+# build time and in the Worker bindings: Next/OpenNext does not inherit the
+# build shell environment after the Worker is deployed.
+if [[ -n "${ACCOUNT_SERVICE_URL}" ]]; then
+  wrangler_config=".edge-build/${PORTAL_SSR_BOUNDARY}/wrangler.jsonc"
+  tmp_wrangler_config="$(mktemp)"
+  jq --arg account_service_url "${ACCOUNT_SERVICE_URL}" \
+    '.vars = ((.vars // {}) + {ACCOUNT_SERVICE_URL: $account_service_url})' \
+    "${wrangler_config}" >"${tmp_wrangler_config}"
+  mv "${tmp_wrangler_config}" "${wrangler_config}"
+fi
+
 env -u CLOUDFLARE_ENV yarn exec wrangler deploy \
   --config ".edge-build/${PORTAL_SSR_BOUNDARY}/wrangler.jsonc"
 # When a static CDN is declared the boundary emits absolute

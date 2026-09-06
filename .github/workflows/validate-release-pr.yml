@@ -52,6 +52,9 @@ jobs:
     - name: Verify production snapshot tag auto-revision
       run: bash .github/scripts/tests/daily_snapshot_prod_tag_revision_test.sh
 
+    - name: Verify production Agent Proxy DNS scope
+      run: bash .github/scripts/tests/prod_agent_proxy_dns_scope_test.sh
+
     - name: Verify complete-snapshot combined UAT gate
       run: bash .github/scripts/tests/daily_snapshot_uat_gate_contract_test.sh
 
@@ -73,8 +76,23 @@ jobs:
     - name: Verify Agent Proxy deployment variable contract
       run: bash .github/scripts/tests/platform_ops_agent_proxy_contract_test.sh
 
+    - name: Verify regional Agent Proxy domain contract
+      run: bash .github/scripts/tests/prod_agent_proxy_regional_domain_contract_test.sh
+
+    - name: Verify AWS deploy key derivation contract
+      run: bash .github/scripts/tests/aws_deploy_key_derivation_test.sh
+
+    - name: Validate AWS selfhost rootless SSH contract
+      run: bash .github/scripts/tests/aws_selfhost_rootless_ssh_test.sh
+
     - name: Verify Agent Proxy controller registration contract
       run: bash .github/scripts/tests/platform_ops_agent_proxy_controller_contract_test.sh
+
+    - name: Verify AWS OIDC is resolved from GitOps
+      run: bash .github/scripts/tests/aws_oidc_gitops_contract_test.sh
+
+    - name: Verify AWS OIDC bootstrap recovery contract
+      run: bash .github/scripts/tests/aws_oidc_bootstrap_recovery_contract_test.sh
 
     - name: Verify Web SaaS VPS alias contract
       run: bash .github/scripts/tests/platform_ops_web_saas_public_alias_contract_test.sh
@@ -84,6 +102,12 @@ jobs:
 
     - name: Verify serverless Cloudflare domain contract
       run: bash .github/scripts/tests/serverless_cloudflare_domains_contract_test.sh
+
+    - name: Verify serverless aliases serve without redirects
+      run: bash .github/scripts/tests/serverless_public_chain_challenge_test.sh
+
+    - name: Verify serverless Portal Accounts endpoint contract
+      run: bash .github/scripts/tests/serverless_portal_accounts_endpoint_contract_test.sh
 
     - name: Verify serverless canonical DNS ownership guard
       run: bash .github/scripts/tests/serverless_canonical_dns_guard_test.sh

@@ -100,9 +100,22 @@ if [[ -z "${stripe_secret_key}" ]]; then
   echo "Stripe secret key is missing from kv/${VAULT_ENV_PATH}/billing-service (${vault_key_prefix}_STRIPE_SECRET_KEY or STRIPE_SECRET_KEY)." >&2
   exit 1
 fi
+stripe_webhook_secret="$(read_vault_key "kv/${VAULT_ENV_PATH}/billing-service" "${vault_key_prefix}_STRIPE_WEBHOOK_SECRET" 2>/dev/null || true)"
+if [[ -z "${stripe_webhook_secret}" ]]; then
+  echo "Stripe webhook secret is missing from kv/${VAULT_ENV_PATH}/billing-service (${vault_key_prefix}_STRIPE_WEBHOOK_SECRET)." >&2
+  exit 1
+fi
+stripe_webhook_url="$(read_vault_key "kv/${VAULT_ENV_PATH}/billing-service" "${vault_key_prefix}_STRIPE_WEBHOOK_URL" 2>/dev/null || true)"
+if [[ -z "${stripe_webhook_url}" ]]; then
+  echo "Stripe webhook URL is missing from kv/${VAULT_ENV_PATH}/billing-service (${vault_key_prefix}_STRIPE_WEBHOOK_URL)." >&2
+  exit 1
+fi
 root_email="$(read_vault_key "kv/CICD" "ROOT_BOOTSTRAP_EMAIL" 2>/dev/null || true)"
 root_email="${root_email:-admin@svc.plus}"
-root_password="$(read_vault_key "kv/CICD" "ROOT_BOOTSTRAP_PASSWORD")"
+if ! root_password="$(read_vault_key "kv/CICD" "ROOT_BOOTSTRAP_PASSWORD" 2>/dev/null)" || [[ -z "${root_password}" ]]; then
+  echo "::error::Cannot read non-empty ROOT_BOOTSTRAP_PASSWORD from kv/CICD; check the Vault field and workflow policy." >&2
+  exit 1
+fi
 
 login_body="$(mktemp)"
 trap 'rm -f "${login_body}"' EXIT
@@ -114,10 +127,19 @@ if [[ "${login_status}" != "200" ]]; then
   echo "Accounts bootstrap administrator login failed (HTTP ${login_status:-unreachable})." >&2
   exit 1
 fi
-accounts_admin_token="$(jq -er '.token // empty' < "${login_body}")"
+if jq -e '.mfa_required == true or .mfaRequired == true' < "${login_body}" >/dev/null 2>&1; then
+  echo "::error::Accounts bootstrap administrator requires MFA. Password login returned a challenge, not an API session. Configure an approved service authentication flow for catalog sync; do not disable user MFA." >&2
+  exit 1
+fi
+if ! accounts_admin_token="$(jq -er '.token // .access_token | select(type == "string" and length > 0)' < "${login_body}" 2>/dev/null)"; then
+  echo "::error::Accounts bootstrap login returned HTTP 200 without a session token; response body withheld because it may contain credentials." >&2
+  exit 1
+fi
 
 echo "Synchronizing Stripe Products, Prices, webhook, and catalog snapshots..."
 STRIPE_SECRET_KEY="${stripe_secret_key}" \
+STRIPE_WEBHOOK_SECRET="${stripe_webhook_secret}" \
+STRIPE_WEBHOOK_URL="${stripe_webhook_url}" \
 ACCOUNTS_ADMIN_TOKEN="${accounts_admin_token}" \
 ACCOUNTS_BASE_URL="${ACCOUNTS_BASE_URL}" \
 "${SYNC_SCRIPT}" --env "${VAULT_ENV_PATH}" --domain-base "${DOMAIN_BASE}" --write-catalog

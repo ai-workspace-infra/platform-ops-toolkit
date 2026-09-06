@@ -10,6 +10,8 @@ CLOUDFLARE_ENV="${CLOUDFLARE_ENV:-uat}"
 PAGES_PROJECT="${PAGES_PROJECT_NAME:-ai-workspace-portal-${CLOUDFLARE_ENV}}"
 PAGES_BRANCH="${PAGES_BRANCH:-${CLOUDFLARE_ENV}}"
 CONFIG_FILE="${CLOUDFLARE_BOUNDARY_CONFIG:-}"
+PAGES_DEPLOY_MAX_ATTEMPTS="${PAGES_DEPLOY_MAX_ATTEMPTS:-3}"
+PAGES_DEPLOY_RETRY_DELAY_SECONDS="${PAGES_DEPLOY_RETRY_DELAY_SECONDS:-5}"
 
 STATIC_CDN_URL=""
 SSR_BOUNDARIES=""
@@ -33,6 +35,54 @@ if [[ -z "${CLOUDFLARE_API_TOKEN:-}" || -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
   echo "CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are required" >&2
   exit 1
 fi
+
+if ! [[ "${PAGES_DEPLOY_MAX_ATTEMPTS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "PAGES_DEPLOY_MAX_ATTEMPTS must be a positive integer" >&2
+  exit 1
+fi
+if ! [[ "${PAGES_DEPLOY_RETRY_DELAY_SECONDS}" =~ ^[0-9]+$ ]]; then
+  echo "PAGES_DEPLOY_RETRY_DELAY_SECONDS must be a non-negative integer" >&2
+  exit 1
+fi
+
+deploy_pages_with_retry() {
+  local attempt=1
+  local deploy_log=""
+  local deploy_status=0
+
+  while (( attempt <= PAGES_DEPLOY_MAX_ATTEMPTS )); do
+    deploy_log="$(mktemp)"
+    if yarn exec wrangler pages deploy static-dashboard/out \
+      --project-name="${PAGES_PROJECT}" \
+      --branch="${PAGES_BRANCH}" 2>&1 | tee "${deploy_log}"; then
+      rm -f "${deploy_log}"
+      return 0
+    else
+      deploy_status=$?
+    fi
+
+    # Wrangler can finish uploading and creating a Pages deployment, then fail
+    # while polling Cloudflare's deployment-history logs. Cloudflare reports
+    # that transient control-plane failure as code 8000000. Repeating this
+    # content-addressed deployment is safe and prevents a completed upload from
+    # failing the entire production orchestrator because of a log API outage.
+    if ! grep -Eq 'code:[[:space:]]*8000000' "${deploy_log}"; then
+      rm -f "${deploy_log}"
+      return "${deploy_status}"
+    fi
+
+    if (( attempt == PAGES_DEPLOY_MAX_ATTEMPTS )); then
+      echo "Cloudflare Pages API remained unavailable after ${attempt} attempts." >&2
+      rm -f "${deploy_log}"
+      return "${deploy_status}"
+    fi
+
+    echo "Cloudflare Pages deployment status API returned transient code 8000000; retrying ($((attempt + 1))/${PAGES_DEPLOY_MAX_ATTEMPTS})..." >&2
+    rm -f "${deploy_log}"
+    sleep "${PAGES_DEPLOY_RETRY_DELAY_SECONDS}"
+    attempt=$((attempt + 1))
+  done
+}
 
 echo "==> [Cloudflare Pages ${CLOUDFLARE_ENV}] Deploying portal frontend to project: ${PAGES_PROJECT}..."
 
@@ -97,7 +147,7 @@ if ! printf '%s\n' "${pages_projects}" | grep -F -- "${PAGES_PROJECT}" >/dev/nul
   yarn exec wrangler pages project create "${PAGES_PROJECT}" \
     --production-branch="${PAGES_BRANCH}"
 fi
-yarn exec wrangler pages deploy static-dashboard/out --project-name="${PAGES_PROJECT}" --branch="${PAGES_BRANCH}"
+deploy_pages_with_retry
 popd > /dev/null
 
 echo "==> [Cloudflare Pages ${CLOUDFLARE_ENV}] Portal deployment finished."
