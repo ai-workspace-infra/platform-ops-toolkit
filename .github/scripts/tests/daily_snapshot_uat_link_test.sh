@@ -27,7 +27,7 @@ EOF
 chmod +x "${workdir}/gh"
 
 GH_LOG="${workdir}/gh.log" PATH="${workdir}:${PATH}" GH_TOKEN=test-token \
-  SNAPSHOT_TAG=uat-daily-build-2026.08.21-r2 bash "${dispatcher}"
-grep -Fqx 'workflow run serverless-orchestrator.yml --repo ai-workspace-infra/platform-ops-toolkit --ref main -f operation=deploy+migrate -f vault_env_path=uat -f tag_ref=uat-daily-build-2026.08.21-r2 -f deploy_cloudflare=true -f deploy_cloud_run=true -f supabase_target_existing_strategy=accounts_merge -f supabase_target_confirm_replace=false ' "${workdir}/gh.log"
+  SNAPSHOT_TAG=uat-daily-build-2026.08.21-r2 SKIP_STRIPE_CATALOG=true bash "${dispatcher}"
+grep -Fqx 'workflow run serverless-orchestrator.yml --repo ai-workspace-infra/platform-ops-toolkit --ref main -f operation=deploy -f vault_env_path=uat -f tag_ref=uat-daily-build-2026.08.21-r2 -f deploy_cloudflare=true -f deploy_cloud_run=true -f skip_stripe_catalog=true -f supabase_target_existing_strategy=accounts_merge -f supabase_target_confirm_replace=false ' "${workdir}/gh.log"
 
 echo "daily_snapshot_uat_link_test: PASS"

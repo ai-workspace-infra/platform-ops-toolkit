@@ -15,6 +15,7 @@ agent_controller_url="${AGENT_CONTROLLER_URL:-https://accounts-serverless-uat.on
 # 2 vCPU / 2 GiB; its one-hour lifetime and lack of an EIP are declared in
 # the AWS UAT resource configuration.
 agent_proxy_plan="${AGENT_PROXY_PLAN:-2C2G}"
+skip_stripe_catalog="${SKIP_STRIPE_CATALOG:-false}"
 wait_timeout_seconds="${UAT_SERVERLESS_WAIT_TIMEOUT_SECONDS:-3600}"
 wait_interval_seconds="${UAT_SERVERLESS_WAIT_INTERVAL_SECONDS:-20}"
 
@@ -33,6 +34,11 @@ wait_interval_seconds="${UAT_SERVERLESS_WAIT_INTERVAL_SECONDS:-20}"
   exit 2
 }
 
+[[ "${skip_stripe_catalog}" == "true" || "${skip_stripe_catalog}" == "false" ]] || {
+  echo "::error::SKIP_STRIPE_CATALOG must be true or false." >&2
+  exit 2
+}
+
 [[ "${wait_timeout_seconds}" =~ ^[1-9][0-9]*$ && "${wait_interval_seconds}" =~ ^[1-9][0-9]*$ ]] || {
   echo "::error::UAT serverless wait timeout and interval must be positive integers." >&2
   exit 2
@@ -41,15 +47,19 @@ wait_interval_seconds="${UAT_SERVERLESS_WAIT_INTERVAL_SECONDS:-20}"
 export GH_TOKEN="${gh_token}"
 
 dispatch_serverless() {
+  # Daily releases deploy immutable application artifacts only. User-data
+  # migration has a separate explicitly invoked workflow because its source
+  # can be private or serverless and must never be assumed SSH-reachable.
   gh workflow run "${serverless_workflow}" \
     --repo "${target_repo}" \
     --ref main \
-    -f operation=deploy+migrate \
+    -f operation=deploy \
     -f target_domains=web-saas \
     -f vault_env_path=uat \
     -f "tag_ref=${snapshot_tag}" \
     -f deploy_cloudflare=true \
     -f deploy_cloud_run=true \
+    -f "skip_stripe_catalog=${skip_stripe_catalog}" \
     -f dns_mode=uat-records \
     -f supabase_target_existing_strategy=accounts_merge \
     -f supabase_target_confirm_replace=false
@@ -99,7 +109,7 @@ dispatch_selfhost() {
 }
 
 serverless_run_url="$(dispatch_serverless | tail -n 1)"
-echo "Dispatched UAT serverless deploy+migrate for ${snapshot_tag}: ${serverless_run_url}"
+echo "Dispatched UAT serverless deploy for ${snapshot_tag}: ${serverless_run_url}"
 wait_for_serverless "${serverless_run_url}"
 
 selfhost_run_url="$(dispatch_selfhost | tail -n 1)"

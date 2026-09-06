@@ -24,6 +24,7 @@ GH_LOG="${workdir}/gh.log" \
 PATH="${workdir}:${PATH}" \
 GH_TOKEN=test-token \
 SNAPSHOT_TAG=uat-daily-build-2026.08.21-r5 \
+SKIP_STRIPE_CATALOG=true \
 UAT_SERVERLESS_WAIT_TIMEOUT_SECONDS=30 \
 UAT_SERVERLESS_WAIT_INTERVAL_SECONDS=1 \
 bash "${dispatcher}"
@@ -41,11 +42,12 @@ selfhost_line="$(grep -n '^workflow run selfhost-orchestrator.yml ' "${workdir}/
   exit 1
 }
 
-grep -Fq -- '-f operation=deploy+migrate' "${workdir}/gh.log"
+grep -Fq -- '-f operation=deploy' "${workdir}/gh.log"
 grep -Fq -- '-f target_domains=web-saas' "${workdir}/gh.log"
 grep -Fq -- '-f vault_env_path=uat' "${workdir}/gh.log"
 grep -Fq -- '-f tag_ref=uat-daily-build-2026.08.21-r5' "${workdir}/gh.log"
 grep -Fq -- '-f dns_mode=uat-records' "${workdir}/gh.log"
+grep -Fq -- '-f skip_stripe_catalog=true' "${workdir}/gh.log"
 grep -Fq -- '-f operation=deploy' "${workdir}/gh.log"
 grep -Fq -- '-f target_domains=agent-proxy' "${workdir}/gh.log"
 grep -Fq -- '-f cloud_provider=aws-cloud' "${workdir}/gh.log"
