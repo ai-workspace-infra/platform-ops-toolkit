@@ -51,3 +51,34 @@ jobs:
               aws ec2 describe-security-groups --region "$region" --group-ids "$group" --query 'SecurityGroups[].{GroupId:GroupId,Ingress:IpPermissions,Egress:IpPermissionsEgress}'
             done < <(jq -r '[.Reservations[].Instances[].SecurityGroups[].GroupId]|unique[]' <<<"$instances")
           done
+  catalog_auth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Vault CLI
+        run: .github/scripts/serverless/install_vault_cli.sh
+      - uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-prod
+          jwtGithubAudience: vault
+          exportToken: true
+      - name: Check catalog login response without printing credentials
+        env:
+          VAULT_ADDR: https://vault.svc.plus
+          ACCOUNTS_BASE_URL: https://prod-accounts-1004637461064.asia-northeast1.run.app
+        shell: bash
+        run: |
+          set -euo pipefail
+          secret="$(vault kv get -format=json kv/CICD)"
+          if ! jq -e '.data.data.ROOT_BOOTSTRAP_PASSWORD | type == "string" and length > 0' <<<"$secret" >/dev/null; then
+            echo '::error::ROOT_BOOTSTRAP_PASSWORD absent from kv/CICD'
+            exit 1
+          fi
+          response="$(jq -c '.data.data | {identifier:(.ROOT_BOOTSTRAP_EMAIL // "admin@svc.plus"),password:.ROOT_BOOTSTRAP_PASSWORD}' <<<"$secret" | curl --silent --show-error --fail-with-body --max-time 20 --header 'Content-Type: application/json' --data-binary @- "$ACCOUNTS_BASE_URL/api/auth/login")" || {
+            echo '::error::Accounts login request failed; response withheld'
+            exit 1
+          }
+          jq '{mfa_required:(.mfa_required // .mfaRequired // false),session_token_present:((.token // .access_token // "")|length>0)}' <<<"$response"
