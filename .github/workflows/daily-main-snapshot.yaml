@@ -29,7 +29,7 @@ on:
         required: false
         type: string
       skip_stripe_catalog:
-        description: "可选：跳过 Stripe 目录同步，仅验证核心 PROD 部署"
+        description: "可选：跳过 Stripe 目录同步，仅验证核心 UAT/PROD 部署"
         required: false
         default: false
         type: boolean
@@ -263,6 +263,7 @@ jobs:
           # Serverless Accounts is the controller for the separately deployed
           # UAT Agent Proxy. This is a public endpoint, not a credential.
           AGENT_CONTROLLER_URL: https://accounts-serverless-uat.onwalk.net
+          SKIP_STRIPE_CATALOG: ${{ inputs.skip_stripe_catalog || false }}
 
       - name: Load GitHub App private key for production dispatch
         if: ${{ (inputs.deploy_env || 'uat') == 'prod' && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' }}
@@ -294,6 +295,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.prod-app-token.outputs.token }}
           RELEASE_TAG: ${{ steps.resolve_release_tag.outputs.release_tag }}
+          SKIP_STRIPE_CATALOG: ${{ inputs.skip_stripe_catalog || false }}
           SKIP_STRIPE_CATALOG: ${{ inputs.skip_stripe_catalog || false }}
           CONTROL_PLANE_SHA: ${{ github.sha }}
 
