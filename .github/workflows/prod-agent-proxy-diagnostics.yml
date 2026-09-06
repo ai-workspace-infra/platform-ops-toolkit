@@ -38,7 +38,14 @@ jobs:
             while read -r instance; do
               [[ -n "$instance" ]] || continue
               aws ec2 describe-instance-status --region "$region" --instance-ids "$instance" --include-all-instances
+              # Print only selected boot diagnostics, never raw cloud-init output.
+              aws ec2 get-console-output --region "$region" --instance-id "$instance" --latest --output json | python3 -c 'import sys,json,base64,re; d=json.load(sys.stdin); s=base64.b64decode(d.get("Output") or "").decode("utf-8","replace"); print("\n".join(line for line in s.splitlines() if re.search(r"(Started .*OpenBSD|Failed to start .*OpenBSD|Kernel panic|Out of memory|cloud-init.*finished|login:)",line)))'
             done < <(jq -r '.Reservations[].Instances[].InstanceId' <<<"$instances")
+            while read -r vpc; do
+              [[ -n "$vpc" ]] || continue
+              aws ec2 describe-route-tables --region "$region" --filters "Name=vpc-id,Values=$vpc" --query 'RouteTables[].{Id:RouteTableId,Routes:Routes,Associations:Associations}'
+              aws ec2 describe-network-acls --region "$region" --filters "Name=vpc-id,Values=$vpc" --query 'NetworkAcls[].{Id:NetworkAclId,Entries:Entries,Associations:Associations}'
+            done < <(jq -r '[.Reservations[].Instances[].VpcId]|unique[]' <<<"$instances")
             while read -r group; do
               [[ -n "$group" ]] || continue
               aws ec2 describe-security-groups --region "$region" --group-ids "$group" --query 'SecurityGroups[].{GroupId:GroupId,Ingress:IpPermissions,Egress:IpPermissionsEgress}'
