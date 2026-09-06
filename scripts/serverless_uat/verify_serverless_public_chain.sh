@@ -33,9 +33,13 @@ is_cloudflare_challenge_text() {
   grep -Eiq '^cf-mitigated:[[:space:]]*challenge' <<<"$1"
 }
 
-probe_is_acceptable() {
+alias_probe_is_acceptable() {
   local status="$1" headers="$2"
-  is_success_status "${status}" || is_cloudflare_challenge "${headers}"
+  # Custom-domain aliases serve the homepage in place. A redirect can hide
+  # an incorrect host binding (for example www -> console) and must fail.
+  [[ "${status}" == "200" ]] || {
+    [[ "${status}" == "403" ]] && is_cloudflare_challenge "${headers}"
+  }
 }
 
 environment="$(jq -er '.metadata.environment' "${CONFIG_FILE}")"
@@ -73,7 +77,8 @@ for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
     alias_dns="$(dig +short @1.1.1.1 "${console_alias}" | sed -n '1p')"
     alias_headers="${probe_root}/alias-${console_alias//[^A-Za-z0-9]/_}.headers"
     alias_status="$(curl --silent --show-error --dump-header "${alias_headers}" --output /dev/null --write-out '%{http_code}' --max-time 20 "https://${console_alias}/" || true)"
-    if [[ -z "${alias_dns}" ]] || ! probe_is_acceptable "${alias_status}" "${alias_headers}"; then
+    if [[ -z "${alias_dns}" ]] || ! alias_probe_is_acceptable "${alias_status}" "${alias_headers}"; then
+      echo "Alias homepage not ready: https://${console_alias}/ HTTP ${alias_status}; expected 200 without redirect (or Cloudflare challenge)" >&2
       aliases_ready=false
     fi
   done < <(jq -r '.spec.serverless.console_aliases[]? // empty' "${CONFIG_FILE}")

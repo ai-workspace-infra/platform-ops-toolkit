@@ -103,6 +103,9 @@ jobs:
     - name: Verify serverless Cloudflare domain contract
       run: bash .github/scripts/tests/serverless_cloudflare_domains_contract_test.sh
 
+    - name: Verify serverless aliases serve without redirects
+      run: bash .github/scripts/tests/serverless_public_chain_challenge_test.sh
+
     - name: Verify serverless Portal Accounts endpoint contract
       run: bash .github/scripts/tests/serverless_portal_accounts_endpoint_contract_test.sh
 

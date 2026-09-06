@@ -56,11 +56,18 @@ verification probes:
 apex-alias feature). The deployment workflow must leave these canonical aliases unchanged unless
 an explicit, separately approved DNS cutover is requested.
 
-The production Console hosts `console-serverless-prod.svc.plus` and
-`console-serverless-prod.xworktech.com` are both custom domains of
-`frontend-router-prod`; neither is a Pages custom-domain owner. Pages remains the static asset
+The production UI hosts `console-serverless-prod.svc.plus`,
+`console-serverless-prod.xworktech.com`, and `www.xworktech.com` are custom domains of
+`frontend-router-prod`; none is a Pages custom-domain owner. Pages remains the static asset
 origin for the Worker. The production `static_cdn_url` (`assets.svc.plus`) is separately bound to
 `ai-workspace-portal-prod` and its CNAME is reconciled by the Serverless domains job.
+
+GitOps `spec.serverless.console_aliases` declares `www.xworktech.com` for production
+serverless and hybrid topology. The Serverless domains job reconciles it even with
+`dns_mode=none`. Its homepage must serve in place without redirecting to
+`console.xworktech.com`. Public-chain verification rejects HTTP redirects on all
+declared frontend aliases. A Cloudflare 403 challenge retains the protected-edge
+acceptance path; it does not prove application content readiness.
 
 Every mode profile also declares the five public service entrances in
 `spec.public_endpoints` using `<service>-<mode>-<environment>.<base-domain>`:
