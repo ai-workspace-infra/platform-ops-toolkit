@@ -101,7 +101,9 @@ jobs:
       run: bash .github/scripts/tests/platform_ops_uat_dns_target_records_test.sh
 
     - name: Verify serverless Cloudflare domain contract
-      run: bash .github/scripts/tests/serverless_cloudflare_domains_contract_test.sh
+      run: |
+        bash .github/scripts/tests/serverless_cloudflare_domains_contract_test.sh
+        python3 -m unittest discover -s scripts/serverless_uat -p 'test_console_dns_validation.py'
 
     - name: Verify serverless aliases serve without redirects
       run: bash .github/scripts/tests/serverless_public_chain_challenge_test.sh
