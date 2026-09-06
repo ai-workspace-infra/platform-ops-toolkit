@@ -316,6 +316,24 @@ reconcile_cname_record() {
   fi
 }
 
+remove_address_records() {
+  local name="$1"
+  local records_response
+  local record_id
+  local record_type
+  local record_target
+  records_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records?name=${name}&per_page=100")"
+  while IFS=$'\t' read -r record_id record_type record_target; do
+    [[ -n "${record_id}" ]] || continue
+    case "${record_type}" in
+      A|AAAA|CNAME)
+        api_request DELETE "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records/${record_id}" >/dev/null
+        echo "Removed conflicting DNS ${record_type}: ${name} -> ${record_target}"
+        ;;
+    esac
+  done < <(jq -r '.result[]? | [.id, .type, (.content // "")] | @tsv' <<<"${records_response}")
+}
+
 if [[ -n "${static_cdn_host}" && "${static_cdn_host}" != *.pages.dev ]]; then
   ensure_pages_custom_domain "${static_cdn_host}"
   reconcile_cname_record "${static_cdn_host}" "${pages_project}.pages.dev"
@@ -350,23 +368,16 @@ fi
 if [[ "${serverless_dns_mode}" != "none" ]]; then
   while IFS=$'\t' read -r record_name record_target; do
     [[ -n "${record_name}" && -n "${record_target}" ]] || continue
-    case "${record_target%.}" in
-      "${console_host%.}")
-        # Cloudflare rejects a Worker custom-domain binding while any external
-        # CNAME still exists. Delete only GitOps-declared aliases first; an
-        # unknown target remains protected by remove_declared_cname.
-        old_selfhost_target="$(jq -r --arg hostname "${record_name}" '.spec.domains[$hostname].selfhost // empty' "${CONFIG_FILE}")"
-        remove_declared_cname "${record_name}" "${old_selfhost_target}" "${record_target}"
-        reconcile_worker_domain "${record_name}" "${frontend_router_worker}"
-        ;;
-      "${accounts_host%.}")
-        detach_worker_domain "${record_name}" "${core_worker}"
-        reconcile_cname_record "${record_name}" "${record_target}"
-        ;;
-      *)
-        reconcile_cname_record "${record_name}" "${record_target}"
-        ;;
-    esac
+    # Canonical public names remain DNS CNAMEs. Only the mode-qualified target
+    # hostnames above are Worker custom domains; never bind a canonical name
+    # directly to a Worker.
+    if [[ "${record_target%.}" == "${accounts_host%.}" ]]; then
+      detach_worker_domain "${record_name}" "${core_worker}"
+    else
+      detach_worker_domain "${record_name}" "${frontend_router_worker}"
+    fi
+    remove_address_records "${record_name}"
+    reconcile_cname_record "${record_name}" "${record_target}"
   done < <(jq -r '.spec.runtime.routing.dns.canonical_records // {} | to_entries[] | [.key, .value] | @tsv' "${CONFIG_FILE}")
 else
   while IFS=$'\t' read -r record_name record_target; do

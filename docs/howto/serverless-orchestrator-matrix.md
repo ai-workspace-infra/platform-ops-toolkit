@@ -43,11 +43,12 @@ operator performs the following CNAME cutover manually. Production serverless ta
 `serverless` role name; `*-cloudflare-prod.*` is retired and must not be used by deployments or
 verification probes:
 
-| Public entry | CNAME target |
+| Public entry | Production target |
 | --- | --- |
 | `xworktech.com` | `console-serverless-prod.xworktech.com` |
+| `www.xworktech.com` | `console-serverless-prod.xworktech.com` |
 | `www.svc.plus` | `console-serverless-prod.svc.plus` |
-| `console.svc.plus` | `console-serverless-prod.svc.plus` |
+| `console.svc.plus` | `frontend-router-prod` Custom Domain |
 | `accounts.svc.plus` | `accounts-serverless-prod.svc.plus` |
 | `billing.svc.plus` | `billing-serverless-prod.svc.plus` |
 
@@ -56,10 +57,12 @@ verification probes:
 apex-alias feature). The deployment workflow must leave these canonical aliases unchanged unless
 an explicit, separately approved DNS cutover is requested.
 
-The production Console hosts `console-serverless-prod.svc.plus` and
-`console-serverless-prod.xworktech.com` are both custom domains of
-`frontend-router-prod`; neither is a Pages custom-domain owner. Pages remains the static asset
-origin for the Worker. The production `static_cdn_url` (`assets.svc.plus`) is separately bound to
+The production target hosts `console-serverless-prod.svc.plus` and
+`console-serverless-prod.xworktech.com` remain Worker custom domains, and
+`console.svc.plus` is also bound directly to `frontend-router-prod` as a Custom
+Domain. Cloudflare manages its proxied DNS record and certificate. Pages remains
+the static asset origin for the Worker.
+The production `static_cdn_url` (`assets.svc.plus`) is separately bound to
 `ai-workspace-portal-prod` and its CNAME is reconciled by the Serverless domains job.
 
 Every mode profile also declares the five public service entrances in

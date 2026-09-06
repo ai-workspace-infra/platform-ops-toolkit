@@ -60,11 +60,12 @@ automatically switch the following canonical aliases. An operator performs this 
 after readiness and security checks pass. The serverless target names are the canonical
 `*-serverless-prod.*` names; the retired `*-cloudflare-prod.*` variant must not be used:
 
-| Public entry | CNAME target |
+| Public entry | Production target |
 |---|---|
 | `xworktech.com` | `console-serverless-prod.xworktech.com` |
+| `www.xworktech.com` | `console-serverless-prod.xworktech.com` |
 | `www.svc.plus` | `console-serverless-prod.svc.plus` |
-| `console.svc.plus` | `console-serverless-prod.svc.plus` |
+| `console.svc.plus` | `frontend-router-prod` Custom Domain |
 | `accounts.svc.plus` | `accounts-serverless-prod.svc.plus` |
 | `billing.svc.plus` | `billing-serverless-prod.svc.plus` |
 
@@ -73,9 +74,11 @@ after readiness and security checks pass. The serverless target names are the ca
 provider. Any workflow input or script that uses a `*-cloudflare-prod.*` name is invalid; use the
 declared `*-serverless-prod.*` or `*-selfhost-prod.*` endpoint instead.
 
-Both `console-serverless-prod.svc.plus` and `console-serverless-prod.xworktech.com` are bound to
-the `frontend-router-prod` Worker. The Pages project is only the static asset origin and must not
-claim either Console hostname. The declared production `static_cdn_url` (`assets.svc.plus`) is the
+The target hosts `console-serverless-prod.svc.plus` and `console-serverless-prod.xworktech.com`,
+along with `console.svc.plus`, are bound directly to the `frontend-router-prod` Worker. Cloudflare
+manages the `console.svc.plus` proxied DNS record and certificate. The Pages project is only the
+static asset origin and must not claim the public aliases. The declared production
+`static_cdn_url` (`assets.svc.plus`) is the
 Pages custom domain and is reconciled separately with its Pages CNAME.
 
 ### 1.3 PROD source allowlist (mandatory)
