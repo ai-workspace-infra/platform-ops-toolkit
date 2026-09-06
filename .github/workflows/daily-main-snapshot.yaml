@@ -296,7 +296,6 @@ jobs:
           GH_TOKEN: ${{ steps.prod-app-token.outputs.token }}
           RELEASE_TAG: ${{ steps.resolve_release_tag.outputs.release_tag }}
           SKIP_STRIPE_CATALOG: ${{ inputs.skip_stripe_catalog || false }}
-          SKIP_STRIPE_CATALOG: ${{ inputs.skip_stripe_catalog || false }}
           CONTROL_PLANE_SHA: ${{ github.sha }}
 
       - name: Dispatch production serverless and selfhost deployment
@@ -305,6 +304,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.prod-app-token.outputs.token }}
           RELEASE_TAG: ${{ steps.resolve_release_tag.outputs.release_tag }}
+          SKIP_STRIPE_CATALOG: ${{ inputs.skip_stripe_catalog || false }}
 
       - name: Publish unified snapshot matrix summary
         env:
