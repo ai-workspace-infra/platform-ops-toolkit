@@ -1,6 +1,11 @@
 name: PROD Agent Proxy Diagnostics
 on:
   workflow_dispatch:
+    inputs:
+      reboot_us:
+        description: Reboot the single running ap-prod-us instance to recover SSH
+        type: boolean
+        default: false
 permissions:
   contents: read
   id-token: write
@@ -51,3 +56,13 @@ jobs:
               aws ec2 describe-security-groups --region "$region" --group-ids "$group" --query 'SecurityGroups[].{GroupId:GroupId,Ingress:IpPermissions,Egress:IpPermissionsEgress}'
             done < <(jq -r '[.Reservations[].Instances[].SecurityGroups[].GroupId]|unique[]' <<<"$instances")
           done
+      - name: Recover US SSH by rebooting the identified instance
+        if: inputs.reboot_us == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          nodes="$(aws ec2 describe-instances --region us-east-1 --filters 'Name=tag:Name,Values=agent-proxy-prod-ap-prod-us-instance' 'Name=instance-state-name,Values=running' --output json)"
+          test "$(jq '[.Reservations[].Instances[]]|length' <<<"$nodes")" -eq 1
+          instance="$(jq -r '.Reservations[].Instances[].InstanceId' <<<"$nodes")"
+          echo "Rebooting US Agent Proxy $instance"
+          aws ec2 reboot-instances --region us-east-1 --instance-ids "$instance"
