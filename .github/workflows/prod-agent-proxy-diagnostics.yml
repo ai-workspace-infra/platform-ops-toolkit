@@ -1,0 +1,46 @@
+name: PROD Agent Proxy Diagnostics
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: main
+          path: gitops
+          sparse-checkout: |
+            resources/svc.plus/prod/aws
+      - id: aws_oidc
+        run: .github/scripts/platform-ops/provision/resolve_gitops_aws_oidc_config.sh
+        env:
+          GITOPS_AWS_OIDC_CONFIG: gitops/resources/svc.plus/prod/aws/github-actions-oidc.json
+          EXPECTED_DEPLOYMENT_ENV: prod
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ steps.aws_oidc.outputs.region }}
+          role-to-assume: ${{ steps.aws_oidc.outputs.role_arn }}
+          audience: ${{ steps.aws_oidc.outputs.audience }}
+      - name: Inspect production Agent Proxy instances and network
+        shell: bash
+        run: |
+          set -euo pipefail
+          for region in ap-northeast-1 us-east-1; do
+            instances="$(aws ec2 describe-instances --region "$region" --filters 'Name=tag:Name,Values=*agent-proxy*,ap-prod-*' 'Name=instance-state-name,Values=pending,running,stopping,stopped' --output json)"
+            jq --arg region "$region" '{region:$region,instances:[.Reservations[].Instances[]|{InstanceId,State,ImageId,InstanceType,Architecture,LaunchTime,PublicIpAddress,SubnetId,VpcId,SecurityGroups,Name:(.Tags|map(select(.Key=="Name"))|.[0].Value)}]}' <<<"$instances"
+            while read -r instance; do
+              [[ -n "$instance" ]] || continue
+              aws ec2 describe-instance-status --region "$region" --instance-ids "$instance" --include-all-instances
+            done < <(jq -r '.Reservations[].Instances[].InstanceId' <<<"$instances")
+            while read -r group; do
+              [[ -n "$group" ]] || continue
+              aws ec2 describe-security-groups --region "$region" --group-ids "$group" --query 'SecurityGroups[].{GroupId:GroupId,Ingress:IpPermissions,Egress:IpPermissionsEgress}'
+            done < <(jq -r '[.Reservations[].Instances[].SecurityGroups[].GroupId]|unique[]' <<<"$instances")
+          done
