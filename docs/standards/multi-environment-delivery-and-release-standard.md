@@ -73,10 +73,17 @@ after readiness and security checks pass. The serverless target names are the ca
 provider. Any workflow input or script that uses a `*-cloudflare-prod.*` name is invalid; use the
 declared `*-serverless-prod.*` or `*-selfhost-prod.*` endpoint instead.
 
-Both `console-serverless-prod.svc.plus` and `console-serverless-prod.xworktech.com` are bound to
-the `frontend-router-prod` Worker. The Pages project is only the static asset origin and must not
-claim either Console hostname. The declared production `static_cdn_url` (`assets.svc.plus`) is the
+`console-serverless-prod.svc.plus`, `console-serverless-prod.xworktech.com`, and
+`www.xworktech.com` are bound to the `frontend-router-prod` Worker. The Pages project is only the static asset origin and must not
+claim these UI hostnames. The declared production `static_cdn_url` (`assets.svc.plus`) is the
 Pages custom domain and is reconciled separately with its Pages CNAME.
+
+GitOps `spec.serverless.console_aliases` declares `www.xworktech.com` for production
+serverless and hybrid topology. The Serverless domains job reconciles it even with
+`dns_mode=none`. Its homepage must serve in place without redirecting to
+`console.xworktech.com`. Public-chain verification rejects HTTP redirects on all
+declared frontend aliases. A Cloudflare 403 challenge retains the protected-edge
+acceptance path; it does not prove application content readiness.
 
 ### 1.3 PROD source allowlist (mandatory)
 
