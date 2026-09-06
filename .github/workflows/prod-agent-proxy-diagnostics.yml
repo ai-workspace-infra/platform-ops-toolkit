@@ -1,6 +1,15 @@
 name: PROD Agent Proxy Diagnostics
 on:
   workflow_dispatch:
+    inputs:
+      terminate_failed_us:
+        description: Retire only the approved failed instance i-049dfd7ec2c0a0578
+        type: boolean
+        default: false
+      reboot_us:
+        description: Reboot the single running ap-prod-us instance to recover SSH
+        type: boolean
+        default: false
 permissions:
   contents: read
   id-token: write
@@ -35,6 +44,14 @@ jobs:
           for region in ap-northeast-1 us-east-1; do
             instances="$(aws ec2 describe-instances --region "$region" --filters 'Name=tag:Name,Values=*agent-proxy*,ap-prod-*' 'Name=instance-state-name,Values=pending,running,stopping,stopped' --output json)"
             jq --arg region "$region" '{region:$region,instances:[.Reservations[].Instances[]|{InstanceId,State,ImageId,InstanceType,Architecture,LaunchTime,PublicIpAddress,SubnetId,VpcId,SecurityGroups,Name:(.Tags|map(select(.Key=="Name"))|.[0].Value)}]}' <<<"$instances"
+            while read -r ip; do
+              [[ -n "$ip" ]] || continue
+              if ssh-keyscan -T 10 "$ip" >/dev/null 2>/dev/null; then
+                echo "SSH host-key handshake available: $ip"
+              else
+                echo "SSH host-key handshake unavailable: $ip"
+              fi
+            done < <(jq -r '.Reservations[].Instances[].PublicIpAddress // empty' <<<"$instances")
             while read -r instance; do
               [[ -n "$instance" ]] || continue
               aws ec2 describe-instance-status --region "$region" --instance-ids "$instance" --include-all-instances
@@ -51,3 +68,26 @@ jobs:
               aws ec2 describe-security-groups --region "$region" --group-ids "$group" --query 'SecurityGroups[].{GroupId:GroupId,Ingress:IpPermissions,Egress:IpPermissionsEgress}'
             done < <(jq -r '[.Reservations[].Instances[].SecurityGroups[].GroupId]|unique[]' <<<"$instances")
           done
+      - name: Retire the approved failed US instance
+        if: inputs.terminate_failed_us == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(aws sts get-caller-identity --query Account --output text)" = 950604983695
+          target=i-049dfd7ec2c0a0578
+          node="$(aws ec2 describe-instances --region us-east-1 --instance-ids "$target" --output json)"
+          jq -e --arg id "$target" '[.Reservations[].Instances[]] | length == 1 and (.[0] | .InstanceId == $id and .InstanceType == "t4g.small" and .InstanceLifecycle == "spot" and any(.Tags[]; .Key == "Name" and .Value == "agent-proxy-prod-ap-prod-us-instance"))' <<<"$node" >/dev/null
+          jq '[.Reservations[].Instances[]|{InstanceId,State,InstanceType,InstanceLifecycle,PublicIpAddress}]' <<<"$node"
+          aws ec2 terminate-instances --region us-east-1 --instance-ids "$target"
+          aws ec2 wait instance-terminated --region us-east-1 --instance-ids "$target"
+          echo "Approved failed US instance $target is terminated; Terraform can recreate it."
+      - name: Recover US SSH by rebooting the identified instance
+        if: inputs.reboot_us == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          nodes="$(aws ec2 describe-instances --region us-east-1 --filters 'Name=tag:Name,Values=agent-proxy-prod-ap-prod-us-instance' 'Name=instance-state-name,Values=running' --output json)"
+          test "$(jq '[.Reservations[].Instances[]]|length' <<<"$nodes")" -eq 1
+          instance="$(jq -r '.Reservations[].Instances[].InstanceId' <<<"$nodes")"
+          echo "Rebooting US Agent Proxy $instance"
+          aws ec2 reboot-instances --region us-east-1 --instance-ids "$instance"
