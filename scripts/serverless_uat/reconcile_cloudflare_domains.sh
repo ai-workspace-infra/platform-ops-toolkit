@@ -263,6 +263,7 @@ detach_worker_domain() {
   local expected_service="$2"
   local domains_url="${CLOUDFLARE_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/domains?per_page=100"
   local domains_response
+  local refreshed_domains_response
   domains_response="$(api_request GET "${domains_url}")"
 
   while IFS=$'\t' read -r domain_id domain_service; do
@@ -271,7 +272,22 @@ detach_worker_domain() {
       echo "Worker custom domain ${hostname} is owned by ${domain_service}, not ${expected_service}; refusing to detach it." >&2
       return 1
     fi
-    api_request DELETE "${CLOUDFLARE_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/domains/${domain_id}" >/dev/null
+    # Cloudflare custom-domain deletion is eventually consistent. A concurrent
+    # deploy can remove the same stale binding after our list request but
+    # before this DELETE; treat that specific already-absent outcome as
+    # success only after a fresh authoritative read. Do not hide a permission
+    # or ownership failure when the binding is still present.
+    if ! api_request DELETE "${CLOUDFLARE_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/domains/${domain_id}" >/dev/null; then
+      refreshed_domains_response="$(api_request GET "${domains_url}")" || return 1
+      if jq -e --arg hostname "${hostname}" --arg domain_id "${domain_id}" '
+        any(.result[]?; .hostname == $hostname and .id == $domain_id)
+      ' <<<"${refreshed_domains_response}" >/dev/null; then
+        echo "Worker custom domain ${hostname} remains after its delete request; refusing to continue." >&2
+        return 1
+      fi
+      echo "Worker custom domain already detached concurrently: ${hostname} -> ${domain_service}"
+      continue
+    fi
     echo "Detached Worker custom domain: ${hostname} -> ${domain_service}"
   done < <(jq -r --arg hostname "${hostname}" '.result[]? | select(.hostname == $hostname) | [.id, .service] | @tsv' <<<"${domains_response}")
 }
