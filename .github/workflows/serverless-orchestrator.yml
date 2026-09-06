@@ -102,6 +102,11 @@ on:
         required: false
         default: 'ubuntu-latest'
         type: string
+      skip_stripe_catalog:
+        description: '跳过 Stripe 目录同步，仅用于先验证核心生产部署链路'
+        required: false
+        default: false
+        type: boolean
 jobs:
   preflight:
     name: Validate / Dispatch inputs
@@ -749,6 +754,7 @@ jobs:
       needs.preflight.result == 'success' &&
       contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) &&
       inputs.deploy_cloud_run == true &&
+      inputs.skip_stripe_catalog != true &&
       inputs.deploy_cloudflare == true &&
       (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') &&
       (needs.cloud_run.result == 'success' || needs.cloud_run.result == 'skipped') &&
