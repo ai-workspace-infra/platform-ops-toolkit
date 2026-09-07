@@ -75,9 +75,9 @@ api_request() {
   fi
   if ! response="$(curl "${curl_args[@]}" "${url}")"; then
     if [[ "${method}" == "DELETE" && "${allow_read_only_delete}" == "true" ]] \
-      && jq -e 'any(.errors[]?; .code == 1043)' <<<"${response:-}" >/dev/null 2>&1; then
+      && jq -e 'any(.errors[]?; .code == 1043 or .code == 1046)' <<<"${response:-}" >/dev/null 2>&1; then
       CLOUDFLARE_READ_ONLY_DELETE=true
-      echo "Cloudflare DNS record is provider-managed and read-only; leaving it in place: ${url}" >&2
+      echo "Cloudflare DNS record is provider-managed and not editable by this workflow; leaving it in place: ${url}" >&2
       return 0
     fi
     echo "Cloudflare API request failed: ${method} ${url}" >&2
@@ -89,9 +89,9 @@ api_request() {
   fi
   if ! jq -e '.success == true' >/dev/null <<<"${response}"; then
     if [[ "${method}" == "DELETE" && "${allow_read_only_delete}" == "true" ]] \
-      && jq -e 'any(.errors[]?; .code == 1043)' <<<"${response}" >/dev/null 2>&1; then
+      && jq -e 'any(.errors[]?; .code == 1043 or .code == 1046)' <<<"${response}" >/dev/null 2>&1; then
       CLOUDFLARE_READ_ONLY_DELETE=true
-      echo "Cloudflare DNS record is provider-managed and read-only; leaving it in place: ${url}" >&2
+      echo "Cloudflare DNS record is provider-managed and not editable by this workflow; leaving it in place: ${url}" >&2
       return 0
     fi
     echo "Cloudflare API returned success=false: ${method} ${url}" >&2

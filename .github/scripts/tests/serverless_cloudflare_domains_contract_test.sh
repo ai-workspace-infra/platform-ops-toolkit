@@ -125,6 +125,8 @@ fi
 EOF
 chmod +x "${test_dir}/bin/curl"
 
+grep -Fq 'code == 1043 or .code == 1046' "${reconciler}"
+
 PATH="${test_dir}/bin:${PATH}" \
 MOCK_CURL_LOG="${test_dir}/curl.log" \
 CLOUDFLARE_ACCOUNT_ID="account-1" \
@@ -160,7 +162,8 @@ fi
 dns_deletes="$(grep -Fc $'DELETE\thttps://cloudflare.invalid/client/v4/zones/zone-1/dns_records/' "${test_dir}/curl.log")"
 # The canonical aliases remain Worker-bound; both stale records are inspected,
 # while the managed origin record returns Cloudflare's read-only error and is
-# intentionally left in place.
+# intentionally left in place. Email Routing records return a different
+# provider-managed error (1046), which must receive the same treatment.
 test "${dns_deletes}" -eq 2
 cname_bodies="$(cut -f3 "${test_dir}/curl.log" | jq -s '[.[] | select(.type == "CNAME")]')"
 test "$(jq 'length' <<<"${cname_bodies}")" -eq 0
