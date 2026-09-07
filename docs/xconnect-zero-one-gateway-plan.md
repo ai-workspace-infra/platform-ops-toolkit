@@ -444,7 +444,26 @@ ai-workspace-infra/platform-ops-toolkit/.github/workflows/xconnect-cloud-lab.yml
 - 控面失联时旧配置保留时间必须与撤销时限、配置有效期一起定义，禁止无限期保留权限。
 - 生产 Gateway 继续使用 VPS/EC2 长驻服务节点；实验 Spot 只用于 disposable cloud validation。
 
-## 17. 历史分支与恢复记录
+## 17. 项目组合与发布边界
+
+这条技术主线属于四个相互协作、但独立推进的项目：
+
+| 项目 | 当前定位 | 与本计划的关系 |
+|---|---|---|
+| **XConnect One** | 独立受控端 CLI / Linux runtime，首期闭环推进中 | 直接实现 join、sync、续期、撤销、WireGuard/Xray 和 Zero 配置消费 |
+| **XConnect APP** | 独立图形客户端，主体功能接近完成，等待发布/上架 | 通过可选插件组合 One；不阻塞 One CLI 首期，也不承担 Zero 控面 |
+| **OpenPlatform** | 开源解决方案 | 沉淀可公开复用的连接、基础设施和集成方案；与私有 Zero 运行状态隔离 |
+| **Xworkmate / AI Workspace** | 持续推进中的上层工作空间项目 | 消费连接和平台能力，为用户工作流提供统一工作空间；不取代 Zero 的设备/网络事实来源 |
+
+发布和依赖原则：
+
+- 四个项目分别维护、构建、版本化和发布。
+- XConnect APP 的发布上架不应成为 XConnect One Linux 闭环或 Zero 控面交付的前置条件。
+- OpenPlatform 只公开适合开源的方案、接口和部署能力；设备凭据、策略状态和生产 secret 仍由 Zero 管理。
+- Xworkmate / AI Workspace 通过稳定 API 或插件接口使用连接能力，不直接复制 One 状态机或 Gateway 策略执行逻辑。
+- 项目之间通过版本兼容矩阵、API 契约和插件协议协作，而不是共享内部数据库。
+
+## 18. 历史分支与恢复记录
 
 最初排查的本地仓库为：
 
