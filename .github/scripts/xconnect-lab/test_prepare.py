@@ -19,7 +19,8 @@ class CleanupBoundary(unittest.TestCase):
             declaration = folder / 'declaration.json'
             declaration.write_text(json.dumps({'spec': {'aws': {'region': 'ap-northeast-1',
                 'instance_type': 't3.small', 'vpc_cidr': '10.78.0.0/24'},
-                'vultr': {'region': 'nrt', 'plan': 'vc2-1c-1gb'}}}))
+                'vultr': {'region': 'nrt', 'plan': 'vc2-1c-1gb'},
+                'zero': {'accounts_api_url': 'https://accounts.svc.plus', 'portal_url': 'https://portal.svc.plus'}}}))
             (folder / 'state.json').write_text(json.dumps({'values': {'root_module': root}}))
             with patch.dict(os.environ, {'TF_VAR_run_id': 'xcl-123-1'}), patch('sys.argv',
                     ['prepare', 'cleanup', directory, str(declaration)]):
@@ -32,7 +33,8 @@ class CleanupBoundary(unittest.TestCase):
     def test_owned_instances(self):
         self.run_cleanup({'resources': [
             {'address': 'aws_instance.client', 'type': 'aws_instance', 'values': {'tags_all': {'LabRun': 'xcl-123-1'}}},
-            {'address': 'vultr_instance.gateway', 'type': 'vultr_instance', 'values': {'tags': ['xcl-123-1']}}]})
+            {'address': 'aws_instance.gateway[0]', 'type': 'aws_instance', 'values': {'tags_all': {'LabRun': 'xcl-123-1'}}},
+            {'address': 'vultr_instance.gateway[0]', 'type': 'vultr_instance', 'values': {'tags': ['xcl-123-1']}}]})
 
     def test_foreign_aws_refused(self):
         with self.assertRaises(ValueError):
@@ -41,7 +43,7 @@ class CleanupBoundary(unittest.TestCase):
 
     def test_foreign_vultr_refused(self):
         with self.assertRaises(ValueError):
-            self.run_cleanup({'resources': [{'address': 'vultr_instance.gateway', 'type': 'vultr_instance',
+            self.run_cleanup({'resources': [{'address': 'vultr_instance.gateway[0]', 'type': 'vultr_instance',
                 'values': {'tags': ['production']}}]})
 
     def test_unexpected_resource_refused(self):

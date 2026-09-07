@@ -21,12 +21,16 @@ case "${1:?command}" in
     mkdir -p "$LAB_DIR"
     ;;
   topology)
-    jq -e '.kind == "XConnectLabTopology" and .metadata.environment == "sit" and .spec.ttl_minutes == 90 and .spec.vault.address == "https://vault.svc.plus" and .spec.vault.role == "github-actions-platform-ops-toolkit-sit" and .spec.vault.infrastructure_path == "kv/data/CICD/sit" and .spec.vault.runtime_path == "kv/data/sit/xconnect-one" and .spec.vault.github_app_path == "kv/data/CICD/github-app/daily-snapshot" and .spec.overlay.transport == "vless-tls-xudp" and .spec.overlay.gateway_address == "10.77.0.1/24" and .spec.overlay.device_address == "10.77.0.2/32"' "$DECL" >/dev/null || die 'Missing or incompatible lab topology'
+    jq -e '.kind == "XConnectLabTopology" and .metadata.environment == "sit" and .spec.gateway_provider == "aws-spot" and .spec.compute_policy == "all-cloud-compute-is-aws-spot-by-default" and .spec.ttl_minutes == 90 and .spec.zero.accounts_api_url == "https://accounts.svc.plus" and .spec.zero.portal_url == "https://portal.svc.plus" and .spec.zero.source_of_truth == "formal-accounts-api-and-portal" and .spec.zero.lab_controller.is_formal_config_source == false and .spec.nodes.gateway.role == "relay" and .spec.nodes.gateway.service_role == "relay/service" and .spec.nodes.gateway.baseline == "independent-linux-node-external-wireguard-xray" and .spec.nodes.one.role == "controlled-client" and .spec.nodes.one.baseline == "independent-linux-node-external-wireguard-xray" and .spec.vault.address == "https://vault.svc.plus" and .spec.vault.role == "github-actions-platform-ops-toolkit-sit" and .spec.vault.infrastructure_path == "kv/data/CICD/sit" and .spec.vault.runtime_path == "kv/data/sit/xconnect-one" and .spec.vault.github_app_path == "kv/data/CICD/github-app/daily-snapshot" and .spec.overlay.transport == "vless-tls-xudp" and .spec.overlay.gateway_address == "10.77.0.1/24" and .spec.overlay.device_address == "10.77.0.2/32" and .spec.overlay.public_wireguard_ingress == false and (.spec.overlay.private_checks | index("ping")) != null and (.spec.overlay.private_checks | index("http")) != null and (.spec.overlay.private_checks | index("wireguard-handshake")) != null' "$DECL" >/dev/null || die 'Missing or incompatible lab topology'
     {
       echo "vault_address=$(jq -r .spec.vault.address "$DECL")"
       echo "vault_role=$(jq -r .spec.vault.role "$DECL")"
       echo "aws_role=$(jq -r .spec.aws.role_arn "$DECL")"
       echo "aws_region=$(jq -r .spec.aws.region "$DECL")"
+      echo "gateway_provider=$(jq -r .spec.gateway_provider "$DECL")"
+      echo "zero_accounts_api_url=$(jq -r .spec.zero.accounts_api_url "$DECL")"
+      echo "zero_portal_url=$(jq -r .spec.zero.portal_url "$DECL")"
+      echo "lab_controller_mode=$(jq -r .spec.zero.lab_controller.purpose "$DECL")"
     } >> "$GITHUB_OUTPUT"
     ;;
   build)
