@@ -46,6 +46,10 @@ if [[ "${url}" == "https://www.xworktech.com/" && "${ALIAS_STATUS:-403}" != "403
     headers+=$'\r\nLocation: https://console.xworktech.com/\r\n'
   fi
 fi
+if [[ "${url}" == "https://accounts-cloudflare-prod.onwalk.net/api/auth/oauth/login/github" ]]; then
+  status=307
+  headers=$'HTTP/2 307\r\nLocation: https://github.com/login/oauth/authorize?client_id=test\r\n\r\n'
+fi
 if [[ "${url}" == https://www.xworktech.com/login || "${url}" == https://xworktech.com/login || "${url}" == https://www.xworktech.com/ai-workspace* || "${url}" == https://xworktech.com/ai-workspace* ]]; then
   status=302
   path="/${url#*://*/}"
@@ -69,6 +73,7 @@ cat >"${test_dir}/routing.json" <<'EOF'
     "serverless": {
       "console_host": "console-serverless-prod.svc.plus",
       "console_aliases": [],
+      "accounts_aliases": ["accounts-cloudflare-prod.onwalk.net"],
       "frontend_router": {"website": {"hosts": ["xworktech.com", "www.xworktech.com"], "platform_origin": "https://svc.plus"}},
       "accounts_host": "accounts-serverless-prod.svc.plus",
       "billing_host": "billing-serverless-prod.svc.plus"
@@ -92,6 +97,7 @@ cat >"${test_dir}/runner-routing.json" <<'EOF'
     "serverless": {
       "console_host": "console-serverless-prod.svc.plus",
       "console_aliases": [],
+      "accounts_aliases": ["accounts-cloudflare-prod.onwalk.net"],
       "frontend_router": {"website": {"hosts": [], "platform_origin": "https://svc.plus"}},
       "accounts_host": "accounts-serverless-prod.svc.plus",
       "billing_host": "billing-serverless-prod.svc.plus"
