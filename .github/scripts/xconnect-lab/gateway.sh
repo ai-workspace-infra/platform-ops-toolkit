@@ -115,8 +115,8 @@ for attempt in {1..30}; do
   [[ "$attempt" == 30 ]] && { echo 'Gateway relay services did not become healthy'; exit 1; }
   sleep 2
 done
-status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --cacert /opt/xconnect-lab/ca.crt --resolve "$gateway:8443:127.0.0.1" "https://$gateway:8443/api/overlay/v1/join-tokens")
-[[ "$status" == 401 || "$status" == 403 ]] || { echo 'Experimental Zero API TLS health check failed'; exit 1; }
+status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --cacert /opt/xconnect-lab/ca.crt --resolve "$gateway:8443:127.0.0.1" "https://$gateway:8443/healthz")
+[[ "$status" == 200 ]] || { echo 'Experimental Zero API TLS health check failed'; exit 1; }
 
 # Issue one disposable enrollment from the lab API harness. This is a joint
 # debug fixture, never the formal accounts/portal configuration source.
