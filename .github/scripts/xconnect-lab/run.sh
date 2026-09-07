@@ -46,7 +46,7 @@ case "${1:?command}" in
       --pattern 'xconnect-zero-lab-linux-arm64' \
       --pattern 'SHA256SUMS' --dir "$release_dir" --clobber \
       || die "XConnect-One release $CLI_RELEASE_TAG download failed"
-    awk '$2 ~ /(^|\\/)xconnect-linux-arm64$/ || $2 ~ /(^|\\/)xconnect-zero-lab-linux-arm64$/ {sub(/^dist\\//, "", $2); print}' \
+    awk '$2 == "dist/xconnect-linux-arm64" || $2 == "dist/xconnect-zero-lab-linux-arm64" {sub(/^dist\\//, "", $2); print}' \
       "$release_dir/SHA256SUMS" > "$release_dir/SHA256SUMS.arm64"
     [[ -s "$release_dir/SHA256SUMS.arm64" ]] || die 'XConnect-One release is missing ARM64 checksums'
     (cd "$release_dir" && sha256sum -c SHA256SUMS.arm64) || die 'XConnect-One release checksum verification failed'
