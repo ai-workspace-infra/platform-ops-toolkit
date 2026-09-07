@@ -1,0 +1,202 @@
+name: XConnect Cloud Lab
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [dry-run, apply, cleanup]
+        default: dry-run
+      iac_ref:
+        description: Full reviewed iac_modules commit SHA
+        type: string
+        required: true
+      gitops_ref:
+        description: Full reviewed gitops commit SHA
+        type: string
+        required: true
+      cli_ref:
+        description: Full XConnect-One SHA including experimental Zero lab server
+        type: string
+        required: true
+      xray_ref:
+        description: Full reviewed XTLS/Xray-core commit SHA
+        type: string
+        required: true
+      cleanup_run:
+        description: Cleanup only - exact xcl-RUN_ID-ATTEMPT from a previous run
+        type: string
+        default: ''
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: xconnect-cloud-lab
+  cancel-in-progress: false
+jobs:
+  reap-expired:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-sit
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD/sit TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
+            kv/data/CICD/sit TF_STATE_BUCKET | TF_STATE_BUCKET ;
+            kv/data/CICD/sit TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+            kv/data/CICD/sit TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+            kv/data/CICD/sit TF_STATE_REGION | TF_STATE_REGION
+      - name: Dispatch scoped cleanup for expired leases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LAB_DIR: ${{ runner.temp }}/xconnect-lab-reaper
+        run: bash .github/scripts/xconnect-lab/lease.sh reap
+  lab:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      MODE: ${{ inputs.mode }}
+      IAC_REF: ${{ inputs.iac_ref }}
+      GITOPS_REF: ${{ inputs.gitops_ref }}
+      CLI_REF: ${{ inputs.cli_ref }}
+      XRAY_REF: ${{ inputs.xray_ref }}
+      CLEANUP_RUN: ${{ inputs.cleanup_run }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Validate immutable references
+        run: |
+          echo "LAB_DIR=$RUNNER_TEMP/xconnect-lab" >> "$GITHUB_ENV"
+          LAB_DIR="$RUNNER_TEMP/xconnect-lab" bash .github/scripts/xconnect-lab/run.sh validate
+      - name: Authenticate CI to Vault via GitHub JWT
+        id: bootstrap
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-sit
+          jwtGithubAudience: vault
+          exportEnv: false
+          secrets: |
+            kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
+      - name: Infra repository access
+        id: infra-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: Iv23liNwStpQIiXajhpb
+          private-key: ${{ steps.bootstrap.outputs.APP_PRIVATE_KEY }}
+          owner: ai-workspace-infra
+          repositories: iac_modules,gitops
+      - uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: ${{ inputs.iac_ref }}
+          token: ${{ steps.infra-token.outputs.token }}
+          path: iac_modules
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_ref }}
+          token: ${{ steps.infra-token.outputs.token }}
+          path: gitops
+          persist-credentials: false
+      - name: Resolve the SIT declaration
+        id: topology
+        run: bash .github/scripts/xconnect-lab/run.sh topology
+      - name: Private CLI repository access
+        if: inputs.mode != 'cleanup'
+        id: cli-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: Iv23liNwStpQIiXajhpb
+          private-key: ${{ steps.bootstrap.outputs.APP_PRIVATE_KEY }}
+          owner: ai-workspace-xstream
+          repositories: XConnect-One
+      - uses: actions/checkout@v7
+        if: inputs.mode != 'cleanup'
+        with:
+          repository: ai-workspace-xstream/XConnect-One
+          ref: ${{ inputs.cli_ref }}
+          token: ${{ steps.cli-token.outputs.token }}
+          path: cli
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        if: inputs.mode != 'cleanup'
+        with:
+          repository: XTLS/Xray-core
+          ref: ${{ inputs.xray_ref }}
+          path: xray
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        if: inputs.mode != 'cleanup'
+        with:
+          go-version-file: cli/go.mod
+          cache: false
+      - name: Compile real controller, standalone CLI and external Xray
+        if: inputs.mode != 'cleanup'
+        run: bash .github/scripts/xconnect-lab/run.sh build
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.5
+          terraform_wrapper: false
+      - name: Offline topology and Terraform preflight
+        run: bash .github/scripts/xconnect-lab/run.sh preflight
+      - name: Infrastructure credentials from SIT Vault role
+        if: inputs.mode != 'dry-run'
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ steps.topology.outputs.vault_address }}
+          method: jwt
+          role: ${{ steps.topology.outputs.vault_role }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD/sit VULTR_API_KEY | VULTR_API_KEY ;
+            kv/data/CICD/sit TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
+            kv/data/CICD/sit TF_STATE_BUCKET | TF_STATE_BUCKET ;
+            kv/data/CICD/sit TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+            kv/data/CICD/sit TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+            kv/data/CICD/sit TF_STATE_REGION | TF_STATE_REGION
+      - name: Runtime credentials from dedicated Vault path
+        if: inputs.mode == 'apply'
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ steps.topology.outputs.vault_address }}
+          method: jwt
+          role: ${{ steps.topology.outputs.vault_role }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/sit/xconnect-one ADMIN_TOKEN | LAB_ADMIN_TOKEN ;
+            kv/data/sit/xconnect-one SIGNING_KEY | LAB_SIGNING_KEY ;
+            kv/data/sit/xconnect-one VLESS_ID | LAB_VLESS_ID
+      - name: AWS short-lived OIDC credentials
+        if: inputs.mode != 'dry-run'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ steps.topology.outputs.aws_role }}
+          aws-region: ${{ steps.topology.outputs.aws_region }}
+          audience: sts.amazonaws.com
+      - name: Prepare isolated state and inspect account prerequisites
+        if: inputs.mode != 'dry-run'
+        run: bash .github/scripts/xconnect-lab/run.sh prepare
+      - name: Provision and verify the real overlay
+        if: inputs.mode == 'apply'
+        run: bash .github/scripts/xconnect-lab/run.sh apply
+      - name: Always destroy only this lab state
+        if: always() && inputs.mode != 'dry-run'
+        run: bash .github/scripts/xconnect-lab/run.sh cleanup
