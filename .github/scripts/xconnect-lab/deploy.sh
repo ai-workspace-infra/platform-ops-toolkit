@@ -148,7 +148,7 @@ relay_failure() {
   exit 1
 }
 [[ "$(cat /etc/xconnect-lab/node-role)" == relay ]] || relay_failure role
-wg show wg0 latest-handshakes | awk -v now="$(date +%s)" '$3 > 0 && now-$3 < 180 {ok=1} END {exit !ok}' || relay_failure wireguard-handshake
+wg show wg0 latest-handshakes | awk -v now="$(date +%s)" '$2 > 0 && now-$2 < 180 {ok=1} END {exit !ok}' || relay_failure wireguard-handshake
 ip route get 10.77.0.2 | grep -Fq 'dev wg0' || relay_failure peer-route
 RELAY_VERIFY
 
