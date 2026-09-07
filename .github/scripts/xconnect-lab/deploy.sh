@@ -66,7 +66,7 @@ ssh "${SSH[@]}" "$client_user@$client" 'sudo chmod 600 /var/lib/xconnect-one/joi
 # WireGuard/Xray services, TLS/API health and a recent peer handshake. Use the
 # private transport address for this on-node check; the public address is only
 # the runner's SSH target.
-ssh "${SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$gateway_transport" "$run_id" <<'GATEWAY_VERIFY'
+ssh "${SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$gateway_transport" "$run_id" "$network_id" <<'GATEWAY_VERIFY'
 set -euo pipefail
 gateway_failure() {
   echo "Gateway verification failed: $1"
@@ -86,7 +86,10 @@ ss -ltn | grep -Eq ':443[[:space:]]' || gateway_failure xray-listener
 ss -ltn | grep -Eq ':8443[[:space:]]' || gateway_failure zero-listener
 status=$(curl --silent --show-error --noproxy '*' --connect-timeout 3 --max-time 10 --output /dev/null --write-out '%{http_code}' --cacert /opt/xconnect-lab/ca.crt --resolve "$1:8443:127.0.0.1" "https://$1:8443/healthz") || gateway_failure zero-health-transport
 [[ "$status" == 200 ]] || gateway_failure "zero-health-http-$status"
-status=$(curl --silent --show-error --noproxy '*' --connect-timeout 3 --max-time 10 --output /dev/null --write-out '%{http_code}' --cacert /opt/xconnect-lab/ca.crt --resolve "$1:8443:127.0.0.1" "https://$1:8443/api/overlay/v1/join-tokens") || gateway_failure zero-api-transport
+status=$(curl --silent --show-error --noproxy '*' --connect-timeout 3 --max-time 10 --output /dev/null --write-out '%{http_code}' --cacert /opt/xconnect-lab/ca.crt --resolve "$1:8443:127.0.0.1" \
+  -H 'Content-Type: application/json' \
+  --data-binary "{\"network_id\":\"$3\",\"device_id\":\"dev_verify\",\"platform\":\"linux\",\"expires_in_seconds\":60}" \
+  "https://$1:8443/api/overlay/v1/join-tokens") || gateway_failure zero-api-transport
 [[ "$status" == 401 || "$status" == 403 ]] || gateway_failure "zero-api-http-$status"
 GATEWAY_VERIFY
 
