@@ -55,6 +55,15 @@ alias_probe_is_acceptable() {
   }
 }
 
+github_oauth_probe_is_acceptable() {
+  local status="$1" headers="$2"
+  local location
+
+  [[ "${status}" =~ ^(302|307|308)$ ]] || return 1
+  location="$(awk 'tolower($1) == "location:" {sub(/\r$/, "", $2); print $2}' "${headers}" | tail -1)"
+  [[ "${location}" == https://github.com/login/oauth/authorize* ]]
+}
+
 environment="$(jq -er '.metadata.environment' "${CONFIG_FILE}")"
 console_host="$(jq -er '.spec.serverless.console_host' "${CONFIG_FILE}")"
 accounts_host="$(jq -er '.spec.serverless.accounts_host' "${CONFIG_FILE}")"
@@ -99,13 +108,9 @@ for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
     [[ -n "${accounts_alias}" ]] || continue
     alias_dns="$(dig +short @1.1.1.1 "${accounts_alias}" | sed -n '1p')"
     alias_headers="${probe_root}/accounts-alias-${accounts_alias//[^A-Za-z0-9]/_}.headers"
-    # Accounts exposes liveness at /healthz. The /api/* surface is owned by
-    # the Edge Gateway and is validated separately through the CORS preflight
-    # below; probing /api/v1/health here incorrectly rejects a healthy alias
-    # with the Accounts service's normal 404 response.
-    alias_status="$(curl --silent --show-error --dump-header "${alias_headers}" --output /dev/null --write-out '%{http_code}' --max-time 20 "https://${accounts_alias}/healthz" || true)"
-    if [[ -z "${alias_dns}" ]] || ! alias_probe_is_acceptable "${alias_status}" "${alias_headers}"; then
-      echo "Accounts alias not ready: https://${accounts_alias}/healthz HTTP ${alias_status}" >&2
+    alias_status="$(curl --silent --show-error --dump-header "${alias_headers}" --output /dev/null --write-out '%{http_code}' --max-time 20 "https://${accounts_alias}/api/auth/oauth/login/github" || true)"
+    if [[ -z "${alias_dns}" ]] || ! github_oauth_probe_is_acceptable "${alias_status}" "${alias_headers}"; then
+      echo "GitHub OAuth alias not ready: https://${accounts_alias}/api/auth/oauth/login/github HTTP ${alias_status}" >&2
       aliases_ready=false
     fi
   done < <(jq -r '.spec.serverless.accounts_aliases[]? // empty' "${CONFIG_FILE}")
