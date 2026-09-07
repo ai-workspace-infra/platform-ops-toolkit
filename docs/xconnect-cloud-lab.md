@@ -46,6 +46,12 @@ CI uses GitHub OIDC JWT with audience `vault`, Vault address
 the existing `hashicorp/vault-action@v4` pattern. There are no new static GitHub
 cloud-credential secrets. Missing paths/fields are fatal.
 
+The Vault administrator must re-run
+`scripts/create_vault_service_repo_roles.sh` after enabling this workflow so the
+role's `job_workflow_ref` allowlist includes
+`platform-ops-toolkit/.github/workflows/xconnect-cloud-lab.yml`. The workflow
+does not broaden or self-modify Vault role bindings.
+
 | Vault KV v2 API path | Exact fields |
 |---|---|
 | `kv/data/CICD/github-app/daily-snapshot` | `app_private_key` |
