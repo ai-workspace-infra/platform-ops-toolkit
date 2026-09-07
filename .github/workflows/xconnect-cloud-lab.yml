@@ -17,7 +17,11 @@ on:
         type: string
         required: true
       cli_release_tag:
-        description: XConnect-One GitHub Release tag containing Linux CLI and lab controller
+        description: XConnect-One GitHub Release tag containing Linux CLI
+        type: string
+        required: true
+      gateway_release_tag:
+        description: XConnect-Gateway GitHub Release tag containing the Linux relay runtime
         type: string
         required: true
       xray_release_tag:
@@ -75,6 +79,7 @@ jobs:
       IAC_REF: ${{ inputs.iac_ref }}
       GITOPS_REF: ${{ inputs.gitops_ref }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag }}
+      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag }}
       CLEANUP_RUN: ${{ inputs.cleanup_run }}
     steps:
@@ -129,7 +134,7 @@ jobs:
           client-id: Iv23liNwStpQIiXajhpb
           private-key: ${{ steps.bootstrap.outputs.APP_PRIVATE_KEY }}
           owner: ai-workspace-xstream
-          repositories: XConnect-One
+          repositories: XConnect-One,XConnect-Gateway
       - name: Download and verify project release artifacts
         if: inputs.mode != 'cleanup'
         env:
@@ -165,9 +170,9 @@ jobs:
           role: ${{ steps.topology.outputs.vault_role }}
           jwtGithubAudience: vault
           secrets: |
-            kv/data/uat/xconnect-one ADMIN_TOKEN | LAB_ADMIN_TOKEN ;
-            kv/data/uat/xconnect-one SIGNING_KEY | LAB_SIGNING_KEY ;
-            kv/data/uat/xconnect-one VLESS_ID | LAB_VLESS_ID
+            kv/data/uat/xconnect-one VLESS_ID | LAB_VLESS_ID ;
+            kv/data/uat/xconnect-one ZERO_SERVICE_TOKEN | ZERO_SERVICE_TOKEN ;
+            kv/data/uat/xconnect-one ZERO_OWNER_EMAIL | ZERO_OWNER_EMAIL
       - name: AWS short-lived OIDC credentials
         if: inputs.mode != 'dry-run'
         uses: aws-actions/configure-aws-credentials@v4

@@ -13,6 +13,7 @@ case "${1:?command}" in
       [[ "${!name:-}" =~ ^[0-9a-f]{40}$ ]] || die "$name requires a full immutable commit SHA"
     done
     [[ "${CLI_RELEASE_TAG:-}" =~ ^v[0-9A-Za-z._-]+$ ]] || die 'CLI_RELEASE_TAG requires a version tag'
+    [[ "${GATEWAY_RELEASE_TAG:-}" =~ ^v[0-9A-Za-z._-]+$ ]] || die 'GATEWAY_RELEASE_TAG requires a version tag'
     [[ "${XRAY_RELEASE_TAG:-}" =~ ^v[0-9A-Za-z._-]+$ ]] || die 'XRAY_RELEASE_TAG requires a version tag'
     [[ "$MODE" =~ ^(dry-run|apply|cleanup)$ ]] || die 'Invalid mode'
     if [[ "$MODE" == cleanup ]]; then
@@ -43,15 +44,26 @@ case "${1:?command}" in
     GH_TOKEN="$CLI_RELEASE_TOKEN" gh release download "$CLI_RELEASE_TAG" \
       --repo ai-workspace-xstream/XConnect-One \
       --pattern 'xconnect-linux-arm64' \
-      --pattern 'xconnect-zero-lab-linux-arm64' \
       --pattern 'SHA256SUMS' --dir "$release_dir" --clobber \
       || die "XConnect-One release $CLI_RELEASE_TAG download failed"
-    awk '$2 == "dist/xconnect-linux-arm64" || $2 == "dist/xconnect-zero-lab-linux-arm64" {sub("dist/", "", $2); print}' \
+    awk '$2 == "dist/xconnect-linux-arm64" {sub("dist/", "", $2); print}' \
       "$release_dir/SHA256SUMS" > "$release_dir/SHA256SUMS.arm64"
     [[ -s "$release_dir/SHA256SUMS.arm64" ]] || die 'XConnect-One release is missing ARM64 checksums'
     (cd "$release_dir" && sha256sum -c SHA256SUMS.arm64) || die 'XConnect-One release checksum verification failed'
     install -m 755 "$release_dir/xconnect-linux-arm64" "$LAB_DIR/bin/xconnect"
-    install -m 755 "$release_dir/xconnect-zero-lab-linux-arm64" "$LAB_DIR/bin/xconnect-zero-lab"
+
+    gateway_release_dir="$release_dir/gateway"
+    mkdir -p "$gateway_release_dir"
+    GH_TOKEN="$CLI_RELEASE_TOKEN" gh release download "$GATEWAY_RELEASE_TAG" \
+      --repo ai-workspace-xstream/XConnect-Gateway \
+      --pattern 'xconnect-gateway-linux-arm64' \
+      --pattern 'SHA256SUMS' --dir "$gateway_release_dir" --clobber \
+      || die "XConnect-Gateway release $GATEWAY_RELEASE_TAG download failed"
+    awk '$2 == "xconnect-gateway-linux-arm64" || $2 == "dist/xconnect-gateway-linux-arm64" {sub("dist/", "", $2); print}' \
+      "$gateway_release_dir/SHA256SUMS" > "$gateway_release_dir/SHA256SUMS.arm64"
+    [[ -s "$gateway_release_dir/SHA256SUMS.arm64" ]] || die 'XConnect-Gateway release is missing its ARM64 checksum'
+    (cd "$gateway_release_dir" && sha256sum -c SHA256SUMS.arm64) || die 'XConnect-Gateway release checksum verification failed'
+    install -m 755 "$gateway_release_dir/xconnect-gateway-linux-arm64" "$LAB_DIR/bin/xconnect-gateway"
 
     GH_TOKEN="${GITHUB_TOKEN:-}" gh release download "$XRAY_RELEASE_TAG" \
       --repo XTLS/Xray-core \
@@ -80,7 +92,7 @@ case "${1:?command}" in
     tf init -reconfigure -input=false -backend-config="$LAB_DIR/backend.json"
     touch "$LAB_DIR/backend-ready"
     if [[ "$MODE" == apply ]]; then
-      for name in LAB_ADMIN_TOKEN LAB_SIGNING_KEY LAB_VLESS_ID; do [[ -n "${!name:-}" ]] || die "Missing Vault runtime field $name"; done
+      for name in LAB_VLESS_ID ZERO_SERVICE_TOKEN ZERO_OWNER_EMAIL; do [[ -n "${!name:-}" ]] || die "Missing Vault runtime field $name"; done
       ssh-keygen -q -t ed25519 -N '' -f "$LAB_DIR/id_ed25519"
       python3 "$ROOT/.github/scripts/xconnect-lab/prepare.py" resources "$LAB_DIR" "$DECL"
       cp "$LAB_DIR/variables.json" "$TF/terraform.auto.tfvars.json"
