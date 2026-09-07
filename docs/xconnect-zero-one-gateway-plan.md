@@ -518,3 +518,60 @@ codex/xconnect-batch-08-signed-config-v2
 4. 将历史分支保留为低优先级维护事项，不直接删除或重写。
 
 该事项已记录在 [xconnect-app issue #75](https://github.com/ai-workspace-xstream/xconnect-app/issues/75)。
+
+## 19. 客户端平台扩展路线
+
+### Windows controlled-client CLI
+
+Windows 继续作为独立 XConnect One controlled-client 产品交付：
+
+- One Core 维护 Zero API、设备身份、签名配置、策略、session 和生命周期状态机。
+- Windows CLI/服务只负责 Windows 运行时适配、WireGuard/Xray 进程托管、路由和诊断。
+- 不要求安装或启动 `xconnect-app`。
+- 通过独立安装包、版本和升级通道发布。
+- 需要单独验证 Windows 服务权限、重启恢复、系统代理/路由、杀毒软件兼容性和卸载回滚。
+
+### macOS controlled-client CLI
+
+macOS 同样保持独立 controlled-client 产品，但运行时要把 macOS 权限和网络扩展作为独立适配层：
+
+- One Core 与 CLI 生命周期不依赖 App。
+- macOS runtime 负责 WireGuard/Xray、路由、权限申请、Keychain/安全存储和诊断。
+- 需要评估 Network Extension、Packet Tunnel、后台启动和签名/公证要求。
+- 不能因为 `xconnect-app` 有 macOS 宿主，就把安装 App 设为 One CLI 的隐含前置条件。
+
+### Android / iOS 特殊策略
+
+移动端不直接照搬桌面“独立 CLI + 长驻服务”模型。移动操作系统的 VPN、后台生命周期、权限、应用签名和应用商店约束更强，首选方案是：
+
+```text
+One Core / protocol
+        ↓
+XConnect One mobile adapter
+        ↓
+XConnect App plugin + OS VPN host
+        ├── Android VpnService / platform runtime
+        └── iOS NetworkExtension / Packet Tunnel runtime
+```
+
+Android：
+
+- One 的身份、Zero API、配置验签和生命周期逻辑仍由可复用 One Core 提供。
+- XConnect App 的 One 插件承载 UI、授权流程和 Android VPN service 适配。
+- 是否支持独立 Android One 容器，需要单独评估安装、后台存活、通知、升级和商店合规；不作为首期前置条件。
+
+iOS：
+
+- 优先由 XConnect App + One 插件承载，因为 Packet Tunnel/Network Extension、entitlement、签名、公证和 App 生命周期通常需要宿主 App 配合。
+- One Core 仍保持独立，不把 iOS UI、Network Extension 或 App 数据库写入核心业务层。
+- 独立 iOS One 产品只有在 entitlement、后台 VPN 生命周期、密钥存储、审核和升级路径验证后再决定。
+
+移动端评估必须回答：
+
+1. One Core 的哪些能力可以跨平台复用，哪些必须由平台 adapter 实现。
+2. Android/iOS 是否可以安全独立发布，还是只能以 App 插件发布。
+3. 设备私钥、session、signed-config 和撤销状态如何进入系统安全存储。
+4. 应用被杀死、系统重启、网络切换、配置过期和撤销时如何恢复。
+5. 插件版本与 One Core、Zero API、WireGuard/Xray runtime 的兼容矩阵如何维护。
+
+结论：Windows 和 macOS 先按独立 controlled-client CLI 推进；Android 和 iOS 先按“独立 One Core + XConnect App 插件扩展”推进，是否提供完全独立移动产品由专项评估决定。
