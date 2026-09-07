@@ -14,6 +14,13 @@ install -m 644 ca.crt /usr/local/share/ca-certificates/xconnect-lab.crt
 update-ca-certificates >/dev/null 2>&1
 install -d -m 700 /etc/wireguard /var/lib/xconnect-zero-lab /usr/local/libexec
 
+# Follow the shared wireguard-gateway role baseline: this node is a relay and
+# must be able to forward traffic between the overlay and private services.
+cat > /etc/sysctl.d/99-xconnect-lab-gateway.conf <<'SYSCTL'
+net.ipv4.ip_forward = 1
+SYSCTL
+sysctl -q -p /etc/sysctl.d/99-xconnect-lab-gateway.conf
+
 # Gateway is a relay/service Linux node: WireGuard and Xray are independent
 # external processes, while the temporary API harness is debug-only.
 printf '%s\n' relay > /etc/xconnect-lab/node-role
@@ -32,6 +39,7 @@ Address = 10.77.0.1/24
 ListenPort = 51820
 PrivateKey = $(< /etc/wireguard/lab.key)
 SaveConfig = false
+MTU = 1420
 WG
 chmod 600 /etc/wireguard/wg0.conf
 ip link delete wg0 2>/dev/null || true
@@ -107,8 +115,31 @@ gateway_pub=$(<gateway.pub)
 sed -i "s|PLACEHOLDER_KEY|$gateway_pub|; s|PLACEHOLDER|$gateway|g; s|NETWORK_ID|$network_id|g" /etc/systemd/system/xconnect-lab-zero.service
 /usr/local/bin/xray run -test -config /opt/xconnect-lab/xray.json >/dev/null 2>&1
 systemctl daemon-reload
-systemctl enable --now wg-quick@wg0
-systemctl enable --now xconnect-lab-xray xconnect-lab-http xconnect-lab-zero
+
+show_gateway_diagnostics() {
+  echo 'Gateway service state:'
+  systemctl is-active wg-quick@wg0 xconnect-lab-xray xconnect-lab-http xconnect-lab-zero || true
+  echo 'Listening TCP/UDP sockets:'
+  ss -ltnup || true
+  for unit in wg-quick@wg0 xconnect-lab-xray xconnect-lab-http xconnect-lab-zero; do
+    echo "Status: $unit"
+    systemctl --no-pager --full status "$unit" | tail -n 24 || true
+    echo "Recent log: $unit"
+    journalctl -u "$unit" -n 24 --no-pager || true
+  done
+}
+
+systemctl enable wg-quick@wg0 xconnect-lab-xray xconnect-lab-http xconnect-lab-zero
+if ! systemctl start wg-quick@wg0; then
+  echo 'WireGuard service failed to start'
+  show_gateway_diagnostics
+  exit 1
+fi
+if ! systemctl start xconnect-lab-xray xconnect-lab-http xconnect-lab-zero; then
+  echo 'Gateway relay service failed to start'
+  show_gateway_diagnostics
+  exit 1
+fi
 
 for attempt in {1..30}; do
   systemctl is-active --quiet wg-quick@wg0 &&
@@ -130,13 +161,7 @@ for attempt in {1..30}; do
   fi
   if [[ "$attempt" == 30 ]]; then
     echo "Experimental Zero API TLS health check failed with HTTP status $health_status"
-    systemctl is-active wg-quick@wg0 xconnect-lab-xray xconnect-lab-http xconnect-lab-zero || true
-    echo 'Listening TCP sockets:'
-    ss -ltnp || true
-    echo 'Zero API service status:'
-    systemctl --no-pager --full status xconnect-lab-zero.service | tail -n 30 || true
-    echo 'Recent Zero API service log:'
-    journalctl -u xconnect-lab-zero.service -n 30 --no-pager || true
+    show_gateway_diagnostics
     exit 1
   fi
   sleep 2
