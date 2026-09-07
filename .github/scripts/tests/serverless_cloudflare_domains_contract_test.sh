@@ -27,8 +27,8 @@ cat >"${test_dir}/routing.json" <<'EOF'
       "routing": {
         "dns": {
           "canonical_records": {
-            "console-uat.onwalk.net": "console-serverless-uat.onwalk.net",
-            "accounts-uat.onwalk.net": "accounts-serverless-uat.onwalk.net"
+      "console-uat.onwalk.net": "console-serverless-uat.onwalk.net",
+      "accounts-uat.onwalk.net": "accounts-serverless-uat.onwalk.net"
           }
         }
       }
@@ -51,6 +51,7 @@ cat >"${test_dir}/routing.json" <<'EOF'
       "console_host": "console-serverless-uat.onwalk.net",
       "console_aliases": ["console-serverless-uat.example.com"],
       "accounts_host": "accounts-serverless-uat.onwalk.net",
+      "accounts_aliases": ["accounts-cloudflare-uat.onwalk.net"],
       "billing_host": "billing-serverless-uat.onwalk.net",
       "billing_origin_host": "billing-origin-serverless-uat.onwalk.net",
       "cloud_run": {
@@ -147,14 +148,16 @@ if grep -Fq $'POST\thttps://cloudflare.invalid/client/v4/accounts/account-1/page
 fi
 worker_puts="$(grep -Fc $'PUT\thttps://cloudflare.invalid/client/v4/accounts/account-1/workers/domains' "${test_dir}/curl.log")"
 # Canonical aliases are now Worker custom domains too; alongside the console,
-# website, accounts, and billing hosts this produces seven bindings.
-test "${worker_puts}" -eq 7
+# console alias, website, accounts, accounts alias, and billing hosts this
+# produces eight bindings.
+test "${worker_puts}" -eq 8
 worker_bodies="$(cut -f3 "${test_dir}/curl.log" | jq -s '[.[] | select(type == "object" and .hostname != null)]')"
 if ! jq -e '
   ((map(select(.hostname == "billing-serverless-uat.onwalk.net" and .service == "edge-gateway-core-uat")) | length) == 1)
   and ((map(select(.hostname == "console-uat.onwalk.net" and .service == "frontend-router-uat")) | length) == 1)
   and ((map(select(.hostname == "console-serverless-uat.example.com" and .service == "frontend-router-uat" and .zone_name == "example.com")) | length) == 1)
   and ((map(select(.hostname == "accounts-uat.onwalk.net")) | length) == 0)
+  and ((map(select(.hostname == "accounts-cloudflare-uat.onwalk.net" and .service == "edge-gateway-core-uat")) | length) == 1)
 ' <<<"${worker_bodies}" >/dev/null; then
   echo "Unexpected Worker custom-domain bindings: ${worker_bodies}" >&2
   exit 1

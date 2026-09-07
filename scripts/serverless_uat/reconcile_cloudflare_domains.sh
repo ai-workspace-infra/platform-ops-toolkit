@@ -433,6 +433,7 @@ done < <(jq -r '(.spec.serverless.console_aliases // []) + (.spec.serverless.fro
 reconcile_worker_domain "${accounts_host}" "${core_worker}"
 while IFS= read -r accounts_alias; do
   [[ -n "${accounts_alias}" ]] || continue
+  remove_worker_domain_dns_records "${accounts_alias}"
   reconcile_worker_domain "${accounts_alias}" "${core_worker}"
 done < <(jq -r '.spec.serverless.accounts_aliases[]? // empty' "${CONFIG_FILE}")
 remove_declared_cname "${billing_host}" "${billing_upstream#https://}"
