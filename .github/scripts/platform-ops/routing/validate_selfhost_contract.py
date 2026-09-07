@@ -75,7 +75,14 @@ def main() -> int:
         fail("public_endpoints must define exactly console, accounts, billing, postgresql, and agent-proxy")
     for service, access in expected_access.items():
         endpoint = public_endpoints[service]
-        expected_host = f"{service}-selfhost-{expected_environment}.{expected_environment_zone}"
+        if service == "agent-proxy" and expected_environment == "prod":
+            # Production Agent Proxy is a regional pool.  GitOps exposes the
+            # continuously running Tokyo node as the primary selfhost
+            # endpoint; the US Spot node is registered separately by the
+            # per-host deployment matrix.
+            expected_host = f"agent-proxy-selfhost-{expected_environment}-jp.{expected_environment_zone}"
+        else:
+            expected_host = f"{service}-selfhost-{expected_environment}.{expected_environment_zone}"
         if endpoint.get("host") != expected_host:
             fail(f"public_endpoints.{service}.host must be {expected_host}")
         if endpoint.get("access") != access:

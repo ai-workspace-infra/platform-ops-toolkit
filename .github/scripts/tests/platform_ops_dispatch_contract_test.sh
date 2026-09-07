@@ -93,6 +93,41 @@ fi
 grep -Fq "async single-writer migration topology" "${contract_output}"
 rm -f "${contract_output}"
 
+prod_contract_fixture="$(mktemp)"
+trap 'rm -f "${prod_contract_fixture}"' EXIT
+python3 - "${contract_fixture}" "${prod_contract_fixture}" <<'PY'
+import json
+import sys
+
+source, target = sys.argv[1:]
+document = json.load(open(source, encoding="utf-8"))
+document["metadata"]["environment"] = "prod"
+document["spec"]["public_endpoints"]["agent-proxy"]["host"] = "agent-proxy-selfhost-prod-jp.svc.plus"
+for endpoint in document["spec"]["public_endpoints"].values():
+    endpoint["host"] = endpoint["host"].replace("-uat.onwalk.net", "-prod.svc.plus")
+document["spec"]["runtime"]["routing"]["dns"]["canonical_records"] = {
+    "console.svc.plus": "console-selfhost-prod.svc.plus",
+    "accounts.svc.plus": "accounts-selfhost-prod.svc.plus",
+}
+document["spec"]["domains"] = {
+    "console.svc.plus": {"selfhost": "console-selfhost-prod.svc.plus"},
+    "accounts.svc.plus": {"selfhost": "accounts-selfhost-prod.svc.plus"},
+}
+json.dump(document, open(target, "w", encoding="utf-8"))
+PY
+prod_contract_output="$(mktemp)"
+if ! GITOPS_ROUTING_CONFIG="${prod_contract_fixture}" \
+  EXPECTED_ENV=prod \
+  EXPECTED_TARGET_DOMAIN_BASE=svc.plus \
+  python3 "${repo_root}/.github/scripts/platform-ops/routing/validate_selfhost_contract.py" >"${prod_contract_output}"; then
+  echo "Production GitOps topology with a regional Agent Proxy endpoint must be accepted" >&2
+  cat "${prod_contract_output}" >&2
+  rm -f "${prod_contract_output}"
+  exit 1
+fi
+grep -Fq "async single-writer migration topology" "${prod_contract_output}"
+rm -f "${prod_contract_output}"
+
 uat_dns_output="$(run_route env INPUT_OPERATION=deploy INPUT_DNS_MODE=uat-records)"
 assert_contains "${uat_dns_output}" "dns_mode=uat-records"
 
