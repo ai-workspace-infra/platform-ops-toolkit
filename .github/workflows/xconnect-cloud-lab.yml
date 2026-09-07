@@ -16,12 +16,12 @@ on:
         description: Full reviewed gitops commit SHA
         type: string
         required: true
-      cli_ref:
-        description: Full XConnect-One SHA including experimental Zero lab server
+      cli_release_tag:
+        description: XConnect-One GitHub Release tag containing Linux CLI and lab controller
         type: string
         required: true
-      xray_ref:
-        description: Full reviewed XTLS/Xray-core commit SHA
+      xray_release_tag:
+        description: XTLS/Xray-core GitHub Release tag containing the Linux ARM64 binary
         type: string
         required: true
       cleanup_run:
@@ -74,8 +74,8 @@ jobs:
       MODE: ${{ inputs.mode }}
       IAC_REF: ${{ inputs.iac_ref }}
       GITOPS_REF: ${{ inputs.gitops_ref }}
-      CLI_REF: ${{ inputs.cli_ref }}
-      XRAY_REF: ${{ inputs.xray_ref }}
+      CLI_RELEASE_TAG: ${{ inputs.cli_release_tag }}
+      XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag }}
       CLEANUP_RUN: ${{ inputs.cleanup_run }}
     steps:
       - uses: actions/checkout@v7
@@ -121,7 +121,7 @@ jobs:
       - name: Resolve the UAT declaration
         id: topology
         run: bash .github/scripts/xconnect-lab/run.sh topology
-      - name: Private CLI repository access
+      - name: Private CLI release access
         if: inputs.mode != 'cleanup'
         id: cli-token
         uses: actions/create-github-app-token@v3
@@ -130,29 +130,12 @@ jobs:
           private-key: ${{ steps.bootstrap.outputs.APP_PRIVATE_KEY }}
           owner: ai-workspace-xstream
           repositories: XConnect-One
-      - uses: actions/checkout@v7
+      - name: Download and verify project release artifacts
         if: inputs.mode != 'cleanup'
-        with:
-          repository: ai-workspace-xstream/XConnect-One
-          ref: ${{ inputs.cli_ref }}
-          token: ${{ steps.cli-token.outputs.token }}
-          path: cli
-          persist-credentials: false
-      - uses: actions/checkout@v7
-        if: inputs.mode != 'cleanup'
-        with:
-          repository: XTLS/Xray-core
-          ref: ${{ inputs.xray_ref }}
-          path: xray
-          persist-credentials: false
-      - uses: actions/setup-go@v6
-        if: inputs.mode != 'cleanup'
-        with:
-          go-version-file: cli/go.mod
-          cache: false
-      - name: Compile real controller, standalone CLI and external Xray
-        if: inputs.mode != 'cleanup'
-        run: bash .github/scripts/xconnect-lab/run.sh build
+        env:
+          CLI_RELEASE_TOKEN: ${{ steps.cli-token.outputs.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/xconnect-lab/run.sh download
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.5

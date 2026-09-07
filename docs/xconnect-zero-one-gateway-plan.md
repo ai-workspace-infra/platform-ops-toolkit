@@ -278,10 +278,10 @@ VLESS_ID
 
 `platform-ops-toolkit/.github/workflows/xconnect-cloud-lab.yml` 的阶段：
 
-1. 校验四个仓库的完整 immutable SHA。
+1. 校验 IaC/GitOps 两个完整 immutable SHA，以及 XConnect-One/Xray 两个 Release tag。
 2. 用 GitHub OIDC JWT 登录 Vault。
-3. 通过 GitHub App 只读拉取 IaC、GitOps、XConnect-One 和 Xray 源码。
-4. 编译真实 XConnect-One CLI、实验 lab controller 和外部 Xray。
+3. 通过 GitHub App 只读拉取 IaC、GitOps，并读取私有 XConnect-One Release。
+4. 下载并校验 XConnect-One Release 与 Xray 官方 Release 制品；项目构建只发生在项目仓库自己的 CI。
 5. 解析 GitOps UAT 静态拓扑。
 6. 获取 AWS 短期 OIDC credentials。
 7. IaC 模块复用 UAT 默认 VPC/子网，只增加 t4g.small Spot Gateway、t4g.micro Spot One 及其临时安全组。
