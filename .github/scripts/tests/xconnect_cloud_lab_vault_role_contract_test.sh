@@ -24,8 +24,9 @@ grep -Fq "XCONNECT_VAULT_ROLE: ${role}" "${workflow}"
 grep -Fq ".spec.vault.role == \"${role}\"" "${runner}"
 
 grep -Fq 'kv/data/CICD/uat TF_STATE_ENDPOINT' "${workflow}"
-grep -Fq 'kv/data/uat/xconnect-one ADMIN_TOKEN' "${workflow}"
+grep -Fq 'kv/data/uat/xconnect-one ZERO_SERVICE_TOKEN' "${workflow}"
+grep -Fq 'kv/data/uat/xconnect-one ZERO_OWNER_EMAIL' "${workflow}"
 grep -Fq 'gitops/topology/uat/xconnect-lab.json' "${runner}"
-grep -Fq '"https://$gateway:8443/healthz"' "${gateway}"
+grep -Fq 'xconnect-gateway init' "${gateway}"
 
 echo "XConnect UAT cloud-lab Vault role contract is pinned to the workflow on main."
