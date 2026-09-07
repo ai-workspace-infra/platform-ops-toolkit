@@ -15,6 +15,8 @@ done
 
 grep -Fq 'xconnect-gateway-linux-arm64' "${runner}"
 grep -Fq '/api/internal/overlay/networks/bootstrap' "${deploy}"
+grep -Fq 'gateway_address=$(jq -er .spec.overlay.gateway_address "$DECL")' "${deploy}"
+grep -Fq '.spec.overlay.gateway_address == "10.77.0.1/32"' "${runner}"
 grep -Fq 'xconnect-gateway join' "${deploy}"
 grep -Fq 'xconnect join' "${deploy}"
 grep -Fq 'wireguard-handshake' "${repo_root}/gitops/topology/uat/xconnect-lab.json" 2>/dev/null || true
