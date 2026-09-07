@@ -54,22 +54,29 @@ jq -n --arg formal "$formal_zero" --arg portal "$formal_portal" \
   > "$LAB_DIR/client-runtime-contract.json"
 
 ssh "${SSH[@]}" "$gateway_user@$gateway" 'sudo install -d -m 700 /opt/xconnect-lab'
-scp "${SSH[@]}" "$LAB_DIR/bin/xconnect-zero-lab" "$LAB_DIR/bin/xray" "$LAB_DIR/tls/server.key" "$LAB_DIR/tls/server.crt" "$LAB_DIR/tls/ca.crt" "$LAB_DIR/admin-token" "$LAB_DIR/signing-key" "$LAB_DIR/vless-id" "$LAB_DIR/runtime-contract.json" "$ROOT/.github/scripts/xconnect-lab/gateway.sh" "$gateway_user@$gateway:/tmp/" >/dev/null
-ssh "${SSH[@]}" "$gateway_user@$gateway" "sudo install -m 755 /tmp/xconnect-zero-lab /tmp/xray /tmp/gateway.sh /opt/xconnect-lab; sudo install -m 600 /tmp/server.key /tmp/admin-token /tmp/signing-key /tmp/vless-id /opt/xconnect-lab; sudo install -m 644 /tmp/server.crt /tmp/ca.crt /tmp/runtime-contract.json /opt/xconnect-lab; sudo bash /opt/xconnect-lab/gateway.sh '$gateway_transport' '$run_id' '$formal_zero' '$formal_portal' '$network_id'"
+echo 'Stage: Gateway artifact transfer'
+scp "${SSH[@]}" "$LAB_DIR/bin/xconnect-zero-lab" "$LAB_DIR/bin/xray" "$LAB_DIR/tls/server.key" "$LAB_DIR/tls/server.crt" "$LAB_DIR/tls/ca.crt" "$LAB_DIR/admin-token" "$LAB_DIR/signing-key" "$LAB_DIR/vless-id" "$LAB_DIR/runtime-contract.json" "$ROOT/.github/scripts/xconnect-lab/gateway.sh" "$gateway_user@$gateway:/tmp/" >/dev/null || { echo 'Gateway artifact transfer failed'; exit 1; }
+echo 'Stage: Gateway bootstrap'
+ssh "${SSH[@]}" "$gateway_user@$gateway" "sudo install -m 755 /tmp/xconnect-zero-lab /tmp/xray /tmp/gateway.sh /opt/xconnect-lab; sudo install -m 600 /tmp/server.key /tmp/admin-token /tmp/signing-key /tmp/vless-id /opt/xconnect-lab; sudo install -m 644 /tmp/server.crt /tmp/ca.crt /tmp/runtime-contract.json /opt/xconnect-lab; sudo bash /opt/xconnect-lab/gateway.sh '$gateway_transport' '$run_id' '$formal_zero' '$formal_portal' '$network_id'" || { echo 'Gateway bootstrap failed'; exit 1; }
 
-scp "${SSH[@]}" "$LAB_DIR/bin/xconnect" "$LAB_DIR/bin/xray" "$LAB_DIR/tls/ca.crt" "$LAB_DIR/client-runtime-contract.json" "$client_user@$client:/tmp/" >/dev/null
-ssh "${SSH[@]}" "$client_user@$client" 'sudo install -m 755 /tmp/xconnect /tmp/xray /usr/local/bin/; sudo install -m 644 /tmp/ca.crt /usr/local/share/ca-certificates/xconnect-lab.crt; sudo install -m 644 /tmp/client-runtime-contract.json /etc/xconnect-lab-runtime.json; sudo update-ca-certificates >/dev/null 2>&1; sudo install -d -m 700 /var/lib/xconnect-one /etc/xconnect-lab; printf "%s\n" controlled-client | sudo tee /etc/xconnect-lab/node-role >/dev/null; test "$(sudo cat /etc/xconnect-lab/node-role)" = controlled-client'
+echo 'Stage: controlled-client artifact transfer'
+scp "${SSH[@]}" "$LAB_DIR/bin/xconnect" "$LAB_DIR/bin/xray" "$LAB_DIR/tls/ca.crt" "$LAB_DIR/client-runtime-contract.json" "$client_user@$client:/tmp/" >/dev/null || { echo 'Controlled-client artifact transfer failed'; exit 1; }
+echo 'Stage: controlled-client bootstrap'
+ssh "${SSH[@]}" "$client_user@$client" 'sudo install -m 755 /tmp/xconnect /tmp/xray /usr/local/bin/; sudo install -m 644 /tmp/ca.crt /usr/local/share/ca-certificates/xconnect-lab.crt; sudo install -m 644 /tmp/client-runtime-contract.json /etc/xconnect-lab-runtime.json; sudo update-ca-certificates >/dev/null 2>&1; sudo install -d -m 700 /var/lib/xconnect-one /etc/xconnect-lab; sudo sh -c '\''printf "%s\n" controlled-client > /etc/xconnect-lab/node-role'\''; test "$(sudo cat /etc/xconnect-lab/node-role)" = controlled-client' || { echo 'Controlled-client bootstrap failed'; exit 1; }
 
 # The join URI exercises the lab controller only as a disposable cloud-debug
 # endpoint; production enrollment uses the formal Zero accounts API.
-ssh "${SSH[@]}" "$gateway_user@$gateway" 'sudo cat /opt/xconnect-lab/join-uri' | ssh "${SSH[@]}" "$client_user@$client" 'sudo tee /var/lib/xconnect-one/join-uri >/dev/null'
+echo 'Stage: join URI transfer'
+ssh "${SSH[@]}" "$gateway_user@$gateway" 'sudo cat /opt/xconnect-lab/join-uri' | ssh "${SSH[@]}" "$client_user@$client" 'sudo tee /var/lib/xconnect-one/join-uri >/dev/null' || { echo 'Join URI transfer failed'; exit 1; }
+echo 'Stage: controlled-client join'
 ssh "${SSH[@]}" "$client_user@$client" 'sudo chmod 600 /var/lib/xconnect-one/join-uri; sudo sh -c '\''xconnect join --state-dir /var/lib/xconnect-one --device-id dev_lab --name lab-client "$(cat /var/lib/xconnect-one/join-uri)"'\''' > "$LAB_DIR/join.log" 2>&1 || { echo 'Real invite enrollment/runtime startup failed (protected log)'; exit 1; }
 
 # Verify the relay node independently, including its Linux role marker, external
 # WireGuard/Xray services, TLS/API health and a recent peer handshake. Use the
 # private transport address for this on-node check; the public address is only
 # the runner's SSH target.
-ssh "${SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$gateway_transport" "$run_id" "$network_id" <<'GATEWAY_VERIFY'
+echo 'Stage: Gateway verification'
+ssh "${SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$gateway_transport" "$run_id" "$network_id" <<'GATEWAY_VERIFY' || { echo 'Gateway verification SSH command failed'; exit 1; }
 set -euo pipefail
 gateway_failure() {
   echo "Gateway verification failed: $1"
@@ -98,7 +105,8 @@ GATEWAY_VERIFY
 
 # A local readiness ACK is insufficient. Assert the true client->relay path,
 # client-side and relay-side WireGuard handshakes, external Xray and sync.
-ssh "${SSH[@]}" "$client_user@$client" sudo bash -s -- "$run_id" <<'CLIENT_VERIFY'
+echo 'Stage: controlled-client verification'
+ssh "${SSH[@]}" "$client_user@$client" sudo bash -s -- "$run_id" <<'CLIENT_VERIFY' || { echo 'Controlled-client verification SSH command failed'; exit 1; }
 set -euo pipefail
 client_failure() {
   echo "Client verification failed: $1"
@@ -130,7 +138,8 @@ if curl --fail --max-time 3 --noproxy '*' -s http://10.77.0.1:8080/ >/dev/null 2
 fi
 CLIENT_VERIFY
 
-ssh "${SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$run_id" <<'RELAY_VERIFY'
+echo 'Stage: relay verification'
+ssh "${SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$run_id" <<'RELAY_VERIFY' || { echo 'Relay verification SSH command failed'; exit 1; }
 set -euo pipefail
 test "$(cat /etc/xconnect-lab/node-role)" = relay
 wg show wg0 latest-handshakes | awk -v now="$(date +%s)" '$3 > 0 && now-$3 < 180 {ok=1} END {exit !ok}'
