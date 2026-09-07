@@ -7,6 +7,11 @@ secrets, checks account/catalog prerequisites, provisions a dedicated AWS Spot
 client and Vultr Zero/Gateway, performs real data-plane checks, and always cleans
 up. This is an experimental controller, not an Accounts production deployment.
 
+The Gateway is a self-hosted VPS/EC2 data-plane workload. It requires a durable
+host network namespace for WireGuard, Xray, forwarding and policy enforcement;
+Cloud Run, Cloudflare Workers and other serverless/edge-function platforms are
+not deployment targets for it.
+
 ## Exact dispatch inputs
 
 | Input | Required value |
