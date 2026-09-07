@@ -46,9 +46,9 @@ case "${1:?command}" in
       --pattern 'xconnect-zero-lab-linux-arm64' \
       --pattern 'SHA256SUMS' --dir "$release_dir" --clobber \
       || die "XConnect-One release $CLI_RELEASE_TAG download failed"
-    grep -E ' (xconnect-linux-arm64|xconnect-zero-lab-linux-arm64)$' \
-      "$release_dir/SHA256SUMS" > "$release_dir/SHA256SUMS.arm64" \
-      || die 'XConnect-One release is missing ARM64 checksums'
+    awk '$2 ~ /(^|\\/)xconnect-linux-arm64$/ || $2 ~ /(^|\\/)xconnect-zero-lab-linux-arm64$/ {sub(/^dist\\//, "", $2); print}' \
+      "$release_dir/SHA256SUMS" > "$release_dir/SHA256SUMS.arm64"
+    [[ -s "$release_dir/SHA256SUMS.arm64" ]] || die 'XConnect-One release is missing ARM64 checksums'
     (cd "$release_dir" && sha256sum -c SHA256SUMS.arm64) || die 'XConnect-One release checksum verification failed'
     install -m 755 "$release_dir/xconnect-linux-arm64" "$LAB_DIR/bin/xconnect"
     install -m 755 "$release_dir/xconnect-zero-lab-linux-arm64" "$LAB_DIR/bin/xconnect-zero-lab"
