@@ -68,37 +68,57 @@ ssh "${SSH[@]}" "$client_user@$client" 'sudo chmod 600 /var/lib/xconnect-one/joi
 # the runner's SSH target.
 ssh "${SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$gateway_transport" "$run_id" <<'GATEWAY_VERIFY'
 set -euo pipefail
-test "$(cat /etc/xconnect-lab/node-role)" = relay
-test "$(cat /etc/xconnect-lab/lab-run)" = "$2"
-systemctl is-active --quiet wg-quick@wg0
-systemctl is-active --quiet xconnect-lab-xray
-systemctl is-active --quiet xconnect-lab-http
-systemctl is-active --quiet xconnect-lab-zero
-wg show wg0 >/dev/null
-ss -ltn | grep -Eq ':443[[:space:]]'
-ss -ltn | grep -Eq ':8443[[:space:]]'
-status=$(curl --silent --show-error --noproxy '*' --connect-timeout 3 --max-time 10 --output /dev/null --write-out '%{http_code}' --cacert /opt/xconnect-lab/ca.crt --resolve "$1:8443:127.0.0.1" "https://$1:8443/healthz")
-[[ "$status" == 200 ]]
-status=$(curl --silent --show-error --noproxy '*' --connect-timeout 3 --max-time 10 --output /dev/null --write-out '%{http_code}' --cacert /opt/xconnect-lab/ca.crt --resolve "$1:8443:127.0.0.1" "https://$1:8443/api/overlay/v1/join-tokens")
-[[ "$status" == 401 || "$status" == 403 ]]
+gateway_failure() {
+  echo "Gateway verification failed: $1"
+  systemctl is-active wg-quick@wg0 xconnect-lab-xray xconnect-lab-http xconnect-lab-zero || true
+  ss -ltnup || true
+  wg show wg0 || true
+  exit 1
+}
+[[ "$(cat /etc/xconnect-lab/node-role)" == relay ]] || gateway_failure role
+[[ "$(cat /etc/xconnect-lab/lab-run)" == "$2" ]] || gateway_failure run-marker
+systemctl is-active --quiet wg-quick@wg0 || gateway_failure wireguard-service
+systemctl is-active --quiet xconnect-lab-xray || gateway_failure xray-service
+systemctl is-active --quiet xconnect-lab-http || gateway_failure private-http-service
+systemctl is-active --quiet xconnect-lab-zero || gateway_failure zero-service
+wg show wg0 >/dev/null || gateway_failure wireguard-interface
+ss -ltn | grep -Eq ':443[[:space:]]' || gateway_failure xray-listener
+ss -ltn | grep -Eq ':8443[[:space:]]' || gateway_failure zero-listener
+status=$(curl --silent --show-error --noproxy '*' --connect-timeout 3 --max-time 10 --output /dev/null --write-out '%{http_code}' --cacert /opt/xconnect-lab/ca.crt --resolve "$1:8443:127.0.0.1" "https://$1:8443/healthz") || gateway_failure zero-health-transport
+[[ "$status" == 200 ]] || gateway_failure "zero-health-http-$status"
+status=$(curl --silent --show-error --noproxy '*' --connect-timeout 3 --max-time 10 --output /dev/null --write-out '%{http_code}' --cacert /opt/xconnect-lab/ca.crt --resolve "$1:8443:127.0.0.1" "https://$1:8443/api/overlay/v1/join-tokens") || gateway_failure zero-api-transport
+[[ "$status" == 401 || "$status" == 403 ]] || gateway_failure "zero-api-http-$status"
 GATEWAY_VERIFY
 
 # A local readiness ACK is insufficient. Assert the true client->relay path,
 # client-side and relay-side WireGuard handshakes, external Xray and sync.
 ssh "${SSH[@]}" "$client_user@$client" sudo bash -s -- "$run_id" <<'CLIENT_VERIFY'
 set -euo pipefail
-test "$(sudo cat /etc/xconnect-lab/node-role)" = controlled-client
+client_failure() {
+  echo "Client verification failed: $1"
+  sudo ip -brief address show wg-xco || true
+  sudo wg show all || true
+  sudo ps -eo pid=,comm= | grep '[x]ray' || true
+  exit 1
+}
+[[ "$(sudo cat /etc/xconnect-lab/node-role)" == controlled-client ]] || client_failure role
+connected=0
 for attempt in {1..30}; do
-  if ping -c 1 -W 2 10.77.0.1 >/dev/null 2>&1 && curl --fail --max-time 5 --noproxy '*' -s http://10.77.0.1:8080/ | grep -Fxq "$1"; then break; fi
+  if ping -c 1 -W 2 10.77.0.1 >/dev/null 2>&1 && curl --fail --max-time 5 --noproxy '*' -s http://10.77.0.1:8080/ | grep -Fxq "$1"; then connected=1; break; fi
   sleep 2
 done
-ping -c 3 -W 3 10.77.0.1 >/dev/null
-curl --fail --max-time 10 --noproxy '*' -s http://10.77.0.1:8080/ | grep -Fxq "$1"
-pgrep -x xray >/dev/null
-wg show all latest-handshakes | awk -v now="$(date +%s)" '$3 > 0 && now-$3 < 180 {ok=1} END {exit !ok}'
-xconnect sync --state-dir /var/lib/xconnect-one >/dev/null 2>&1
-curl --fail --max-time 10 --noproxy '*' -s http://10.77.0.1:8080/ | grep -Fxq "$1"
-xconnect down --state-dir /var/lib/xconnect-one >/dev/null 2>&1
+[[ "$connected" == 1 ]] || client_failure private-ping-http
+ping -c 3 -W 3 10.77.0.1 >/dev/null || client_failure private-ping
+curl --fail --max-time 10 --noproxy '*' -s http://10.77.0.1:8080/ | grep -Fxq "$1" || client_failure private-http
+pgrep -x xray >/dev/null || client_failure xray-process
+wg show all latest-handshakes | awk -v now="$(date +%s)" '$3 > 0 && now-$3 < 180 {ok=1} END {exit !ok}' || client_failure wireguard-handshake
+if ! xconnect sync --state-dir /var/lib/xconnect-one >/dev/null 2>&1; then
+  client_failure sync
+fi
+curl --fail --max-time 10 --noproxy '*' -s http://10.77.0.1:8080/ | grep -Fxq "$1" || client_failure post-sync-private-http
+if ! xconnect down --state-dir /var/lib/xconnect-one >/dev/null 2>&1; then
+  client_failure down
+fi
 if curl --fail --max-time 3 --noproxy '*' -s http://10.77.0.1:8080/ >/dev/null 2>&1; then
   echo 'Private service unexpectedly reachable after tunnel teardown'; exit 1
 fi
