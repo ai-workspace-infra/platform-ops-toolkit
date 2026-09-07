@@ -99,9 +99,13 @@ for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
     [[ -n "${accounts_alias}" ]] || continue
     alias_dns="$(dig +short @1.1.1.1 "${accounts_alias}" | sed -n '1p')"
     alias_headers="${probe_root}/accounts-alias-${accounts_alias//[^A-Za-z0-9]/_}.headers"
-    alias_status="$(curl --silent --show-error --dump-header "${alias_headers}" --output /dev/null --write-out '%{http_code}' --max-time 20 "https://${accounts_alias}/api/v1/health" || true)"
+    # Accounts exposes liveness at /healthz. The /api/* surface is owned by
+    # the Edge Gateway and is validated separately through the CORS preflight
+    # below; probing /api/v1/health here incorrectly rejects a healthy alias
+    # with the Accounts service's normal 404 response.
+    alias_status="$(curl --silent --show-error --dump-header "${alias_headers}" --output /dev/null --write-out '%{http_code}' --max-time 20 "https://${accounts_alias}/healthz" || true)"
     if [[ -z "${alias_dns}" ]] || ! alias_probe_is_acceptable "${alias_status}" "${alias_headers}"; then
-      echo "Accounts alias not ready: https://${accounts_alias}/api/v1/health HTTP ${alias_status}" >&2
+      echo "Accounts alias not ready: https://${accounts_alias}/healthz HTTP ${alias_status}" >&2
       aliases_ready=false
     fi
   done < <(jq -r '.spec.serverless.accounts_aliases[]? // empty' "${CONFIG_FILE}")
