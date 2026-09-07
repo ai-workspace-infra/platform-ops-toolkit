@@ -35,6 +35,7 @@ fi
 REPO="ai-workspace-infra/platform-ops-toolkit"
 PLAYBOOKS_REPO="ai-workspace-infra/playbooks"
 TOKEN_TTL="1h"
+XCONNECT_CLOUD_LAB_ROLE="github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab"
 
 # -----------------------------------------------------------------------------
 # Workflow Allowlists for Platform-Ops & Playbooks
@@ -53,8 +54,7 @@ read -r -d '' ALLOWED_WORKFLOWS <<EOF || true
     "${WF_PREFIX}/k6-performance-test.yaml@*",
     "${WF_PREFIX}/uat-serverless-orchestrator.yml@*",
     "${WF_PREFIX}/serverless-orchestrator.yml@*",
-    "${WF_PREFIX}/hybrid-orchestrator.yml@*",
-    "${WF_PREFIX}/xconnect-cloud-lab.yml@*"
+    "${WF_PREFIX}/hybrid-orchestrator.yml@*"
 EOF
 
 PLAYBOOKS_WF_PREFIX="${PLAYBOOKS_REPO}/.github/workflows"
@@ -193,6 +193,30 @@ ${ALLOWED_WORKFLOWS}
 EOF
 }
 
+# Dedicated to the disposable XConnect lab. Keep this separate from the broad
+# UAT workflow allowlist so the live role can be audited and repaired without
+# rewriting unrelated workflow bindings.
+write_xconnect_cloud_lab_role() {
+  vault write "auth/jwt/role/${XCONNECT_CLOUD_LAB_ROLE}" - <<EOF
+{
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": ["vault"],
+  "bound_claims_type": "glob",
+  "bound_claims": {
+    "repository": "${REPO}",
+    "job_workflow_ref": "${WF_PREFIX}/xconnect-cloud-lab.yml@refs/heads/main",
+    "ref": "refs/heads/main"
+  },
+  "token_policies": ["github-actions-platform-ops-toolkit-uat"],
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": "${TOKEN_TTL}",
+  "token_max_ttl": "${TOKEN_TTL}"
+}
+EOF
+}
+
 # `main` can initiate a release but is never the release artifact: Daily Main
 # Snapshot re-tags an already verified immutable source as a new v* tag. This
 # role is deliberately pinned to that one workflow on protected main, so the
@@ -283,6 +307,8 @@ EOF
 echo "=== Provisioning Platform-Ops & Playbooks Roles ==="
 echo "  Creating SIT role..."
 write_role sit github-actions-platform-ops-toolkit-sit '["refs/pull/*/merge", "refs/heads/*"]'
+echo "  Creating dedicated XConnect cloud-lab UAT role..."
+write_xconnect_cloud_lab_role
 echo "  Creating DEV role..."
 write_role dev github-actions-platform-ops-toolkit-dev '["refs/heads/main", "refs/heads/dev/*", "refs/heads/feature/*", "refs/pull/*/merge"]'
 echo "  Creating UAT role..."

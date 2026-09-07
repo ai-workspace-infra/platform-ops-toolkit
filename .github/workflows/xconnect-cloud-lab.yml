@@ -1,4 +1,4 @@
-name: XConnect Cloud Lab
+name: XConnect UAT Spot Lab
 on:
   schedule:
     - cron: '*/15 * * * *'
@@ -31,6 +31,8 @@ on:
 permissions:
   contents: read
   id-token: write
+env:
+  XCONNECT_VAULT_ROLE: github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab
 concurrency:
   group: xconnect-cloud-lab
   cancel-in-progress: false
@@ -51,14 +53,14 @@ jobs:
         with:
           url: https://vault.svc.plus
           method: jwt
-          role: github-actions-platform-ops-toolkit-sit
+          role: ${{ env.XCONNECT_VAULT_ROLE }}
           jwtGithubAudience: vault
           secrets: |
-            kv/data/CICD/sit TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
-            kv/data/CICD/sit TF_STATE_BUCKET | TF_STATE_BUCKET ;
-            kv/data/CICD/sit TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
-            kv/data/CICD/sit TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
-            kv/data/CICD/sit TF_STATE_REGION | TF_STATE_REGION
+            kv/data/CICD/uat TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
+            kv/data/CICD/uat TF_STATE_BUCKET | TF_STATE_BUCKET ;
+            kv/data/CICD/uat TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+            kv/data/CICD/uat TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+            kv/data/CICD/uat TF_STATE_REGION | TF_STATE_REGION
       - name: Dispatch scoped cleanup for expired leases
         env:
           GH_TOKEN: ${{ github.token }}
@@ -89,7 +91,7 @@ jobs:
         with:
           url: https://vault.svc.plus
           method: jwt
-          role: github-actions-platform-ops-toolkit-sit
+          role: ${{ env.XCONNECT_VAULT_ROLE }}
           jwtGithubAudience: vault
           exportEnv: false
           secrets: |
@@ -116,7 +118,7 @@ jobs:
           token: ${{ steps.infra-token.outputs.token }}
           path: gitops
           persist-credentials: false
-      - name: Resolve the SIT declaration
+      - name: Resolve the UAT declaration
         id: topology
         run: bash .github/scripts/xconnect-lab/run.sh topology
       - name: Private CLI repository access
@@ -157,7 +159,7 @@ jobs:
           terraform_wrapper: false
       - name: Offline topology and Terraform preflight
         run: bash .github/scripts/xconnect-lab/run.sh preflight
-      - name: Infrastructure credentials from SIT Vault role
+      - name: Infrastructure credentials from UAT Vault role
         if: inputs.mode != 'dry-run'
         uses: hashicorp/vault-action@v4
         with:
@@ -166,21 +168,11 @@ jobs:
           role: ${{ steps.topology.outputs.vault_role }}
           jwtGithubAudience: vault
           secrets: |
-            kv/data/CICD/sit TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
-            kv/data/CICD/sit TF_STATE_BUCKET | TF_STATE_BUCKET ;
-            kv/data/CICD/sit TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
-            kv/data/CICD/sit TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
-            kv/data/CICD/sit TF_STATE_REGION | TF_STATE_REGION
-      - name: Optional Vultr gateway credentials
-        if: inputs.mode != 'dry-run' && steps.topology.outputs.gateway_provider == 'vultr'
-        uses: hashicorp/vault-action@v4
-        with:
-          url: ${{ steps.topology.outputs.vault_address }}
-          method: jwt
-          role: ${{ steps.topology.outputs.vault_role }}
-          jwtGithubAudience: vault
-          secrets: |
-            kv/data/CICD/sit VULTR_API_KEY | VULTR_API_KEY
+            kv/data/CICD/uat TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
+            kv/data/CICD/uat TF_STATE_BUCKET | TF_STATE_BUCKET ;
+            kv/data/CICD/uat TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+            kv/data/CICD/uat TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+            kv/data/CICD/uat TF_STATE_REGION | TF_STATE_REGION
       - name: Runtime credentials from dedicated Vault path
         if: inputs.mode == 'apply'
         uses: hashicorp/vault-action@v4
@@ -190,9 +182,9 @@ jobs:
           role: ${{ steps.topology.outputs.vault_role }}
           jwtGithubAudience: vault
           secrets: |
-            kv/data/sit/xconnect-one ADMIN_TOKEN | LAB_ADMIN_TOKEN ;
-            kv/data/sit/xconnect-one SIGNING_KEY | LAB_SIGNING_KEY ;
-            kv/data/sit/xconnect-one VLESS_ID | LAB_VLESS_ID
+            kv/data/uat/xconnect-one ADMIN_TOKEN | LAB_ADMIN_TOKEN ;
+            kv/data/uat/xconnect-one SIGNING_KEY | LAB_SIGNING_KEY ;
+            kv/data/uat/xconnect-one VLESS_ID | LAB_VLESS_ID
       - name: AWS short-lived OIDC credentials
         if: inputs.mode != 'dry-run'
         uses: aws-actions/configure-aws-credentials@v4
