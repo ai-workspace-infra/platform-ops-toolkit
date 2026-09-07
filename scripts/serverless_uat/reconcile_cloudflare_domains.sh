@@ -431,6 +431,10 @@ while IFS= read -r console_alias; do
   remove_worker_routes_for_host "${console_alias}"
 done < <(jq -r '(.spec.serverless.console_aliases // []) + (.spec.serverless.frontend_router.website.hosts // []) | unique[]' "${CONFIG_FILE}")
 reconcile_worker_domain "${accounts_host}" "${core_worker}"
+while IFS= read -r accounts_alias; do
+  [[ -n "${accounts_alias}" ]] || continue
+  reconcile_worker_domain "${accounts_alias}" "${core_worker}"
+done < <(jq -r '.spec.serverless.accounts_aliases[]? // empty' "${CONFIG_FILE}")
 remove_declared_cname "${billing_host}" "${billing_upstream#https://}"
 reconcile_worker_domain "${billing_host}" "${core_worker}"
 # Remove the DNS-only alias left by the retired Enterprise-only Origin Rule

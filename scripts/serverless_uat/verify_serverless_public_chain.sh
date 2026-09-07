@@ -95,6 +95,16 @@ for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
       aliases_ready=false
     fi
   done < <(jq -r '(.spec.serverless.console_aliases // []) + (.spec.serverless.frontend_router.website.hosts // []) | unique[]' "${CONFIG_FILE}")
+  while IFS= read -r accounts_alias; do
+    [[ -n "${accounts_alias}" ]] || continue
+    alias_dns="$(dig +short @1.1.1.1 "${accounts_alias}" | sed -n '1p')"
+    alias_headers="${probe_root}/accounts-alias-${accounts_alias//[^A-Za-z0-9]/_}.headers"
+    alias_status="$(curl --silent --show-error --dump-header "${alias_headers}" --output /dev/null --write-out '%{http_code}' --max-time 20 "https://${accounts_alias}/api/v1/health" || true)"
+    if [[ -z "${alias_dns}" ]] || ! alias_probe_is_acceptable "${alias_status}" "${alias_headers}"; then
+      echo "Accounts alias not ready: https://${accounts_alias}/api/v1/health HTTP ${alias_status}" >&2
+      aliases_ready=false
+    fi
+  done < <(jq -r '.spec.serverless.accounts_aliases[]? // empty' "${CONFIG_FILE}")
   platform_origin="$(jq -r '.spec.serverless.frontend_router.website.platform_origin // empty' "${CONFIG_FILE}")"
   while IFS= read -r website_host; do
     [[ -n "${website_host}" ]] || continue
