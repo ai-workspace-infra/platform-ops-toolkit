@@ -63,17 +63,23 @@ ssh "${SSH[@]}" "$gateway_user@$gateway" 'sudo cat /opt/xconnect-lab/join-uri' |
 ssh "${SSH[@]}" "$client_user@$client" 'sudo chmod 600 /var/lib/xconnect-one/join-uri; sudo sh -c '\''xconnect join --state-dir /var/lib/xconnect-one --device-id dev_lab --name lab-client "$(cat /var/lib/xconnect-one/join-uri)"'\''' > "$LAB_DIR/join.log" 2>&1 || { echo 'Real invite enrollment/runtime startup failed (protected log)'; exit 1; }
 
 # Verify the relay node independently, including its Linux role marker, external
-# WireGuard/Xray services, TLS/API health and a recent peer handshake.
-ssh "${SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$gateway" "$run_id" <<'GATEWAY_VERIFY'
+# WireGuard/Xray services, TLS/API health and a recent peer handshake. Use the
+# private transport address for this on-node check; the public address is only
+# the runner's SSH target.
+ssh "${SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$gateway_transport" "$run_id" <<'GATEWAY_VERIFY'
 set -euo pipefail
 test "$(cat /etc/xconnect-lab/node-role)" = relay
 test "$(cat /etc/xconnect-lab/lab-run)" = "$2"
 systemctl is-active --quiet wg-quick@wg0
 systemctl is-active --quiet xconnect-lab-xray
+systemctl is-active --quiet xconnect-lab-http
 systemctl is-active --quiet xconnect-lab-zero
 wg show wg0 >/dev/null
-ss -ltn | grep -Eq ':[4]43[[:space:]]'
-status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --cacert /opt/xconnect-lab/ca.crt --resolve "$1:8443:127.0.0.1" "https://$1:8443/api/overlay/v1/join-tokens")
+ss -ltn | grep -Eq ':443[[:space:]]'
+ss -ltn | grep -Eq ':8443[[:space:]]'
+status=$(curl --silent --show-error --noproxy '*' --connect-timeout 3 --max-time 10 --output /dev/null --write-out '%{http_code}' --cacert /opt/xconnect-lab/ca.crt --resolve "$1:8443:127.0.0.1" "https://$1:8443/healthz")
+[[ "$status" == 200 ]]
+status=$(curl --silent --show-error --noproxy '*' --connect-timeout 3 --max-time 10 --output /dev/null --write-out '%{http_code}' --cacert /opt/xconnect-lab/ca.crt --resolve "$1:8443:127.0.0.1" "https://$1:8443/api/overlay/v1/join-tokens")
 [[ "$status" == 401 || "$status" == 403 ]]
 GATEWAY_VERIFY
 
