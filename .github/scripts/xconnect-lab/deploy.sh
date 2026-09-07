@@ -49,13 +49,16 @@ jq -n --arg formal "$formal_zero" --arg portal "$formal_portal" --arg role relay
   --arg lab "https://$gateway:8443" \
   '{role:$role,config_source:{accounts_api_url:$formal,portal_url:$portal,authoritative:true},lab_controller:{url:$lab,purpose:"cloud-debug-only",authoritative:false}}' \
   > "$LAB_DIR/runtime-contract.json"
+jq -n --arg formal "$formal_zero" --arg portal "$formal_portal" \
+  '{role:"controlled-client",config_source:{accounts_api_url:$formal,portal_url:$portal,authoritative:true}}' \
+  > "$LAB_DIR/client-runtime-contract.json"
 
 ssh "${SSH[@]}" "$gateway_user@$gateway" 'sudo install -d -m 700 /opt/xconnect-lab'
 scp "${SSH[@]}" "$LAB_DIR/bin/xconnect-zero-lab" "$LAB_DIR/bin/xray" "$LAB_DIR/tls/server.key" "$LAB_DIR/tls/server.crt" "$LAB_DIR/tls/ca.crt" "$LAB_DIR/admin-token" "$LAB_DIR/signing-key" "$LAB_DIR/vless-id" "$LAB_DIR/runtime-contract.json" "$ROOT/.github/scripts/xconnect-lab/gateway.sh" "$gateway_user@$gateway:/tmp/" >/dev/null
 ssh "${SSH[@]}" "$gateway_user@$gateway" "sudo install -m 755 /tmp/xconnect-zero-lab /tmp/xray /tmp/gateway.sh /opt/xconnect-lab; sudo install -m 600 /tmp/server.key /tmp/admin-token /tmp/signing-key /tmp/vless-id /opt/xconnect-lab; sudo install -m 644 /tmp/server.crt /tmp/ca.crt /tmp/runtime-contract.json /opt/xconnect-lab; sudo bash /opt/xconnect-lab/gateway.sh '$gateway_transport' '$run_id' '$formal_zero' '$formal_portal' '$network_id'"
 
-scp "${SSH[@]}" "$LAB_DIR/bin/xconnect" "$LAB_DIR/bin/xray" "$LAB_DIR/tls/ca.crt" "$LAB_DIR/runtime-contract.json" "$client_user@$client:/tmp/" >/dev/null
-ssh "${SSH[@]}" "$client_user@$client" 'sudo install -m 755 /tmp/xconnect /tmp/xray /usr/local/bin/; sudo install -m 644 /tmp/ca.crt /usr/local/share/ca-certificates/xconnect-lab.crt; sudo install -m 644 /tmp/runtime-contract.json /etc/xconnect-lab-runtime.json; sudo update-ca-certificates >/dev/null 2>&1; sudo install -d -m 700 /var/lib/xconnect-one; test "$(sudo cat /etc/xconnect-lab/node-role)" = controlled-client'
+scp "${SSH[@]}" "$LAB_DIR/bin/xconnect" "$LAB_DIR/bin/xray" "$LAB_DIR/tls/ca.crt" "$LAB_DIR/client-runtime-contract.json" "$client_user@$client:/tmp/" >/dev/null
+ssh "${SSH[@]}" "$client_user@$client" 'sudo install -m 755 /tmp/xconnect /tmp/xray /usr/local/bin/; sudo install -m 644 /tmp/ca.crt /usr/local/share/ca-certificates/xconnect-lab.crt; sudo install -m 644 /tmp/client-runtime-contract.json /etc/xconnect-lab-runtime.json; sudo update-ca-certificates >/dev/null 2>&1; sudo install -d -m 700 /var/lib/xconnect-one /etc/xconnect-lab; printf "%s\n" controlled-client | sudo tee /etc/xconnect-lab/node-role >/dev/null; test "$(sudo cat /etc/xconnect-lab/node-role)" = controlled-client'
 
 # The join URI exercises the lab controller only as a disposable cloud-debug
 # endpoint; production enrollment uses the formal Zero accounts API.
