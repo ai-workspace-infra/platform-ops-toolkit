@@ -70,6 +70,9 @@ try:
 except ValueError:
     sys.exit(1)
 subprocess.run(["wg", "set", "wg0", "peer", sys.argv[1], "allowed-ips", sys.argv[2]], check=True)
+# The shared wireguard-gateway role gets this route from wg-quick's rendered
+# peer stanza. The lab adds peers dynamically, so install the equivalent route.
+subprocess.run(["ip", "route", "replace", "10.77.0.2/32", "dev", "wg0"], check=True)
 ''')
 helper.chmod(0o700)
 PY
