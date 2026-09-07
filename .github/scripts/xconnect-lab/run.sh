@@ -9,9 +9,11 @@ die() { echo "::error::$*" >&2; exit 1; }
 tf() { terraform -chdir="$TF" "$@" >"$LAB_DIR/terraform.log" 2>&1 || die "Terraform $1 failed; protected runner log retained, no secret-bearing output printed."; }
 case "${1:?command}" in
   validate)
-    for name in IAC_REF GITOPS_REF CLI_REF XRAY_REF; do
+    for name in IAC_REF GITOPS_REF; do
       [[ "${!name:-}" =~ ^[0-9a-f]{40}$ ]] || die "$name requires a full immutable commit SHA"
     done
+    [[ "${CLI_RELEASE_TAG:-}" =~ ^v[0-9A-Za-z._-]+$ ]] || die 'CLI_RELEASE_TAG requires a version tag'
+    [[ "${XRAY_RELEASE_TAG:-}" =~ ^v[0-9A-Za-z._-]+$ ]] || die 'XRAY_RELEASE_TAG requires a version tag'
     [[ "$MODE" =~ ^(dry-run|apply|cleanup)$ ]] || die 'Invalid mode'
     if [[ "$MODE" == cleanup ]]; then
       [[ "$CLEANUP_RUN" =~ ^xcl-[0-9]+-[0-9]+$ ]] || die 'cleanup requires an exact previous run identity'
@@ -33,27 +35,35 @@ case "${1:?command}" in
       echo "lab_controller_mode=$(jq -r .spec.zero.lab_controller.purpose "$DECL")"
     } >> "$GITHUB_OUTPUT"
     ;;
-  build)
-    [[ -f "$ROOT/cli/cmd/xconnect-zero-lab/main.go" ]] || die 'Pinned CLI ref has no real Zero lab server; refusing to substitute a mock'
+  download)
     mkdir -p "$LAB_DIR/bin"
-    build_go() {
-      local repo="$1" output="$2" package="$3"
-      (
-        cd "$repo"
-        for attempt in {1..4}; do
-          if GOPROXY='https://proxy.golang.org,direct' go mod download; then
-            break
-          fi
-          [[ "$attempt" == 4 ]] && die "Go module download failed for $repo after bounded retries"
-          sleep 5
-        done
-        GOPROXY='https://proxy.golang.org,direct' CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
-          go build -o "$output" "$package"
-      )
-    }
-    build_go "$ROOT/cli" "$LAB_DIR/bin/xconnect" ./cmd/xconnect
-    build_go "$ROOT/cli" "$LAB_DIR/bin/xconnect-zero-lab" ./cmd/xconnect-zero-lab
-    build_go "$ROOT/xray" "$LAB_DIR/bin/xray" ./main
+    release_dir="$LAB_DIR/releases"
+    mkdir -p "$release_dir"
+    [[ -n "${CLI_RELEASE_TOKEN:-}" ]] || die 'CLI_RELEASE_TOKEN is required to download the private XConnect-One release'
+    GH_TOKEN="$CLI_RELEASE_TOKEN" gh release download "$CLI_RELEASE_TAG" \
+      --repo ai-workspace-xstream/XConnect-One \
+      --pattern 'xconnect-linux-arm64' \
+      --pattern 'xconnect-zero-lab-linux-arm64' \
+      --pattern 'SHA256SUMS' --dir "$release_dir" --clobber \
+      || die "XConnect-One release $CLI_RELEASE_TAG download failed"
+    grep -E ' (xconnect-linux-arm64|xconnect-zero-lab-linux-arm64)$' \
+      "$release_dir/SHA256SUMS" > "$release_dir/SHA256SUMS.arm64" \
+      || die 'XConnect-One release is missing ARM64 checksums'
+    (cd "$release_dir" && sha256sum -c SHA256SUMS.arm64) || die 'XConnect-One release checksum verification failed'
+    install -m 755 "$release_dir/xconnect-linux-arm64" "$LAB_DIR/bin/xconnect"
+    install -m 755 "$release_dir/xconnect-zero-lab-linux-arm64" "$LAB_DIR/bin/xconnect-zero-lab"
+
+    GH_TOKEN="${GITHUB_TOKEN:-}" gh release download "$XRAY_RELEASE_TAG" \
+      --repo XTLS/Xray-core \
+      --pattern 'Xray-linux-arm64-v8a.zip' \
+      --pattern 'Xray-linux-arm64-v8a.zip.dgst' \
+      --dir "$release_dir" --clobber \
+      || die "Xray release $XRAY_RELEASE_TAG download failed"
+    xray_expected=$(awk '$1 == "SHA2-256=" {print $2; exit}' "$release_dir/Xray-linux-arm64-v8a.zip.dgst")
+    xray_actual=$(sha256sum "$release_dir/Xray-linux-arm64-v8a.zip" | awk '{print $1}')
+    [[ "$xray_expected" =~ ^[0-9a-f]{64}$ && "$xray_expected" == "$xray_actual" ]] || die 'Xray release checksum verification failed'
+    unzip -p "$release_dir/Xray-linux-arm64-v8a.zip" xray > "$LAB_DIR/bin/xray" || die 'Xray release archive is missing xray'
+    chmod 755 "$LAB_DIR/bin/xray"
     ;;
   preflight)
     terraform -chdir="$TF" fmt -check

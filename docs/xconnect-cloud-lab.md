@@ -1,7 +1,7 @@
 # XConnect cloud integration lab
 
 Manual workflow: `.github/workflows/xconnect-cloud-lab.yml`. Default `dry-run`
-checks immutable refs, private repository access, real source builds, topology and
+checks immutable infrastructure refs, private Release access, artifact checksums, topology and
 Terraform schema. It creates no cloud resources. `apply` then reads Vault runtime
 secrets, checks account prerequisites, and adds only a `t4g.small` AWS Spot Gateway
 and `t4g.micro` AWS Spot One client to the reused UAT environment for one hour.
@@ -29,13 +29,15 @@ endpoint.
 | `mode` | `dry-run` (default), `apply`, or recovery `cleanup` |
 | `iac_ref` | Full reviewed SHA containing `vpn-overlay/xconnect-lab` in `ai-workspace-infra/iac_modules` |
 | `gitops_ref` | Full reviewed SHA containing `topology/uat/xconnect-lab.json` in `ai-workspace-infra/gitops` |
-| `cli_ref` | Full reviewed SHA in private `ai-workspace-xstream/XConnect-One`, including the real CLI and experimental lab API harness |
-| `xray_ref` | Full reviewed compatible SHA in `XTLS/Xray-core`; compiled as external Linux executable |
+| `cli_release_tag` | Version tag in private `ai-workspace-xstream/XConnect-One` publishing the Linux CLI and experimental lab controller |
+| `xray_release_tag` | Version tag in `XTLS/Xray-core` publishing the verified Linux ARM64 archive |
 | `cleanup_run` | Empty except cleanup: exact `xcl-RUN_ID-ATTEMPT` from original run |
 
-CLI baseline `70a77e5` alone does not contain the lab API harness and is intentionally
-rejected. No arbitrary container or mock endpoint is substituted. The final four
-SHAs must exist remotely before this workflow can run. Dispatch from a toolkit ref
+The XConnect-One Release must contain `xconnect-linux-arm64`,
+`xconnect-zero-lab-linux-arm64`, and `SHA256SUMS`; Xray is downloaded from its
+official Release and its `SHA2-256` digest is checked before extraction. No arbitrary
+container or mock endpoint is substituted. The two infrastructure SHAs and two
+Release tags must exist remotely before this workflow can run. Dispatch from a toolkit ref
 accepted by BOTH the current Vault role and AWS role trust; do not weaken existing
 trust policies just to run a feature branch.
 
@@ -62,8 +64,8 @@ branch. The workflow does not broaden or self-modify Vault role bindings.
 
 Existing GitHub App client ID `Iv23liNwStpQIiXajhpb` must be installed with Contents
 read on `ai-workspace-infra/{iac_modules,gitops}` AND separately on
-`ai-workspace-xstream/XConnect-One`. Installation tokens are generated per owner;
-the default repository token cannot read the private CLI repository. Existing
+`ai-workspace-xstream/XConnect-One` Releases. Installation tokens are generated per owner;
+the default repository token cannot read the private CLI Release. Existing
 `CROSS_REPO_GH_TOKEN` is deliberately not used.
 
 AWS uses native short-lived GitHub OIDC credentials, following existing workflows,
@@ -98,7 +100,8 @@ State/plan/logs are private runner files, never uploaded. The S3 state survives 
 runner failure. Every normal apply attempt triggers `always()` cleanup, including
 partial Terraform failures. Cleanup validates the exact run namespace and state
 resource ownership before destroy, then asserts empty state. Before apply a durable
-nonsecret lease records the four pinned refs, exact run ID and 60-minute expiry.
+nonsecret lease records the two infrastructure refs, two Release tags, exact run ID
+and 60-minute expiry.
 A scheduled job every 15 minutes reads expired leases and dispatches `cleanup`;
 the lease is removed only after empty state is verified. This provides recovery
 after runner loss; schedules must be enabled on main and may be delayed by GitHub,
