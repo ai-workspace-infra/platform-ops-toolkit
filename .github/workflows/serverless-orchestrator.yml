@@ -264,6 +264,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+            services/accounts/${{ inputs.vault_env_path || 'uat' }}/oauth/github.json
 
       # accounts rejects any browser Origin that is not on its CORS allowlist,
       # so the deploy has to pass this environment's console host through.
@@ -307,6 +308,7 @@ jobs:
           VERIFY_SUPABASE: 'false'
           CLOUD_RUN_SERVICE: ${{ matrix.service }}
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          GITOPS_OAUTH_GITHUB_CONFIG: ${{ github.workspace }}/gitops/services/accounts/${{ inputs.vault_env_path || 'uat' }}/oauth/github.json
 
   cloudflare_ssr:
     name: Cloudflare / SSR / ${{ matrix.boundary }}

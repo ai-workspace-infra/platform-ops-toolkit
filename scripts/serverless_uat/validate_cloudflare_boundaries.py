@@ -115,6 +115,9 @@ def main() -> int:
     console_aliases = serverless.get("console_aliases", [])
     if not isinstance(console_aliases, list) or any(not isinstance(alias, str) or not alias.strip() for alias in console_aliases):
         raise SystemExit("GitOps serverless.console_aliases must be a list of non-empty hostnames")
+    accounts_aliases = serverless.get("accounts_aliases", [])
+    if not isinstance(accounts_aliases, list) or any(not isinstance(alias, str) or not alias.strip() for alias in accounts_aliases):
+        raise SystemExit("GitOps serverless.accounts_aliases must be a list of non-empty hostnames")
     if len(serverless.get("ssr", [])) != 5:
         raise SystemExit("GitOps routing manifest must define exactly five SSR boundaries")
     if len(serverless.get("edge_gateway", {}).get("boundaries", [])) != 3:
