@@ -52,8 +52,10 @@ jq -se '
 # A PROD tag is also the GitHub OIDC identity presented to Vault. Dispatching
 # either orchestrator from main would change that claim to refs/heads/main and
 # bypass the intended narrow refs/tags/v* Vault role binding.
-[[ "$(grep -Fxc -- '--ref "${release_tag}" \\' "${prod_dispatcher}")" -eq 2 ]]
+[[ "$(grep -Fxc -- '--ref "${release_tag}" "$@"' "${prod_dispatcher}")" -eq 0 ]]
 ! grep -Fq -- '--ref main' "${prod_dispatcher}"
+grep -Fq -- 'git/ref/tags/${release_tag}' "${prod_dispatcher}"
+grep -Fq -- 'resolved to ref' "${prod_dispatcher}"
 
 # The routine production snapshot must not implicitly require the separate
 # PROD accounts-migration SSH contract.
