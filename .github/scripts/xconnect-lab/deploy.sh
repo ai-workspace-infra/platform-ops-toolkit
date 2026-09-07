@@ -141,9 +141,15 @@ CLIENT_VERIFY
 echo 'Stage: relay verification'
 ssh "${SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$run_id" <<'RELAY_VERIFY' || { echo 'Relay verification SSH command failed'; exit 1; }
 set -euo pipefail
-test "$(cat /etc/xconnect-lab/node-role)" = relay
-wg show wg0 latest-handshakes | awk -v now="$(date +%s)" '$3 > 0 && now-$3 < 180 {ok=1} END {exit !ok}'
-ip route get 10.77.0.2 | grep -Fq 'dev wg0'
+relay_failure() {
+  echo "Relay verification failed: $1"
+  ip route show table main || true
+  wg show wg0 || true
+  exit 1
+}
+[[ "$(cat /etc/xconnect-lab/node-role)" == relay ]] || relay_failure role
+wg show wg0 latest-handshakes | awk -v now="$(date +%s)" '$3 > 0 && now-$3 < 180 {ok=1} END {exit !ok}' || relay_failure wireguard-handshake
+ip route get 10.77.0.2 | grep -Fq 'dev wg0' || relay_failure peer-route
 RELAY_VERIFY
 
 echo 'PASS: AWS/Vultr relay + controlled-client Linux baseline, signed lab enrollment, external Xray/WireGuard, relay health, private ping/HTTP, both-side handshake, sync, and tunnel-down isolation.'
