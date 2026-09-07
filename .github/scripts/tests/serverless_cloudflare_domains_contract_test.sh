@@ -94,7 +94,10 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 printf '%s\t%s\t%s\n' "${method}" "${url}" "${body}" >>"${MOCK_CURL_LOG}"
-if [[ "${url}" == *'/zones?name='* ]]; then
+if [[ "${method}" == 'DELETE' && "${url}" == *'/dns_records/billing-origin-cname' ]]; then
+  printf '%s' '{"success":false,"result":null,"errors":[{"code":1043,"message":"Unable to edit this record as this has been configured as read only."}]}'
+  exit 22
+elif [[ "${url}" == *'/zones?name='* ]]; then
   printf '%s' '{"success":true,"result":[{"id":"zone-1"}]}'
 elif [[ "${url}" == *'/pages/projects/ai-workspace-portal-uat/domains'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[]}'
@@ -155,8 +158,9 @@ if ! jq -e '
   exit 1
 fi
 dns_deletes="$(grep -Fc $'DELETE\thttps://cloudflare.invalid/client/v4/zones/zone-1/dns_records/' "${test_dir}/curl.log")"
-# The canonical aliases remain Worker-bound, so only the two stale billing
-# Cloud Run CNAMEs are removed.
+# The canonical aliases remain Worker-bound; both stale records are inspected,
+# while the managed origin record returns Cloudflare's read-only error and is
+# intentionally left in place.
 test "${dns_deletes}" -eq 2
 cname_bodies="$(cut -f3 "${test_dir}/curl.log" | jq -s '[.[] | select(.type == "CNAME")]')"
 test "$(jq 'length' <<<"${cname_bodies}")" -eq 0
