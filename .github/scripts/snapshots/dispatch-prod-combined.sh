@@ -18,13 +18,50 @@ repo="${TARGET_REPOSITORY:-ai-workspace-infra/platform-ops-toolkit}"
 
 export GH_TOKEN="${gh_token}"
 
+# GitHub may accept a workflow_dispatch request while a just-created tag is
+# still propagating. Refuse to dispatch unless the tag exists and the created
+# run resolves back to that exact tag; otherwise a PROD job can silently run
+# from main and fail its protected-ref validation.
+tag_ref_path="repos/${repo}/git/ref/tags/${release_tag}"
+tag_sha=""
+for attempt in {1..15}; do
+  tag_sha="$(gh api "${tag_ref_path}" --jq '.object.sha' 2>/dev/null || true)"
+  [[ -n "${tag_sha}" ]] && break
+  sleep 2
+done
+if [[ -z "${tag_sha}" ]]; then
+  echo "::error::Release tag ${release_tag} is not visible through the GitHub refs API; refusing to dispatch PROD." >&2
+  exit 1
+fi
+
+dispatch_and_assert_ref() {
+  local workflow="$1"
+  shift
+  local dispatch_url=""
+  local run_id=""
+  local actual_ref=""
+
+  dispatch_url="$(gh workflow run "${workflow}" --repo "${repo}" --ref "${release_tag}" "$@" | tail -n 1)"
+  run_id="${dispatch_url##*/}"
+  for attempt in {1..15}; do
+    actual_ref="$(gh run view "${run_id}" --repo "${repo}" --json headBranch --jq '.headBranch' 2>/dev/null || true)"
+    [[ "${actual_ref}" == "${release_tag}" ]] && break
+    sleep 2
+  done
+  if [[ "${actual_ref}" != "${release_tag}" ]]; then
+    echo "::error::${workflow} run ${run_id} resolved to ref '${actual_ref:-unset}', expected '${release_tag}'; refusing PROD deployment." >&2
+    return 1
+  fi
+  printf '%s\n' "${dispatch_url}"
+}
+
 # A production daily snapshot publishes the immutable application artifacts.
 # Database migration is a separate, explicitly approved operation: the
 # migration workflow requires a dedicated source SSH key that is intentionally
 # provisioned only when the production source contract is ready. Keeping it
 # out of the routine release prevents a missing migration secret from blocking
 # an otherwise healthy production deployment.
-serverless_url="$(gh workflow run serverless-orchestrator.yml --repo "${repo}" --ref "${release_tag}" \
+serverless_url="$(dispatch_and_assert_ref serverless-orchestrator.yml \
   -f operation=deploy -f target_domains=web-saas -f vault_env_path=prod \
   -f "tag_ref=${release_tag}" -f deploy_cloudflare=true -f deploy_cloud_run=true \
   -f dns_mode=prod-cutover -f supabase_target_existing_strategy=reject \
@@ -33,7 +70,7 @@ serverless_id="${serverless_url##*/}"
 echo "Dispatched production serverless deployment: ${serverless_url}"
 gh run watch "${serverless_id}" --repo "${repo}" --exit-status --compact
 
-selfhost_url="$(gh workflow run selfhost-orchestrator.yml --repo "${repo}" --ref "${release_tag}" \
+selfhost_url="$(dispatch_and_assert_ref selfhost-orchestrator.yml \
   -f operation=deploy -f vault_env_path=prod -f target_domains=agent-proxy \
   -f cloud_provider=aws-cloud -f agent_proxy_plan=2C1G \
   -f "deploy_tag=${release_tag}" \
