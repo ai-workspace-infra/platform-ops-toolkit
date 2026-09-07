@@ -53,7 +53,8 @@ read -r -d '' ALLOWED_WORKFLOWS <<EOF || true
     "${WF_PREFIX}/k6-performance-test.yaml@*",
     "${WF_PREFIX}/uat-serverless-orchestrator.yml@*",
     "${WF_PREFIX}/serverless-orchestrator.yml@*",
-    "${WF_PREFIX}/hybrid-orchestrator.yml@*"
+    "${WF_PREFIX}/hybrid-orchestrator.yml@*",
+    "${WF_PREFIX}/xconnect-cloud-lab.yml@*"
 EOF
 
 PLAYBOOKS_WF_PREFIX="${PLAYBOOKS_REPO}/.github/workflows"
