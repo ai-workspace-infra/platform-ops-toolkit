@@ -134,31 +134,27 @@ done
 
 # Issue one disposable enrollment from the lab API harness. This is a joint
 # debug fixture, never the formal accounts/portal configuration source.
-python3 - "$gateway" "$network_id" <<'PY'
-import http.client, json, pathlib, ssl, sys, time
-p = pathlib.Path('/opt/xconnect-lab')
-last_error = 'unknown error'
-class LocalHTTPS(http.client.HTTPSConnection):
-    def connect(self):
-        import socket
-        self.sock = self._context.wrap_socket(socket.create_connection(('127.0.0.1', 8443), 5), server_hostname=self.host)
-for attempt in range(30):
-    try:
-        conn = LocalHTTPS(sys.argv[1], context=ssl.create_default_context(cafile=str(p/'ca.crt')))
-        conn.request('POST', '/api/overlay/v1/join-tokens', body=json.dumps({
-            'network_id': sys.argv[2], 'device_id': 'dev_lab', 'platform': 'linux',
-            'role': 'controlled-client', 'expires_in_seconds': 900}),
-            headers={'Authorization': 'Bearer '+(p/'admin-token').read_text().strip(), 'Content-Type': 'application/json'})
-        response = conn.getresponse()
-        if response.status not in (200, 201):
-            body = response.read(512).decode('utf-8', 'replace').replace('\\n', ' ')
-            raise RuntimeError(f'HTTP {response.status}: {body}')
-        data = json.load(response)
-        (p/'join-uri').write_text(data['join_token']['join_uri'])
-        break
-    except (OSError, RuntimeError) as error:
-        last_error = str(error)
-        if attempt == 29:
-            raise SystemExit(f'Lab Zero API harness did not issue a real debug invite: {last_error[:240]}')
-        time.sleep(2)
-PY
+request_body=$(mktemp)
+response_body=$(mktemp)
+trap 'rm -f "$request_body" "$response_body"' EXIT
+printf '{"network_id":"%s","device_id":"dev_lab","platform":"linux","expires_in_seconds":900}\n' "$network_id" > "$request_body"
+admin_token=$(<admin-token)
+status=000
+for attempt in {1..30}; do
+  status=$(curl --silent --show-error --output "$response_body" --write-out '%{http_code}' \
+    --cacert ca.crt --resolve "$gateway:8443:127.0.0.1" \
+    -H "Authorization: Bearer $admin_token" -H 'Accept: application/json' \
+    -H 'Content-Type: application/json' --data-binary "@$request_body" \
+    "https://$gateway:8443/api/overlay/v1/join-tokens" || true)
+  if [[ "$status" == 200 || "$status" == 201 ]]; then
+    jq -er .join_token.join_uri "$response_body" > join-uri
+    chmod 600 join-uri
+    break
+  fi
+  [[ "$attempt" == 30 ]] && {
+    error_body=$(tr '\n' ' ' < "$response_body" | cut -c 1-240)
+    echo "Lab Zero API harness did not issue a real debug invite: HTTP $status: $error_body"
+    exit 1
+  }
+  sleep 2
+done
