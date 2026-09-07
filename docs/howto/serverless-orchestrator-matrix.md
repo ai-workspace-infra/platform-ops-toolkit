@@ -103,12 +103,13 @@ The production mode-qualified internal service entrances are:
 | Accounts | `accounts-serverless-prod.svc.plus` | `accounts-selfhost-prod.svc.plus` |
 | Billing | `billing-serverless-prod.svc.plus` | `billing-selfhost-prod.svc.plus` |
 | PostgreSQL | `postgresql-serverless-prod.svc.plus` | `postgresql-selfhost-prod.svc.plus` |
-| Agent Proxy | `agent-proxy-serverless-prod.svc.plus` | `agent-proxy-selfhost-prod.svc.plus` |
+| Agent Proxy | `agent-proxy-serverless-prod.svc.plus` | JP: `agent-proxy-selfhost-prod-jp.svc.plus`; US: `agent-proxy-selfhost-prod-us.svc.plus` |
 
 Post-deployment verification must use these declared names. The Serverless orchestrator verifies
-the deployed Console, Accounts, and Billing edge chain; PostgreSQL and Agent Proxy remain
-provider-owned and are verified by the Selfhost/provider readiness gates rather than being
-silently treated as Serverless deployments.
+the deployed Console, Accounts, and Billing edge chain; PostgreSQL and the regional Agent Proxy
+pool remain provider-owned and are verified by the Selfhost/provider readiness gates rather than
+being silently treated as Serverless deployments. The historical generic production Agent Proxy
+name is not an active endpoint.
 
 Ownership of the canonical aliases is asymmetric, and deliberately so. `dns_mode=uat-records`
 binds `console-uat.onwalk.net` as a Worker custom domain, and Cloudflare then refuses to delete
