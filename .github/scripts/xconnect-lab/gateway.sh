@@ -103,7 +103,8 @@ RestartSec=2
 WantedBy=multi-user.target
 UNIT
 gateway_pub=$(<gateway.pub)
-sed -i "s/PLACEHOLDER_KEY/$gateway_pub/; s/PLACEHOLDER/$gateway/g; s/NETWORK_ID/$network_id/g" /etc/systemd/system/xconnect-lab-zero.service
+# Base64 WireGuard keys may contain '/', so use a non-slash sed delimiter.
+sed -i "s|PLACEHOLDER_KEY|$gateway_pub|; s|PLACEHOLDER|$gateway|g; s|NETWORK_ID|$network_id|g" /etc/systemd/system/xconnect-lab-zero.service
 /usr/local/bin/xray run -test -config /opt/xconnect-lab/xray.json >/dev/null 2>&1
 systemctl daemon-reload
 systemctl enable --now wg-quick@wg0
