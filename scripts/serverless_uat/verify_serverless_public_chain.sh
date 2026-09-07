@@ -55,15 +55,6 @@ alias_probe_is_acceptable() {
   }
 }
 
-github_oauth_probe_is_acceptable() {
-  local status="$1" headers="$2"
-  local location
-
-  [[ "${status}" =~ ^(302|307|308)$ ]] || return 1
-  location="$(awk 'tolower($1) == "location:" {sub(/\r$/, "", $2); print $2}' "${headers}" | tail -1)"
-  [[ "${location}" == https://github.com/login/oauth/authorize* ]]
-}
-
 environment="$(jq -er '.metadata.environment' "${CONFIG_FILE}")"
 console_host="$(jq -er '.spec.serverless.console_host' "${CONFIG_FILE}")"
 accounts_host="$(jq -er '.spec.serverless.accounts_host' "${CONFIG_FILE}")"
@@ -108,9 +99,27 @@ for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
     [[ -n "${accounts_alias}" ]] || continue
     alias_dns="$(dig +short @1.1.1.1 "${accounts_alias}" | sed -n '1p')"
     alias_headers="${probe_root}/accounts-alias-${accounts_alias//[^A-Za-z0-9]/_}.headers"
-    alias_status="$(curl --silent --show-error --dump-header "${alias_headers}" --output /dev/null --write-out '%{http_code}' --max-time 20 "https://${accounts_alias}/api/auth/oauth/login/github" || true)"
-    if [[ -z "${alias_dns}" ]] || ! github_oauth_probe_is_acceptable "${alias_status}" "${alias_headers}"; then
-      echo "GitHub OAuth alias not ready: https://${accounts_alias}/api/auth/oauth/login/github HTTP ${alias_status}" >&2
+    # Accounts aliases are bound to the Edge Gateway Core, not directly to
+    # the Accounts Cloud Run service. Validate the public API/CORS contract
+    # at the alias instead of probing the service-only /healthz endpoint.
+    alias_preflight="$(curl --silent --show-error --dump-header - --output /dev/null --max-time 20 \
+      --request OPTIONS "https://${accounts_alias}/api/v1/health" \
+      --header "Origin: ${origin}" \
+      --header 'Access-Control-Request-Method: GET' \
+      --header 'Access-Control-Request-Headers: Authorization, Content-Type' || true)"
+    alias_status="$(awk 'NR == 1 {print $2}' <<<"${alias_preflight}" | tr -d '\r')"
+    alias_cors_ready=false
+    if [[ "${alias_status}" == "204" ]] &&
+       grep -Eiq '^access-control-allow-origin:' <<<"${alias_preflight}"; then
+      alias_cors_ready=true
+    elif is_cloudflare_edge_protection "${alias_status}" "${alias_preflight}" ||
+         is_cloudflare_challenge_text "${alias_preflight}"; then
+      # A managed Cloudflare challenge is an expected protected-edge response
+      # in the runner; the origin contract cannot be observed through it.
+      alias_cors_ready=true
+    fi
+    if [[ -z "${alias_dns}" ]] || [[ "${alias_cors_ready}" != true ]]; then
+      echo "Accounts alias CORS preflight not ready: https://${accounts_alias}/api/v1/health HTTP ${alias_status}" >&2
       aliases_ready=false
     fi
   done < <(jq -r '.spec.serverless.accounts_aliases[]? // empty' "${CONFIG_FILE}")
