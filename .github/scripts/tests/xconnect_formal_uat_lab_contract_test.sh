@@ -19,6 +19,10 @@ grep -Fq 'gateway_address=$(jq -er .spec.overlay.gateway_address "$DECL")' "${de
 grep -Fq '.spec.overlay.gateway_address == "10.77.0.1/32"' "${runner}"
 grep -Fq 'xconnect-gateway join' "${deploy}"
 grep -Fq 'xconnect join' "${deploy}"
+grep -Fq 'tls-trust-or-transport' "${deploy}"
+grep -Fq "jq -c '[.[] | {code,healthy}]'" "${deploy}"
+grep -Fq 'wireguard_handshake_age_seconds=' "${deploy}"
+grep -Fq 'gateway_wireguard_handshake_age_seconds=' "${deploy}"
 grep -Fq 'wireguard-handshake' "${repo_root}/gitops/topology/uat/xconnect-lab.json" 2>/dev/null || true
 
 if grep -Fq 'xconnect-zero-lab-linux-arm64' "${runner}" || grep -Fq 'xconnect-lab-zero.service' "${deploy}"; then

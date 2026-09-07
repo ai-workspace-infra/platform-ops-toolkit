@@ -101,20 +101,46 @@ ss -ltn | grep -Eq ':443[[:space:]]'
 xconnect-gateway status --state-dir /var/lib/xconnect-gateway
 GATEWAY_VERIFY
 
-ssh "${SSH[@]}" "$client_user@$client" sudo bash -s -- "$run_id" <<'CLIENT_VERIFY'
+if ! ssh "${SSH[@]}" "$client_user@$client" sudo bash -s -- "$run_id" "$gateway_transport" <<'CLIENT_VERIFY'
 set -euo pipefail
-[[ "$(cat /etc/xconnect-lab/node-role)" == controlled-client ]]
+client_failure() {
+  echo "Client verification failed: $1"
+  xconnect diagnose --state-dir /var/lib/xconnect-one 2>/dev/null \
+    | jq -c '[.[] | {code,healthy}]' || true
+  if pgrep -x xray >/dev/null; then echo 'xray_process=active'; else echo 'xray_process=inactive'; fi
+  if ss -lun | grep -Eq '127\.0\.0\.1:18080[[:space:]]'; then echo 'xray_loopback_udp=active'; else echo 'xray_loopback_udp=inactive'; fi
+  if ip link show xconone0 >/dev/null 2>&1; then echo 'wireguard_interface=active'; else echo 'wireguard_interface=inactive'; fi
+  handshake_age=$(wg show xconone0 latest-handshakes 2>/dev/null | awk -v now="$(date +%s)" '$2 > 0 {age=now-$2} END {print age=="" ? "none" : age}')
+  echo "wireguard_handshake_age_seconds=$handshake_age"
+  exit 1
+}
+[[ "$(cat /etc/xconnect-lab/node-role)" == controlled-client ]] || client_failure role
+tls_verify=$(timeout 10 openssl s_client -connect "$2:443" -servername xconnect-lab.invalid \
+  -CAfile /etc/ssl/certs/ca-certificates.crt </dev/null 2>/dev/null \
+  | awk '/Verify return code:/ {print $4; exit}')
+[[ "$tls_verify" == 0 ]] || client_failure tls-trust-or-transport
 connected=0
 for attempt in {1..30}; do
   if ping -c 1 -W 2 10.77.0.1 >/dev/null 2>&1 && curl --fail --max-time 5 --noproxy '*' -s http://10.77.0.1:8080/ | grep -Fxq "$1"; then connected=1; break; fi
   sleep 2
 done
-[[ "$connected" == 1 ]]
-pgrep -x xray >/dev/null
-wg show xconone0 latest-handshakes | awk -v now="$(date +%s)" '$2 > 0 && now-$2 < 180 {ok=1} END {exit !ok}'
-xconnect sync --state-dir /var/lib/xconnect-one >/dev/null
-curl --fail --max-time 10 --noproxy '*' -s http://10.77.0.1:8080/ | grep -Fxq "$1"
+[[ "$connected" == 1 ]] || client_failure private-ping-http
+pgrep -x xray >/dev/null || client_failure xray-process
+wg show xconone0 latest-handshakes | awk -v now="$(date +%s)" '$2 > 0 && now-$2 < 180 {ok=1} END {exit !ok}' || client_failure wireguard-handshake
+xconnect sync --state-dir /var/lib/xconnect-one >/dev/null || client_failure config-sync
+curl --fail --max-time 10 --noproxy '*' -s http://10.77.0.1:8080/ | grep -Fxq "$1" || client_failure post-sync-private-http
 CLIENT_VERIFY
+then
+  ssh "${SSH[@]}" "$gateway_user@$gateway" sudo bash -s <<'GATEWAY_FAILURE_DIAGNOSTICS'
+set -euo pipefail
+if systemctl is-active --quiet xconnect-gateway-xray.service; then echo 'gateway_xray_process=active'; else echo 'gateway_xray_process=inactive'; fi
+if ss -ltn | grep -Eq ':443[[:space:]]'; then echo 'gateway_xray_listener=active'; else echo 'gateway_xray_listener=inactive'; fi
+if ip link show xconzero0 >/dev/null 2>&1; then echo 'gateway_wireguard_interface=active'; else echo 'gateway_wireguard_interface=inactive'; fi
+handshake_age=$(wg show xconzero0 latest-handshakes 2>/dev/null | awk -v now="$(date +%s)" '$2 > 0 {age=now-$2} END {print age=="" ? "none" : age}')
+echo "gateway_wireguard_handshake_age_seconds=$handshake_age"
+GATEWAY_FAILURE_DIAGNOSTICS
+  exit 1
+fi
 
 ssh "${SSH[@]}" "$gateway_user@$gateway" sudo bash -s <<'RELAY_VERIFY'
 set -euo pipefail
