@@ -1,6 +1,5 @@
 """Protected runtime files only. Never print provider responses or credentials."""
 import datetime
-import base64
 import ipaddress
 import json
 import os
@@ -45,11 +44,12 @@ def main():
               'zero_accounts_api_url': zero['accounts_api_url'],
               'zero_portal_url': zero['portal_url']}
     if action == 'resources':
-        if len(base64.b64decode(os.environ['LAB_SIGNING_KEY'], validate=True)) != 32:
-            raise ValueError('Vault SIGNING_KEY must be a base64 Ed25519 32-byte seed')
         uuid.UUID(os.environ['LAB_VLESS_ID'])
-        if len(os.environ['LAB_ADMIN_TOKEN']) < 32:
-            raise ValueError('Vault ADMIN_TOKEN must contain at least 32 characters')
+        if len(os.environ['ZERO_SERVICE_TOKEN']) < 32:
+            raise ValueError('Vault ZERO_SERVICE_TOKEN must contain at least 32 characters')
+        owner_email = os.environ['ZERO_OWNER_EMAIL'].strip()
+        if '@' not in owner_email or owner_email.startswith('@') or owner_email.endswith('@'):
+            raise ValueError('Vault ZERO_OWNER_EMAIL must be an email address')
         ami = subprocess.check_output(['aws', 'ssm', 'get-parameter', '--name', spec['aws']['ami_ssm_parameter'],
                                        '--query', 'Parameter.Value', '--output', 'text'], text=True).strip()
         images = json.loads(subprocess.check_output(['aws', 'ec2', 'describe-images', '--image-ids', ami, '--output', 'json']))['Images']
