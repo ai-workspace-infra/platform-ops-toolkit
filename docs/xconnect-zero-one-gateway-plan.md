@@ -219,48 +219,46 @@ GET  /api/overlay/v1/gateway/signed-config
 
 ## 8. 云端联调拓扑
 
-默认 SIT disposable lab：
+UAT Spot 联调：
 
 ```text
-AWS ap-northeast-1
-└── disposable VPC 10.78.0.0/24
-    ├── XConnect-Gateway：AWS one-time Spot EC2，role=relay
+AWS ap-northeast-1（复用 UAT 账户、默认 VPC/子网）
+├── XConnect One Gateway：t4g.small ARM64，2C2G，one-time Spot，1h，role=relay
     │   ├── external WireGuard
     │   ├── external Xray TLS 443
     │   ├── temporary lab controller 8443（仅调试）
     │   └── private probe 10.77.0.1:8080
-    └── XConnect-One：AWS one-time Spot EC2，role=controlled-client
+└── XConnect One Linux client CLI：t4g.micro ARM64，2C1G，one-time Spot，1h，role=controlled-client
 ```
 
 默认策略：
 
 - Gateway 和 One 都使用 AWS Spot EC2。
-- Gateway 与 One 位于同一临时 VPC，优先走私网传输。
+- 不创建第二套控制面或 VPC；Gateway 与 One 接入既有 UAT 默认 VPC/子网，优先走私网传输。
 - SSH 仅允许 GitHub runner 当前 `/32`。
 - Gateway TLS/API 只允许受控客户端安全组访问。
 - 公网 WireGuard UDP `51820` 默认关闭。
 - Gateway 不部署到 Cloud Run 或 Cloudflare Workers。
-- Vultr 只作为显式 `gateway_provider=vultr` 可选路径，不是默认路径。
+- 本次 UAT 验证只使用 AWS Spot，不初始化或读取 Vultr provider/credential。
 
 ## 9. Vault 与身份认证
 
 GitHub Actions 使用 GitHub OIDC JWT 登录 Vault，目标 role：
 
 ```text
-github-actions-platform-ops-toolkit-sit
+github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab
 ```
 
 固定路径：
 
 | 用途 | Vault KV v2 API path |
 |---|---|
-| CI/基础设施 | `kv/data/CICD/sit` |
-| XConnect-One SIT runtime | `kv/data/sit/xconnect-one` |
+| CI/基础设施 | `kv/data/CICD/uat` |
 | XConnect-One UAT runtime | `kv/data/uat/xconnect-one` |
 | XConnect-One PROD runtime | `kv/data/prod/xconnect-one` |
 | GitHub App | `kv/data/CICD/github-app/daily-snapshot` |
 
-SIT runtime 字段：
+UAT runtime 字段：
 
 ```text
 ADMIN_TOKEN
@@ -272,7 +270,7 @@ VLESS_ID
 
 - secret 不进入 Git、Terraform tfvars、Actions artifact、普通日志或诊断输出。
 - 只有 GitHub OIDC 短期身份和 Vault JWT role 可取 secret。
-- `VULTR_API_KEY` 只在显式 Vultr 后端路径读取。
+- 本次 UAT 验证不读取 `VULTR_API_KEY`。
 - Vault role 的 `job_workflow_ref` 必须精确允许 `xconnect-cloud-lab.yml`。
 - workflow 不自行修改 Vault role，也不以静态密钥绕过 JWT。
 
@@ -284,9 +282,9 @@ VLESS_ID
 2. 用 GitHub OIDC JWT 登录 Vault。
 3. 通过 GitHub App 只读拉取 IaC、GitOps、XConnect-One 和 Xray 源码。
 4. 编译真实 XConnect-One CLI、实验 lab controller 和外部 Xray。
-5. 解析 GitOps SIT 拓扑。
+5. 解析 GitOps UAT 静态拓扑。
 6. 获取 AWS 短期 OIDC credentials。
-7. Terraform 创建独立 VPC、网络、Spot Gateway 和 Spot One。
+7. IaC 模块复用 UAT 默认 VPC/子网，只增加 t4g.small Spot Gateway、t4g.micro Spot One 及其临时安全组。
 8. 通过 SSH bootstrap 两台 Linux 主机。
 9. 生成一次性 CA 和临时运行配置。
 10. 执行 Gateway/One 真实加入和数据面验证。
@@ -418,17 +416,17 @@ claim "job_workflow_ref" does not match any associated bound claim values
 代码侧已经把验证流程准备好；剩余阻塞是 live Vault role 的实际配置必须包含：
 
 ```text
-ai-workspace-infra/platform-ops-toolkit/.github/workflows/xconnect-cloud-lab.yml@*
+ai-workspace-infra/platform-ops-toolkit/.github/workflows/xconnect-cloud-lab.yml@refs/heads/main
 ```
 
 ## 15. 下一步操作清单
 
-1. 在与 GitHub Actions 相同的 Vault 地址和 JWT mount 上读取 SIT role，确认 `job_workflow_ref` 含 `xconnect-cloud-lab.yml@*`。
+1. 在与 GitHub Actions 相同的 Vault 地址和 JWT mount 上读取专用 UAT role，确认 `job_workflow_ref` 精确等于 `xconnect-cloud-lab.yml@refs/heads/main`。
 2. 若缺失，从合并后的 `platform-ops-toolkit/main` 执行 `scripts/create_vault_service_repo_roles.sh`。
-3. 确认 `kv/data/CICD/sit` 的 Terraform backend 字段存在。
-4. 确认 `kv/data/sit/xconnect-one` 的 `ADMIN_TOKEN`、`SIGNING_KEY`、`VLESS_ID` 存在且格式正确。
+3. 确认 `kv/data/CICD/uat` 的 Terraform backend 字段存在。
+4. 确认 `kv/data/uat/xconnect-one` 的 `ADMIN_TOKEN`、`SIGNING_KEY`、`VLESS_ID` 存在且格式正确。
 5. 确认 GitHub App 对 `iac_modules`、`gitops` 和私有 `XConnect-One` 具备 Contents read。
-6. 确认 AWS role `GithubAction_IAC_Deploy_Role` 具备 SSM AMI 查询、VPC/SG/key pair/Spot EC2 创建删除权限。
+6. 确认 AWS role `GithubAction_IAC_Deploy_Role` 具备 ARM64 AMI 查询、默认 VPC/子网读取、临时 SG 和 Spot EC2 创建删除权限。
 7. 重新运行 `XConnect Cloud Lab` 的 `apply`。
 8. 保存 Gateway/One 角色、加入、签名配置、握手、私网流量和 tunnel-down 证据。
 9. 无论结果如何确认 cleanup 完成，并检查本次专用 Terraform state 为空。

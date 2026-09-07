@@ -3,9 +3,9 @@
 Manual workflow: `.github/workflows/xconnect-cloud-lab.yml`. Default `dry-run`
 checks immutable refs, private repository access, real source builds, topology and
 Terraform schema. It creates no cloud resources. `apply` then reads Vault runtime
-secrets, checks account prerequisites, provisions a dedicated AWS Spot Gateway and
-AWS Spot One client by default, performs joint data-plane checks, and always cleans
-up. This workflow is an experimental cloud-lab controller, not the formal Zero
+secrets, checks account prerequisites, and adds only a `t4g.small` AWS Spot Gateway
+and `t4g.micro` AWS Spot One client to the reused UAT environment for one hour.
+It performs joint data-plane checks and always cleans up. This workflow is an experimental cloud-lab controller, not the formal Zero
 Accounts API or Portal and never becomes their configuration source.
 
 The Gateway and One have the same independent Linux-node baseline and both run
@@ -28,7 +28,7 @@ endpoint.
 |---|---|
 | `mode` | `dry-run` (default), `apply`, or recovery `cleanup` |
 | `iac_ref` | Full reviewed SHA containing `vpn-overlay/xconnect-lab` in `ai-workspace-infra/iac_modules` |
-| `gitops_ref` | Full reviewed SHA containing `topology/sit/xconnect-lab.json` in `ai-workspace-infra/gitops` |
+| `gitops_ref` | Full reviewed SHA containing `topology/uat/xconnect-lab.json` in `ai-workspace-infra/gitops` |
 | `cli_ref` | Full reviewed SHA in private `ai-workspace-xstream/XConnect-One`, including the real CLI and experimental lab API harness |
 | `xray_ref` | Full reviewed compatible SHA in `XTLS/Xray-core`; compiled as external Linux executable |
 | `cleanup_run` | Empty except cleanup: exact `xcl-RUN_ID-ATTEMPT` from original run |
@@ -42,21 +42,23 @@ trust policies just to run a feature branch.
 ## Authentication and Vault fields
 
 CI uses GitHub OIDC JWT with audience `vault`, Vault address
-`https://vault.svc.plus`, and role `github-actions-platform-ops-toolkit-sit` through
+`https://vault.svc.plus`, and the dedicated role
+`github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab` through
 the existing `hashicorp/vault-action@v4` pattern. There are no new static GitHub
 cloud-credential secrets. Missing paths/fields are fatal.
 
 The Vault administrator must re-run
 `scripts/create_vault_service_repo_roles.sh` after enabling this workflow so the
-role's `job_workflow_ref` allowlist includes
-`platform-ops-toolkit/.github/workflows/xconnect-cloud-lab.yml`. The workflow
-does not broaden or self-modify Vault role bindings.
+dedicated role exists. Its `job_workflow_ref` is pinned to
+`platform-ops-toolkit/.github/workflows/xconnect-cloud-lab.yml@refs/heads/main`;
+it reuses the UAT data policy but cannot authenticate from another workflow or
+branch. The workflow does not broaden or self-modify Vault role bindings.
 
 | Vault KV v2 API path | Exact fields |
 |---|---|
 | `kv/data/CICD/github-app/daily-snapshot` | `app_private_key` |
-| `kv/data/CICD/sit` | `TF_STATE_ENDPOINT`, `TF_STATE_BUCKET`, `TF_STATE_ACCESS_KEY`, `TF_STATE_SECRET_KEY`, `TF_STATE_REGION`; `VULTR_API_KEY` only for explicit Vultr opt-in |
-| `kv/data/sit/xconnect-one` | `ADMIN_TOKEN` (at least 32 characters), `SIGNING_KEY` (base64 Ed25519 32-byte seed), `VLESS_ID` (UUID) |
+| `kv/data/CICD/uat` | `TF_STATE_ENDPOINT`, `TF_STATE_BUCKET`, `TF_STATE_ACCESS_KEY`, `TF_STATE_SECRET_KEY`, `TF_STATE_REGION` |
+| `kv/data/uat/xconnect-one` | `ADMIN_TOKEN` (at least 32 characters), `SIGNING_KEY` (base64 Ed25519 32-byte seed), `VLESS_ID` (UUID) |
 
 Existing GitHub App client ID `Iv23liNwStpQIiXajhpb` must be installed with Contents
 read on `ai-workspace-infra/{iac_modules,gitops}` AND separately on
@@ -66,11 +68,10 @@ the default repository token cannot read the private CLI repository. Existing
 
 AWS uses native short-lived GitHub OIDC credentials, following existing workflows,
 with the GitOps-declared role/account/region and `sts.amazonaws.com` audience. The
-role needs SSM GetParameter plus EC2 read/create/delete for the two one-time Spot
-instances and their dedicated network resources (including Spot service-linked role
-availability). Vultr account/catalog and CRUD permissions are needed only for the
-explicit optional `gateway_provider=vultr` path. Backend credentials must
-read/write only the intended `sit/xconnect-lab/` namespace, including list/get/put/
+role needs SSM GetParameter plus EC2 read/create/delete for the two one-time ARM64 Spot
+instances and their disposable security groups (including Spot service-linked role
+availability). No Vultr credentials or provider are used. Backend credentials must
+read/write only the intended `uat/xconnect-lab/` namespace, including list/get/put/
 delete of `_leases/` objects for expiry recovery. Provisioning code does
 not create roles, edit Vault policy, or bootstrap Spot account permissions.
 
@@ -97,7 +98,7 @@ State/plan/logs are private runner files, never uploaded. The S3 state survives 
 runner failure. Every normal apply attempt triggers `always()` cleanup, including
 partial Terraform failures. Cleanup validates the exact run namespace and state
 resource ownership before destroy, then asserts empty state. Before apply a durable
-nonsecret lease records the four pinned refs, exact run ID and 90-minute expiry.
+nonsecret lease records the four pinned refs, exact run ID and 60-minute expiry.
 A scheduled job every 15 minutes reads expired leases and dispatches `cleanup`;
 the lease is removed only after empty state is verified. This provides recovery
 after runner loss; schedules must be enabled on main and may be delayed by GitHub,
