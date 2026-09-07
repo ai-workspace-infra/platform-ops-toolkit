@@ -56,6 +56,8 @@ api_request() {
   local method="$1"
   local url="$2"
   local body="${3:-}"
+  local allow_read_only_delete="${4:-false}"
+  CLOUDFLARE_READ_ONLY_DELETE=false
   local response
   local -a curl_args=(
     --fail-with-body
@@ -72,6 +74,12 @@ api_request() {
     curl_args+=(--data "${body}")
   fi
   if ! response="$(curl "${curl_args[@]}" "${url}")"; then
+    if [[ "${method}" == "DELETE" && "${allow_read_only_delete}" == "true" ]] \
+      && jq -e 'any(.errors[]?; .code == 1043)' <<<"${response:-}" >/dev/null 2>&1; then
+      CLOUDFLARE_READ_ONLY_DELETE=true
+      echo "Cloudflare DNS record is provider-managed and read-only; leaving it in place: ${url}" >&2
+      return 0
+    fi
     echo "Cloudflare API request failed: ${method} ${url}" >&2
     if [[ -n "${response:-}" ]]; then
       echo "Cloudflare API error body:" >&2
@@ -80,6 +88,12 @@ api_request() {
     return 1
   fi
   if ! jq -e '.success == true' >/dev/null <<<"${response}"; then
+    if [[ "${method}" == "DELETE" && "${allow_read_only_delete}" == "true" ]] \
+      && jq -e 'any(.errors[]?; .code == 1043)' <<<"${response}" >/dev/null 2>&1; then
+      CLOUDFLARE_READ_ONLY_DELETE=true
+      echo "Cloudflare DNS record is provider-managed and read-only; leaving it in place: ${url}" >&2
+      return 0
+    fi
     echo "Cloudflare API returned success=false: ${method} ${url}" >&2
     jq -c '.errors // .messages // []' <<<"${response}" >&2 || true
     return 1
@@ -316,8 +330,12 @@ remove_declared_cname() {
         return 1
       fi
     fi
-    api_request DELETE "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records/${record_id}" >/dev/null
-    echo "Removed conflicting DNS CNAME: ${name} -> ${record_target}"
+    api_request DELETE "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records/${record_id}" "" true >/dev/null
+    if [[ "${CLOUDFLARE_READ_ONLY_DELETE}" == true ]]; then
+      echo "Skipped provider-managed DNS CNAME: ${name} -> ${record_target}"
+    else
+      echo "Removed conflicting DNS CNAME: ${name} -> ${record_target}"
+    fi
   done < <(jq -r '.result[]? | [.id, .content] | @tsv' <<<"${records_response}")
 }
 
@@ -337,8 +355,12 @@ remove_worker_domain_dns_records() {
   records_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones/${hostname_zone_id}/dns_records?name=${hostname}&per_page=100")"
   while IFS=$'\t' read -r record_id record_type record_content; do
     [[ -n "${record_id}" ]] || continue
-    api_request DELETE "${CLOUDFLARE_API_BASE}/zones/${hostname_zone_id}/dns_records/${record_id}" >/dev/null
-    echo "Removed DNS record for Worker custom domain: ${hostname} (${record_type} -> ${record_content})"
+    api_request DELETE "${CLOUDFLARE_API_BASE}/zones/${hostname_zone_id}/dns_records/${record_id}" "" true >/dev/null
+    if [[ "${CLOUDFLARE_READ_ONLY_DELETE}" == true ]]; then
+      echo "Skipped provider-managed DNS record: ${hostname} (${record_type} -> ${record_content})"
+    else
+      echo "Removed DNS record for Worker custom domain: ${hostname} (${record_type} -> ${record_content})"
+    fi
   done < <(jq -r '.result[]? | [.id, .type, .content] | @tsv' <<<"${records_response}")
 }
 
@@ -374,8 +396,12 @@ remove_address_records() {
     [[ -n "${record_id}" ]] || continue
     case "${record_type}" in
       A|AAAA|CNAME)
-        api_request DELETE "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records/${record_id}" >/dev/null
-        echo "Removed conflicting DNS ${record_type}: ${name} -> ${record_target}"
+        api_request DELETE "${CLOUDFLARE_API_BASE}/zones/${zone_id}/dns_records/${record_id}" "" true >/dev/null
+        if [[ "${CLOUDFLARE_READ_ONLY_DELETE}" == true ]]; then
+          echo "Skipped provider-managed DNS ${record_type}: ${name} -> ${record_target}"
+        else
+          echo "Removed conflicting DNS ${record_type}: ${name} -> ${record_target}"
+        fi
         ;;
     esac
   done < <(jq -r '.result[]? | [.id, .type, (.content // "")] | @tsv' <<<"${records_response}")
