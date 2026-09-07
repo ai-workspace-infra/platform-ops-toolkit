@@ -4,6 +4,7 @@ umask 077
 
 ROOT="${GITHUB_WORKSPACE:?}"
 LAB_DIR="${LAB_DIR:?}"
+DECL="$ROOT/gitops/topology/uat/xconnect-lab.json"
 gateway=$(jq -er .gateway_ip.value "$LAB_DIR/outputs.json")
 gateway_transport=$(jq -er .gateway_transport_ip.value "$LAB_DIR/outputs.json")
 gateway_user=$(jq -er .gateway_ssh_user.value "$LAB_DIR/outputs.json")
@@ -11,6 +12,7 @@ client=$(jq -er .client_ip.value "$LAB_DIR/outputs.json")
 client_user=$(jq -er .client_ssh_user.value "$LAB_DIR/outputs.json")
 formal_zero=$(jq -er .zero_accounts_api_url.value "$LAB_DIR/outputs.json")
 formal_portal=$(jq -er .zero_portal_url.value "$LAB_DIR/outputs.json")
+network_id=$(jq -er .spec.overlay.network_id "$DECL")
 run_id=$(<"$LAB_DIR/run-id")
 SSH=(-i "$LAB_DIR/id_ed25519" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$LAB_DIR/known_hosts")
 
@@ -50,7 +52,7 @@ jq -n --arg formal "$formal_zero" --arg portal "$formal_portal" --arg role relay
 
 ssh "${SSH[@]}" "$gateway_user@$gateway" 'sudo install -d -m 700 /opt/xconnect-lab'
 scp "${SSH[@]}" "$LAB_DIR/bin/xconnect-zero-lab" "$LAB_DIR/bin/xray" "$LAB_DIR/tls/server.key" "$LAB_DIR/tls/server.crt" "$LAB_DIR/tls/ca.crt" "$LAB_DIR/admin-token" "$LAB_DIR/signing-key" "$LAB_DIR/vless-id" "$LAB_DIR/runtime-contract.json" "$ROOT/.github/scripts/xconnect-lab/gateway.sh" "$gateway_user@$gateway:/tmp/" >/dev/null
-ssh "${SSH[@]}" "$gateway_user@$gateway" "sudo install -m 755 /tmp/xconnect-zero-lab /tmp/xray /tmp/gateway.sh /opt/xconnect-lab; sudo install -m 600 /tmp/server.key /tmp/admin-token /tmp/signing-key /tmp/vless-id /opt/xconnect-lab; sudo install -m 644 /tmp/server.crt /tmp/ca.crt /tmp/runtime-contract.json /opt/xconnect-lab; sudo bash /opt/xconnect-lab/gateway.sh '$gateway_transport' '$run_id' '$formal_zero' '$formal_portal'"
+ssh "${SSH[@]}" "$gateway_user@$gateway" "sudo install -m 755 /tmp/xconnect-zero-lab /tmp/xray /tmp/gateway.sh /opt/xconnect-lab; sudo install -m 600 /tmp/server.key /tmp/admin-token /tmp/signing-key /tmp/vless-id /opt/xconnect-lab; sudo install -m 644 /tmp/server.crt /tmp/ca.crt /tmp/runtime-contract.json /opt/xconnect-lab; sudo bash /opt/xconnect-lab/gateway.sh '$gateway_transport' '$run_id' '$formal_zero' '$formal_portal' '$network_id'"
 
 scp "${SSH[@]}" "$LAB_DIR/bin/xconnect" "$LAB_DIR/bin/xray" "$LAB_DIR/tls/ca.crt" "$LAB_DIR/runtime-contract.json" "$client_user@$client:/tmp/" >/dev/null
 ssh "${SSH[@]}" "$client_user@$client" 'sudo install -m 755 /tmp/xconnect /tmp/xray /usr/local/bin/; sudo install -m 644 /tmp/ca.crt /usr/local/share/ca-certificates/xconnect-lab.crt; sudo install -m 644 /tmp/runtime-contract.json /etc/xconnect-lab-runtime.json; sudo update-ca-certificates >/dev/null 2>&1; sudo install -d -m 700 /var/lib/xconnect-one; test "$(sudo cat /etc/xconnect-lab/node-role)" = controlled-client'
