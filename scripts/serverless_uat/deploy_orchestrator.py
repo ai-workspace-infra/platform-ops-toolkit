@@ -322,8 +322,14 @@ def main():
     billing_secrets = fetch_vault_path(
         f"kv/data/{VAULT_ENV_PATH}/billing-service"
     ) if DEPLOY_CLOUD_RUN else {}
+    deploys_accounts = DEPLOY_CLOUD_RUN and (
+        not CLOUD_RUN_SERVICE or CLOUD_RUN_SERVICE == "accounts"
+    )
+    xconnect_zero_secrets = fetch_vault_path(
+        f"kv/data/{VAULT_ENV_PATH}/xconnect-one"
+    ) if deploys_accounts else {}
     github_oauth_runtime = {}
-    if DEPLOY_CLOUD_RUN and (not CLOUD_RUN_SERVICE or CLOUD_RUN_SERVICE == "accounts"):
+    if deploys_accounts:
         github_oauth_runtime = resolve_github_oauth_runtime()
 
     if DEPLOY_CLOUD_RUN or VERIFY_SUPABASE:
@@ -356,6 +362,14 @@ def main():
             "AUTH_TOKEN_ACCESS_SECRET",
         )
     } if DEPLOY_CLOUD_RUN else {}
+    xconnect_zero_runtime = {
+        "XCONNECT_OVERLAY_SIGNING_PRIVATE_KEY": require_runtime_secret(
+            xconnect_zero_secrets, "ZERO_SIGNING_PRIVATE_KEY"
+        ),
+        "XCONNECT_OVERLAY_SIGNING_KEY_ID": require_runtime_secret(
+            xconnect_zero_secrets, "ZERO_SIGNING_KEY_ID"
+        ),
+    } if deploys_accounts else {}
     shared_tenant_domain = (
         str(runtime_secrets.get("XWORKMATE_SHARED_TENANT_DOMAIN", "onwalk.net")).strip()
         if DEPLOY_CLOUD_RUN
@@ -388,6 +402,7 @@ def main():
         ),
         "ROOT_BOOTSTRAP_PASSWORD": root_bootstrap_password,
         **auth_token_secrets,
+        **xconnect_zero_runtime,
         "XWORKMATE_SHARED_TENANT_DOMAIN": shared_tenant_domain,
         "XWORKMATE_SHARED_TENANT_DOMAINS": runtime_secrets.get(
             "XWORKMATE_SHARED_TENANT_DOMAINS", shared_tenant_domain
