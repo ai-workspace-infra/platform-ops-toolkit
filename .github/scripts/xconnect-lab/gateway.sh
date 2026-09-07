@@ -96,7 +96,7 @@ Description=Experimental XConnect Zero API compatibility harness for lab debuggi
 After=network-online.target
 Wants=network-online.target
 [Service]
-ExecStart=/usr/local/bin/xconnect-zero-lab --listen :8443 --public-url https://PLACEHOLDER:8443 --state /var/lib/xconnect-zero-lab/state.json --tls-cert /opt/xconnect-lab/server.crt --tls-key /opt/xconnect-lab/server.key --admin-token-file /opt/xconnect-lab/admin-token --signing-key-file /opt/xconnect-lab/signing-key --network-id NETWORK_ID --network-cidr 10.77.0.0/24 --device-address 10.77.0.2/32 --gateway-public-key PLACEHOLDER_KEY --gateway-host PLACEHOLDER --gateway-port 443 --gateway-server-name xconnect-lab.invalid --vless-id-file /opt/xconnect-lab/vless-id --peer-command /usr/local/libexec/xconnect-lab-peer
+ExecStart=/usr/local/bin/xconnect-zero-lab --listen 0.0.0.0:8443 --public-url https://PLACEHOLDER:8443 --state /var/lib/xconnect-zero-lab/state.json --tls-cert /opt/xconnect-lab/server.crt --tls-key /opt/xconnect-lab/server.key --admin-token-file /opt/xconnect-lab/admin-token --signing-key-file /opt/xconnect-lab/signing-key --network-id NETWORK_ID --network-cidr 10.77.0.0/24 --device-address 10.77.0.2/32 --gateway-public-key PLACEHOLDER_KEY --gateway-host PLACEHOLDER --gateway-port 443 --gateway-server-name xconnect-lab.invalid --vless-id-file /opt/xconnect-lab/vless-id --peer-command /usr/local/libexec/xconnect-lab-peer
 Restart=always
 RestartSec=2
 [Install]
@@ -116,19 +116,28 @@ for attempt in {1..30}; do
   [[ "$attempt" == 30 ]] && { echo 'Gateway relay services did not become healthy'; exit 1; }
   sleep 2
 done
-status=000
+health_status=000
 for attempt in {1..30}; do
-  status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+  if health_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
     --cacert /opt/xconnect-lab/ca.crt --resolve "$gateway:8443:127.0.0.1" \
-    "https://$gateway:8443/healthz" || true)
-  [[ "$status" == 200 ]] && break
-  [[ "$attempt" == 30 ]] && {
-    echo "Experimental Zero API TLS health check failed with HTTP status $status"
+    --connect-timeout 2 --max-time 5 "https://$gateway:8443/healthz"); then
+    if [[ "$health_status" == 200 ]]; then
+      break
+    fi
+  else
+    health_status=000
+  fi
+  if [[ "$attempt" == 30 ]]; then
+    echo "Experimental Zero API TLS health check failed with HTTP status $health_status"
     systemctl is-active wg-quick@wg0 xconnect-lab-xray xconnect-lab-http xconnect-lab-zero || true
-    ss -ltn || true
-    systemctl --no-pager --full status xconnect-lab-zero.service | tail -n 20 || true
+    echo 'Listening TCP sockets:'
+    ss -ltnp || true
+    echo 'Zero API service status:'
+    systemctl --no-pager --full status xconnect-lab-zero.service | tail -n 30 || true
+    echo 'Recent Zero API service log:'
+    journalctl -u xconnect-lab-zero.service -n 30 --no-pager || true
     exit 1
-  }
+  fi
   sleep 2
 done
 
