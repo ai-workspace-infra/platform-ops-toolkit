@@ -166,12 +166,21 @@ jobs:
           role: ${{ steps.topology.outputs.vault_role }}
           jwtGithubAudience: vault
           secrets: |
-            kv/data/CICD/sit VULTR_API_KEY | VULTR_API_KEY ;
             kv/data/CICD/sit TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
             kv/data/CICD/sit TF_STATE_BUCKET | TF_STATE_BUCKET ;
             kv/data/CICD/sit TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
             kv/data/CICD/sit TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
             kv/data/CICD/sit TF_STATE_REGION | TF_STATE_REGION
+      - name: Optional Vultr gateway credentials
+        if: inputs.mode != 'dry-run' && steps.topology.outputs.gateway_provider == 'vultr'
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ steps.topology.outputs.vault_address }}
+          method: jwt
+          role: ${{ steps.topology.outputs.vault_role }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD/sit VULTR_API_KEY | VULTR_API_KEY
       - name: Runtime credentials from dedicated Vault path
         if: inputs.mode == 'apply'
         uses: hashicorp/vault-action@v4

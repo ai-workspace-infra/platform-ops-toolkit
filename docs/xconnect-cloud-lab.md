@@ -3,14 +3,24 @@
 Manual workflow: `.github/workflows/xconnect-cloud-lab.yml`. Default `dry-run`
 checks immutable refs, private repository access, real source builds, topology and
 Terraform schema. It creates no cloud resources. `apply` then reads Vault runtime
-secrets, checks account/catalog prerequisites, provisions a dedicated AWS Spot
-client and Vultr Zero/Gateway, performs real data-plane checks, and always cleans
-up. This is an experimental controller, not an Accounts production deployment.
+secrets, checks account prerequisites, provisions a dedicated AWS Spot Gateway and
+AWS Spot One client by default, performs joint data-plane checks, and always cleans
+up. This workflow is an experimental cloud-lab controller, not the formal Zero
+Accounts API or Portal and never becomes their configuration source.
 
-The Gateway is a self-hosted VPS/EC2 data-plane workload. It requires a durable
-host network namespace for WireGuard, Xray, forwarding and policy enforcement;
-Cloud Run, Cloudflare Workers and other serverless/edge-function platforms are
-not deployment targets for it.
+The Gateway and One have the same independent Linux-node baseline and both run
+external WireGuard and Xray. Gateway is `role=relay` / `relay/service`; One is
+`role=controlled-client`. Gateway additionally provides forwarding, relay health,
+and the private service probe. Cloud Run, Cloudflare Workers, and other
+serverless/edge-function platforms are not Gateway deployment targets.
+
+The final configuration flow is fixed: XConnect Zero Accounts (devices,
+networks, policy, signed config) and the Zero Portal are the sole centralized
+control/config source. Gateway consumes the relay/service projection; One consumes
+the controlled-client projection. The temporary `xconnect-zero-lab` process is
+co-located only to debug the API/runtime contract in the cloud and issue a
+disposable test enrollment; it is explicitly not a formal Accounts or Portal
+endpoint.
 
 ## Exact dispatch inputs
 
@@ -19,11 +29,11 @@ not deployment targets for it.
 | `mode` | `dry-run` (default), `apply`, or recovery `cleanup` |
 | `iac_ref` | Full reviewed SHA containing `vpn-overlay/xconnect-lab` in `ai-workspace-infra/iac_modules` |
 | `gitops_ref` | Full reviewed SHA containing `topology/sit/xconnect-lab.json` in `ai-workspace-infra/gitops` |
-| `cli_ref` | Full reviewed SHA in private `ai-workspace-xstream/XConnect-One`, including `cmd/xconnect-zero-lab` |
+| `cli_ref` | Full reviewed SHA in private `ai-workspace-xstream/XConnect-One`, including the real CLI and experimental lab API harness |
 | `xray_ref` | Full reviewed compatible SHA in `XTLS/Xray-core`; compiled as external Linux executable |
 | `cleanup_run` | Empty except cleanup: exact `xcl-RUN_ID-ATTEMPT` from original run |
 
-CLI baseline `70a77e5` alone does not contain the new controller and is intentionally
+CLI baseline `70a77e5` alone does not contain the lab API harness and is intentionally
 rejected. No arbitrary container or mock endpoint is substituted. The final four
 SHAs must exist remotely before this workflow can run. Dispatch from a toolkit ref
 accepted by BOTH the current Vault role and AWS role trust; do not weaken existing
@@ -39,7 +49,7 @@ cloud-credential secrets. Missing paths/fields are fatal.
 | Vault KV v2 API path | Exact fields |
 |---|---|
 | `kv/data/CICD/github-app/daily-snapshot` | `app_private_key` |
-| `kv/data/CICD/sit` | `VULTR_API_KEY`, `TF_STATE_ENDPOINT`, `TF_STATE_BUCKET`, `TF_STATE_ACCESS_KEY`, `TF_STATE_SECRET_KEY`, `TF_STATE_REGION` |
+| `kv/data/CICD/sit` | `TF_STATE_ENDPOINT`, `TF_STATE_BUCKET`, `TF_STATE_ACCESS_KEY`, `TF_STATE_SECRET_KEY`, `TF_STATE_REGION`; `VULTR_API_KEY` only for explicit Vultr opt-in |
 | `kv/data/sit/xconnect-one` | `ADMIN_TOKEN` (at least 32 characters), `SIGNING_KEY` (base64 Ed25519 32-byte seed), `VLESS_ID` (UUID) |
 
 Existing GitHub App client ID `Iv23liNwStpQIiXajhpb` must be installed with Contents
@@ -50,9 +60,10 @@ the default repository token cannot read the private CLI repository. Existing
 
 AWS uses native short-lived GitHub OIDC credentials, following existing workflows,
 with the GitOps-declared role/account/region and `sts.amazonaws.com` audience. The
-role needs SSM GetParameter plus EC2 read/create/delete for the dedicated resources
-(including Spot service-linked role availability). Vultr requires account/catalog
-read and CRUD for instance/firewall/SSH-key resources. Backend credentials must
+role needs SSM GetParameter plus EC2 read/create/delete for the two one-time Spot
+instances and their dedicated network resources (including Spot service-linked role
+availability). Vultr account/catalog and CRUD permissions are needed only for the
+explicit optional `gateway_provider=vultr` path. Backend credentials must
 read/write only the intended `sit/xconnect-lab/` namespace, including list/get/put/
 delete of `_leases/` objects for expiry recovery. Provisioning code does
 not create roles, edit Vault policy, or bootstrap Spot account permissions.
@@ -66,12 +77,15 @@ on the client; TLS verification is never disabled.
 
 ## Verification and cleanup
 
-The real lab server installs the device peer before returning an enrollment.
-The CLI verifies a signed v1 configuration, runs external Xray and wg-quick, and
-ACKs local readiness. Independent checks then require a recent WG handshake,
-private ping and an exact run-specific HTTP body on `10.77.0.1:8080`. Sync is tested,
-followed by tunnel down and a negative private HTTP check. Gateway policy accepts
-only the intended UDP 127.0.0.1:51820 target through VLESS; public WG UDP is closed.
+The real lab server installs the device peer before returning a disposable debug
+enrollment. The CLI verifies a signed v1 configuration, runs external Xray and
+wg-quick, and ACKs local readiness. Independent Gateway checks require the
+`relay` marker, active wg-quick/Xray/Zero API TLS health, and a recent relay-side
+WireGuard handshake. Client checks require `controlled-client`, a recent client-side
+handshake, private ping and an exact run-specific HTTP body on `10.77.0.1:8080`.
+Sync is tested, followed by tunnel down and a negative private HTTP check. Gateway
+policy accepts only the intended UDP 127.0.0.1:51820 target through VLESS; public
+WG UDP is closed.
 
 State/plan/logs are private runner files, never uploaded. The S3 state survives a
 runner failure. Every normal apply attempt triggers `always()` cleanup, including
