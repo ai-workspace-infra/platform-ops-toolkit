@@ -32,6 +32,7 @@ VERIFY_SUPABASE = os.environ.get("VERIFY_SUPABASE", "true").lower() == "true"
 CLOUD_RUN_SERVICE = os.environ.get("CLOUD_RUN_SERVICE", "").strip()
 CLOUDFLARE_TARGET = os.environ.get("CLOUDFLARE_TARGET", "").strip()
 CLOUDFLARE_BOUNDARY_CONFIG = os.environ.get("CLOUDFLARE_BOUNDARY_CONFIG", "").strip()
+GITOPS_OAUTH_GITHUB_CONFIG = os.environ.get("GITOPS_OAUTH_GITHUB_CONFIG", "").strip()
 
 def log(msg: str):
     print(f"==> [UAT Orchestrator] {msg}", flush=True)
@@ -52,6 +53,67 @@ def fetch_vault_path(path: str) -> dict:
     except Exception as e:
         log(f"Failed to fetch Vault secret at {url}: {e}")
         return {}
+
+
+def resolve_github_oauth_runtime() -> dict:
+    """Resolve the enabled GitHub OAuth contract for the target environment.
+
+    The client id and redirect/frontend URLs are non-sensitive GitOps metadata;
+    only ``client_secret`` is read from the environment-scoped Vault path. Do
+    not let an accounts deployment continue with an empty provider: that makes
+    the service start successfully but returns ``provider_not_found`` at login.
+    """
+    if not GITOPS_OAUTH_GITHUB_CONFIG:
+        raise SystemExit(
+            "GITOPS_OAUTH_GITHUB_CONFIG is required for an accounts deployment"
+        )
+
+    try:
+        with open(GITOPS_OAUTH_GITHUB_CONFIG, encoding="utf-8") as handle:
+            metadata = json.load(handle)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(
+            f"Unable to read GitOps GitHub OAuth metadata at {GITOPS_OAUTH_GITHUB_CONFIG}: {exc}"
+        ) from exc
+
+    if not isinstance(metadata, dict):
+        raise SystemExit("GitOps GitHub OAuth metadata must be a JSON object")
+    if metadata.get("enabled") is not True:
+        raise SystemExit("GitHub OAuth must be enabled in GitOps before deploying accounts")
+
+    client_id = str(metadata.get("client_id", "")).strip()
+    redirect_url = str(metadata.get("redirect_url", "")).strip()
+    frontend_url = str(metadata.get("frontend_url", "")).strip()
+    secret_path = str(metadata.get("vault_secret_path", "")).strip()
+    secret_key = str(metadata.get("vault_secret_key", "client_secret")).strip()
+    expected_path = f"kv/data/{VAULT_ENV_PATH}/accounts/oauth/github"
+
+    if not client_id:
+        raise SystemExit("GitOps GitHub OAuth metadata must contain client_id")
+    if not redirect_url:
+        raise SystemExit("GitOps GitHub OAuth metadata must contain redirect_url")
+    if not frontend_url:
+        raise SystemExit("GitOps GitHub OAuth metadata must contain frontend_url")
+    if secret_path != expected_path:
+        raise SystemExit(
+            f"GitHub OAuth Vault path must be {expected_path}; got {secret_path or '<empty>'}"
+        )
+    if not secret_key:
+        raise SystemExit("GitOps GitHub OAuth metadata must contain vault_secret_key")
+
+    secret_data = fetch_vault_path(secret_path)
+    client_secret = str(secret_data.get(secret_key, "")).strip()
+    if not client_secret:
+        raise SystemExit(
+            f"Vault GitHub OAuth secret is missing {secret_key} at {secret_path}"
+        )
+
+    return {
+        "GITHUB_CLIENT_ID": client_id,
+        "GITHUB_CLIENT_SECRET": client_secret,
+        "OAUTH_FRONTEND_URL": frontend_url,
+        "OAUTH_GITHUB_REDIRECT_URL": redirect_url,
+    }
 
 
 def billing_secret(secrets: dict, key: str) -> str:
@@ -260,6 +322,9 @@ def main():
     billing_secrets = fetch_vault_path(
         f"kv/data/{VAULT_ENV_PATH}/billing-service"
     ) if DEPLOY_CLOUD_RUN else {}
+    github_oauth_runtime = {}
+    if DEPLOY_CLOUD_RUN and (not CLOUD_RUN_SERVICE or CLOUD_RUN_SERVICE == "accounts"):
+        github_oauth_runtime = resolve_github_oauth_runtime()
 
     if DEPLOY_CLOUD_RUN or VERIFY_SUPABASE:
         require_supabase_secret(supabase_secrets)
@@ -328,6 +393,7 @@ def main():
             "XWORKMATE_SHARED_TENANT_DOMAINS", shared_tenant_domain
         ),
         "XWORKMATE_BRIDGE_SERVER_URL": bridge_server_url,
+        **github_oauth_runtime,
         "JWT_SECRET": os.environ.get("JWT_SECRET", "uat-jwt-secret-default"),
         "CONFIG_TEMPLATE": "/app/config/account.cloudrun.yaml",
         "SMTP_HOST": runtime_secrets.get("SMTP_HOST", "smtp.qq.com"),

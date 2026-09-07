@@ -90,6 +90,39 @@ with tempfile.TemporaryDirectory() as tmp:
         json.dump({"kind": "EdgeRoutingConfig", "spec": {}}, handle)
     assert resolve(empty_path) == [], resolve(empty_path)
 
+    oauth_path = os.path.join(tmp, "github.json")
+    with open(oauth_path, "w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "enabled": True,
+                "client_id": "test-client-id",
+                "redirect_url": "https://accounts-cloudflare-uat.onwalk.net/api/auth/oauth/callback/github",
+                "frontend_url": "https://console-cloudflare-uat.onwalk.net",
+                "vault_secret_path": "kv/data/uat/accounts/oauth/github",
+                "vault_secret_key": "client_secret",
+            },
+            handle,
+        )
+
+    original_config = mod.GITOPS_OAUTH_GITHUB_CONFIG
+    original_fetch = mod.fetch_vault_path
+    mod.GITOPS_OAUTH_GITHUB_CONFIG = oauth_path
+    mod.VAULT_ENV_PATH = "uat"
+    mod.fetch_vault_path = lambda path: {
+        "client_secret": "test-client-secret"
+    } if path == "kv/data/uat/accounts/oauth/github" else {}
+    try:
+        oauth = mod.resolve_github_oauth_runtime()
+    finally:
+        mod.GITOPS_OAUTH_GITHUB_CONFIG = original_config
+        mod.fetch_vault_path = original_fetch
+    assert oauth == {
+        "GITHUB_CLIENT_ID": "test-client-id",
+        "GITHUB_CLIENT_SECRET": "test-client-secret",
+        "OAUTH_FRONTEND_URL": "https://console-cloudflare-uat.onwalk.net",
+        "OAUTH_GITHUB_REDIRECT_URL": "https://accounts-cloudflare-uat.onwalk.net/api/auth/oauth/callback/github",
+    }, oauth
+
 # An unset config path is not an error here; the orchestrator warns instead.
 assert resolve("") == []
 
@@ -101,6 +134,13 @@ grep -q 'ALLOWED_ORIGINS=\${ALLOWED_ORIGINS}' "${deploy_script}" || {
   echo "deploy_cloudrun_services.sh must pass ALLOWED_ORIGINS to accounts" >&2
   exit 1
 }
+
+for required in GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET OAUTH_FRONTEND_URL OAUTH_GITHUB_REDIRECT_URL; do
+  grep -q "${required}=\${${required}" "${deploy_script}" || {
+    echo "deploy_cloudrun_services.sh must pass ${required} to accounts" >&2
+    exit 1
+  }
+done
 
 # The Cloud Run job must render the GitOps topology and hand it to the deploy
 # step, otherwise resolve_console_origins has nothing to read.
@@ -122,6 +162,11 @@ assert "Render GitOps runtime topology YAML" in names, names
 
 deploy_step = next(step for step in steps if step.get("name") == "Deploy Cloud Run service")
 assert "CLOUDFLARE_BOUNDARY_CONFIG" in deploy_step.get("env", {}), deploy_step.get("env")
+assert "GITOPS_OAUTH_GITHUB_CONFIG" in deploy_step.get("env", {}), deploy_step.get("env")
+
+gitops_step = next(step for step in steps if step.get("name") == "Checkout GitOps runtime topology")
+sparse_checkout = gitops_step.get("with", {}).get("sparse-checkout", "")
+assert "services/accounts/${{ inputs.vault_env_path || 'uat' }}/oauth/github.json" in sparse_checkout, sparse_checkout
 
 print("cloud_run workflow wiring: PASS")
 EOF
