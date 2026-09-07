@@ -19,9 +19,11 @@ set -euo pipefail
 url="${!#}"
 dump_header=""
 write_status=false
+request_method=GET
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --dump-header) dump_header="$2"; shift 2 ;;
+    --request) request_method="$2"; shift 2 ;;
     --write-out) write_status=true; shift 2 ;;
     *) shift ;;
   esac
@@ -29,6 +31,14 @@ done
 
 status=403
 headers=$'HTTP/2 403\r\ncf-mitigated: challenge\r\nserver: cloudflare\r\n\r\n'
+if [[ "${EDGE_MODE:-}" == "runner" ]]; then
+  if [[ "${request_method}" == "OPTIONS" ]]; then
+    status=204
+    headers=$'HTTP/2 204\r\nserver: cloudflare\r\ncf-ray: test-ray\r\naccess-control-allow-origin: https://console-serverless-prod.svc.plus\r\n\r\n'
+  else
+    headers=$'HTTP/2 403\r\nserver: cloudflare\r\ncf-ray: test-ray\r\n\r\n'
+  fi
+fi
 if [[ "${url}" == "https://www.xworktech.com/" && "${ALIAS_STATUS:-403}" != "403" ]]; then
   status="${ALIAS_STATUS}"
   headers="$(printf 'HTTP/2 %s\r\n' "${status}")"
@@ -73,6 +83,27 @@ PATH="${test_dir}/bin:${PATH}" \
   SERVERLESS_DNS_MODE=none \
   VERIFY_ATTEMPTS=1 \
   VERIFY_INTERVAL_SECONDS=0 \
+  "${script}" >"${output}"
+
+cat >"${test_dir}/runner-routing.json" <<'EOF'
+{
+  "metadata": {"environment": "prod"},
+  "spec": {
+    "serverless": {
+      "console_host": "console-serverless-prod.svc.plus",
+      "console_aliases": [],
+      "frontend_router": {"website": {"hosts": [], "platform_origin": "https://svc.plus"}},
+      "accounts_host": "accounts-serverless-prod.svc.plus",
+      "billing_host": "billing-serverless-prod.svc.plus"
+    }
+  }
+}
+EOF
+
+PATH="${test_dir}/bin:${PATH}" \
+  CLOUDFLARE_BOUNDARY_CONFIG="${test_dir}/runner-routing.json" \
+  SERVERLESS_DNS_MODE=none EDGE_MODE=runner \
+  VERIFY_ATTEMPTS=1 VERIFY_INTERVAL_SECONDS=0 \
   "${script}" >"${output}"
 
 grep -Fq 'Serverless edge chain verified behind Cloudflare challenge' "${output}"
