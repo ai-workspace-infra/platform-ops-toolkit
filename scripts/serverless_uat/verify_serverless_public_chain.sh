@@ -33,6 +33,19 @@ is_cloudflare_challenge_text() {
   grep -Eiq '^cf-mitigated:[[:space:]]*challenge' <<<"$1"
 }
 
+is_cloudflare_edge_protection() {
+  local status="$1" headers="$2"
+  [[ "${status}" == "403" ]] || return 1
+  # Cloudflare may omit cf-mitigated on a managed/WAF response. Require both
+  # the Cloudflare server marker and Ray ID before treating that 403 as an
+  # edge protection response; an origin/application 403 must still fail.
+  if is_cloudflare_challenge_text "${headers}"; then
+    return 0
+  fi
+  grep -Eiq '^server:[[:space:]]*cloudflare' <<<"${headers}" &&
+    grep -Eiq '^cf-ray:[[:space:]]*[[:alnum:]-]+' <<<"${headers}"
+}
+
 alias_probe_is_acceptable() {
   local status="$1" headers="$2"
   # Custom-domain aliases serve the homepage in place. A redirect can hide
@@ -100,12 +113,12 @@ for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
     --header "Origin: ${origin}" \
     --header 'Access-Control-Request-Method: GET' \
     --header 'Access-Control-Request-Headers: Authorization, Content-Type' || true)"
-  preflight_status="$(awk 'NR == 1 {print $2}' <<<"${preflight_headers}")"
+  preflight_status="$(awk 'NR == 1 {print $2}' <<<"${preflight_headers}" | tr -d '\r')"
   # Billing is exposed through the Edge Gateway Core custom domain. Probe the
   # service readiness contract, which is implemented by the deployed Go
   # service, instead of assuming the generic accounts /healthz path exists.
   billing_headers="$(curl --silent --show-error --dump-header - --output /dev/null --max-time 20 "https://${billing_host}/readyz" || true)"
-  billing_status="$(awk 'NR == 1 {print $2}' <<<"${billing_headers}")"
+  billing_status="$(awk 'NR == 1 {print $2}' <<<"${billing_headers}" | tr -d '\r')"
   billing_route="$(awk 'BEGIN { IGNORECASE=1 } /^X-Upstream-Route:/ {sub(/\r$/, "", $2); print $2}' <<<"${billing_headers}" | tail -1)"
 
   full_chain_ready=false
@@ -116,9 +129,16 @@ for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
   fi
 
   edge_challenge_ready=false
-  if is_cloudflare_challenge "${console_headers}" &&
-     is_cloudflare_challenge_text "${preflight_headers}" &&
-     is_cloudflare_challenge_text "${billing_headers}"; then
+  preflight_edge_ready=false
+  if [[ "${preflight_status}" == "204" &&
+        "${preflight_headers}" =~ [Aa]ccess-[Cc]ontrol-[Aa]llow-[Oo]rigin: ]]; then
+    preflight_edge_ready=true
+  elif is_cloudflare_edge_protection "${preflight_status}" "${preflight_headers}"; then
+    preflight_edge_ready=true
+  fi
+  if is_cloudflare_edge_protection "${console_status}" "$(<"${console_headers}")" &&
+     is_cloudflare_edge_protection "${billing_status}" "${billing_headers}" &&
+     [[ "${preflight_edge_ready}" == true ]]; then
     edge_challenge_ready=true
   fi
 
