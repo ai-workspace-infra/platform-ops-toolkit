@@ -55,7 +55,9 @@ gateway_public_key=$(ssh "${SSH[@]}" "$gateway_user@$gateway" 'sudo cat /opt/xco
 [[ "$gateway_public_key" =~ ^[A-Za-z0-9+/]{43}=$ ]] || { echo 'Gateway returned an invalid WireGuard public key'; exit 1; }
 
 create_invite() {
-  local role="$1" device_id="$2" destination="$3" response="$LAB_DIR/invites/${role}-response.json" request="$LAB_DIR/invites/${role}-request.json"
+  local role="$1" device_id="$2" destination="$3"
+  local response="$LAB_DIR/invites/${role}-response.json"
+  local request="$LAB_DIR/invites/${role}-request.json"
   local expires
   expires=$(python3 -c 'from datetime import datetime,timezone,timedelta; print((datetime.now(timezone.utc)+timedelta(minutes=45)).isoformat(timespec="seconds").replace("+00:00","Z"))')
   jq -n \
