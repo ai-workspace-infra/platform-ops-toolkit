@@ -7,6 +7,7 @@ gateway="${1:?gateway transport IPv4}"
 run="${2:?run identity}"
 formal_zero="${3:?formal Zero accounts API URL}"
 formal_portal="${4:?formal Zero portal URL}"
+network_id="${5:?overlay network ID}"
 chmod 600 admin-token signing-key vless-id server.key
 install -m 755 xray xconnect-zero-lab /usr/local/bin/
 install -m 644 ca.crt /usr/local/share/ca-certificates/xconnect-lab.crt
@@ -95,14 +96,14 @@ Description=Experimental XConnect Zero API compatibility harness for lab debuggi
 After=network-online.target
 Wants=network-online.target
 [Service]
-ExecStart=/usr/local/bin/xconnect-zero-lab --listen :8443 --public-url https://PLACEHOLDER:8443 --state /var/lib/xconnect-zero-lab/state.json --tls-cert /opt/xconnect-lab/server.crt --tls-key /opt/xconnect-lab/server.key --admin-token-file /opt/xconnect-lab/admin-token --signing-key-file /opt/xconnect-lab/signing-key --network-id net_lab --network-cidr 10.77.0.0/24 --device-address 10.77.0.2/32 --gateway-public-key PLACEHOLDER_KEY --gateway-host PLACEHOLDER --gateway-port 443 --gateway-server-name xconnect-lab.invalid --vless-id-file /opt/xconnect-lab/vless-id --peer-command /usr/local/libexec/xconnect-lab-peer
+ExecStart=/usr/local/bin/xconnect-zero-lab --listen :8443 --public-url https://PLACEHOLDER:8443 --state /var/lib/xconnect-zero-lab/state.json --tls-cert /opt/xconnect-lab/server.crt --tls-key /opt/xconnect-lab/server.key --admin-token-file /opt/xconnect-lab/admin-token --signing-key-file /opt/xconnect-lab/signing-key --network-id NETWORK_ID --network-cidr 10.77.0.0/24 --device-address 10.77.0.2/32 --gateway-public-key PLACEHOLDER_KEY --gateway-host PLACEHOLDER --gateway-port 443 --gateway-server-name xconnect-lab.invalid --vless-id-file /opt/xconnect-lab/vless-id --peer-command /usr/local/libexec/xconnect-lab-peer
 Restart=always
 RestartSec=2
 [Install]
 WantedBy=multi-user.target
 UNIT
 gateway_pub=$(<gateway.pub)
-sed -i "s/PLACEHOLDER_KEY/$gateway_pub/; s/PLACEHOLDER/$gateway/g" /etc/systemd/system/xconnect-lab-zero.service
+sed -i "s/PLACEHOLDER_KEY/$gateway_pub/; s/PLACEHOLDER/$gateway/g; s/NETWORK_ID/$network_id/g" /etc/systemd/system/xconnect-lab-zero.service
 /usr/local/bin/xray run -test -config /opt/xconnect-lab/xray.json >/dev/null 2>&1
 systemctl daemon-reload
 systemctl enable --now wg-quick@wg0
@@ -133,7 +134,7 @@ done
 
 # Issue one disposable enrollment from the lab API harness. This is a joint
 # debug fixture, never the formal accounts/portal configuration source.
-python3 - "$gateway" <<'PY'
+python3 - "$gateway" "$network_id" <<'PY'
 import http.client, json, pathlib, ssl, sys, time
 p = pathlib.Path('/opt/xconnect-lab')
 last_error = 'unknown error'
@@ -145,7 +146,7 @@ for attempt in range(30):
     try:
         conn = LocalHTTPS(sys.argv[1], context=ssl.create_default_context(cafile=str(p/'ca.crt')))
         conn.request('POST', '/api/overlay/v1/join-tokens', body=json.dumps({
-            'network_id': 'net_lab', 'device_id': 'dev_lab', 'platform': 'linux',
+            'network_id': sys.argv[2], 'device_id': 'dev_lab', 'platform': 'linux',
             'role': 'controlled-client', 'expires_in_seconds': 900}),
             headers={'Authorization': 'Bearer '+(p/'admin-token').read_text().strip(), 'Content-Type': 'application/json'})
         response = conn.getresponse()
