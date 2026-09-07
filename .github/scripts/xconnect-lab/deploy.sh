@@ -13,6 +13,7 @@ client_user=$(jq -er .client_ssh_user.value "$LAB_DIR/outputs.json")
 formal_zero=$(jq -er .zero_accounts_api_url.value "$LAB_DIR/outputs.json")
 formal_portal=$(jq -er .zero_portal_url.value "$LAB_DIR/outputs.json")
 base_network_id=$(jq -er .spec.overlay.network_id "$DECL")
+gateway_address=$(jq -er .spec.overlay.gateway_address "$DECL")
 run_id=$(<"$LAB_DIR/run-id")
 network_id="${base_network_id}-${run_id}"
 gateway_id="gw-${run_id}"
@@ -63,9 +64,9 @@ create_invite() {
   jq -n \
     --arg owner "$ZERO_OWNER_EMAIL" --arg controller "$formal_zero" \
     --arg network "$network_id" --arg gateway_id "$gateway_id" --arg gateway_key "$gateway_public_key" \
-    --arg endpoint "$gateway_transport" --arg vless "$LAB_VLESS_ID" \
+    --arg endpoint "$gateway_transport" --arg gateway_address "$gateway_address" --arg vless "$LAB_VLESS_ID" \
     --arg role "$role" --arg device "$device_id" --arg expires "$expires" \
-    '{owner_email:$owner,bootstrap:{controller_url:$controller,network:{id:$network,display_name:"XConnect UAT disposable lab",cidr:"10.77.0.0/24",gateway_id:$gateway_id,gateway_wireguard_public_key:$gateway_key,gateway_wireguard_address:"10.77.0.1/24",gateway_endpoint_host:$endpoint,gateway_endpoint_port:51820,transport_server_name:"xconnect-lab.invalid",transport_port:443,transport_auth_id:$vless},invite:{device_id:$device,platform:"linux",role:$role,expires_at:$expires}}}' > "$request"
+    '{owner_email:$owner,bootstrap:{controller_url:$controller,network:{id:$network,display_name:"XConnect UAT disposable lab",cidr:"10.77.0.0/24",gateway_id:$gateway_id,gateway_wireguard_public_key:$gateway_key,gateway_wireguard_address:$gateway_address,gateway_endpoint_host:$endpoint,gateway_endpoint_port:51820,transport_server_name:"xconnect-lab.invalid",transport_port:443,transport_auth_id:$vless},invite:{device_id:$device,platform:"linux",role:$role,expires_at:$expires}}}' > "$request"
   status=$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
     -H "X-Service-Token: $ZERO_SERVICE_TOKEN" -H 'Content-Type: application/json' \
     --data-binary "@$request" "$formal_zero/api/internal/overlay/networks/bootstrap" || true)
