@@ -5,6 +5,7 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 roles="${repo_root}/scripts/create_vault_service_repo_roles.sh"
 workflow="${repo_root}/.github/workflows/xconnect-cloud-lab.yml"
 runner="${repo_root}/.github/scripts/xconnect-lab/run.sh"
+gateway="${repo_root}/.github/scripts/xconnect-lab/gateway.sh"
 role="github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab"
 
 bash -n "${roles}"
@@ -25,5 +26,6 @@ grep -Fq ".spec.vault.role == \"${role}\"" "${runner}"
 grep -Fq 'kv/data/CICD/uat TF_STATE_ENDPOINT' "${workflow}"
 grep -Fq 'kv/data/uat/xconnect-one ADMIN_TOKEN' "${workflow}"
 grep -Fq 'gitops/topology/uat/xconnect-lab.json' "${runner}"
+grep -Fq '"https://$gateway:8443/healthz"' "${gateway}"
 
 echo "XConnect UAT cloud-lab Vault role contract is pinned to the workflow on main."
