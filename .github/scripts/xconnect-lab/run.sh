@@ -36,8 +36,24 @@ case "${1:?command}" in
   build)
     [[ -f "$ROOT/cli/cmd/xconnect-zero-lab/main.go" ]] || die 'Pinned CLI ref has no real Zero lab server; refusing to substitute a mock'
     mkdir -p "$LAB_DIR/bin"
-    (cd "$ROOT/cli"; CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o "$LAB_DIR/bin/xconnect" ./cmd/xconnect; CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o "$LAB_DIR/bin/xconnect-zero-lab" ./cmd/xconnect-zero-lab)
-    (cd "$ROOT/xray"; CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o "$LAB_DIR/bin/xray" ./main)
+    build_go() {
+      local repo="$1" output="$2" package="$3"
+      (
+        cd "$repo"
+        for attempt in {1..4}; do
+          if GOPROXY='https://proxy.golang.org,direct' go mod download; then
+            break
+          fi
+          [[ "$attempt" == 4 ]] && die "Go module download failed for $repo after bounded retries"
+          sleep 5
+        done
+        GOPROXY='https://proxy.golang.org,direct' CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+          go build -o "$output" "$package"
+      )
+    }
+    build_go "$ROOT/cli" "$LAB_DIR/bin/xconnect" ./cmd/xconnect
+    build_go "$ROOT/cli" "$LAB_DIR/bin/xconnect-zero-lab" ./cmd/xconnect-zero-lab
+    build_go "$ROOT/xray" "$LAB_DIR/bin/xray" ./main
     ;;
   preflight)
     terraform -chdir="$TF" fmt -check
