@@ -9,7 +9,7 @@ grep -Fq 'AGENT_PROXY_DOMAIN: ${{ matrix.host }}' "${workflow}" || {
   exit 1
 }
 
-grep -Fq "AGENT_PROXY_LEGACY_DOMAIN: \${{ needs.provision.outputs.deployment_env == 'prod' && matrix.host == format('agent-proxy-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) && 'tky-proxy.svc.plus' || '' }}" "${workflow}" || {
+grep -Fq "AGENT_PROXY_LEGACY_DOMAIN: \${{ needs.provision.outputs.deployment_env == 'prod' && (matrix.host == format('agent-proxy-selfhost-{0}-jp.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) || matrix.host == format('agent-proxy-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base)) && 'tky-proxy.svc.plus' || '' }}" "${workflow}" || {
   echo 'The legacy production alias must be limited to the primary Tokyo host' >&2
   exit 1
 }

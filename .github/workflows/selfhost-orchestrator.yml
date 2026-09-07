@@ -1561,7 +1561,7 @@ jobs:
         AGENT_PROXY_DOMAIN: ${{ matrix.host }}
         # Keep the legacy PROD hostname usable when it is a CNAME to the new
         # node. UAT receives no production alias.
-        AGENT_PROXY_LEGACY_DOMAIN: ${{ needs.provision.outputs.deployment_env == 'prod' && matrix.host == format('agent-proxy-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) && 'tky-proxy.svc.plus' || '' }}
+        AGENT_PROXY_LEGACY_DOMAIN: ${{ needs.provision.outputs.deployment_env == 'prod' && (matrix.host == format('agent-proxy-selfhost-{0}-jp.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) || matrix.host == format('agent-proxy-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base)) && 'tky-proxy.svc.plus' || '' }}
         AGENT_DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
         BILLING_SERVICE_BASE_URL: ${{ needs.provision.outputs.billing_service_base_url }}
         AGENT_XRAY_ENABLED: "true"
