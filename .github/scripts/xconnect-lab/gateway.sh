@@ -136,6 +136,7 @@ done
 python3 - "$gateway" <<'PY'
 import http.client, json, pathlib, ssl, sys, time
 p = pathlib.Path('/opt/xconnect-lab')
+last_error = 'unknown error'
 class LocalHTTPS(http.client.HTTPSConnection):
     def connect(self):
         import socket
@@ -149,12 +150,14 @@ for attempt in range(30):
             headers={'Authorization': 'Bearer '+(p/'admin-token').read_text().strip(), 'Content-Type': 'application/json'})
         response = conn.getresponse()
         if response.status not in (200, 201):
-            raise RuntimeError('Invite issuance rejected')
+            body = response.read(512).decode('utf-8', 'replace').replace('\\n', ' ')
+            raise RuntimeError(f'HTTP {response.status}: {body}')
         data = json.load(response)
         (p/'join-uri').write_text(data['join_token']['join_uri'])
         break
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError) as error:
+        last_error = str(error)
         if attempt == 29:
-            raise SystemExit('Lab Zero API harness did not issue a real debug invite')
+            raise SystemExit(f'Lab Zero API harness did not issue a real debug invite: {last_error[:240]}')
         time.sleep(2)
 PY
