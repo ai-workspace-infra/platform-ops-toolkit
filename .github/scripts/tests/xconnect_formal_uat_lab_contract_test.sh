@@ -6,7 +6,7 @@ workflow="${repo_root}/.github/workflows/xconnect-cloud-lab.yml"
 runner="${repo_root}/.github/scripts/xconnect-lab/run.sh"
 deploy="${repo_root}/.github/scripts/xconnect-lab/deploy.sh"
 
-for required in gateway_release_tag XConnect-Gateway ZERO_SERVICE_TOKEN ZERO_OWNER_EMAIL; do
+for required in gateway_release_tag XConnect-Gateway ZERO_SERVICE_TOKEN ZERO_OWNER_EMAIL mac_join_window_minutes; do
   grep -Fq "${required}" "${workflow}" || {
     echo "XConnect UAT workflow is missing ${required}" >&2
     exit 1
@@ -23,6 +23,9 @@ grep -Fq 'tls-trust-or-transport' "${deploy}"
 grep -Fq "jq -c '[.[] | {code,healthy}]'" "${deploy}"
 grep -Fq 'wireguard_handshake_age_seconds=' "${deploy}"
 grep -Fq 'gateway_wireguard_handshake_age_seconds=' "${deploy}"
+grep -Fq 'MAC_JOIN_WINDOW_OPEN' "${deploy}"
+grep -Fq 'macOS One established a recent WireGuard-over-VLESS Gateway handshake' "${deploy}"
+grep -Fq 'gateway_release_tag:$gateway' "${repo_root}/.github/scripts/xconnect-lab/lease.sh"
 grep -Fq 'wireguard-handshake' "${repo_root}/gitops/topology/uat/xconnect-lab.json" 2>/dev/null || true
 
 if grep -Fq 'xconnect-zero-lab-linux-arm64' "${runner}" || grep -Fq 'xconnect-lab-zero.service' "${deploy}"; then

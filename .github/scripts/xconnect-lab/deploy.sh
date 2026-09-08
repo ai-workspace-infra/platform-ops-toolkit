@@ -148,4 +148,24 @@ wg show xconzero0 latest-handshakes | awk -v now="$(date +%s)" '$2 > 0 && now-$2
 ip route get 10.77.0.2 | grep -Fq 'dev xconzero0'
 RELAY_VERIFY
 
+if [[ "${MAC_JOIN_WINDOW_MINUTES:-0}" != 0 ]]; then
+  echo "MAC_JOIN_WINDOW_OPEN: ${MAC_JOIN_WINDOW_MINUTES} minutes. Issue a darwin One invitation through the authenticated UAT Portal, then run the standalone macOS CLI. No invitation is written to this workflow."
+  deadline=$(( $(date +%s) + MAC_JOIN_WINDOW_MINUTES * 60 ))
+  mac_joined=0
+  while (( $(date +%s) < deadline )); do
+    if ssh "${SSH[@]}" "$gateway_user@$gateway" sudo bash -s <<'MAC_HANDSHAKE'
+set -euo pipefail
+recent=$(wg show xconzero0 latest-handshakes | awk -v now="$(date +%s)" '$2 > 0 && now-$2 < 180 {count++} END {print count+0}')
+[[ "$recent" -ge 2 ]]
+MAC_HANDSHAKE
+    then
+      mac_joined=1
+      break
+    fi
+    sleep 10
+  done
+  [[ "$mac_joined" == 1 ]] || { echo 'macOS One did not establish a second recent Gateway handshake before the bounded join window closed'; exit 1; }
+  echo 'PASS: macOS One established a recent WireGuard-over-VLESS Gateway handshake.'
+fi
+
 echo 'PASS: formal UAT Accounts/Portal, released Gateway and Linux One, centralized signed sync, external Xray/WireGuard, private ping/HTTP and both-side handshake.'

@@ -32,6 +32,11 @@ on:
         description: Cleanup only - exact xcl-RUN_ID-ATTEMPT from a previous run
         type: string
         default: ''
+      mac_join_window_minutes:
+        description: Apply only - bounded macOS One enrollment and handshake window (0, 5, 10, or 15 minutes)
+        type: choice
+        options: ['0', '5', '10', '15']
+        default: '0'
 permissions:
   contents: read
   id-token: write
@@ -82,6 +87,7 @@ jobs:
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag }}
       CLEANUP_RUN: ${{ inputs.cleanup_run }}
+      MAC_JOIN_WINDOW_MINUTES: ${{ inputs.mac_join_window_minutes }}
     steps:
       - uses: actions/checkout@v7
         with:
