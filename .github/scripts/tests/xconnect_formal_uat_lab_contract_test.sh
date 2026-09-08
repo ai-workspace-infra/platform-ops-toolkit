@@ -26,7 +26,7 @@ grep -Fq 'gateway_wireguard_handshake_age_seconds=' "${deploy}"
 grep -Fq 'MAC_JOIN_WINDOW_OPEN' "${deploy}"
 grep -Fq 'macOS One established a recent WireGuard-over-VLESS Gateway handshake' "${deploy}"
 grep -Fq 'gateway_release_tag:$gateway' "${repo_root}/.github/scripts/xconnect-lab/lease.sh"
-grep -Fq 'wireguard-handshake' "${repo_root}/gitops/topology/uat/xconnect-lab.json" 2>/dev/null || true
+grep -Fq 'wireguard-handshake' "${repo_root}/gitops/vpn-overlay/uat/xconnect-lab.json" 2>/dev/null || true
 
 if grep -Fq 'xconnect-zero-lab-linux-arm64' "${runner}" || grep -Fq 'xconnect-lab-zero.service' "${deploy}"; then
   echo "Formal UAT lab must not download or run the experimental Zero controller" >&2
