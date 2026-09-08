@@ -17,7 +17,11 @@ def check_response(status, headers, body, *, portal):
 
 
 def probe(url, *, portal):
-    request = Request(url, headers={'Accept': 'application/json'})
+    # Identify the authorized deployment check explicitly. Cloudflare's
+    # browser-integrity rules reject urllib's generic Python user agent.
+    # This is not browser impersonation and does not disable any edge policy.
+    request = Request(url, headers={'Accept': 'application/json',
+                                   'User-Agent': 'XConnect-UAT-Lab/1.0'})
     try:
         response = urlopen(request, timeout=15)
     except HTTPError as error:
