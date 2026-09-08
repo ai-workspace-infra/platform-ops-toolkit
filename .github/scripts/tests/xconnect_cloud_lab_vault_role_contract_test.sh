@@ -5,6 +5,7 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 roles="${repo_root}/scripts/create_vault_service_repo_roles.sh"
 workflow="${repo_root}/.github/workflows/xconnect-cloud-lab.yml"
 runner="${repo_root}/.github/scripts/xconnect-lab/run.sh"
+topology_policy="${repo_root}/.github/scripts/xconnect-lab/validate-topology.jq"
 gateway="${repo_root}/.github/scripts/xconnect-lab/gateway.sh"
 role="github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab"
 
@@ -25,7 +26,8 @@ if grep -Eq '^  schedule:' "${workflow}"; then
   echo "XConnect cloud lab must be released from an immutable UAT snapshot, not a schedule" >&2
   exit 1
 fi
-grep -Fq ".spec.vault.role == \"${role}\"" "${runner}"
+grep -Fq -- '-f "$ROOT/.github/scripts/xconnect-lab/validate-topology.jq"' "${runner}"
+grep -Fq ".spec.vault.role == \"${role}\"" "${topology_policy}"
 
 grep -Fq 'kv/data/CICD/uat TF_STATE_ENDPOINT' "${workflow}"
 grep -Fq 'kv/data/uat/xconnect-one ZERO_SERVICE_TOKEN' "${workflow}"

@@ -49,7 +49,7 @@ Each deployment/verification phase is a separate GitHub Actions step.
 | `cleanup_run` | Cleanup only: exact `xcl-RUN_ID-ATTEMPT` |
 | `mac_join_window_minutes` | Compatibility field; `0` only until the external desktop stage is ready |
 | `desktop_join_window_minutes` | `0`, `10`, or `20`; nonzero is apply-only and requires enabled, exact Darwin/Windows GitOps validation plus one or two canonical IPv4 `/32` ingress CIDRs |
-| `node_observation_window_minutes` | `0`, `10`, or `20`; nonzero is apply-only and mutually exclusive with the desktop window; observes only the already-provisioned Gateway/Linux One pair |
+| `node_observation_window_minutes` | `auto`, `0`, `10`, `20`, or `until-expiry`; apply `auto` follows `spec.node_observation`, cleanup/dry-run resolve to `0`; nonzero is mutually exclusive with the desktop window |
 
 Full UAT delivery is initiated through `daily-main-snapshot.yaml`, which keeps
 its daily schedule and publishes one immutable application TAG before deployment.
@@ -120,9 +120,12 @@ configuration before checking that exact peer's recent handshake. It reports
 `UNVERIFIED` when the identity-bound peer handshake is absent. Peer count alone
 cannot produce desktop success, and this observer does not replace the local
 macOS/Windows ping and HTTP checks. Final desktop acceptance is explicitly a
-local independent check. The window is capped at 20 minutes and exits before
-the lease's +50-minute safety point; normal `always()` cleanup and the 1-hour
-Spot limit remain in force.
+local independent check. The reviewed declaration retains both nodes for
+`ttl_minutes=120` with `max_runtime_minutes=120` and
+`node_observation={mode:"until-expiry",release_on_failure:true}`. `auto` on
+apply selects `until-expiry`; explicit `10`/`20` windows remain bounded by the
+recorded lease expiry. Cleanup and dry-run resolve to `0`, and old 60-minute
+cleanup leases remain compatible.
 
 Desktop runs still require scoped external TCP 443 ingress, a reachable
 Gateway endpoint, public CA trust delivery, and exact device identity.
@@ -138,8 +141,17 @@ cloud nodes are ARM64 one-time Spot, with encrypted disposable disks. Public
 WireGuard UDP is closed. SSH is restricted to the runner /32.
 
 Dedicated state: `uat/xconnect-lab/xcl-RUN_ID-ATTEMPT/terraform.tfstate`.
-A nonsecret lease retains the run identity, refs, release pins and a 60-minute
-expiry. Normal runs use `always()` cleanup, including partial provisioning
-failures. An expiry tag does not independently terminate EC2. After runner
-loss/cancellation, explicitly run recovery `cleanup` with the original refs
-and exact run ID; report any cleanup failure as a potential resource leak.
+A nonsecret lease retains the run identity, refs, release pins and the reviewed
+120-minute expiry. The observer uses the recorded `expires_at` and never
+renews or resets it. Normal runs use `always()` cleanup, including partial
+provisioning failures; failures may clean up earlier. The job ceiling is 150
+minutes and a fresh AWS OIDC session is acquired before cleanup because the
+initial session is one hour. An expiry tag does not independently terminate
+EC2. The matching IaC module also configures a persistent absolute-expiry
+systemd timer and instance-initiated shutdown to terminate, independently of
+the runner; pin an IaC revision containing that lifecycle protection. This
+fallback releases the instances and their disposable root disks, but does not
+replace Terraform cleanup of the remaining security groups and state lease.
+After runner loss/cancellation, explicitly run recovery `cleanup` with
+the original refs and exact run ID; old 60-minute cleanup leases remain
+compatible and any cleanup failure is a potential resource leak.

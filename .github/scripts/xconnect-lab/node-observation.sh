@@ -5,7 +5,7 @@ umask 077
 ROOT="${GITHUB_WORKSPACE:?}"
 LAB_DIR="${LAB_DIR:?}"
 window="${NODE_OBSERVATION_WINDOW_MINUTES:-0}"
-[[ "$window" =~ ^(10|20)$ ]] || { echo 'node_observation_window_minutes must be 10 or 20 for the node stage' >&2; exit 1; }
+[[ "$window" =~ ^(10|20|until-expiry)$ ]] || { [[ "$window" == 0 ]] && exit 0; echo 'Invalid resolved node observation window' >&2; exit 1; }
 
 handoff="$LAB_DIR/desktop-public/desktop-handoff.json"
 test -f "$handoff" || { echo 'Public observation handoff is missing' >&2; exit 1; }
@@ -21,16 +21,22 @@ gateway_id=$(jq -er '.gateway_id' "$handoff")
 client_id="one-${run_id}"
 gateway_public_key=$(jq -er '.gateway_public_key' "$handoff")
 expires_at=$(jq -er '.expires_at' "$handoff")
+lease_expires_at=$(jq -er '.expires_at' "$LAB_DIR/variables.json")
+[[ "$expires_at" == "$lease_expires_at" ]] || { echo 'Public handoff expiry does not match the recorded lease expiry' >&2; exit 1; }
 lease_deadline=$(python3 - "$expires_at" <<'PY'
 from datetime import datetime
 import sys
 expiry = datetime.fromisoformat(sys.argv[1].replace('Z', '+00:00')).timestamp()
-print(int(expiry) - 600)
+print(int(expiry))
 PY
 )
 now=$(date +%s)
-end=$((now + window * 60))
-(( end > lease_deadline )) && end=$lease_deadline
+end="$lease_deadline"
+if [[ "$window" != until-expiry ]]; then
+  candidate=$((now + window * 60))
+  (( candidate < end )) && end="$candidate"
+fi
+
 SSH=(-i "$LAB_DIR/id_ed25519" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$LAB_DIR/known_hosts")
 ssh_with_deadline() {
   local remaining=$((end - $(date +%s)))
@@ -39,9 +45,9 @@ ssh_with_deadline() {
   timeout "${remaining}s" ssh "${SSH[@]}" "$@"
 }
 
-echo "NODE_OBSERVATION_OPEN run=$run_id minutes=$window lease_exit_before=$(date -u -d "@$lease_deadline" +%Y-%m-%dT%H:%M:%SZ)"
+echo "NODE_OBSERVATION_OPEN run=$run_id minutes=$window lease_expires_at=$expires_at"
 if (( end <= now )); then
-  echo 'NODE_OBSERVATION_RESULT=UNVERIFIED reason=lease_exit_deadline_reached local_independent_acceptance_required=true'
+  echo 'NODE_OBSERVATION_RESULT=UNVERIFIED reason=lease_expired local_independent_acceptance_required=true'
   exit 0
 fi
 
@@ -55,7 +61,7 @@ observe_nodes() {
     client_sync=$(awk -F= '$1 == "sync" {print $2}' <<<"$client_output" | tail -1)
     client_peer=$(awk -F= '$1 == "client_peer" {print $2}' <<<"$client_output" | tail -1)
   fi
-  echo "NODE_OBSERVATION run=$run_id refresh=${gateway_refresh:-UNVERIFIED} sync=${client_sync:-UNVERIFIED} gateway_peer=${gateway_peer:-UNVERIFIED} client_peer=${client_peer:-UNVERIFIED}"
+  echo "NODE_OBSERVATION run=$run_id refresh=${gateway_refresh:-UNVERIFIED} sync=${client_sync:-UNVERIFIED} gateway_peer=${gateway_peer:-UNVERIFIED} client_peer=${client_peer:-UNVERIFIED} SUMMARY_ONLY"
 }
 
 while (( $(date +%s) < end )); do

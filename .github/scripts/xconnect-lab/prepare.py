@@ -13,6 +13,7 @@ import uuid
 
 
 DESKTOP_WINDOWS = {0, 10, 20}
+NODE_WINDOWS = {'0', '10', '20', 'until-expiry'}
 PUBLIC_HANDOFF_KEYS = {
     'run', 'expires_at', 'network_id', 'gateway_id', 'gateway_public_key',
     'gateway_endpoint', 'accounts_url', 'portal_url', 'instances',
@@ -63,10 +64,34 @@ def validate_desktop_validation(spec, window):
 
 
 def validate_observation_windows(desktop_window, node_window):
-    if desktop_window not in DESKTOP_WINDOWS or node_window not in DESKTOP_WINDOWS:
-        raise ValueError('observation windows must be 0, 10, or 20')
-    if desktop_window and node_window:
+    node_window = str(node_window)
+    if desktop_window not in DESKTOP_WINDOWS or node_window not in NODE_WINDOWS | {'auto'}:
+        raise ValueError('desktop window must be 0, 10, or 20; node window must be auto, 0, 10, 20, or until-expiry')
+    if desktop_window and node_window not in {'0', 'auto'}:
         raise ValueError('desktop and node observation windows are mutually exclusive')
+
+
+def resolve_node_observation(spec, requested, mode, desktop_window=0):
+    """Resolve the node window from the reviewed declaration without renewal."""
+    if requested not in NODE_WINDOWS | {'auto'}:
+        raise ValueError('node_observation_window_minutes must be auto, 0, 10, 20, or until-expiry')
+    if mode != 'apply' or desktop_window:
+        return '0'
+    observation = spec.get('node_observation')
+    declared_until = (
+        isinstance(observation, dict)
+        and observation.get('mode') == 'until-expiry'
+        and observation.get('release_on_failure') is True
+    )
+    if spec.get('ttl_minutes') == 120 and not declared_until:
+        raise ValueError('120-minute topology requires node_observation.mode=until-expiry and release_on_failure=true')
+    if requested == 'auto':
+        return 'until-expiry' if declared_until else '0'
+    if requested == '0':
+        return '0'
+    if spec.get('ttl_minutes') != 120 or not declared_until:
+        raise ValueError('nonzero node observation requires the reviewed 120-minute until-expiry declaration')
+    return requested
 
 
 def _exact_keys(value, expected, label):
@@ -151,7 +176,13 @@ def main():
     if len(sys.argv) >= 2 and sys.argv[1] == 'validate-windows':
         if len(sys.argv) != 4:
             raise ValueError('validate-windows requires desktop and node windows')
-        validate_observation_windows(int(sys.argv[2]), int(sys.argv[3]))
+        validate_observation_windows(int(sys.argv[2]), sys.argv[3])
+        return
+    if len(sys.argv) >= 2 and sys.argv[1] == 'resolve-node-observation':
+        if len(sys.argv) != 6:
+            raise ValueError('resolve-node-observation requires declaration, requested window, mode, and desktop window')
+        declaration = json.loads(Path(sys.argv[2]).read_text())
+        print(resolve_node_observation(declaration['spec'], sys.argv[3], sys.argv[4], int(sys.argv[5])))
         return
     if len(sys.argv) >= 2 and sys.argv[1] == 'validate-handoff':
         if len(sys.argv) != 3:
