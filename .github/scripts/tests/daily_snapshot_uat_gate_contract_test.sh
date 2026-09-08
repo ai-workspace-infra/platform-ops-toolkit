@@ -29,5 +29,7 @@ grep -Fq 'supabase_target_existing_strategy=accounts_merge' "${repo_root}/.githu
 grep -Fq 'dns_mode=uat-records' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
 grep -Fq 'target_domains=agent-proxy' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
 grep -Fq 'agent_controller_url' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
+grep -Fq 'xconnect-cloud-lab.yml' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
+grep -Fq 'mac_join_window_minutes=0' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
 
 echo "daily_snapshot_uat_gate_contract_test: PASS"

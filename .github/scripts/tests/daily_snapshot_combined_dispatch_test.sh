@@ -10,6 +10,14 @@ cat > "${workdir}/gh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "${GH_LOG}"
+if [[ "$1" == "api" ]]; then
+  if [[ " $* " == *"/contents/vpn-overlay/uat/xconnect-lab.json"* ]]; then
+    printf '%s\n' '{"spec":{"artifacts":{"one":{"release_tag":"v0.1.7"},"gateway":{"release_tag":"v0.1.3"},"xray":{"release_tag":"v26.3.27"}}}}'
+  elif [[ " $* " == *"/commits/"* ]]; then
+    printf '%s\n' '0123456789012345678901234567890123456789'
+  fi
+  exit 0
+fi
 if [[ "$1 $2" == "workflow run" ]]; then
   if [[ "$3" == "serverless-orchestrator.yml" ]]; then
     printf '%s\n' 'https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/1001'
@@ -32,13 +40,14 @@ bash "${dispatcher}"
 serverless_line="$(grep -n '^workflow run serverless-orchestrator.yml ' "${workdir}/gh.log" | cut -d: -f1)"
 watch_line="$(grep -n '^run watch 1001 ' "${workdir}/gh.log" | cut -d: -f1)"
 selfhost_line="$(grep -n '^workflow run selfhost-orchestrator.yml ' "${workdir}/gh.log" | cut -d: -f1)"
+lab_line="$(grep -n '^workflow run xconnect-cloud-lab.yml ' "${workdir}/gh.log" | cut -d: -f1)"
 
-[[ -n "${serverless_line}" && -n "${watch_line}" && -n "${selfhost_line}" ]] || {
-  echo "combined dispatcher did not issue both workflow runs and the serverless wait" >&2
+[[ -n "${serverless_line}" && -n "${watch_line}" && -n "${lab_line}" && -n "${selfhost_line}" ]] || {
+  echo "combined dispatcher did not issue serverless, XConnect Lab, and selfhost runs with the serverless wait" >&2
   exit 1
 }
-(( serverless_line < watch_line && watch_line < selfhost_line )) || {
-  echo "selfhost Agent Proxy dispatch must follow successful serverless completion" >&2
+(( serverless_line < watch_line && watch_line < lab_line && lab_line < selfhost_line )) || {
+  echo "XConnect Lab and selfhost Agent Proxy dispatch must follow successful serverless completion" >&2
   exit 1
 }
 
@@ -54,5 +63,11 @@ grep -Fq -- '-f cloud_provider=aws-cloud' "${workdir}/gh.log"
 grep -Fq -- '-f agent_proxy_plan=2C2G' "${workdir}/gh.log"
 grep -Fq -- '-f deploy_tag=uat-daily-build-2026.08.21-r5' "${workdir}/gh.log"
 grep -Fq -- '-f agent_controller_url=https://accounts-serverless-uat.onwalk.net' "${workdir}/gh.log"
+grep -Fq -- '-f iac_ref=0123456789012345678901234567890123456789' "${workdir}/gh.log"
+grep -Fq -- '-f gitops_ref=0123456789012345678901234567890123456789' "${workdir}/gh.log"
+grep -Fq -- '-f cli_release_tag=v0.1.7' "${workdir}/gh.log"
+grep -Fq -- '-f gateway_release_tag=v0.1.3' "${workdir}/gh.log"
+grep -Fq -- '-f xray_release_tag=v26.3.27' "${workdir}/gh.log"
+grep -Fq -- '-f mac_join_window_minutes=0' "${workdir}/gh.log"
 
 echo "daily_snapshot_combined_dispatch_test: PASS"
