@@ -41,10 +41,10 @@ on:
         options: ['0', '10', '20']
         default: '0'
       node_observation_window_minutes:
-        description: Apply only - bounded Gateway/Linux One observation window
+        description: Apply only - auto follows the reviewed declaration, or use a bounded Gateway/Linux One observation window
         type: choice
-        options: ['0', '10', '20']
-        default: '0'
+        options: [auto, '0', '10', '20', until-expiry]
+        default: auto
 permissions:
   contents: read
   id-token: write
@@ -57,7 +57,7 @@ jobs:
   lab:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 150
     env:
       MODE: ${{ inputs.mode }}
       IAC_REF: ${{ inputs.iac_ref }}
@@ -68,7 +68,7 @@ jobs:
       CLEANUP_RUN: ${{ inputs.cleanup_run }}
       MAC_JOIN_WINDOW_MINUTES: ${{ inputs.mac_join_window_minutes }}
       DESKTOP_JOIN_WINDOW_MINUTES: ${{ inputs.desktop_join_window_minutes }}
-      NODE_OBSERVATION_WINDOW_MINUTES: ${{ inputs.node_observation_window_minutes }}
+      NODE_OBSERVATION_INPUT: ${{ inputs.node_observation_window_minutes }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -171,6 +171,7 @@ jobs:
           aws-region: ${{ steps.topology.outputs.aws_region }}
           audience: sts.amazonaws.com
       - name: Prepare isolated state and inspect account prerequisites
+        id: prepare
         if: inputs.mode != 'dry-run'
         run: bash .github/scripts/xconnect-lab/run.sh prepare
       - name: Provision the two isolated Spot nodes
@@ -192,7 +193,7 @@ jobs:
         if: inputs.mode == 'apply'
         run: bash .github/scripts/xconnect-lab/run.sh verify
       - name: Publish public desktop handoff
-        if: inputs.mode == 'apply' && (inputs.desktop_join_window_minutes != '0' || inputs.node_observation_window_minutes != '0')
+        if: inputs.mode == 'apply' && (inputs.desktop_join_window_minutes != '0' || steps.topology.outputs.node_observation_window_minutes != '0')
         uses: actions/upload-artifact@v4
         with:
           name: xconnect-desktop-public-${{ github.run_id }}-${{ github.run_attempt }}
@@ -205,8 +206,16 @@ jobs:
         if: inputs.mode == 'apply' && inputs.desktop_join_window_minutes != '0'
         run: bash .github/scripts/xconnect-lab/run.sh desktop
       - name: Observe optional Gateway and Linux One window
-        if: inputs.mode == 'apply' && inputs.node_observation_window_minutes != '0'
+        if: inputs.mode == 'apply' && steps.topology.outputs.node_observation_window_minutes != '0'
         run: bash .github/scripts/xconnect-lab/run.sh node-observation
+      - name: Refresh short-lived AWS OIDC credentials before cleanup
+        if: always() && inputs.mode != 'dry-run' && steps.prepare.outcome == 'success'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ steps.topology.outputs.aws_role }}
+          aws-region: ${{ steps.topology.outputs.aws_region }}
+          audience: sts.amazonaws.com
+          unset-current-credentials: true
       - name: Always destroy only this lab state
         if: always() && inputs.mode != 'dry-run'
         run: bash .github/scripts/xconnect-lab/run.sh cleanup

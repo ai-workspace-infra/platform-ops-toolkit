@@ -173,5 +173,41 @@ class DesktopContract(unittest.TestCase):
         self.assertTrue(prepare.validate_public_handoff(handoff))
 
 
+class NodeObservationContract(unittest.TestCase):
+    def spec(self, ttl=120, observation=None):
+        value = {'ttl_minutes': ttl}
+        if observation is not None:
+            value['node_observation'] = observation
+        return value
+
+    def test_auto_follows_until_expiry_declaration(self):
+        spec = self.spec(120, {'mode': 'until-expiry', 'release_on_failure': True})
+        self.assertEqual(prepare.resolve_node_observation(spec, 'auto', 'apply'), 'until-expiry')
+        for window in ('0', '10', '20', 'until-expiry'):
+            with self.subTest(window=window):
+                self.assertEqual(prepare.resolve_node_observation(spec, window, 'apply'), window)
+
+    def test_desktop_window_forces_auto_node_window_to_zero(self):
+        spec = self.spec(120, {'mode': 'until-expiry', 'release_on_failure': True})
+        self.assertEqual(prepare.resolve_node_observation(spec, 'auto', 'apply', 20), '0')
+
+    def test_cleanup_and_dry_run_resolve_to_zero(self):
+        spec = self.spec(120, {'mode': 'until-expiry', 'release_on_failure': True})
+        self.assertEqual(prepare.resolve_node_observation(spec, 'until-expiry', 'cleanup'), '0')
+        self.assertEqual(prepare.resolve_node_observation(spec, 'auto', 'dry-run'), '0')
+
+    def test_new_lease_requires_declaration_and_release_on_failure(self):
+        for observation in (None, {'mode': 'until-expiry', 'release_on_failure': False}):
+            with self.subTest(observation=observation), self.assertRaises(ValueError):
+                prepare.resolve_node_observation(self.spec(120, observation), 'auto', 'apply')
+
+    def test_old_declaration_auto_is_compatible(self):
+        self.assertEqual(prepare.resolve_node_observation(self.spec(60), 'auto', 'cleanup'), '0')
+
+    def test_invalid_window_is_rejected(self):
+        with self.assertRaises(ValueError):
+            prepare.resolve_node_observation(self.spec(120, {'mode': 'until-expiry', 'release_on_failure': True}), '30', 'apply')
+
+
 if __name__ == '__main__':
     unittest.main()
