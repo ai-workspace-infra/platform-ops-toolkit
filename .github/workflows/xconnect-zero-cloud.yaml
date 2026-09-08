@@ -36,10 +36,10 @@ on:
         type: string
         default: ''
       ssh_debug_ingress_cidrs:
-        description: Optional temporary operator SSH IPv4 /32 list, comma-separated; not stored in GitOps
+        description: Optional temporary operator SSH IPv4 /32 list, comma-separated; defaults to the current operator egress and is not stored in GitOps
         type: string
         required: false
-        default: ''
+        default: '35.79.83.48/32'
 permissions:
   contents: read
   id-token: write
@@ -61,7 +61,7 @@ jobs:
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.4' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
       CLEANUP_RUN: ${{ inputs.cleanup_run }}
-      SSH_DEBUG_INGRESS_CIDRS: ${{ inputs.ssh_debug_ingress_cidrs }}
+      SSH_DEBUG_INGRESS_CIDRS: ${{ inputs.ssh_debug_ingress_cidrs || '35.79.83.48/32' }}
       NODE_OBSERVATION_INPUT: 'until-expiry'
     steps:
       - uses: actions/checkout@v7
