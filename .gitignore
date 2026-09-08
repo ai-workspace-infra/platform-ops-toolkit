@@ -1,3 +1,4 @@
+.env
 docs/ZH/.DS_Store
 
 fix_domains_and_vault.py
