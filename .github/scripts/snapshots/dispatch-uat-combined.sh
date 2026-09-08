@@ -10,6 +10,9 @@ snapshot_tag="${SNAPSHOT_TAG:?SNAPSHOT_TAG must be set}"
 target_repo="${TARGET_REPOSITORY:-ai-workspace-infra/platform-ops-toolkit}"
 serverless_workflow="${SERVERLESS_WORKFLOW:-serverless-orchestrator.yml}"
 selfhost_workflow="${SELFHOST_WORKFLOW:-selfhost-orchestrator.yml}"
+xconnect_lab_workflow="${XCONNECT_LAB_WORKFLOW:-xconnect-cloud-lab.yml}"
+gitops_repository="${GITOPS_REPOSITORY:-ai-workspace-infra/gitops}"
+iac_repository="${IAC_REPOSITORY:-ai-workspace-infra/iac_modules}"
 agent_controller_url="${AGENT_CONTROLLER_URL:-https://accounts-serverless-uat.onwalk.net}"
 # UAT validates on an ephemeral AWS Graviton Spot node. T4g.small supplies
 # 2 vCPU / 2 GiB; its one-hour lifetime and lack of an EIP are declared in
@@ -111,6 +114,50 @@ dispatch_selfhost() {
 serverless_run_url="$(dispatch_serverless | tail -n 1)"
 echo "Dispatched UAT serverless deploy for ${snapshot_tag}: ${serverless_run_url}"
 wait_for_serverless "${serverless_run_url}"
+
+dispatch_xconnect_lab() {
+  local topology
+  topology="$(mktemp)"
+  trap 'rm -f "${topology}"' RETURN
+
+  # The lab is enabled by the reviewed GitOps topology introduced in #200.
+  # Do not fall back to the retired topology path or create resources from a
+  # floating branch while that change is awaiting independent review.
+  if ! gh api -H 'Accept: application/vnd.github.raw+json' \
+    "repos/${gitops_repository}/contents/vpn-overlay/uat/xconnect-lab.json?ref=${snapshot_tag}" >"${topology}"; then
+    echo "::notice::Skipping XConnect UAT Lab for ${snapshot_tag}: reviewed GitOps topology is not present on the snapshot." >&2
+    return 0
+  fi
+
+  local iac_ref gitops_ref cli_release_tag gateway_release_tag xray_release_tag
+  iac_ref="$(gh api "repos/${iac_repository}/commits/${snapshot_tag}" --jq .sha)"
+  gitops_ref="$(gh api "repos/${gitops_repository}/commits/${snapshot_tag}" --jq .sha)"
+  [[ "${iac_ref}" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::IAC snapshot did not resolve to a full commit SHA." >&2; return 1; }
+  [[ "${gitops_ref}" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::GitOps snapshot did not resolve to a full commit SHA." >&2; return 1; }
+
+  cli_release_tag="$(jq -er '.spec.artifacts.one.release_tag' "${topology}")"
+  gateway_release_tag="$(jq -er '.spec.artifacts.gateway.release_tag' "${topology}")"
+  xray_release_tag="$(jq -er '.spec.artifacts.xray.release_tag' "${topology}")"
+  for release_tag in "${cli_release_tag}" "${gateway_release_tag}" "${xray_release_tag}"; do
+    [[ "${release_tag}" =~ ^v[0-9A-Za-z._-]+$ ]] || { echo "::error::Invalid XConnect release tag in GitOps topology." >&2; return 1; }
+  done
+
+  gh workflow run "${xconnect_lab_workflow}" \
+    --repo "${target_repo}" \
+    --ref main \
+    -f mode=apply \
+    -f "iac_ref=${iac_ref}" \
+    -f "gitops_ref=${gitops_ref}" \
+    -f "cli_release_tag=${cli_release_tag}" \
+    -f "gateway_release_tag=${gateway_release_tag}" \
+    -f "xray_release_tag=${xray_release_tag}" \
+    -f mac_join_window_minutes=0
+}
+
+xconnect_lab_run_url="$(dispatch_xconnect_lab)"
+if [[ -n "${xconnect_lab_run_url}" ]]; then
+  echo "Dispatched XConnect UAT Lab for ${snapshot_tag}: ${xconnect_lab_run_url}"
+fi
 
 selfhost_run_url="$(dispatch_selfhost | tail -n 1)"
 echo "Dispatched UAT selfhost agent-proxy deploy for ${snapshot_tag}: ${selfhost_run_url}"
