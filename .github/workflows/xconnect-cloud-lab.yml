@@ -1,7 +1,5 @@
 name: XConnect UAT Spot Lab
 on:
-  schedule:
-    - cron: '*/15 * * * *'
   workflow_dispatch:
     inputs:
       mode:
@@ -46,35 +44,6 @@ concurrency:
   group: xconnect-cloud-lab
   cancel-in-progress: false
 jobs:
-  reap-expired:
-    if: github.event_name == 'schedule'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      id-token: write
-      actions: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: hashicorp/vault-action@v4
-        with:
-          url: https://vault.svc.plus
-          method: jwt
-          role: ${{ env.XCONNECT_VAULT_ROLE }}
-          jwtGithubAudience: vault
-          secrets: |
-            kv/data/CICD/uat TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
-            kv/data/CICD/uat TF_STATE_BUCKET | TF_STATE_BUCKET ;
-            kv/data/CICD/uat TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
-            kv/data/CICD/uat TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
-            kv/data/CICD/uat TF_STATE_REGION | TF_STATE_REGION
-      - name: Dispatch scoped cleanup for expired leases
-        env:
-          GH_TOKEN: ${{ github.token }}
-          LAB_DIR: ${{ runner.temp }}/xconnect-lab-reaper
-        run: bash .github/scripts/xconnect-lab/lease.sh reap
   lab:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
