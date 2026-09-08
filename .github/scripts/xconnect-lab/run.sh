@@ -6,7 +6,44 @@ LAB_DIR="${LAB_DIR:?LAB_DIR is required}"
 TF="$ROOT/iac_modules/vpn-overlay/xconnect-lab"
 DECL="$ROOT/gitops/vpn-overlay/uat/xconnect-lab.json"
 die() { echo "::error::$*" >&2; exit 1; }
-tf() { terraform -chdir="$TF" "$@" >"$LAB_DIR/terraform.log" 2>&1 || die "Terraform $1 failed; protected runner log retained, no secret-bearing output printed."; }
+tf() {
+  local command="$1" code
+  shift
+  local options=(-no-color)
+  case "$command" in
+    plan|apply|destroy|validate) options+=(-json) ;;
+    init) ;;
+    *) die 'Unsupported Terraform stage' ;;
+  esac
+  # Cleanup must not overwrite the failed apply evidence. Raw logs stay private
+  # to this runner; only a fixed-vocabulary diagnostic reaches Actions output.
+  local log="$LAB_DIR/terraform-${command}.log"
+  if terraform -chdir="$TF" "$command" "${options[@]}" "$@" >"$log" 2>&1; then
+    return 0
+  else
+    code=$?
+  fi
+  python3 "$ROOT/.github/scripts/xconnect-lab/terraform-diagnostics.py" "$command" "$log" "$code" \
+    || echo '::error::Terraform failed; safe diagnostic extraction unavailable.' >&2
+  exit "$code"
+}
+tf_read() {
+  local command="$1" destination="$2" code
+  shift 2
+  case "$command" in output|show|state) ;; *) die 'Unsupported Terraform read stage' ;; esac
+  # stdout is authoritative private state/output; stderr needs the same safe
+  # treatment as apply. A failed state read must never authorize blind destroy.
+  local log="$LAB_DIR/terraform-${command}.log"
+  if terraform -chdir="$TF" "$command" "$@" >"$destination" 2>"$log"; then
+    return 0
+  else
+    code=$?
+  fi
+  python3 "$ROOT/.github/scripts/xconnect-lab/terraform-diagnostics.py" "$command" "$log" "$code" \
+    || echo '::error::Terraform read failed; safe diagnostic extraction unavailable.' >&2
+  echo '::error::Lab state/output inspection failed; resource cleanup is unverified and may require exact-run recovery.' >&2
+  exit "$code"
+}
 case "${1:?command}" in
   validate)
     for name in IAC_REF GITOPS_REF; do
@@ -116,7 +153,7 @@ case "${1:?command}" in
   preflight)
     python3 -m unittest discover -s "$ROOT/.github/scripts/xconnect-lab" -p 'test_*.py'
     if [[ "$MODE" != cleanup ]]; then
-      test -f "$TF/expiry_timer_test.sh" || die 'Two-hour apply requires an IaC revision with independent absolute-expiry protection'
+      test -f "$TF/expiry_timer_test.sh" || die 'Apply requires an IaC revision with independent absolute-expiry protection'
       bash "$TF/contract_test.sh"
     fi
     terraform -chdir="$TF" fmt -check
@@ -145,7 +182,7 @@ case "${1:?command}" in
     bash "$ROOT/.github/scripts/xconnect-lab/lease.sh" create
     touch "$LAB_DIR/apply-started"
     tf apply -input=false "$LAB_DIR/plan"
-    terraform -chdir="$TF" output -json > "$LAB_DIR/outputs.json"
+    tf_read output "$LAB_DIR/outputs.json" -json
     ;;
   setup|bootstrap|gateway|one|verify|desktop|node-observation)
     [[ "$MODE" == apply && -f "$LAB_DIR/apply-started" && -s "$LAB_DIR/outputs.json" ]] || die 'Real lab provisioning is required before deployment stages'
@@ -154,7 +191,7 @@ case "${1:?command}" in
       timeout 25m bash "$ROOT/.github/scripts/xconnect-lab/desktop.sh"
     elif [[ "$1" == node-observation ]]; then
       test -f "$LAB_DIR/verify.done" || die 'Linux verification is required before the node observation window'
-      timeout 120m bash "$ROOT/.github/scripts/xconnect-lab/node-observation.sh"
+      timeout 60m bash "$ROOT/.github/scripts/xconnect-lab/node-observation.sh"
     else
       timeout 25m bash "$ROOT/.github/scripts/xconnect-lab/deploy.sh" "$1"
     fi
@@ -164,11 +201,11 @@ case "${1:?command}" in
     if [[ "$MODE" != cleanup && ! -f "$LAB_DIR/apply-started" ]]; then echo 'No apply attempted; no resources to destroy.'; exit 0; fi
     export TF_VAR_run_id="$(<"$LAB_DIR/run-id")"
     # Saved state is authoritative for cleanup, including after partial apply.
-    terraform -chdir="$TF" show -json > "$LAB_DIR/state.json"
+    tf_read show "$LAB_DIR/state.json" -json
     python3 "$ROOT/.github/scripts/xconnect-lab/prepare.py" cleanup "$LAB_DIR" "$DECL"
     cp "$LAB_DIR/variables.json" "$TF/terraform.auto.tfvars.json"
     tf destroy -auto-approve -input=false
-    terraform -chdir="$TF" state list > "$LAB_DIR/remaining"
+    tf_read state "$LAB_DIR/remaining" list
     [[ ! -s "$LAB_DIR/remaining" ]] || die "Lab state is not empty: $TF_VAR_run_id"
     bash "$ROOT/.github/scripts/xconnect-lab/lease.sh" delete
     echo "Destroyed lab $TF_VAR_run_id; remote state retained for audit."

@@ -83,14 +83,12 @@ def resolve_node_observation(spec, requested, mode, desktop_window=0):
         and observation.get('mode') == 'until-expiry'
         and observation.get('release_on_failure') is True
     )
-    if spec.get('ttl_minutes') == 120 and not declared_until:
-        raise ValueError('120-minute topology requires node_observation.mode=until-expiry and release_on_failure=true')
+    if spec.get('ttl_minutes') != 60 or not declared_until:
+        raise ValueError('apply requires the reviewed 60-minute until-expiry declaration with release_on_failure=true')
     if requested == 'auto':
         return 'until-expiry' if declared_until else '0'
     if requested == '0':
         return '0'
-    if spec.get('ttl_minutes') != 120 or not declared_until:
-        raise ValueError('nonzero node observation requires the reviewed 120-minute until-expiry declaration')
     return requested
 
 

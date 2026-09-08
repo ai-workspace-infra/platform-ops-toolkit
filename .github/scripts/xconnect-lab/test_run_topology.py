@@ -18,7 +18,7 @@ def declaration():
             'environment_reuse': 'uat-control-plane-vault-account-and-network',
             'gateway_provider': 'aws-spot',
             'compute_policy': 'all-cloud-compute-is-aws-spot-by-default',
-            'ttl_minutes': 120,
+            'ttl_minutes': 60,
             'node_observation': {'mode': 'until-expiry', 'release_on_failure': True},
             'zero': {
                 'accounts_api_url': 'https://accounts-uat.onwalk.net',
@@ -41,14 +41,14 @@ def declaration():
                     'baseline': 'independent-linux-node-external-wireguard-xray',
                     'architecture': 'arm64', 'instance_type': 't4g.small',
                     'vcpu': 2, 'memory_gib': 2, 'purchase_model': 'spot',
-                    'max_runtime_minutes': 120,
+                    'max_runtime_minutes': 60,
                 },
                 'one': {
                     'product': 'XConnect One Linux client CLI', 'role': 'controlled-client',
                     'baseline': 'independent-linux-node-external-wireguard-xray',
                     'architecture': 'arm64', 'instance_type': 't4g.micro',
                     'vcpu': 2, 'memory_gib': 1, 'purchase_model': 'spot',
-                    'max_runtime_minutes': 120,
+                    'max_runtime_minutes': 60,
                 },
             },
             'desktop_validation': {
@@ -133,6 +133,18 @@ class ShellTopologyContract(unittest.TestCase):
         self.assertIn('NODE_OBSERVATION_WINDOW_MINUTES=0\n', env)
         self.assertNotEqual(self.preflight(value, desktop='20', window='until-expiry')[0], 0)
         value['spec']['desktop_validation']['ingress_cidrs'] = ['0.0.0.0/0']
+        self.assertNotEqual(self.preflight(value, desktop='20')[0], 0)
+
+    def test_old_two_hour_topology_is_cleanup_only(self):
+        value = declaration()
+        value['spec']['ttl_minutes'] = 120
+        for node in value['spec']['nodes'].values():
+            node['max_runtime_minutes'] = 120
+        code, output, env = self.preflight(value, mode='cleanup')
+        self.assertEqual(code, 0, output)
+        self.assertIn('NODE_OBSERVATION_WINDOW_MINUTES=0\n', env)
+        self.assertNotEqual(self.preflight(value)[0], 0)
+        self.assertNotEqual(self.preflight(value, mode='dry-run')[0], 0)
         self.assertNotEqual(self.preflight(value, desktop='20')[0], 0)
 
     def test_all_original_uat_guards_remain_fail_closed(self):
