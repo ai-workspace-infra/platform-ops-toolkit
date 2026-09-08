@@ -38,6 +38,8 @@ grep -Fq 'allow_release_overrides:' "${repo_root}/.github/workflows/xconnect-zer
 grep -Fq 'ALLOW_XCONNECT_RELEASE_OVERRIDES:' "${repo_root}/.github/workflows/xconnect-zero-cloud.yaml"
 grep -Fq 'allow_release_overrides=true' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
 grep -Fq 'ALLOW_XCONNECT_RELEASE_OVERRIDES' "${repo_root}/.github/scripts/xconnect-lab/run.sh"
+grep -Fq 'Publish non-secret desktop handoff' "${repo_root}/.github/workflows/xconnect-zero-cloud.yaml"
+grep -Fq 'actions/upload-artifact@v4' "${repo_root}/.github/workflows/xconnect-zero-cloud.yaml"
 grep -Fq 'xconnect_one_release_override' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
 grep -Fq 'xconnect_gateway_release_override' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
 grep -Fq "default: '35.79.83.48/32'" "${repo_root}/.github/workflows/xconnect-zero-cloud.yaml"

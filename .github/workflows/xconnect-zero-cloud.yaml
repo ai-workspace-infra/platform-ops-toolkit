@@ -192,6 +192,14 @@ jobs:
       - name: Verify signed sync/ACK, services, exact-peer handshake and private ping/HTTP
         if: inputs.mode == 'apply'
         run: bash .github/scripts/xconnect-lab/run.sh verify
+      - name: Publish non-secret desktop handoff
+        if: inputs.mode == 'apply'
+        uses: actions/upload-artifact@v4
+        with:
+          name: xconnect-desktop-handoff-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.LAB_DIR }}/desktop-public
+          if-no-files-found: error
+          retention-days: 1
       - name: Keep verified Gateway/Linux One Spot until lease expiry
         if: inputs.mode == 'apply'
         run: bash .github/scripts/xconnect-lab/run.sh node-observation
