@@ -20,7 +20,11 @@ if grep -Fq '"${WF_PREFIX}/xconnect-cloud-lab.yml@*"' "${roles}"; then
 fi
 
 grep -Fq "XCONNECT_VAULT_ROLE: ${role}" "${workflow}"
-[[ $(grep -Fc 'role: ${{ env.XCONNECT_VAULT_ROLE }}' "${workflow}") -eq 2 ]]
+[[ $(grep -Fc 'role: ${{ env.XCONNECT_VAULT_ROLE }}' "${workflow}") -eq 1 ]]
+if grep -Eq '^  schedule:' "${workflow}"; then
+  echo "XConnect cloud lab must be released from an immutable UAT snapshot, not a schedule" >&2
+  exit 1
+fi
 grep -Fq ".spec.vault.role == \"${role}\"" "${runner}"
 
 grep -Fq 'kv/data/CICD/uat TF_STATE_ENDPOINT' "${workflow}"
