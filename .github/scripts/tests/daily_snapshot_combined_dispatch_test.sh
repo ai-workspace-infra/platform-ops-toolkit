@@ -40,7 +40,7 @@ bash "${dispatcher}"
 serverless_line="$(grep -n '^workflow run serverless-orchestrator.yml ' "${workdir}/gh.log" | cut -d: -f1)"
 watch_line="$(grep -n '^run watch 1001 ' "${workdir}/gh.log" | cut -d: -f1)"
 selfhost_line="$(grep -n '^workflow run selfhost-orchestrator.yml ' "${workdir}/gh.log" | cut -d: -f1)"
-lab_line="$(grep -n '^workflow run xconnect-cloud-lab.yml ' "${workdir}/gh.log" | cut -d: -f1)"
+lab_line="$(grep -n '^workflow run connect-zero-cloud.yaml ' "${workdir}/gh.log" | cut -d: -f1)"
 
 [[ -n "${serverless_line}" && -n "${watch_line}" && -n "${lab_line}" && -n "${selfhost_line}" ]] || {
   echo "combined dispatcher did not issue serverless, XConnect Lab, and selfhost runs with the serverless wait" >&2

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-workflow="${repo_root}/.github/workflows/xconnect-cloud-lab.yml"
+workflow="${repo_root}/.github/workflows/connect-zero-cloud.yaml"
 runner="${repo_root}/.github/scripts/xconnect-lab/run.sh"
 deploy="${repo_root}/.github/scripts/xconnect-lab/deploy.sh"
 

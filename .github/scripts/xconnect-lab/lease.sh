@@ -34,7 +34,7 @@ case "${1:?}" in
       jq -e '.inputs.mode == "cleanup" and .inputs.cleanup_run == .run and ([.inputs.iac_ref,.inputs.gitops_ref] | all(test("^[0-9a-f]{40}$"))) and (.inputs.cli_release_tag | test("^v[0-9A-Za-z._-]+$")) and (.inputs.gateway_release_tag | test("^v[0-9A-Za-z._-]+$")) and (.inputs.xray_release_tag | test("^v[0-9A-Za-z._-]+$"))' "$LAB_DIR/lease.json" >/dev/null
       if jq -e '(.expires_at | fromdateiso8601) <= now' "$LAB_DIR/lease.json" >/dev/null; then
         jq '{ref:"main",inputs:.inputs}' "$LAB_DIR/lease.json" > "$LAB_DIR/dispatch.json"
-        gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/xconnect-cloud-lab.yml/dispatches" --input "$LAB_DIR/dispatch.json" >/dev/null
+        gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/connect-zero-cloud.yaml/dispatches" --input "$LAB_DIR/dispatch.json" >/dev/null
         echo "Requested expired lab cleanup: $run"
       fi
     done < "$LAB_DIR/keys"

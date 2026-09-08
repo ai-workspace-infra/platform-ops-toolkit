@@ -1,4 +1,4 @@
-name: XConnect UAT Spot Lab
+name: XConnect Zero Cloud Lab
 on:
   workflow_dispatch:
     inputs:
