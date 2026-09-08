@@ -39,6 +39,11 @@ grep -Fq 'signed-config-ack-status' "${deploy}"
 grep -Fq 'probe-control-plane.py' "${workflow}"
 grep -Fq 'validate-topology.jq' "${runner}"
 grep -Fq 'timeout 60m bash "$ROOT/.github/scripts/xconnect-lab/node-observation.sh"' "${runner}"
+grep -Fq 'xconnect-gateway status --state-dir "$state"' "${repo_root}/.github/scripts/xconnect-lab/remote-gateway-observation.sh"
+if grep -Fq 'xconnect-gateway up --state-dir "$state"' "${repo_root}/.github/scripts/xconnect-lab/remote-gateway-observation.sh"; then
+  echo "Gateway observation must not re-apply WireGuard and reset handshakes" >&2
+  exit 1
+fi
 grep -Fq 'timeout-minutes: 90' "${workflow}"
 grep -Fq 'terraform-diagnostics.py' "${runner}"
 grep -Fq 'terraform-${command}.log' "${runner}"
