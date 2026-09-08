@@ -7,25 +7,30 @@ on:
         options: [dry-run, apply, cleanup]
         default: dry-run
       iac_ref:
-        description: Full reviewed iac_modules commit SHA
+        description: Advanced override - reviewed iac_modules commit SHA
         type: string
-        required: true
+        required: false
+        default: '24517908371bdd0664e34592b5be594f22b38790'
       gitops_ref:
-        description: Full reviewed gitops commit SHA
+        description: Advanced override - reviewed gitops commit SHA
         type: string
-        required: true
+        required: false
+        default: 'a8786ec1cbc9c285e8c1f9a9fce467057ce0c3e6'
       cli_release_tag:
-        description: XConnect-One GitHub Release tag containing Linux CLI
+        description: Advanced override - XConnect-One GitHub Release tag
         type: string
-        required: true
+        required: false
+        default: 'v0.1.8'
       gateway_release_tag:
-        description: XConnect-Gateway GitHub Release tag containing the Linux relay runtime
+        description: Advanced override - XConnect-Gateway GitHub Release tag
         type: string
-        required: true
+        required: false
+        default: 'v0.1.4'
       xray_release_tag:
-        description: XTLS/Xray-core GitHub Release tag containing the Linux ARM64 binary
+        description: Advanced override - XTLS/Xray-core Release tag
         type: string
-        required: true
+        required: false
+        default: 'v26.3.27'
       cleanup_run:
         description: Cleanup only - exact xcl-RUN_ID-ATTEMPT from a previous run
         type: string
