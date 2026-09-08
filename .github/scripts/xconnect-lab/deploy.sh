@@ -98,10 +98,10 @@ enroll_one() {
 echo 'Stage: controlled-client formal enrollment and apply'
 scp "${SSH[@]}" "$LAB_DIR/bin/xconnect" "$LAB_DIR/bin/xray" "$LAB_DIR/tls/ca.crt" "$LAB_DIR/invites/one" "$client_user@$client:/tmp/" >/dev/null
 ssh "${SSH[@]}" "$client_user@$client" "set -eu; sudo install -m 755 /tmp/xconnect /tmp/xray /usr/local/bin/; sudo install -m 644 /tmp/ca.crt /usr/local/share/ca-certificates/xconnect-lab.crt; sudo update-ca-certificates >/dev/null 2>&1; sudo install -d -m 700 /var/lib/xconnect-one /etc/xconnect-lab; sudo install -m 600 /tmp/one /var/lib/xconnect-one/join-uri; printf '%s\n' controlled-client | sudo tee /etc/xconnect-lab/node-role >/dev/null; sudo sh -c 'xconnect join --state-dir /var/lib/xconnect-one --device-id \"$client_id\" --name uat-linux-one \"\$(cat /var/lib/xconnect-one/join-uri)\"'"
-# `join` applies the runtime as part of enrollment. A second, idempotent `up`
-# makes the deployment contract explicit and repairs a runtime that stopped
-# between enrollment and verification.
-ssh "${SSH[@]}" "$client_user@$client" 'sudo xconnect up --state-dir /var/lib/xconnect-one'
+# The signed-enrollment lifecycle intentionally does not allow a cached `up`.
+# Re-syncing verifies the current signed config, starts the owned runtime and
+# records the current-generation ACK before the data-plane checks.
+ssh "${SSH[@]}" "$client_user@$client" 'sudo xconnect sync --state-dir /var/lib/xconnect-one'
 
 # One enrollment advances the centralized generation. Reconcile the Gateway so
 # its WireGuard peer set contains the newly registered controlled client.
