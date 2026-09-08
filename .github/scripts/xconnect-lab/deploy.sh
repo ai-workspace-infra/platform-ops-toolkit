@@ -4,7 +4,7 @@ umask 077
 
 ROOT="${GITHUB_WORKSPACE:?}"
 LAB_DIR="${LAB_DIR:?}"
-DECL="$ROOT/gitops/topology/uat/xconnect-lab.json"
+DECL="$ROOT/gitops/vpn-overlay/uat/xconnect-lab.json"
 gateway=$(jq -er .gateway_ip.value "$LAB_DIR/outputs.json")
 gateway_transport=$(jq -er .gateway_transport_ip.value "$LAB_DIR/outputs.json")
 gateway_user=$(jq -er .gateway_ssh_user.value "$LAB_DIR/outputs.json")
