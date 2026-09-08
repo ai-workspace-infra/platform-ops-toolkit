@@ -271,12 +271,12 @@ VLESS_ID
 - secret 不进入 Git、Terraform tfvars、Actions artifact、普通日志或诊断输出。
 - 只有 GitHub OIDC 短期身份和 Vault JWT role 可取 secret。
 - 本次 UAT 验证不读取 `VULTR_API_KEY`。
-- Vault role 的 `job_workflow_ref` 必须精确允许 `connect-zero-cloud.yaml`。
+- Vault role 的 `job_workflow_ref` 必须精确允许 `xconnect-zero-cloud.yaml`。
 - workflow 不自行修改 Vault role，也不以静态密钥绕过 JWT。
 
 ## 10. 流水线执行模型
 
-`platform-ops-toolkit/.github/workflows/connect-zero-cloud.yaml` 的阶段：
+`platform-ops-toolkit/.github/workflows/xconnect-zero-cloud.yaml` 的阶段：
 
 1. 校验 IaC/GitOps 两个完整 immutable SHA，以及 XConnect-One/Xray 两个 Release tag。
 2. 用 GitHub OIDC JWT 登录 Vault。
@@ -416,12 +416,12 @@ claim "job_workflow_ref" does not match any associated bound claim values
 代码侧已经把验证流程准备好；剩余阻塞是 live Vault role 的实际配置必须包含：
 
 ```text
-ai-workspace-infra/platform-ops-toolkit/.github/workflows/connect-zero-cloud.yaml@refs/heads/main
+ai-workspace-infra/platform-ops-toolkit/.github/workflows/xconnect-zero-cloud.yaml@refs/heads/main
 ```
 
 ## 15. 下一步操作清单
 
-1. 在与 GitHub Actions 相同的 Vault 地址和 JWT mount 上读取专用 UAT role，确认 `job_workflow_ref` 精确等于 `connect-zero-cloud.yaml@refs/heads/main`。
+1. 在与 GitHub Actions 相同的 Vault 地址和 JWT mount 上读取专用 UAT role，确认 `job_workflow_ref` 精确等于 `xconnect-zero-cloud.yaml@refs/heads/main`。
 2. 若缺失，从合并后的 `platform-ops-toolkit/main` 执行 `scripts/create_vault_service_repo_roles.sh`。
 3. 确认 `kv/data/CICD/uat` 的 Terraform backend 字段存在。
 4. 确认 `kv/data/uat/xconnect-one` 的 `ADMIN_TOKEN`、`SIGNING_KEY`、`VLESS_ID` 存在且格式正确。

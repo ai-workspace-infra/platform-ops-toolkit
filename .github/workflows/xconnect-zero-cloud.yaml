@@ -30,21 +30,6 @@ on:
         description: Cleanup only - exact xcl-RUN_ID-ATTEMPT from a previous run
         type: string
         default: ''
-      mac_join_window_minutes:
-        description: Compatibility input - Linux validation only; desktop acceptance requires a separate identity-bound external access stage
-        type: choice
-        options: ['0']
-        default: '0'
-      desktop_join_window_minutes:
-        description: Apply only - bounded Darwin/Windows desktop join verification window
-        type: choice
-        options: ['0', '10', '20']
-        default: '0'
-      node_observation_window_minutes:
-        description: Apply only - auto follows the reviewed declaration, or use a bounded Gateway/Linux One observation window
-        type: choice
-        options: [auto, '0', '10', '20', until-expiry]
-        default: auto
 permissions:
   contents: read
   id-token: write
@@ -66,9 +51,7 @@ jobs:
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag }}
       CLEANUP_RUN: ${{ inputs.cleanup_run }}
-      MAC_JOIN_WINDOW_MINUTES: ${{ inputs.mac_join_window_minutes }}
-      DESKTOP_JOIN_WINDOW_MINUTES: ${{ inputs.desktop_join_window_minutes }}
-      NODE_OBSERVATION_INPUT: ${{ inputs.node_observation_window_minutes }}
+      NODE_OBSERVATION_INPUT: 'until-expiry'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -192,21 +175,8 @@ jobs:
       - name: Verify signed sync/ACK, services, exact-peer handshake and private ping/HTTP
         if: inputs.mode == 'apply'
         run: bash .github/scripts/xconnect-lab/run.sh verify
-      - name: Publish public desktop handoff
-        if: inputs.mode == 'apply' && (inputs.desktop_join_window_minutes != '0' || steps.topology.outputs.node_observation_window_minutes != '0')
-        uses: actions/upload-artifact@v4
-        with:
-          name: xconnect-desktop-public-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/xconnect-lab/desktop-public/desktop-handoff.json
-            ${{ runner.temp }}/xconnect-lab/desktop-public/ca.crt
-          if-no-files-found: error
-          retention-days: 1
-      - name: Observe optional desktop join window
-        if: inputs.mode == 'apply' && inputs.desktop_join_window_minutes != '0'
-        run: bash .github/scripts/xconnect-lab/run.sh desktop
-      - name: Observe optional Gateway and Linux One window
-        if: inputs.mode == 'apply' && steps.topology.outputs.node_observation_window_minutes != '0'
+      - name: Keep verified Gateway/Linux One Spot until lease expiry
+        if: inputs.mode == 'apply'
         run: bash .github/scripts/xconnect-lab/run.sh node-observation
       - name: Refresh short-lived AWS OIDC credentials before cleanup
         if: always() && inputs.mode != 'dry-run' && steps.prepare.outcome == 'success'

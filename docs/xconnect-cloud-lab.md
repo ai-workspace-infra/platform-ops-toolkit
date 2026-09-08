@@ -1,6 +1,6 @@
 # Formal XConnect UAT integration validation
 
-The `.github/workflows/connect-zero-cloud.yaml` deployment workflow consumes
+The `.github/workflows/xconnect-zero-cloud.yaml` deployment workflow consumes
 reviewed GitOps/IAC commits and versioned GitHub Release artifacts. It does not
 build application code or run the experimental Zero controller. Accounts is
 the sole formal control/configuration source. Portal retains its current layout.
@@ -24,12 +24,11 @@ the sole formal control/configuration source. Portal retains its current layout.
 8. Verify identity-bound signed sync/ACK state, external services, exact-peer
    recent handshakes on both nodes, private ping and an exact run-specific
    HTTP marker over WireGuard over VLESS.
-9. If requested, publish the public desktop handoff after Linux PASS and
-   observe the bounded Darwin/Windows join window; this remains separate from
-   Linux acceptance.
-10. If requested instead, publish the same public handoff and observe the
-   Gateway/Linux One pair for bounded sync and exact-peer health summaries.
-11. Always destroy only this run's dedicated Terraform state and verify it is
+9. Keep the verified Gateway/Linux One pair until the reviewed one-hour lease
+   expires, emitting only Gateway/Linux health summaries. Do not publish or
+   observe a macOS/Windows desktop handoff; desktop confirmation is a separate
+   manual operation and is not a workflow gate.
+10. After expiry, destroy only this run's dedicated Terraform state and verify it is
    empty. Connectivity success and cleanup success are separate results.
 
 The preparation of Gateway key material precedes invitation issuance, but
@@ -47,9 +46,6 @@ Each deployment/verification phase is a separate GitHub Actions step.
 | `gateway_release_tag` | GitOps-pinned XConnect-Gateway version; `xconnect-gateway-linux-arm64` and `SHA256SUMS` |
 | `xray_release_tag` | GitOps-pinned official Xray ARM64 archive and digest |
 | `cleanup_run` | Cleanup only: exact `xcl-RUN_ID-ATTEMPT` |
-| `mac_join_window_minutes` | Compatibility field; `0` only until the external desktop stage is ready |
-| `desktop_join_window_minutes` | `0`, `10`, or `20`; nonzero is apply-only and requires enabled, exact Darwin/Windows GitOps validation plus one or two canonical IPv4 `/32` ingress CIDRs |
-| `node_observation_window_minutes` | `auto`, `0`, `10`, `20`, or `until-expiry`; apply `auto` follows `spec.node_observation`, cleanup/dry-run resolve to `0`; nonzero is mutually exclusive with the desktop window |
 
 Full UAT delivery is initiated through `daily-main-snapshot.yaml`, which keeps
 its daily schedule and publishes one immutable application TAG before deployment.
@@ -90,47 +86,12 @@ WireGuard link telemetry. Node enrollment records remain in Accounts after
 Spot cleanup; they must not be presented as currently online.
 
 The former macOS check counted any second peer and lacked external transport
-access/TLS trust delivery. It has been removed as invalid acceptance evidence.
-The optional desktop window is opened only after Linux PASS. The GitOps
-declaration must set `spec.desktop_validation.enabled=true`,
-`platforms=["darwin","windows"]` exactly, and one or two canonical IPv4 `/32`
-CIDRs. The default `0` path passes an empty `desktop_ingress_cidrs` list to
-IAC and leaves Linux behavior unchanged. `mac_join_window_minutes` remains a
-compatibility input and accepts only `0`.
-
-When the window is nonzero, the workflow first uploads an artifact retained for
-one day containing only `ca.crt` and an allowlisted `desktop-handoff.json`.
-That JSON contains run/expiry and network identity, Gateway public key and
-endpoint, Accounts/Portal URLs, Gateway/Linux instance IDs and public/private
-addresses, expected `one-darwin-${run}` and `one-windows-${run}` IDs, and the
-private verification target plus exact run marker. It contains no invitation,
-token, VLESS identifier, private key, or owner email. Invitations are created
-locally by the UAT operator through Vault and formal Accounts bootstrap; they
-are never placed in CI artifacts or logs.
-
-The node observation window uses the same public handoff and artifact, but does
-not require desktop ingress CIDRs or desktop validation. It keeps the two
-already-provisioned Linux nodes in place, periodically runs Gateway `up` and
-Linux One `sync`, and emits only a summary of the exact Gateway-to-Linux One
-peer health. The two nonzero windows are mutually exclusive.
-
-The optional observer refreshes Gateway `up` every 30 seconds and matches each
-expected device ID to its public key in the verified/applied signed WireGuard
-configuration before checking that exact peer's recent handshake. It reports
-`UNVERIFIED` when the identity-bound peer handshake is absent. Peer count alone
-cannot produce desktop success, and this observer does not replace the local
-macOS/Windows ping and HTTP checks. Final desktop acceptance is explicitly a
-local independent check. The reviewed declaration retains both nodes for
-`ttl_minutes=60` with `max_runtime_minutes=60` and
-`node_observation={mode:"until-expiry",release_on_failure:true}`. `auto` on
-apply selects `until-expiry`; explicit `10`/`20` windows remain bounded by the
-recorded lease expiry. Cleanup and dry-run resolve to `0`. Previous 60/120-minute
-leases remain cleanup-compatible, but new apply accepts only the one-hour policy.
-
-Desktop runs still require scoped external TCP 443 ingress, a reachable
-Gateway endpoint, public CA trust delivery, and exact device identity.
-macOS/Windows are not covered by Linux PASS. No host-adapter/Packet Tunnel
-integration is required by standalone One.
+access/TLS trust delivery. It is not part of this workflow. The workflow does
+not upload a desktop handoff, open a desktop observation window, or block on
+macOS/Windows acceptance. Any later desktop check must be performed manually
+with separately delivered, identity-bound material and is not evidence for the
+Linux cloud-lab PASS. No host-adapter/Packet Tunnel integration is required by
+standalone One.
 Policy enforcement, revocation and session-renewal acceptance are separate
 checks; signed v1 sync alone does not prove them.
 
@@ -142,9 +103,9 @@ WireGuard UDP is closed. SSH is restricted to the runner /32.
 
 Dedicated state: `uat/xconnect-lab/xcl-RUN_ID-ATTEMPT/terraform.tfstate`.
 A nonsecret lease retains the run identity, refs, release pins and the reviewed
-60-minute expiry. The observer uses the recorded `expires_at` and never
-renews or resets it. Normal runs use `always()` cleanup, including partial
-provisioning failures; failures may clean up earlier. The job ceiling is 90
+60-minute expiry. The workflow keeps a successfully verified pair until that
+expiry, then runs the normal `always()` cleanup. Partial provisioning failures
+may clean up earlier. The job ceiling is 90
 minutes and a fresh AWS OIDC session is acquired before cleanup because the
 initial session is one hour. An expiry tag does not independently terminate
 EC2. The matching IaC module also configures a persistent absolute-expiry

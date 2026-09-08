@@ -205,7 +205,7 @@ write_xconnect_cloud_lab_role() {
   "bound_claims_type": "glob",
   "bound_claims": {
     "repository": "${REPO}",
-    "job_workflow_ref": "${WF_PREFIX}/connect-zero-cloud.yaml@refs/heads/main",
+    "job_workflow_ref": "${WF_PREFIX}/xconnect-zero-cloud.yaml@refs/heads/main",
     "ref": "refs/heads/main"
   },
   "token_policies": ["github-actions-platform-ops-toolkit-uat"],
