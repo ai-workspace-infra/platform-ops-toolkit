@@ -69,4 +69,18 @@ grep -Fq -- 'contents/vpn-overlay/uat/xconnect-lab.json?ref=01234567890123456789
 grep -Fq -- '-f cli_release_tag=v0.1.7' "${workdir}/gh.log"
 grep -Fq -- '-f gateway_release_tag=v0.1.3' "${workdir}/gh.log"
 grep -Fq -- '-f xray_release_tag=v26.3.27' "${workdir}/gh.log"
+
+GH_LOG="${workdir}/gh-override.log" \
+PATH="${workdir}:${PATH}" \
+GH_TOKEN=test-token \
+SNAPSHOT_TAG=uat-daily-build-2026.08.21-r5 \
+SKIP_STRIPE_CATALOG=true \
+XCONNECT_ONE_RELEASE_TAG=v0.1.9 \
+XCONNECT_GATEWAY_RELEASE_TAG=v0.1.4 \
+UAT_SERVERLESS_WAIT_TIMEOUT_SECONDS=30 \
+UAT_SERVERLESS_WAIT_INTERVAL_SECONDS=1 \
+bash "${dispatcher}"
+
+grep -Fq -- '-f cli_release_tag=v0.1.9' "${workdir}/gh-override.log"
+grep -Fq -- '-f gateway_release_tag=v0.1.4' "${workdir}/gh-override.log"
 echo "daily_snapshot_combined_dispatch_test: PASS"

@@ -33,6 +33,16 @@ on:
         required: false
         default: false
         type: boolean
+      xconnect_one_release_tag:
+        description: "可选：本次 UAT XConnect Lab 使用的 XConnect-One Release tag；留空则使用 GitOps 声明"
+        required: false
+        default: ''
+        type: string
+      xconnect_gateway_release_tag:
+        description: "可选：本次 UAT XConnect Lab 使用的 XConnect-Gateway Release tag；留空则使用 GitOps 声明"
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
@@ -265,6 +275,8 @@ jobs:
           # UAT Agent Proxy. This is a public endpoint, not a credential.
           AGENT_CONTROLLER_URL: https://accounts-serverless-uat.onwalk.net
           SKIP_STRIPE_CATALOG: ${{ inputs.skip_stripe_catalog || false }}
+          XCONNECT_ONE_RELEASE_TAG: ${{ inputs.xconnect_one_release_tag }}
+          XCONNECT_GATEWAY_RELEASE_TAG: ${{ inputs.xconnect_gateway_release_tag }}
 
       - name: Load GitHub App private key for production dispatch
         if: ${{ (inputs.deploy_env || 'uat') == 'prod' && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' }}

@@ -13,6 +13,8 @@ selfhost_workflow="${SELFHOST_WORKFLOW:-selfhost-orchestrator.yml}"
 xconnect_lab_workflow="${XCONNECT_LAB_WORKFLOW:-xconnect-zero-cloud.yaml}"
 gitops_repository="${GITOPS_REPOSITORY:-ai-workspace-infra/gitops}"
 iac_repository="${IAC_REPOSITORY:-ai-workspace-infra/iac_modules}"
+xconnect_one_release_override="${XCONNECT_ONE_RELEASE_TAG:-}"
+xconnect_gateway_release_override="${XCONNECT_GATEWAY_RELEASE_TAG:-}"
 agent_controller_url="${AGENT_CONTROLLER_URL:-https://accounts-serverless-uat.onwalk.net}"
 # UAT validates on an ephemeral AWS Graviton Spot node. T4g.small supplies
 # 2 vCPU / 2 GiB; its one-hour lifetime and lack of an EIP are declared in
@@ -46,6 +48,13 @@ wait_interval_seconds="${UAT_SERVERLESS_WAIT_INTERVAL_SECONDS:-20}"
   echo "::error::UAT serverless wait timeout and interval must be positive integers." >&2
   exit 2
 }
+
+for release_tag in "${xconnect_one_release_override}" "${xconnect_gateway_release_override}"; do
+  if [[ -n "${release_tag}" && ! "${release_tag}" =~ ^v[0-9A-Za-z._-]+$ ]]; then
+    echo "::error::XConnect release tag overrides must use a v* Release tag." >&2
+    exit 2
+  fi
+done
 
 export GH_TOKEN="${gh_token}"
 
@@ -144,6 +153,8 @@ dispatch_xconnect_lab() {
   cli_release_tag="$(jq -er '.spec.artifacts.one.release_tag' "${topology}")"
   gateway_release_tag="$(jq -er '.spec.artifacts.gateway.release_tag' "${topology}")"
   xray_release_tag="$(jq -er '.spec.artifacts.xray.release_tag' "${topology}")"
+  [[ -z "${xconnect_one_release_override}" ]] || cli_release_tag="${xconnect_one_release_override}"
+  [[ -z "${xconnect_gateway_release_override}" ]] || gateway_release_tag="${xconnect_gateway_release_override}"
   for release_tag in "${cli_release_tag}" "${gateway_release_tag}" "${xray_release_tag}"; do
     [[ "${release_tag}" =~ ^v[0-9A-Za-z._-]+$ ]] || { echo "::error::Invalid XConnect release tag in GitOps topology." >&2; return 1; }
   done

@@ -30,6 +30,14 @@ grep -Fq 'dns_mode=uat-records' "${repo_root}/.github/scripts/snapshots/dispatch
 grep -Fq 'target_domains=agent-proxy' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
 grep -Fq 'agent_controller_url' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
 grep -Fq 'xconnect-zero-cloud.yaml' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
+grep -Fq 'xconnect_one_release_tag:' "${repo_root}/.github/workflows/daily-main-snapshot.yaml"
+grep -Fq 'xconnect_gateway_release_tag:' "${repo_root}/.github/workflows/daily-main-snapshot.yaml"
+grep -Fq 'XCONNECT_ONE_RELEASE_TAG:' "${repo_root}/.github/workflows/daily-main-snapshot.yaml"
+grep -Fq 'XCONNECT_GATEWAY_RELEASE_TAG:' "${repo_root}/.github/workflows/daily-main-snapshot.yaml"
+grep -Fq 'xconnect_one_release_override' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
+grep -Fq 'xconnect_gateway_release_override' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
+grep -Fq "default: '35.79.83.48/32'" "${repo_root}/.github/workflows/xconnect-zero-cloud.yaml"
+grep -Fq "SSH_DEBUG_INGRESS_CIDRS: \${{ inputs.ssh_debug_ingress_cidrs || '35.79.83.48/32' }}" "${repo_root}/.github/workflows/xconnect-zero-cloud.yaml"
 if grep -Fq 'mac_join_window_minutes' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"; then
   echo "daily snapshot must not dispatch desktop join inputs" >&2
   exit 1
