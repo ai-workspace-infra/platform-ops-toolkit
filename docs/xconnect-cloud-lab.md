@@ -24,7 +24,12 @@ the sole formal control/configuration source. Portal retains its current layout.
 8. Verify identity-bound signed sync/ACK state, external services, exact-peer
    recent handshakes on both nodes, private ping and an exact run-specific
    HTTP marker over WireGuard over VLESS.
-9. Always destroy only this run's dedicated Terraform state and verify it is
+9. If requested, publish the public desktop handoff after Linux PASS and
+   observe the bounded Darwin/Windows join window; this remains separate from
+   Linux acceptance.
+10. If requested instead, publish the same public handoff and observe the
+   Gateway/Linux One pair for bounded sync and exact-peer health summaries.
+11. Always destroy only this run's dedicated Terraform state and verify it is
    empty. Connectivity success and cleanup success are separate results.
 
 The preparation of Gateway key material precedes invitation issuance, but
@@ -43,6 +48,8 @@ Each deployment/verification phase is a separate GitHub Actions step.
 | `xray_release_tag` | GitOps-pinned official Xray ARM64 archive and digest |
 | `cleanup_run` | Cleanup only: exact `xcl-RUN_ID-ATTEMPT` |
 | `mac_join_window_minutes` | Compatibility field; `0` only until the external desktop stage is ready |
+| `desktop_join_window_minutes` | `0`, `10`, or `20`; nonzero is apply-only and requires enabled, exact Darwin/Windows GitOps validation plus one or two canonical IPv4 `/32` ingress CIDRs |
+| `node_observation_window_minutes` | `0`, `10`, or `20`; nonzero is apply-only and mutually exclusive with the desktop window; observes only the already-provisioned Gateway/Linux One pair |
 
 Full UAT delivery is initiated through `daily-main-snapshot.yaml`, which keeps
 its daily schedule and publishes one immutable application TAG before deployment.
@@ -84,10 +91,43 @@ Spot cleanup; they must not be presented as currently online.
 
 The former macOS check counted any second peer and lacked external transport
 access/TLS trust delivery. It has been removed as invalid acceptance evidence.
-Desktop runs require scoped external TCP 443 ingress, a reachable Gateway
-endpoint, public CA trust delivery, exact device identity, and per-client
-sync/status/handshake/ping/HTTP results. macOS/Windows are not covered by Linux
-PASS. No host-adapter/Packet Tunnel integration is required by standalone One.
+The optional desktop window is opened only after Linux PASS. The GitOps
+declaration must set `spec.desktop_validation.enabled=true`,
+`platforms=["darwin","windows"]` exactly, and one or two canonical IPv4 `/32`
+CIDRs. The default `0` path passes an empty `desktop_ingress_cidrs` list to
+IAC and leaves Linux behavior unchanged. `mac_join_window_minutes` remains a
+compatibility input and accepts only `0`.
+
+When the window is nonzero, the workflow first uploads an artifact retained for
+one day containing only `ca.crt` and an allowlisted `desktop-handoff.json`.
+That JSON contains run/expiry and network identity, Gateway public key and
+endpoint, Accounts/Portal URLs, Gateway/Linux instance IDs and public/private
+addresses, expected `one-darwin-${run}` and `one-windows-${run}` IDs, and the
+private verification target plus exact run marker. It contains no invitation,
+token, VLESS identifier, private key, or owner email. Invitations are created
+locally by the UAT operator through Vault and formal Accounts bootstrap; they
+are never placed in CI artifacts or logs.
+
+The node observation window uses the same public handoff and artifact, but does
+not require desktop ingress CIDRs or desktop validation. It keeps the two
+already-provisioned Linux nodes in place, periodically runs Gateway `up` and
+Linux One `sync`, and emits only a summary of the exact Gateway-to-Linux One
+peer health. The two nonzero windows are mutually exclusive.
+
+The optional observer refreshes Gateway `up` every 30 seconds and matches each
+expected device ID to its public key in the verified/applied signed WireGuard
+configuration before checking that exact peer's recent handshake. It reports
+`UNVERIFIED` when the identity-bound peer handshake is absent. Peer count alone
+cannot produce desktop success, and this observer does not replace the local
+macOS/Windows ping and HTTP checks. Final desktop acceptance is explicitly a
+local independent check. The window is capped at 20 minutes and exits before
+the lease's +50-minute safety point; normal `always()` cleanup and the 1-hour
+Spot limit remain in force.
+
+Desktop runs still require scoped external TCP 443 ingress, a reachable
+Gateway endpoint, public CA trust delivery, and exact device identity.
+macOS/Windows are not covered by Linux PASS. No host-adapter/Packet Tunnel
+integration is required by standalone One.
 Policy enforcement, revocation and session-renewal acceptance are separate
 checks; signed v1 sync alone does not prove them.
 
