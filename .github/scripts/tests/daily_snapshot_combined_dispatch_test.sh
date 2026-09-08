@@ -40,7 +40,7 @@ bash "${dispatcher}"
 serverless_line="$(grep -n '^workflow run serverless-orchestrator.yml ' "${workdir}/gh.log" | cut -d: -f1)"
 watch_line="$(grep -n '^run watch 1001 ' "${workdir}/gh.log" | cut -d: -f1)"
 selfhost_line="$(grep -n '^workflow run selfhost-orchestrator.yml ' "${workdir}/gh.log" | cut -d: -f1)"
-lab_line="$(grep -n '^workflow run connect-zero-cloud.yaml ' "${workdir}/gh.log" | cut -d: -f1)"
+lab_line="$(grep -n '^workflow run xconnect-zero-cloud.yaml ' "${workdir}/gh.log" | cut -d: -f1)"
 
 [[ -n "${serverless_line}" && -n "${watch_line}" && -n "${lab_line}" && -n "${selfhost_line}" ]] || {
   echo "combined dispatcher did not issue serverless, XConnect Lab, and selfhost runs with the serverless wait" >&2
@@ -69,6 +69,4 @@ grep -Fq -- 'contents/vpn-overlay/uat/xconnect-lab.json?ref=01234567890123456789
 grep -Fq -- '-f cli_release_tag=v0.1.7' "${workdir}/gh.log"
 grep -Fq -- '-f gateway_release_tag=v0.1.3' "${workdir}/gh.log"
 grep -Fq -- '-f xray_release_tag=v26.3.27' "${workdir}/gh.log"
-grep -Fq -- '-f mac_join_window_minutes=0' "${workdir}/gh.log"
-
 echo "daily_snapshot_combined_dispatch_test: PASS"

@@ -29,7 +29,10 @@ grep -Fq 'supabase_target_existing_strategy=accounts_merge' "${repo_root}/.githu
 grep -Fq 'dns_mode=uat-records' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
 grep -Fq 'target_domains=agent-proxy' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
 grep -Fq 'agent_controller_url' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
-grep -Fq 'connect-zero-cloud.yaml' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
-grep -Fq 'mac_join_window_minutes=0' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
+grep -Fq 'xconnect-zero-cloud.yaml' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
+if grep -Fq 'mac_join_window_minutes' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"; then
+  echo "daily snapshot must not dispatch desktop join inputs" >&2
+  exit 1
+fi
 
 echo "daily_snapshot_uat_gate_contract_test: PASS"

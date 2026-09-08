@@ -10,7 +10,7 @@ snapshot_tag="${SNAPSHOT_TAG:?SNAPSHOT_TAG must be set}"
 target_repo="${TARGET_REPOSITORY:-ai-workspace-infra/platform-ops-toolkit}"
 serverless_workflow="${SERVERLESS_WORKFLOW:-serverless-orchestrator.yml}"
 selfhost_workflow="${SELFHOST_WORKFLOW:-selfhost-orchestrator.yml}"
-xconnect_lab_workflow="${XCONNECT_LAB_WORKFLOW:-connect-zero-cloud.yaml}"
+xconnect_lab_workflow="${XCONNECT_LAB_WORKFLOW:-xconnect-zero-cloud.yaml}"
 gitops_repository="${GITOPS_REPOSITORY:-ai-workspace-infra/gitops}"
 iac_repository="${IAC_REPOSITORY:-ai-workspace-infra/iac_modules}"
 agent_controller_url="${AGENT_CONTROLLER_URL:-https://accounts-serverless-uat.onwalk.net}"
@@ -156,8 +156,7 @@ dispatch_xconnect_lab() {
     -f "gitops_ref=${gitops_ref}" \
     -f "cli_release_tag=${cli_release_tag}" \
     -f "gateway_release_tag=${gateway_release_tag}" \
-    -f "xray_release_tag=${xray_release_tag}" \
-    -f mac_join_window_minutes=0
+    -f "xray_release_tag=${xray_release_tag}"
 }
 
 xconnect_lab_run_url="$(dispatch_xconnect_lab)"
