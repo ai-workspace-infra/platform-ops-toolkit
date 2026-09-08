@@ -116,22 +116,28 @@ echo "Dispatched UAT serverless deploy for ${snapshot_tag}: ${serverless_run_url
 wait_for_serverless "${serverless_run_url}"
 
 dispatch_xconnect_lab() {
-  local topology
+  local topology iac_ref gitops_ref
   topology="$(mktemp)"
   trap 'rm -f "${topology}"' RETURN
 
+  # GitOps and IAC are reviewed infrastructure repositories, not application
+  # build targets, so the daily snapshot does not create a matching tag in
+  # either repository. Resolve their protected main branches to immutable
+  # commit SHAs before reading the topology or dispatching the lab.
+  iac_ref="$(gh api "repos/${iac_repository}/commits/main" --jq .sha)"
+  gitops_ref="$(gh api "repos/${gitops_repository}/commits/main" --jq .sha)"
+  [[ "${iac_ref}" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::IAC main did not resolve to a full commit SHA." >&2; return 1; }
+  [[ "${gitops_ref}" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::GitOps main did not resolve to a full commit SHA." >&2; return 1; }
+
   # The lab is enabled by the reviewed GitOps topology introduced in #200.
-  # Do not fall back to the retired topology path or create resources from a
-  # floating branch while that change is awaiting independent review.
+  # Read it at the resolved commit, never from a floating branch or the
+  # application snapshot tag.
   if ! gh api -H 'Accept: application/vnd.github.raw+json' \
-    "repos/${gitops_repository}/contents/vpn-overlay/uat/xconnect-lab.json?ref=${snapshot_tag}" >"${topology}"; then
-    echo "::notice::Skipping XConnect UAT Lab for ${snapshot_tag}: reviewed GitOps topology is not present on the snapshot." >&2
+    "repos/${gitops_repository}/contents/vpn-overlay/uat/xconnect-lab.json?ref=${gitops_ref}" >"${topology}"; then
+    echo "::notice::Skipping XConnect UAT Lab for ${snapshot_tag}: reviewed GitOps topology is not present on GitOps main." >&2
     return 0
   fi
 
-  local iac_ref gitops_ref cli_release_tag gateway_release_tag xray_release_tag
-  iac_ref="$(gh api "repos/${iac_repository}/commits/${snapshot_tag}" --jq .sha)"
-  gitops_ref="$(gh api "repos/${gitops_repository}/commits/${snapshot_tag}" --jq .sha)"
   [[ "${iac_ref}" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::IAC snapshot did not resolve to a full commit SHA." >&2; return 1; }
   [[ "${gitops_ref}" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::GitOps snapshot did not resolve to a full commit SHA." >&2; return 1; }
 
