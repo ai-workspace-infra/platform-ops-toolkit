@@ -431,11 +431,11 @@ jobs:
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
           REQUIRED_RUNTIME_MODE: serverless
 
-      - name: Checkout frontend-router source
+      - name: Checkout frontend-router deployment tooling at the release tag
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-services/frontend-router
-          ref: main
+          ref: ${{ inputs.tag_ref }}
           path: frontend-router
 
       - name: Setup Node.js
@@ -462,6 +462,8 @@ jobs:
           CLOUDFLARE_TARGET: frontend-router
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
           FRONTEND_ROUTER_DIR: ${{ github.workspace }}/frontend-router
+          FRONTEND_ROUTER_RELEASE_TAG: ${{ inputs.tag_ref }}
+          GH_TOKEN: ${{ github.token }}
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_API_TOKEN }}
 

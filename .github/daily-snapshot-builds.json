@@ -40,6 +40,13 @@
       "artifacts": []
     },
     {
+      "repository": "ai-workspace-services/frontend-router",
+      "workflow": "release.yml",
+      "trigger": "push",
+      "dispatch_inputs": {},
+      "artifacts": ["frontend-router-worker.js", "release-metadata.json", "SHA256SUMS"]
+    },
+    {
       "repository": "ai-workspace-lab/xworkmate-bridge",
       "workflow": "pipeline.yml",
       "trigger": "workflow_dispatch",

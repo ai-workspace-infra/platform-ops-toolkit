@@ -9,6 +9,7 @@ workflow_for_repo() {
     ai-workspace-services/accounts|ai-workspace-services/billing-service|ai-workspace-services/content-service|ai-workspace-services/portal|ai-workspace-services/postgresql.svc.plus)
       printf '%s\n' ci-pipeline.yml ;;
     ai-workspace-services/edge-gateway) printf '%s\n' deploy.yml ;;
+    ai-workspace-services/frontend-router) printf '%s\n' release.yml ;;
     ai-workspace-lab/xworkmate-bridge) printf '%s\n' pipeline.yml ;;
     ai-workspace-xstream/xray-exporter) printf '%s\n' build-release-deploy.yml ;;
   esac
@@ -17,6 +18,7 @@ workflow_for_repo() {
 release_asset_for_repo() {
   case "$1" in
     ai-workspace-xstream/xray-exporter) printf '%s\n' xray-exporter-linux-amd64 ;;
+    ai-workspace-services/frontend-router) printf '%s\n' frontend-router-worker.js ;;
   esac
 }
 
@@ -130,7 +132,9 @@ for repo in "${repos[@]}"; do
     required_asset="$(release_asset_for_repo "$repo")"
     if [[ -n "${required_asset}" ]]; then
       assets="$(gh release view "$SNAPSHOT_TAG" -R "$repo" --json assets --jq '[.assets[].name]' 2>/dev/null || printf '[]')"
-      if jq -e --arg asset "${required_asset}" 'index($asset) != null' <<< "$assets" >/dev/null; then
+      if jq -e --arg asset "${required_asset}" --arg repo "$repo" \
+        'index($asset) != null and ($repo != "ai-workspace-services/frontend-router" or (index("SHA256SUMS") != null and index("release-metadata.json") != null))' \
+        <<< "$assets" >/dev/null; then
         release_url="$(gh release view "$SNAPSHOT_TAG" -R "$repo" --json url --jq .url 2>/dev/null || true)"
         record "$repo" "build_succeeded" "$run_sha" "CI run ${run_id}; release asset ${required_asset} ${release_url}"
       else

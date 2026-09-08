@@ -96,6 +96,7 @@ jobs:
             content-service
             portal
             edge-gateway
+            frontend-router
             postgresql.svc.plus
           permission-contents: write
           permission-actions: write
@@ -160,7 +161,7 @@ jobs:
           client-id: Iv23liNwStpQIiXajhpb
           private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
           owner: ${{ matrix.organization }}
-          repositories: ${{ matrix.organization == 'ai-workspace-services' && 'accounts,billing-service,content-service,portal,edge-gateway,postgresql.svc.plus' || '' }}
+          repositories: ${{ matrix.organization == 'ai-workspace-services' && 'accounts,billing-service,content-service,portal,edge-gateway,frontend-router,postgresql.svc.plus' || '' }}
           permission-contents: write
           permission-actions: write
           permission-workflows: write

@@ -100,6 +100,9 @@ jobs:
     - name: XConnect deployed control-plane boundary guard
       run: python3 -m unittest discover -s .github/scripts/xconnect-lab -p 'test_*.py'
 
+    - name: Frontend Router immutable release CD contract
+      run: python3 -m unittest discover -s scripts/serverless_uat -p 'test_frontend_router_release.py'
+
     - name: Verify Web SaaS VPS alias contract
       run: bash .github/scripts/tests/platform_ops_web_saas_public_alias_contract_test.sh
 
