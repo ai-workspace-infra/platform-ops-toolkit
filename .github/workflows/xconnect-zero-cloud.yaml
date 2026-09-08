@@ -55,11 +55,11 @@ jobs:
     timeout-minutes: 90
     env:
       MODE: ${{ inputs.mode }}
-      IAC_REF: ${{ inputs.iac_ref }}
-      GITOPS_REF: ${{ inputs.gitops_ref }}
-      CLI_RELEASE_TAG: ${{ inputs.cli_release_tag }}
-      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag }}
-      XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag }}
+      IAC_REF: ${{ inputs.iac_ref || '2b93f822637dd1ff51ce7b7dd7ec77de43b85672' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || 'a8786ec1cbc9c285e8c1f9a9fce467057ce0c3e6' }}
+      CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.8' }}
+      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.4' }}
+      XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
       CLEANUP_RUN: ${{ inputs.cleanup_run }}
       SSH_DEBUG_INGRESS_CIDRS: ${{ inputs.ssh_debug_ingress_cidrs }}
       NODE_OBSERVATION_INPUT: 'until-expiry'
@@ -93,14 +93,14 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: ${{ inputs.iac_ref }}
+          ref: ${{ env.IAC_REF }}
           token: ${{ steps.infra-token.outputs.token }}
           path: iac_modules
           persist-credentials: false
       - uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/gitops
-          ref: ${{ inputs.gitops_ref }}
+          ref: ${{ env.GITOPS_REF }}
           token: ${{ steps.infra-token.outputs.token }}
           path: gitops
           persist-credentials: false
