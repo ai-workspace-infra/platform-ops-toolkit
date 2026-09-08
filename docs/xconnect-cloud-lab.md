@@ -24,10 +24,10 @@ the sole formal control/configuration source. Portal retains its current layout.
 8. Verify identity-bound signed sync/ACK state, external services, exact-peer
    recent handshakes on both nodes, private ping and an exact run-specific
    HTTP marker over WireGuard over VLESS.
-9. Keep the verified Gateway/Linux One pair until the reviewed one-hour lease
-   expires, emitting only Gateway/Linux health summaries. Do not publish or
-   observe a macOS/Windows desktop handoff; desktop confirmation is a separate
-   manual operation and is not a workflow gate.
+9. Publish the short-lived, non-secret desktop handoff after Linux verification,
+   then keep the verified Gateway/Linux One pair until the reviewed one-hour
+   lease expires. macOS/Windows confirmation remains a separate manual
+   operation and is not a workflow gate.
 10. After expiry, destroy only this run's dedicated Terraform state and verify it is
    empty. Connectivity success and cleanup success are separate results.
 
@@ -72,7 +72,11 @@ workflow never exports that signing key to a Gateway, One, or browser.
 
 Provider, Vault, GitHub and internal service credentials stay on the protected
 runner. Nodes receive only their scoped invitations and runtime material.
-No secrets, state files or Terraform logs are uploaded as artifacts.
+The `xconnect-desktop-handoff-*` artifact contains only the validated CA
+certificate and public, run-bound endpoint/identity metadata. It contains no
+invitation, token, private key, Terraform state, or Terraform log, and expires
+after one day. The invitation is entered interactively in the manual join
+script and is never placed in the artifact.
 
 ## Evidence boundaries
 
@@ -87,11 +91,10 @@ Spot cleanup; they must not be presented as currently online.
 
 The former macOS check counted any second peer and lacked external transport
 access/TLS trust delivery. It is not part of this workflow. The workflow does
-not upload a desktop handoff, open a desktop observation window, or block on
-macOS/Windows acceptance. Any later desktop check must be performed manually
-with separately delivered, identity-bound material and is not evidence for the
-Linux cloud-lab PASS. No host-adapter/Packet Tunnel integration is required by
-standalone One.
+not open a desktop observation window or block on macOS/Windows acceptance. Any
+later desktop check must be performed manually with the artifact's
+identity-bound material and is not evidence for the Linux cloud-lab PASS. No
+host-adapter/Packet Tunnel integration is required by standalone One.
 Policy enforcement, revocation and session-renewal acceptance are separate
 checks; signed v1 sync alone does not prove them.
 
