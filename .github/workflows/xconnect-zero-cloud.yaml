@@ -30,6 +30,11 @@ on:
         description: Cleanup only - exact xcl-RUN_ID-ATTEMPT from a previous run
         type: string
         default: ''
+      ssh_debug_ingress_cidrs:
+        description: Optional temporary operator SSH IPv4 /32 list, comma-separated; not stored in GitOps
+        type: string
+        required: false
+        default: ''
 permissions:
   contents: read
   id-token: write
@@ -51,6 +56,7 @@ jobs:
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag }}
       CLEANUP_RUN: ${{ inputs.cleanup_run }}
+      SSH_DEBUG_INGRESS_CIDRS: ${{ inputs.ssh_debug_ingress_cidrs }}
       NODE_OBSERVATION_INPUT: 'until-expiry'
     steps:
       - uses: actions/checkout@v7
