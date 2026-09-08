@@ -98,6 +98,10 @@ enroll_one() {
 echo 'Stage: controlled-client formal enrollment and apply'
 scp "${SSH[@]}" "$LAB_DIR/bin/xconnect" "$LAB_DIR/bin/xray" "$LAB_DIR/tls/ca.crt" "$LAB_DIR/invites/one" "$client_user@$client:/tmp/" >/dev/null
 ssh "${SSH[@]}" "$client_user@$client" "set -eu; sudo install -m 755 /tmp/xconnect /tmp/xray /usr/local/bin/; sudo install -m 644 /tmp/ca.crt /usr/local/share/ca-certificates/xconnect-lab.crt; sudo update-ca-certificates >/dev/null 2>&1; sudo install -d -m 700 /var/lib/xconnect-one /etc/xconnect-lab; sudo install -m 600 /tmp/one /var/lib/xconnect-one/join-uri; printf '%s\n' controlled-client | sudo tee /etc/xconnect-lab/node-role >/dev/null; sudo sh -c 'xconnect join --state-dir /var/lib/xconnect-one --device-id \"$client_id\" --name uat-linux-one \"\$(cat /var/lib/xconnect-one/join-uri)\"'"
+# `join` applies the runtime as part of enrollment. A second, idempotent `up`
+# makes the deployment contract explicit and repairs a runtime that stopped
+# between enrollment and verification.
+ssh "${SSH[@]}" "$client_user@$client" 'sudo xconnect up --state-dir /var/lib/xconnect-one'
 
 # One enrollment advances the centralized generation. Reconcile the Gateway so
 # its WireGuard peer set contains the newly registered controlled client.
@@ -107,7 +111,18 @@ ssh "${SSH[@]}" "$gateway_user@$gateway" 'sudo xconnect-gateway up --state-dir /
 verify_overlay() {
 echo 'Stage: formal control plane and two-node data-plane verification'
 gateway_public_key=$(<"$LAB_DIR/gateway-public-key")
-client_public_key=$(ssh "${SSH[@]}" "$client_user@$client" 'sudo wg show xconone0 public-key')
+if ! client_public_key=$(ssh "${SSH[@]}" "$client_user@$client" 'sudo wg show xconone0 public-key'); then
+  echo 'Linux One verification failed: xconone0/public-key is unavailable; collecting safe runtime diagnostics.'
+  ssh "${SSH[@]}" "$client_user@$client" sudo bash -s <<'CLIENT_EARLY_FAILURE_DIAGNOSTICS' || true
+set -euo pipefail
+if ip link show xconone0 >/dev/null 2>&1; then echo 'wireguard_interface=active'; else echo 'wireguard_interface=inactive'; fi
+if pgrep -x xray >/dev/null; then echo 'xray_process=active'; else echo 'xray_process=inactive'; fi
+if ss -lun | grep -Eq '127\.0\.0\.1:18080[[:space:]]'; then echo 'xray_loopback_udp=active'; else echo 'xray_loopback_udp=inactive'; fi
+sudo xconnect status --state-dir /var/lib/xconnect-one 2>/dev/null | jq -c '{joined,device_id,network_id,generations,runtime,credential: {present: .credential.present, expired: .credential.expired}}' || true
+sudo xconnect diagnose --state-dir /var/lib/xconnect-one 2>/dev/null | jq -c '[.[] | {code,healthy}]' || true
+CLIENT_EARLY_FAILURE_DIAGNOSTICS
+  exit 1
+fi
 [[ "$client_public_key" =~ ^[A-Za-z0-9+/]{43}=$ ]] || { echo 'One returned an invalid WireGuard public key'; exit 1; }
 if ! ssh "${SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$run_id" <<'GATEWAY_VERIFY'
 set -euo pipefail
