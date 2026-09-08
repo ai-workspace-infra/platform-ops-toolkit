@@ -4,7 +4,7 @@ umask 077
 ROOT="${GITHUB_WORKSPACE:-$PWD}"
 LAB_DIR="${LAB_DIR:?LAB_DIR is required}"
 TF="$ROOT/iac_modules/vpn-overlay/xconnect-lab"
-DECL="$ROOT/gitops/topology/uat/xconnect-lab.json"
+DECL="$ROOT/gitops/vpn-overlay/uat/xconnect-lab.json"
 die() { echo "::error::$*" >&2; exit 1; }
 tf() { terraform -chdir="$TF" "$@" >"$LAB_DIR/terraform.log" 2>&1 || die "Terraform $1 failed; protected runner log retained, no secret-bearing output printed."; }
 case "${1:?command}" in
