@@ -168,3 +168,6 @@ resource, error-code and attribute labels; never diagnostic text, state, plans,
 credentials, URLs or provider request payloads. Unrecognized errors are reported
 as `unclassified`, not printed verbatim. Runner-private logs disappear with the
 runner; only the safe summary is retained by Actions.
+Private output/state reads also capture stderr through that same safe summary.
+If a state read fails, cleanup fails closed and explicitly reports that resource
+release is unverified; it never destroys resources without validating ownership.

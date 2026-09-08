@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 import sys
 
-COMMANDS = {'init', 'validate', 'plan', 'apply', 'destroy'}
+COMMANDS = {'init', 'validate', 'plan', 'apply', 'destroy', 'output', 'show', 'state'}
 OPERATIONS = ('RunInstances', 'ModifyInstanceAttribute', 'DescribeInstanceAttribute',
               'DescribeInstances', 'CreateSecurityGroup', 'AuthorizeSecurityGroupIngress',
               'AuthorizeSecurityGroupEgress', 'DeleteSecurityGroup', 'TerminateInstances')

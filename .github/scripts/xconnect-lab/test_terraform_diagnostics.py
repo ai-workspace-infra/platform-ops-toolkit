@@ -105,6 +105,41 @@ class SafeDiagnostics(unittest.TestCase):
             args = (lab / 'args').read_text().splitlines()
             self.assertEqual(args[1:], ['apply', '-no-color', '-json', '-input=false', str(lab / 'plan')])
 
+    def test_private_output_and_state_read_failures_never_print_stderr(self):
+        for stage, failing_command in [('apply', 'output'), ('cleanup', 'show')]:
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory(prefix='xconnect-tf-read-') as temporary:
+                root = Path(temporary)
+                scripts = root / '.github/scripts/xconnect-lab'
+                scripts.mkdir(parents=True)
+                shutil.copyfile(SCRIPTS / 'terraform-diagnostics.py', scripts / 'terraform-diagnostics.py')
+                (scripts / 'lease.sh').write_text('#!/usr/bin/env bash\nexit 0\n')
+                lab = root / 'lab'
+                lab.mkdir()
+                (lab / 'backend-ready').touch()
+                (lab / 'apply-started').touch()
+                (lab / 'run-id').write_text('xcl-123-1')
+                binary = root / 'bin'
+                binary.mkdir()
+                fake = binary / 'terraform'
+                fake.write_text('#!/usr/bin/env bash\n'
+                                'printf "%s\\n" "$2" >> "$LAB_DIR/calls"\n'
+                                'if [[ "$2" == "$FAIL_READ" ]]; then\n'
+                                '  echo "AccessDenied secret-read-token" >&2\n'
+                                '  exit 9\nfi\n')
+                fake.chmod(0o700)
+                env = {'PATH': str(binary) + os.pathsep + os.environ['PATH'],
+                       'GITHUB_WORKSPACE': str(root), 'LAB_DIR': str(lab), 'MODE': 'apply',
+                       'GITHUB_STEP_SUMMARY': str(root / 'summary'), 'FAIL_READ': failing_command}
+                result = subprocess.run(['bash', str(SCRIPTS / 'run.sh'), stage],
+                                        env=env, capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 9)
+                self.assertIn('code=AccessDenied', result.stdout)
+                self.assertIn('cleanup is unverified', result.stderr)
+                self.assertNotIn('secret-read-token', result.stdout + result.stderr)
+                self.assertNotIn('secret-read-token', (root / 'summary').read_text())
+                self.assertIn('secret-read-token', (lab / f'terraform-{failing_command}.log').read_text())
+                self.assertNotIn('destroy', (lab / 'calls').read_text())
+
 
 if __name__ == '__main__':
     unittest.main()
