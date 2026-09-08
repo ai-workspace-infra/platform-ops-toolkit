@@ -35,6 +35,16 @@ on:
         type: choice
         options: ['0']
         default: '0'
+      desktop_join_window_minutes:
+        description: Apply only - bounded Darwin/Windows desktop join verification window
+        type: choice
+        options: ['0', '10', '20']
+        default: '0'
+      node_observation_window_minutes:
+        description: Apply only - bounded Gateway/Linux One observation window
+        type: choice
+        options: ['0', '10', '20']
+        default: '0'
 permissions:
   contents: read
   id-token: write
@@ -57,6 +67,8 @@ jobs:
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag }}
       CLEANUP_RUN: ${{ inputs.cleanup_run }}
       MAC_JOIN_WINDOW_MINUTES: ${{ inputs.mac_join_window_minutes }}
+      DESKTOP_JOIN_WINDOW_MINUTES: ${{ inputs.desktop_join_window_minutes }}
+      NODE_OBSERVATION_WINDOW_MINUTES: ${{ inputs.node_observation_window_minutes }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -179,6 +191,22 @@ jobs:
       - name: Verify signed sync/ACK, services, exact-peer handshake and private ping/HTTP
         if: inputs.mode == 'apply'
         run: bash .github/scripts/xconnect-lab/run.sh verify
+      - name: Publish public desktop handoff
+        if: inputs.mode == 'apply' && (inputs.desktop_join_window_minutes != '0' || inputs.node_observation_window_minutes != '0')
+        uses: actions/upload-artifact@v4
+        with:
+          name: xconnect-desktop-public-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/xconnect-lab/desktop-public/desktop-handoff.json
+            ${{ runner.temp }}/xconnect-lab/desktop-public/ca.crt
+          if-no-files-found: error
+          retention-days: 1
+      - name: Observe optional desktop join window
+        if: inputs.mode == 'apply' && inputs.desktop_join_window_minutes != '0'
+        run: bash .github/scripts/xconnect-lab/run.sh desktop
+      - name: Observe optional Gateway and Linux One window
+        if: inputs.mode == 'apply' && inputs.node_observation_window_minutes != '0'
+        run: bash .github/scripts/xconnect-lab/run.sh node-observation
       - name: Always destroy only this lab state
         if: always() && inputs.mode != 'dry-run'
         run: bash .github/scripts/xconnect-lab/run.sh cleanup

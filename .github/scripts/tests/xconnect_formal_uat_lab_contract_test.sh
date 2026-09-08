@@ -6,7 +6,7 @@ workflow="${repo_root}/.github/workflows/xconnect-cloud-lab.yml"
 runner="${repo_root}/.github/scripts/xconnect-lab/run.sh"
 deploy="${repo_root}/.github/scripts/xconnect-lab/deploy.sh"
 
-for required in gateway_release_tag XConnect-Gateway ZERO_SERVICE_TOKEN ZERO_OWNER_EMAIL mac_join_window_minutes; do
+for required in gateway_release_tag XConnect-Gateway ZERO_SERVICE_TOKEN ZERO_OWNER_EMAIL mac_join_window_minutes desktop_join_window_minutes node_observation_window_minutes; do
   grep -Fq "${required}" "${workflow}" || {
     echo "XConnect UAT workflow is missing ${required}" >&2
     exit 1
@@ -24,12 +24,22 @@ grep -Fq "jq -c '[.[] | {code,healthy}]'" "${deploy}"
 grep -Fq 'wireguard_handshake_age_seconds=' "${deploy}"
 grep -Fq 'gateway_wireguard_handshake_age_seconds=' "${deploy}"
 grep -Fq 'former peer-count window is not a valid macOS acceptance test' "${runner}"
+grep -Fq 'validate-desktop' "${runner}"
+grep -Fq 'desktop_ingress_cidrs' "${repo_root}/.github/scripts/xconnect-lab/prepare.py"
+grep -Fq 'PUBLIC_DESKTOP_HANDOFF_READY' "${deploy}"
+grep -Fq 'peer-handshake-observation-only=true' "${repo_root}/.github/scripts/xconnect-lab/desktop.sh"
+grep -Fq 'NODE_OBSERVATION_RESULT=SUMMARY_ONLY' "${repo_root}/.github/scripts/xconnect-lab/node-observation.sh"
+grep -Fq 'mutually exclusive' "${runner}"
 grep -Fq '$1 == peer && $2 > 0' "${deploy}"
 grep -Fq 'signed-config-ack-status' "${deploy}"
 grep -Fq 'probe-control-plane.py' "${workflow}"
 for stage in setup bootstrap gateway one verify; do
   grep -Fq "run.sh ${stage}" "${workflow}"
 done
+grep -Fq 'upload-artifact@v4' "${workflow}"
+grep -Fq 'retention-days: 1' "${workflow}"
+grep -Fq 'run.sh desktop' "${workflow}"
+grep -Fq 'run.sh node-observation' "${workflow}"
 grep -Fq 'gateway_release_tag:$gateway' "${repo_root}/.github/scripts/xconnect-lab/lease.sh"
 grep -Fq 'wireguard-handshake' "${repo_root}/gitops/vpn-overlay/uat/xconnect-lab.json" 2>/dev/null || true
 

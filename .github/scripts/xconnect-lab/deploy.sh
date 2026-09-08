@@ -175,6 +175,41 @@ RELAY_VERIFY
 
 echo 'PASS: formal UAT Accounts enrollment, released Gateway and Linux One, signed sync/ACK, external Xray/WireGuard, private ping/HTTP and exact-peer handshake on both sides.'
 echo 'Not covered by Linux PASS: authenticated Portal data, macOS/Windows private HTTP, or policy enforcement/revocation.'
+if [[ "${DESKTOP_JOIN_WINDOW_MINUTES:-0}" != 0 || "${NODE_OBSERVATION_WINDOW_MINUTES:-0}" != 0 ]]; then
+  write_desktop_handoff
+fi
+}
+
+write_desktop_handoff() {
+  local public_dir="$LAB_DIR/desktop-public"
+  local handoff="$public_dir/desktop-handoff.json"
+  local gateway_instance gateway_private client_instance client_private expires
+  gateway_instance=$(jq -er '.resource_ids.value.gateway' "$LAB_DIR/outputs.json")
+  client_instance=$(jq -er '.resource_ids.value.client' "$LAB_DIR/outputs.json")
+  gateway_private=$(jq -er '.gateway_private_ip.value' "$LAB_DIR/outputs.json")
+  client_private=$(jq -er '.client_private_ip.value' "$LAB_DIR/outputs.json")
+  expires=$(jq -er '.expires_at' "$LAB_DIR/variables.json")
+  mkdir -p "$public_dir"
+  install -m 644 "$LAB_DIR/tls/ca.crt" "$public_dir/ca.crt"
+  jq -n \
+    --arg run "$run_id" --arg expires "$expires" --arg network "$network_id" --arg gateway_id "$gateway_id" \
+    --arg gateway_key "$gateway_public_key" --arg gateway_host "$gateway_transport" \
+    --arg accounts "$formal_zero" --arg portal "$formal_portal" \
+    --arg gateway_instance "$gateway_instance" --arg gateway_public "$gateway" --arg gateway_private "$gateway_private" \
+    --arg client_instance "$client_instance" --arg client_public "$client" --arg client_private "$client_private" \
+    '{run:$run,expires_at:$expires,network_id:$network,gateway_id:$gateway_id,gateway_public_key:$gateway_key,
+      gateway_endpoint:{host:$gateway_host,port:443,server_name:"xconnect-lab.invalid"},
+      accounts_url:$accounts,portal_url:$portal,
+      instances:{gateway:{instance_id:$gateway_instance,public_ip:$gateway_public,private_ip:$gateway_private},
+                 linux_one:{instance_id:$client_instance,public_ip:$client_public,private_ip:$client_private}},
+      expected_device_ids:{darwin:("one-darwin-" + $run),windows:("one-windows-" + $run)},
+      verification:{target:"http://10.77.0.1:8080/",expected_marker:$run}}' > "$handoff"
+  chmod 644 "$handoff"
+  python3 "$ROOT/.github/scripts/xconnect-lab/prepare.py" validate-handoff "$handoff"
+  unexpected=$(find "$public_dir" -mindepth 1 -maxdepth 1 ! -name ca.crt ! -name desktop-handoff.json -print -quit)
+  [[ -z "$unexpected" ]] || { echo 'Public desktop handoff directory contains an unexpected entry'; exit 1; }
+  [[ "$(find "$public_dir" -mindepth 1 -maxdepth 1 -print | wc -l)" -eq 2 ]] || { echo 'Public desktop handoff directory must contain exactly ca.crt and desktop-handoff.json'; exit 1; }
+  echo "PUBLIC_DESKTOP_HANDOFF_READY run=$run_id expires_at=$expires"
 }
 
 stage="${1:-all}"

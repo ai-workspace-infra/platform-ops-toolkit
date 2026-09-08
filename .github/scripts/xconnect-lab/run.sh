@@ -21,6 +21,20 @@ case "${1:?command}" in
       die 'mac_join_window_minutes is valid only with mode=apply'
     fi
     [[ "${MAC_JOIN_WINDOW_MINUTES:-0}" == 0 ]] || die 'Desktop validation requires scoped external ingress, TLS trust delivery and exact device identity; the former peer-count window is not a valid macOS acceptance test. Use mac_join_window_minutes=0 for Linux validation.'
+    [[ "${DESKTOP_JOIN_WINDOW_MINUTES:-0}" =~ ^(0|10|20)$ ]] || die 'desktop_join_window_minutes must be 0, 10, or 20'
+    [[ "${NODE_OBSERVATION_WINDOW_MINUTES:-0}" =~ ^(0|10|20)$ ]] || die 'node_observation_window_minutes must be 0, 10, or 20'
+    if [[ "${DESKTOP_JOIN_WINDOW_MINUTES:-0}" != 0 && "$MODE" != apply ]]; then
+      die 'desktop_join_window_minutes is valid only with mode=apply'
+    fi
+    if [[ "${NODE_OBSERVATION_WINDOW_MINUTES:-0}" != 0 && "$MODE" != apply ]]; then
+      die 'node_observation_window_minutes is valid only with mode=apply'
+    fi
+    if [[ "${DESKTOP_JOIN_WINDOW_MINUTES:-0}" != 0 && "${NODE_OBSERVATION_WINDOW_MINUTES:-0}" != 0 ]]; then
+      die 'desktop_join_window_minutes and node_observation_window_minutes are mutually exclusive'
+    fi
+    python3 "$ROOT/.github/scripts/xconnect-lab/prepare.py" validate-windows \
+      "${DESKTOP_JOIN_WINDOW_MINUTES:-0}" "${NODE_OBSERVATION_WINDOW_MINUTES:-0}" \
+      || die 'Observation windows are invalid or mutually exclusive'
     if [[ "$MODE" == cleanup ]]; then
       [[ "$CLEANUP_RUN" =~ ^xcl-[0-9]+-[0-9]+$ ]] || die 'cleanup requires an exact previous run identity'
     else
@@ -41,6 +55,7 @@ case "${1:?command}" in
       .spec.artifacts.xray.asset == "Xray-linux-arm64-v8a.zip" and
       .spec.artifacts.xray.release_tag == $xray
     ' "$DECL" >/dev/null || die 'Release inputs do not match the immutable GitOps XConnect artifact declaration'
+    python3 "$ROOT/.github/scripts/xconnect-lab/prepare.py" validate-desktop "$DECL" "${DESKTOP_JOIN_WINDOW_MINUTES:-0}" || die 'GitOps desktop validation does not authorize the requested join window'
     jq -e '.kind == "XConnectLabTopology" and .metadata.environment == "uat" and .spec.iac_module == "vpn-overlay/xconnect-lab" and .spec.environment_reuse == "uat-control-plane-vault-account-and-network" and .spec.gateway_provider == "aws-spot" and .spec.compute_policy == "all-cloud-compute-is-aws-spot-by-default" and .spec.ttl_minutes == 60 and .spec.zero.accounts_api_url == "https://accounts-uat.onwalk.net" and .spec.zero.portal_url == "https://console-cloudflare-uat.onwalk.net/panel/xconnect-zero" and .spec.zero.source_of_truth == "formal-accounts-api-and-portal" and .spec.zero.lab_controller.is_formal_config_source == false and .spec.nodes.gateway.product == "XConnect One Gateway" and .spec.nodes.gateway.role == "relay" and .spec.nodes.gateway.service_role == "relay/service" and .spec.nodes.gateway.baseline == "independent-linux-node-external-wireguard-xray" and .spec.nodes.gateway.architecture == "arm64" and .spec.nodes.gateway.instance_type == "t4g.small" and .spec.nodes.gateway.vcpu == 2 and .spec.nodes.gateway.memory_gib == 2 and .spec.nodes.gateway.purchase_model == "spot" and .spec.nodes.gateway.max_runtime_minutes == 60 and .spec.nodes.one.product == "XConnect One Linux client CLI" and .spec.nodes.one.role == "controlled-client" and .spec.nodes.one.baseline == "independent-linux-node-external-wireguard-xray" and .spec.nodes.one.architecture == "arm64" and .spec.nodes.one.instance_type == "t4g.micro" and .spec.nodes.one.vcpu == 2 and .spec.nodes.one.memory_gib == 1 and .spec.nodes.one.purchase_model == "spot" and .spec.nodes.one.max_runtime_minutes == 60 and .spec.aws.reuse_default_vpc == true and .spec.aws.reuse_default_subnet == true and (.spec.aws.ami_ssm_parameter | contains("/arm64/")) and .spec.vault.address == "https://vault.svc.plus" and .spec.vault.role == "github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab" and .spec.vault.infrastructure_path == "kv/data/CICD/uat" and .spec.vault.runtime_path == "kv/data/uat/xconnect-one" and .spec.vault.github_app_path == "kv/data/CICD/github-app/daily-snapshot" and .spec.overlay.transport == "vless-tls-xudp" and .spec.overlay.gateway_address == "10.77.0.1/32" and .spec.overlay.device_address == "10.77.0.2/32" and .spec.overlay.public_wireguard_ingress == false and (.spec.overlay.private_checks | index("ping")) != null and (.spec.overlay.private_checks | index("http")) != null and (.spec.overlay.private_checks | index("wireguard-handshake")) != null and (.spec.overlay.private_checks | index("config-sync")) != null' "$DECL" >/dev/null || die 'Missing or incompatible UAT lab topology'
     {
       echo "vault_address=$(jq -r .spec.vault.address "$DECL")"
@@ -123,9 +138,17 @@ case "${1:?command}" in
     tf apply -input=false "$LAB_DIR/plan"
     terraform -chdir="$TF" output -json > "$LAB_DIR/outputs.json"
     ;;
-  setup|bootstrap|gateway|one|verify)
+  setup|bootstrap|gateway|one|verify|desktop|node-observation)
     [[ "$MODE" == apply && -f "$LAB_DIR/apply-started" && -s "$LAB_DIR/outputs.json" ]] || die 'Real lab provisioning is required before deployment stages'
-    timeout 25m bash "$ROOT/.github/scripts/xconnect-lab/deploy.sh" "$1"
+    if [[ "$1" == desktop ]]; then
+      test -f "$LAB_DIR/verify.done" || die 'Linux verification is required before the desktop observation window'
+      timeout 25m bash "$ROOT/.github/scripts/xconnect-lab/desktop.sh"
+    elif [[ "$1" == node-observation ]]; then
+      test -f "$LAB_DIR/verify.done" || die 'Linux verification is required before the node observation window'
+      timeout 25m bash "$ROOT/.github/scripts/xconnect-lab/node-observation.sh"
+    else
+      timeout 25m bash "$ROOT/.github/scripts/xconnect-lab/deploy.sh" "$1"
+    fi
     ;;
   cleanup)
     if [[ ! -f "$LAB_DIR/backend-ready" ]]; then echo 'No initialized lab state; no provisioning was allowed.'; exit 0; fi
