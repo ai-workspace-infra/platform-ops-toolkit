@@ -121,11 +121,11 @@ configuration before checking that exact peer's recent handshake. It reports
 cannot produce desktop success, and this observer does not replace the local
 macOS/Windows ping and HTTP checks. Final desktop acceptance is explicitly a
 local independent check. The reviewed declaration retains both nodes for
-`ttl_minutes=120` with `max_runtime_minutes=120` and
+`ttl_minutes=60` with `max_runtime_minutes=60` and
 `node_observation={mode:"until-expiry",release_on_failure:true}`. `auto` on
 apply selects `until-expiry`; explicit `10`/`20` windows remain bounded by the
-recorded lease expiry. Cleanup and dry-run resolve to `0`, and old 60-minute
-cleanup leases remain compatible.
+recorded lease expiry. Cleanup and dry-run resolve to `0`. Previous 60/120-minute
+leases remain cleanup-compatible, but new apply accepts only the one-hour policy.
 
 Desktop runs still require scoped external TCP 443 ingress, a reachable
 Gateway endpoint, public CA trust delivery, and exact device identity.
@@ -142,16 +142,29 @@ WireGuard UDP is closed. SSH is restricted to the runner /32.
 
 Dedicated state: `uat/xconnect-lab/xcl-RUN_ID-ATTEMPT/terraform.tfstate`.
 A nonsecret lease retains the run identity, refs, release pins and the reviewed
-120-minute expiry. The observer uses the recorded `expires_at` and never
+60-minute expiry. The observer uses the recorded `expires_at` and never
 renews or resets it. Normal runs use `always()` cleanup, including partial
-provisioning failures; failures may clean up earlier. The job ceiling is 150
+provisioning failures; failures may clean up earlier. The job ceiling is 90
 minutes and a fresh AWS OIDC session is acquired before cleanup because the
 initial session is one hour. An expiry tag does not independently terminate
 EC2. The matching IaC module also configures a persistent absolute-expiry
-systemd timer and instance-initiated shutdown to terminate, independently of
-the runner; pin an IaC revision containing that lifecycle protection. This
+systemd timer that powers off the one-time, terminate-policy Spot instances,
+independently of the runner. Do not set `instance_initiated_shutdown_behavior`
+on Spot: the provider attempts an unsupported attribute modification. Pin an
+IaC revision containing the timer and the Spot-compatible omission. This
 fallback releases the instances and their disposable root disks, but does not
 replace Terraform cleanup of the remaining security groups and state lease.
 After runner loss/cancellation, explicitly run recovery `cleanup` with
-the original refs and exact run ID; old 60-minute cleanup leases remain
+the original refs and exact run ID; old 60/120-minute cleanup leases remain
 compatible and any cleanup failure is a potential resource leak.
+
+### Safe Terraform failure diagnostics
+
+Terraform plan/apply/destroy/validate use JSON diagnostics. Raw output remains
+in runner-private, per-command `terraform-<command>.log` files, so cleanup does
+not overwrite failed apply evidence. These logs are not uploaded as artifacts.
+Actions annotations and the job summary expose only fixed allowlisted operation,
+resource, error-code and attribute labels; never diagnostic text, state, plans,
+credentials, URLs or provider request payloads. Unrecognized errors are reported
+as `unclassified`, not printed verbatim. Runner-private logs disappear with the
+runner; only the safe summary is retained by Actions.

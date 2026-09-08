@@ -57,7 +57,7 @@ jobs:
   lab:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    timeout-minutes: 90
     env:
       MODE: ${{ inputs.mode }}
       IAC_REF: ${{ inputs.iac_ref }}

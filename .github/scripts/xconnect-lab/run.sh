@@ -6,7 +6,27 @@ LAB_DIR="${LAB_DIR:?LAB_DIR is required}"
 TF="$ROOT/iac_modules/vpn-overlay/xconnect-lab"
 DECL="$ROOT/gitops/vpn-overlay/uat/xconnect-lab.json"
 die() { echo "::error::$*" >&2; exit 1; }
-tf() { terraform -chdir="$TF" "$@" >"$LAB_DIR/terraform.log" 2>&1 || die "Terraform $1 failed; protected runner log retained, no secret-bearing output printed."; }
+tf() {
+  local command="$1" code
+  shift
+  local options=(-no-color)
+  case "$command" in
+    plan|apply|destroy|validate) options+=(-json) ;;
+    init) ;;
+    *) die 'Unsupported Terraform stage' ;;
+  esac
+  # Cleanup must not overwrite the failed apply evidence. Raw logs stay private
+  # to this runner; only a fixed-vocabulary diagnostic reaches Actions output.
+  local log="$LAB_DIR/terraform-${command}.log"
+  if terraform -chdir="$TF" "$command" "${options[@]}" "$@" >"$log" 2>&1; then
+    return 0
+  else
+    code=$?
+  fi
+  python3 "$ROOT/.github/scripts/xconnect-lab/terraform-diagnostics.py" "$command" "$log" "$code" \
+    || echo '::error::Terraform failed; safe diagnostic extraction unavailable.' >&2
+  exit "$code"
+}
 case "${1:?command}" in
   validate)
     for name in IAC_REF GITOPS_REF; do
@@ -116,7 +136,7 @@ case "${1:?command}" in
   preflight)
     python3 -m unittest discover -s "$ROOT/.github/scripts/xconnect-lab" -p 'test_*.py'
     if [[ "$MODE" != cleanup ]]; then
-      test -f "$TF/expiry_timer_test.sh" || die 'Two-hour apply requires an IaC revision with independent absolute-expiry protection'
+      test -f "$TF/expiry_timer_test.sh" || die 'Apply requires an IaC revision with independent absolute-expiry protection'
       bash "$TF/contract_test.sh"
     fi
     terraform -chdir="$TF" fmt -check
@@ -154,7 +174,7 @@ case "${1:?command}" in
       timeout 25m bash "$ROOT/.github/scripts/xconnect-lab/desktop.sh"
     elif [[ "$1" == node-observation ]]; then
       test -f "$LAB_DIR/verify.done" || die 'Linux verification is required before the node observation window'
-      timeout 120m bash "$ROOT/.github/scripts/xconnect-lab/node-observation.sh"
+      timeout 60m bash "$ROOT/.github/scripts/xconnect-lab/node-observation.sh"
     else
       timeout 25m bash "$ROOT/.github/scripts/xconnect-lab/deploy.sh" "$1"
     fi

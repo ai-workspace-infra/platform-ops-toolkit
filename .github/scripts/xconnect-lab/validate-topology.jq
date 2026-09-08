@@ -4,9 +4,9 @@ def lease_ok:
     (.spec.nodes.gateway.max_runtime_minutes == 60 or .spec.nodes.gateway.max_runtime_minutes == 120) and
     (.spec.nodes.one.max_runtime_minutes == 60 or .spec.nodes.one.max_runtime_minutes == 120)
   else
-    .spec.ttl_minutes == 120 and
-    .spec.nodes.gateway.max_runtime_minutes == 120 and
-    .spec.nodes.one.max_runtime_minutes == 120 and
+    .spec.ttl_minutes == 60 and
+    .spec.nodes.gateway.max_runtime_minutes == 60 and
+    .spec.nodes.one.max_runtime_minutes == 60 and
     .spec.node_observation == {mode:"until-expiry",release_on_failure:true}
   end;
 
