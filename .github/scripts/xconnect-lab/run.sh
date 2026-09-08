@@ -16,6 +16,10 @@ case "${1:?command}" in
     [[ "${GATEWAY_RELEASE_TAG:-}" =~ ^v[0-9A-Za-z._-]+$ ]] || die 'GATEWAY_RELEASE_TAG requires a version tag'
     [[ "${XRAY_RELEASE_TAG:-}" =~ ^v[0-9A-Za-z._-]+$ ]] || die 'XRAY_RELEASE_TAG requires a version tag'
     [[ "$MODE" =~ ^(dry-run|apply|cleanup)$ ]] || die 'Invalid mode'
+    [[ "${MAC_JOIN_WINDOW_MINUTES:-0}" =~ ^(0|5|10|15)$ ]] || die 'mac_join_window_minutes must be 0, 5, 10, or 15'
+    if [[ "${MAC_JOIN_WINDOW_MINUTES:-0}" != 0 && "$MODE" != apply ]]; then
+      die 'mac_join_window_minutes is valid only with mode=apply'
+    fi
     if [[ "$MODE" == cleanup ]]; then
       [[ "$CLEANUP_RUN" =~ ^xcl-[0-9]+-[0-9]+$ ]] || die 'cleanup requires an exact previous run identity'
     else

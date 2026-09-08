@@ -13,9 +13,9 @@ case "${1:?}" in
   create)
     run="$(<"$LAB_DIR/run-id")"
     jq -n --arg run "$run" --arg iac "$IAC_REF" --arg gitops "$GITOPS_REF" \
-      --arg cli "$CLI_RELEASE_TAG" --arg xray "$XRAY_RELEASE_TAG" \
+      --arg cli "$CLI_RELEASE_TAG" --arg gateway "$GATEWAY_RELEASE_TAG" --arg xray "$XRAY_RELEASE_TAG" \
       --arg expires "$(jq -r .expires_at "$LAB_DIR/variables.json")" \
-      '{run:$run,expires_at:$expires,inputs:{mode:"cleanup",cleanup_run:$run,iac_ref:$iac,gitops_ref:$gitops,cli_release_tag:$cli,xray_release_tag:$xray}}' > "$LAB_DIR/lease.json"
+      '{run:$run,expires_at:$expires,inputs:{mode:"cleanup",cleanup_run:$run,iac_ref:$iac,gitops_ref:$gitops,cli_release_tag:$cli,gateway_release_tag:$gateway,xray_release_tag:$xray}}' > "$LAB_DIR/lease.json"
     state_api put-object --bucket "$TF_STATE_BUCKET" --key "$prefix/$run.json" --body "$LAB_DIR/lease.json"
     ;;
   delete)
@@ -31,7 +31,7 @@ case "${1:?}" in
       jq -e --arg key "$key" '.run | test("^xcl-[0-9]+-[0-9]+$")' "$LAB_DIR/lease.json" >/dev/null
       run="$(jq -r .run "$LAB_DIR/lease.json")"
       [[ "$key" == "$prefix/$run.json" ]] || exit 1
-      jq -e '.inputs.mode == "cleanup" and .inputs.cleanup_run == .run and ([.inputs.iac_ref,.inputs.gitops_ref] | all(test("^[0-9a-f]{40}$"))) and (.inputs.cli_release_tag | test("^v[0-9A-Za-z._-]+$")) and (.inputs.xray_release_tag | test("^v[0-9A-Za-z._-]+$"))' "$LAB_DIR/lease.json" >/dev/null
+      jq -e '.inputs.mode == "cleanup" and .inputs.cleanup_run == .run and ([.inputs.iac_ref,.inputs.gitops_ref] | all(test("^[0-9a-f]{40}$"))) and (.inputs.cli_release_tag | test("^v[0-9A-Za-z._-]+$")) and (.inputs.gateway_release_tag | test("^v[0-9A-Za-z._-]+$")) and (.inputs.xray_release_tag | test("^v[0-9A-Za-z._-]+$"))' "$LAB_DIR/lease.json" >/dev/null
       if jq -e '(.expires_at | fromdateiso8601) <= now' "$LAB_DIR/lease.json" >/dev/null; then
         jq '{ref:"main",inputs:.inputs}' "$LAB_DIR/lease.json" > "$LAB_DIR/dispatch.json"
         gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/xconnect-cloud-lab.yml/dispatches" --input "$LAB_DIR/dispatch.json" >/dev/null
