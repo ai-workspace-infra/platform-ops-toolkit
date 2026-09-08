@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 roles="${repo_root}/scripts/create_vault_service_repo_roles.sh"
-workflow="${repo_root}/.github/workflows/xconnect-cloud-lab.yml"
+workflow="${repo_root}/.github/workflows/connect-zero-cloud.yaml"
 runner="${repo_root}/.github/scripts/xconnect-lab/run.sh"
 topology_policy="${repo_root}/.github/scripts/xconnect-lab/validate-topology.jq"
 gateway="${repo_root}/.github/scripts/xconnect-lab/gateway.sh"
@@ -12,7 +12,7 @@ role="github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab"
 bash -n "${roles}"
 
 grep -Fq "XCONNECT_CLOUD_LAB_ROLE=\"${role}\"" "${roles}"
-grep -Fq '"job_workflow_ref": "${WF_PREFIX}/xconnect-cloud-lab.yml@refs/heads/main"' "${roles}"
+grep -Fq '"job_workflow_ref": "${WF_PREFIX}/connect-zero-cloud.yaml@refs/heads/main"' "${roles}"
 grep -Fq '"token_policies": ["github-actions-platform-ops-toolkit-uat"]' "${roles}"
 
 if grep -Fq '"${WF_PREFIX}/xconnect-cloud-lab.yml@*"' "${roles}"; then

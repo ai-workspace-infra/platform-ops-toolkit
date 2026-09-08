@@ -1,6 +1,6 @@
 # Formal XConnect UAT integration validation
 
-The `.github/workflows/xconnect-cloud-lab.yml` deployment workflow consumes
+The `.github/workflows/connect-zero-cloud.yaml` deployment workflow consumes
 reviewed GitOps/IAC commits and versioned GitHub Release artifacts. It does not
 build application code or run the experimental Zero controller. Accounts is
 the sole formal control/configuration source. Portal retains its current layout.
