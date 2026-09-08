@@ -23,8 +23,13 @@ grep -Fq 'tls-trust-or-transport' "${deploy}"
 grep -Fq "jq -c '[.[] | {code,healthy}]'" "${deploy}"
 grep -Fq 'wireguard_handshake_age_seconds=' "${deploy}"
 grep -Fq 'gateway_wireguard_handshake_age_seconds=' "${deploy}"
-grep -Fq 'MAC_JOIN_WINDOW_OPEN' "${deploy}"
-grep -Fq 'macOS One established a recent WireGuard-over-VLESS Gateway handshake' "${deploy}"
+grep -Fq 'former peer-count window is not a valid macOS acceptance test' "${runner}"
+grep -Fq '$1 == peer && $2 > 0' "${deploy}"
+grep -Fq 'signed-config-ack-status' "${deploy}"
+grep -Fq 'probe-control-plane.py' "${workflow}"
+for stage in setup bootstrap gateway one verify; do
+  grep -Fq "run.sh ${stage}" "${workflow}"
+done
 grep -Fq 'gateway_release_tag:$gateway' "${repo_root}/.github/scripts/xconnect-lab/lease.sh"
 grep -Fq 'wireguard-handshake' "${repo_root}/gitops/vpn-overlay/uat/xconnect-lab.json" 2>/dev/null || true
 

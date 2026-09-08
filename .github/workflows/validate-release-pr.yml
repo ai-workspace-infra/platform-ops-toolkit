@@ -97,6 +97,9 @@ jobs:
     - name: Verify XConnect cloud-lab Vault role contract
       run: bash .github/scripts/tests/xconnect_cloud_lab_vault_role_contract_test.sh
 
+    - name: XConnect deployed control-plane boundary guard
+      run: python3 -m unittest discover -s .github/scripts/xconnect-lab -p 'test_*.py'
+
     - name: Verify Web SaaS VPS alias contract
       run: bash .github/scripts/tests/platform_ops_web_saas_public_alias_contract_test.sh
 

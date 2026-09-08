@@ -30,6 +30,7 @@ wait_for_ssh() {
   ssh "${SSH[@]}" "$user@$host" 'sudo cloud-init status --wait >/dev/null 2>&1; sudo env DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 && sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard-tools curl ca-certificates python3 openssl iproute2 jq >/dev/null 2>&1'
 }
 
+prepare_runtime() {
 wait_for_ssh "$gateway_user" "$gateway"
 wait_for_ssh "$client_user" "$client"
 
@@ -54,6 +55,8 @@ scp "${SSH[@]}" "$LAB_DIR/bin/xconnect-gateway" "$LAB_DIR/bin/xray" "$LAB_DIR/tl
 ssh "${SSH[@]}" "$gateway_user@$gateway" "sudo bash /tmp/gateway.sh '$gateway_transport' '$run_id' '$formal_zero' '$formal_portal' '$network_id' '$gateway_id'"
 gateway_public_key=$(ssh "${SSH[@]}" "$gateway_user@$gateway" 'sudo cat /opt/xconnect-lab/gateway.pub')
 [[ "$gateway_public_key" =~ ^[A-Za-z0-9+/]{43}=$ ]] || { echo 'Gateway returned an invalid WireGuard public key'; exit 1; }
+printf '%s\n' "$gateway_public_key" > "$LAB_DIR/gateway-public-key"
+}
 
 create_invite() {
   local role="$1" device_id="$2" destination="$3"
@@ -71,25 +74,41 @@ create_invite() {
     -H "X-Service-Token: $ZERO_SERVICE_TOKEN" -H 'Content-Type: application/json' \
     --data-binary "@$request" "$formal_zero/api/internal/overlay/networks/bootstrap" || true)
   [[ "$status" == 201 ]] || { echo "Formal Zero failed to create $role invite: HTTP $status"; exit 1; }
+  jq -e --arg network "$network_id" --arg device "$device_id" --arg role "$role" \
+    '.network.id == $network and .invite.network_id == $network and .invite.device_id == $device and .invite.role == $role and .invite.platform == "linux" and .invite.remaining_uses == 1' \
+    "$response" >/dev/null || { echo 'Formal invitation identity binding mismatch'; exit 1; }
   jq -er .join_uri "$response" > "$destination"
   chmod 600 "$destination"
 }
 
-echo 'Stage: formal Gateway enrollment and apply'
+bootstrap_accounts() {
+gateway_public_key=$(<"$LAB_DIR/gateway-public-key")
+echo 'Stage: real Accounts network and device-bound invitations'
 create_invite gateway "$gateway_id" "$LAB_DIR/invites/gateway"
-scp "${SSH[@]}" "$LAB_DIR/invites/gateway" "$gateway_user@$gateway:/tmp/gateway-invite" >/dev/null
-ssh "${SSH[@]}" "$gateway_user@$gateway" "sudo install -m 600 /tmp/gateway-invite /opt/xconnect-lab/gateway-invite; sudo sh -c 'xconnect-gateway join --state-dir /var/lib/xconnect-gateway --gateway-id \"$gateway_id\" \"\$(cat /opt/xconnect-lab/gateway-invite)\"'; sudo xconnect-gateway up --state-dir /var/lib/xconnect-gateway; sudo systemctl enable --now xconnect-gateway-sync.timer xconnect-lab-http.service"
-
-echo 'Stage: controlled-client formal enrollment and apply'
 create_invite one "$client_id" "$LAB_DIR/invites/one"
+}
+
+enroll_gateway() {
+echo 'Stage: formal Gateway enrollment and apply'
+scp "${SSH[@]}" "$LAB_DIR/invites/gateway" "$gateway_user@$gateway:/tmp/gateway-invite" >/dev/null
+ssh "${SSH[@]}" "$gateway_user@$gateway" "set -eu; sudo install -m 600 /tmp/gateway-invite /opt/xconnect-lab/gateway-invite; sudo sh -c 'xconnect-gateway join --state-dir /var/lib/xconnect-gateway --gateway-id \"$gateway_id\" \"\$(cat /opt/xconnect-lab/gateway-invite)\"'; sudo xconnect-gateway up --state-dir /var/lib/xconnect-gateway; sudo systemctl enable --now xconnect-gateway-sync.timer xconnect-lab-http.service"
+}
+
+enroll_one() {
+echo 'Stage: controlled-client formal enrollment and apply'
 scp "${SSH[@]}" "$LAB_DIR/bin/xconnect" "$LAB_DIR/bin/xray" "$LAB_DIR/tls/ca.crt" "$LAB_DIR/invites/one" "$client_user@$client:/tmp/" >/dev/null
-ssh "${SSH[@]}" "$client_user@$client" "sudo install -m 755 /tmp/xconnect /tmp/xray /usr/local/bin/; sudo install -m 644 /tmp/ca.crt /usr/local/share/ca-certificates/xconnect-lab.crt; sudo update-ca-certificates >/dev/null 2>&1; sudo install -d -m 700 /var/lib/xconnect-one /etc/xconnect-lab; sudo install -m 600 /tmp/one /var/lib/xconnect-one/join-uri; printf '%s\n' controlled-client | sudo tee /etc/xconnect-lab/node-role >/dev/null; sudo sh -c 'xconnect join --state-dir /var/lib/xconnect-one --device-id \"$client_id\" --name uat-linux-one \"\$(cat /var/lib/xconnect-one/join-uri)\"'"
+ssh "${SSH[@]}" "$client_user@$client" "set -eu; sudo install -m 755 /tmp/xconnect /tmp/xray /usr/local/bin/; sudo install -m 644 /tmp/ca.crt /usr/local/share/ca-certificates/xconnect-lab.crt; sudo update-ca-certificates >/dev/null 2>&1; sudo install -d -m 700 /var/lib/xconnect-one /etc/xconnect-lab; sudo install -m 600 /tmp/one /var/lib/xconnect-one/join-uri; printf '%s\n' controlled-client | sudo tee /etc/xconnect-lab/node-role >/dev/null; sudo sh -c 'xconnect join --state-dir /var/lib/xconnect-one --device-id \"$client_id\" --name uat-linux-one \"\$(cat /var/lib/xconnect-one/join-uri)\"'"
 
 # One enrollment advances the centralized generation. Reconcile the Gateway so
 # its WireGuard peer set contains the newly registered controlled client.
 ssh "${SSH[@]}" "$gateway_user@$gateway" 'sudo xconnect-gateway up --state-dir /var/lib/xconnect-gateway'
+}
 
-echo 'Stage: three-party runtime verification'
+verify_overlay() {
+echo 'Stage: formal control plane and two-node data-plane verification'
+gateway_public_key=$(<"$LAB_DIR/gateway-public-key")
+client_public_key=$(ssh "${SSH[@]}" "$client_user@$client" 'sudo wg show xconone0 public-key')
+[[ "$client_public_key" =~ ^[A-Za-z0-9+/]{43}=$ ]] || { echo 'One returned an invalid WireGuard public key'; exit 1; }
 ssh "${SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$run_id" <<'GATEWAY_VERIFY'
 set -euo pipefail
 [[ "$(cat /etc/xconnect-lab/node-role)" == relay ]]
@@ -101,7 +120,7 @@ ss -ltn | grep -Eq ':443[[:space:]]'
 xconnect-gateway status --state-dir /var/lib/xconnect-gateway
 GATEWAY_VERIFY
 
-if ! ssh "${SSH[@]}" "$client_user@$client" sudo bash -s -- "$run_id" "$gateway_transport" <<'CLIENT_VERIFY'
+if ! ssh "${SSH[@]}" "$client_user@$client" sudo bash -s -- "$run_id" "$gateway_transport" "$gateway_public_key" "$client_id" "$network_id" <<'CLIENT_VERIFY'
 set -euo pipefail
 client_failure() {
   echo "Client verification failed: $1"
@@ -126,8 +145,11 @@ for attempt in {1..30}; do
 done
 [[ "$connected" == 1 ]] || client_failure private-ping-http
 pgrep -x xray >/dev/null || client_failure xray-process
-wg show xconone0 latest-handshakes | awk -v now="$(date +%s)" '$2 > 0 && now-$2 < 180 {ok=1} END {exit !ok}' || client_failure wireguard-handshake
+wg show xconone0 latest-handshakes | awk -v peer="$3" -v now="$(date +%s)" '$1 == peer && $2 > 0 && now-$2 >= 0 && now-$2 < 180 {ok=1} END {exit !ok}' || client_failure wireguard-handshake
 xconnect sync --state-dir /var/lib/xconnect-one >/dev/null || client_failure config-sync
+xconnect status --state-dir /var/lib/xconnect-one | jq -e --arg device "$4" --arg network "$5" \
+  '.joined == true and .device_id == $device and .network_id == $network and .generations.state > 0 and .runtime.applied == true and .runtime.core_id == "xray" and .credential.present == true and .credential.expired == false' \
+  >/dev/null || client_failure signed-config-ack-status
 curl --fail --max-time 10 --noproxy '*' -s http://10.77.0.1:8080/ | grep -Fxq "$1" || client_failure post-sync-private-http
 CLIENT_VERIFY
 then
@@ -142,30 +164,27 @@ GATEWAY_FAILURE_DIAGNOSTICS
   exit 1
 fi
 
-ssh "${SSH[@]}" "$gateway_user@$gateway" sudo bash -s <<'RELAY_VERIFY'
+ssh "${SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$client_public_key" "$gateway_id" "$network_id" "$formal_zero" <<'RELAY_VERIFY'
 set -euo pipefail
-wg show xconzero0 latest-handshakes | awk -v now="$(date +%s)" '$2 > 0 && now-$2 < 180 {ok=1} END {exit !ok}'
+wg show xconzero0 latest-handshakes | awk -v peer="$1" -v now="$(date +%s)" '$1 == peer && $2 > 0 && now-$2 >= 0 && now-$2 < 180 {ok=1} END {exit !ok}'
+jq -e --arg gateway "$2" --arg network "$3" --arg controller "$4" \
+  '.gateway_id == $gateway and .network_id == $network and .controller == $controller and .applied_generation > 0 and (.applied_config_id | length) > 0' \
+  /var/lib/xconnect-gateway/state.json >/dev/null
 ip route get 10.77.0.2 | grep -Fq 'dev xconzero0'
 RELAY_VERIFY
 
-if [[ "${MAC_JOIN_WINDOW_MINUTES:-0}" != 0 ]]; then
-  echo "MAC_JOIN_WINDOW_OPEN: ${MAC_JOIN_WINDOW_MINUTES} minutes. Issue a darwin One invitation through the authenticated UAT Portal, then run the standalone macOS CLI. No invitation is written to this workflow."
-  deadline=$(( $(date +%s) + MAC_JOIN_WINDOW_MINUTES * 60 ))
-  mac_joined=0
-  while (( $(date +%s) < deadline )); do
-    if ssh "${SSH[@]}" "$gateway_user@$gateway" sudo bash -s <<'MAC_HANDSHAKE'
-set -euo pipefail
-recent=$(wg show xconzero0 latest-handshakes | awk -v now="$(date +%s)" '$2 > 0 && now-$2 < 180 {count++} END {print count+0}')
-[[ "$recent" -ge 2 ]]
-MAC_HANDSHAKE
-    then
-      mac_joined=1
-      break
-    fi
-    sleep 10
-  done
-  [[ "$mac_joined" == 1 ]] || { echo 'macOS One did not establish a second recent Gateway handshake before the bounded join window closed'; exit 1; }
-  echo 'PASS: macOS One established a recent WireGuard-over-VLESS Gateway handshake.'
-fi
+echo 'PASS: formal UAT Accounts enrollment, released Gateway and Linux One, signed sync/ACK, external Xray/WireGuard, private ping/HTTP and exact-peer handshake on both sides.'
+echo 'Not covered by Linux PASS: authenticated Portal data, macOS/Windows private HTTP, or policy enforcement/revocation.'
+}
 
-echo 'PASS: formal UAT Accounts/Portal, released Gateway and Linux One, centralized signed sync, external Xray/WireGuard, private ping/HTTP and both-side handshake.'
+stage="${1:-all}"
+case "$stage" in
+  setup) prepare_runtime ;;
+  bootstrap) test -f "$LAB_DIR/setup.done"; bootstrap_accounts ;;
+  gateway) test -f "$LAB_DIR/bootstrap.done"; enroll_gateway ;;
+  one) test -f "$LAB_DIR/gateway.done"; enroll_one ;;
+  verify) test -f "$LAB_DIR/one.done"; verify_overlay ;;
+  all) prepare_runtime; bootstrap_accounts; enroll_gateway; enroll_one; verify_overlay ;;
+  *) echo 'Unknown deployment stage' >&2; exit 1 ;;
+esac
+touch "$LAB_DIR/$stage.done"
