@@ -52,6 +52,7 @@ case "${1:?command}" in
     [[ "${CLI_RELEASE_TAG:-}" =~ ^v[0-9A-Za-z._-]+$ ]] || die 'CLI_RELEASE_TAG requires a version tag'
     [[ "${GATEWAY_RELEASE_TAG:-}" =~ ^v[0-9A-Za-z._-]+$ ]] || die 'GATEWAY_RELEASE_TAG requires a version tag'
     [[ "${XRAY_RELEASE_TAG:-}" =~ ^v[0-9A-Za-z._-]+$ ]] || die 'XRAY_RELEASE_TAG requires a version tag'
+    [[ "${ALLOW_XCONNECT_RELEASE_OVERRIDES:-false}" =~ ^(true|false)$ ]] || die 'ALLOW_XCONNECT_RELEASE_OVERRIDES must be true or false'
     [[ "$MODE" =~ ^(dry-run|apply|cleanup)$ ]] || die 'Invalid mode'
     [[ "${MAC_JOIN_WINDOW_MINUTES:-0}" =~ ^(0|5|10|15)$ ]] || die 'mac_join_window_minutes must be 0, 5, 10, or 15'
     if [[ "${MAC_JOIN_WINDOW_MINUTES:-0}" != 0 && "$MODE" != apply ]]; then
@@ -80,18 +81,30 @@ case "${1:?command}" in
     mkdir -p "$LAB_DIR"
     ;;
   topology)
-    jq -e --arg cli "$CLI_RELEASE_TAG" --arg gateway "$GATEWAY_RELEASE_TAG" --arg xray "$XRAY_RELEASE_TAG" '
-      .spec.zero.lab_controller.enabled == false and
-      .spec.artifacts.one.repository == "ai-workspace-xstream/XConnect-One" and
-      .spec.artifacts.one.asset == "xconnect-linux-arm64" and
-      .spec.artifacts.one.release_tag == $cli and
-      .spec.artifacts.gateway.repository == "ai-workspace-xstream/XConnect-Gateway" and
-      .spec.artifacts.gateway.asset == "xconnect-gateway-linux-arm64" and
-      .spec.artifacts.gateway.release_tag == $gateway and
-      .spec.artifacts.xray.repository == "XTLS/Xray-core" and
-      .spec.artifacts.xray.asset == "Xray-linux-arm64-v8a.zip" and
-      .spec.artifacts.xray.release_tag == $xray
-    ' "$DECL" >/dev/null || die 'Release inputs do not match the immutable GitOps XConnect artifact declaration'
+    if [[ "${ALLOW_XCONNECT_RELEASE_OVERRIDES:-false}" == true ]]; then
+      jq -e '
+        .spec.zero.lab_controller.enabled == false and
+        .spec.artifacts.one.repository == "ai-workspace-xstream/XConnect-One" and
+        .spec.artifacts.one.asset == "xconnect-linux-arm64" and
+        .spec.artifacts.gateway.repository == "ai-workspace-xstream/XConnect-Gateway" and
+        .spec.artifacts.gateway.asset == "xconnect-gateway-linux-arm64" and
+        .spec.artifacts.xray.repository == "XTLS/Xray-core" and
+        .spec.artifacts.xray.asset == "Xray-linux-arm64-v8a.zip"
+      ' "$DECL" >/dev/null || die 'Release override is incompatible with the immutable GitOps XConnect artifact contract'
+    else
+      jq -e --arg cli "$CLI_RELEASE_TAG" --arg gateway "$GATEWAY_RELEASE_TAG" --arg xray "$XRAY_RELEASE_TAG" '
+        .spec.zero.lab_controller.enabled == false and
+        .spec.artifacts.one.repository == "ai-workspace-xstream/XConnect-One" and
+        .spec.artifacts.one.asset == "xconnect-linux-arm64" and
+        .spec.artifacts.one.release_tag == $cli and
+        .spec.artifacts.gateway.repository == "ai-workspace-xstream/XConnect-Gateway" and
+        .spec.artifacts.gateway.asset == "xconnect-gateway-linux-arm64" and
+        .spec.artifacts.gateway.release_tag == $gateway and
+        .spec.artifacts.xray.repository == "XTLS/Xray-core" and
+        .spec.artifacts.xray.asset == "Xray-linux-arm64-v8a.zip" and
+        .spec.artifacts.xray.release_tag == $xray
+      ' "$DECL" >/dev/null || die 'Release inputs do not match the immutable GitOps XConnect artifact declaration'
+    fi
     python3 "$ROOT/.github/scripts/xconnect-lab/prepare.py" validate-desktop "$DECL" "${DESKTOP_JOIN_WINDOW_MINUTES:-0}" || die 'GitOps desktop validation does not authorize the requested join window'
     jq -e --argjson cleanup "$([[ "$MODE" == cleanup ]] && echo true || echo false)" \
       -f "$ROOT/.github/scripts/xconnect-lab/validate-topology.jq" "$DECL" >/dev/null || die 'Missing or incompatible UAT lab topology'

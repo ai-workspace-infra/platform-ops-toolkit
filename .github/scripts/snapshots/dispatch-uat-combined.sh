@@ -126,6 +126,7 @@ wait_for_serverless "${serverless_run_url}"
 
 dispatch_xconnect_lab() {
   local topology iac_ref gitops_ref
+  local -a workflow_args
   topology="$(mktemp)"
   trap 'rm -f "${topology}"' RETURN
 
@@ -159,15 +160,21 @@ dispatch_xconnect_lab() {
     [[ "${release_tag}" =~ ^v[0-9A-Za-z._-]+$ ]] || { echo "::error::Invalid XConnect release tag in GitOps topology." >&2; return 1; }
   done
 
-  gh workflow run "${xconnect_lab_workflow}" \
-    --repo "${target_repo}" \
-    --ref main \
-    -f mode=apply \
-    -f "iac_ref=${iac_ref}" \
-    -f "gitops_ref=${gitops_ref}" \
-    -f "cli_release_tag=${cli_release_tag}" \
-    -f "gateway_release_tag=${gateway_release_tag}" \
+  workflow_args=(
+    workflow run "${xconnect_lab_workflow}"
+    --repo "${target_repo}"
+    --ref main
+    -f mode=apply
+    -f "iac_ref=${iac_ref}"
+    -f "gitops_ref=${gitops_ref}"
+    -f "cli_release_tag=${cli_release_tag}"
+    -f "gateway_release_tag=${gateway_release_tag}"
     -f "xray_release_tag=${xray_release_tag}"
+  )
+  if [[ -n "${xconnect_one_release_override}" || -n "${xconnect_gateway_release_override}" ]]; then
+    workflow_args+=(-f allow_release_overrides=true)
+  fi
+  gh "${workflow_args[@]}"
 }
 
 xconnect_lab_run_url="$(dispatch_xconnect_lab)"

@@ -31,6 +31,11 @@ on:
         type: string
         required: false
         default: 'v26.3.27'
+      allow_release_overrides:
+        description: Explicitly allow this run to use One/Gateway tags different from the GitOps declaration
+        type: boolean
+        required: false
+        default: false
       cleanup_run:
         description: Cleanup only - exact xcl-RUN_ID-ATTEMPT from a previous run
         type: string
@@ -60,6 +65,7 @@ jobs:
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.8' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.4' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
+      ALLOW_XCONNECT_RELEASE_OVERRIDES: ${{ inputs.allow_release_overrides || false }}
       CLEANUP_RUN: ${{ inputs.cleanup_run }}
       SSH_DEBUG_INGRESS_CIDRS: ${{ inputs.ssh_debug_ingress_cidrs || '35.79.83.48/32' }}
       NODE_OBSERVATION_INPUT: 'until-expiry'
