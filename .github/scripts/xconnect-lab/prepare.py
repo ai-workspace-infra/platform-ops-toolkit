@@ -63,12 +63,21 @@ def validate_desktop_validation(spec, window):
     return cidrs
 
 
-def validate_ssh_debug_access(spec):
-    """Return a narrowly scoped, temporary operator SSH allowlist."""
-    debug_access = spec.get('debug_access') or {}
-    if not isinstance(debug_access, dict):
-        raise ValueError('debug_access must be an object')
-    cidrs = debug_access.get('ssh_ingress_cidrs', [])
+def validate_ssh_debug_access(spec, requested=None):
+    """Return a narrowly scoped, temporary operator SSH allowlist.
+
+    The workflow dispatch value is preferred so a changing operator egress IP
+    never has to be committed to public GitOps. The declaration remains a
+    backwards-compatible empty fallback for offline callers.
+    """
+    if requested is None:
+        debug_access = spec.get('debug_access') or {}
+        if not isinstance(debug_access, dict):
+            raise ValueError('debug_access must be an object')
+        cidrs = debug_access.get('ssh_ingress_cidrs', [])
+    else:
+        raw = str(requested).strip()
+        cidrs = [] if not raw else [item.strip() for item in raw.split(',')]
     if not isinstance(cidrs, list) or len(cidrs) > 2:
         raise ValueError('debug_access.ssh_ingress_cidrs must contain at most two IPv4 /32 values')
     if any(not isinstance(cidr, str) or not cidr for cidr in cidrs) or len(set(cidrs)) != len(cidrs):
@@ -237,7 +246,8 @@ def main():
     if action == 'resources':
         desktop_window = int(os.environ.get('DESKTOP_JOIN_WINDOW_MINUTES', '0'))
         desktop_ingress_cidrs = validate_desktop_validation(spec, desktop_window)
-        ssh_debug_ingress_cidrs = validate_ssh_debug_access(spec)
+        ssh_debug_ingress_cidrs = validate_ssh_debug_access(
+            spec, os.environ.get('SSH_DEBUG_INGRESS_CIDRS'))
         uuid.UUID(os.environ['LAB_VLESS_ID'])
         if len(os.environ['ZERO_SERVICE_TOKEN']) < 32:
             raise ValueError('Vault ZERO_SERVICE_TOKEN must contain at least 32 characters')

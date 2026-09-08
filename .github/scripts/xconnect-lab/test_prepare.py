@@ -122,6 +122,15 @@ class SSHDebugContract(unittest.TestCase):
         spec = {'debug_access': {'ssh_ingress_cidrs': ['35.79.83.48/32', '192.0.2.20/32']}}
         self.assertEqual(prepare.validate_ssh_debug_access(spec), ['35.79.83.48/32', '192.0.2.20/32'])
 
+    def test_dispatch_value_overrides_public_declaration(self):
+        spec = {'debug_access': {'ssh_ingress_cidrs': ['192.0.2.20/32']}}
+        self.assertEqual(prepare.validate_ssh_debug_access(spec, '35.79.83.48/32'), ['35.79.83.48/32'])
+
+    def test_dispatch_value_accepts_comma_separated_hosts(self):
+        self.assertEqual(
+            prepare.validate_ssh_debug_access({}, '35.79.83.48/32, 192.0.2.20/32'),
+            ['35.79.83.48/32', '192.0.2.20/32'])
+
     def test_rejects_broad_or_malformed_debug_access(self):
         for cidrs in (['0.0.0.0/0'], ['35.79.83.48/24'], ['35.79.83.48/32', '35.79.83.48/32'],
                       ['35.79.83.48/32', '192.0.2.20/32', '198.51.100.30/32']):
