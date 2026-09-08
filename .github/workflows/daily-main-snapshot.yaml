@@ -1,9 +1,6 @@
 name: Daily Main Snapshot
 
 on:
-  schedule:
-    # GitHub Actions cron uses UTC; 16:00 UTC is 00:00 Asia/Shanghai.
-    - cron: "0 16 * * *"
   workflow_dispatch:
     inputs:
       snapshot_tag:
@@ -40,7 +37,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: daily-main-snapshot-${{ inputs.deploy_env || 'uat' }}-${{ inputs.snapshot_tag || 'scheduled' }}
+  group: daily-main-snapshot-${{ inputs.deploy_env || 'uat' }}-${{ inputs.snapshot_tag || 'manual' }}
   cancel-in-progress: false
 
 jobs:
