@@ -113,6 +113,21 @@ class DesktopContract(unittest.TestCase):
         with self.assertRaises(ValueError):
             prepare.validate_desktop_validation(self.spec(platforms=['windows', 'darwin']), 10)
 
+
+class SSHDebugContract(unittest.TestCase):
+    def test_empty_debug_allowlist_is_closed(self):
+        self.assertEqual(prepare.validate_ssh_debug_access({}), [])
+
+    def test_accepts_at_most_two_canonical_hosts(self):
+        spec = {'debug_access': {'ssh_ingress_cidrs': ['35.79.83.48/32', '192.0.2.20/32']}}
+        self.assertEqual(prepare.validate_ssh_debug_access(spec), ['35.79.83.48/32', '192.0.2.20/32'])
+
+    def test_rejects_broad_or_malformed_debug_access(self):
+        for cidrs in (['0.0.0.0/0'], ['35.79.83.48/24'], ['35.79.83.48/32', '35.79.83.48/32'],
+                      ['35.79.83.48/32', '192.0.2.20/32', '198.51.100.30/32']):
+            with self.subTest(cidrs=cidrs), self.assertRaises(ValueError):
+                prepare.validate_ssh_debug_access({'debug_access': {'ssh_ingress_cidrs': cidrs}})
+
     def handoff(self):
         run = 'xcl-123-1'
         return {

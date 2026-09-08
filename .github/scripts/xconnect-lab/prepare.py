@@ -63,6 +63,26 @@ def validate_desktop_validation(spec, window):
     return cidrs
 
 
+def validate_ssh_debug_access(spec):
+    """Return a narrowly scoped, temporary operator SSH allowlist."""
+    debug_access = spec.get('debug_access') or {}
+    if not isinstance(debug_access, dict):
+        raise ValueError('debug_access must be an object')
+    cidrs = debug_access.get('ssh_ingress_cidrs', [])
+    if not isinstance(cidrs, list) or len(cidrs) > 2:
+        raise ValueError('debug_access.ssh_ingress_cidrs must contain at most two IPv4 /32 values')
+    if any(not isinstance(cidr, str) or not cidr for cidr in cidrs) or len(set(cidrs)) != len(cidrs):
+        raise ValueError('debug_access.ssh_ingress_cidrs must be non-empty and unique')
+    for cidr in cidrs:
+        try:
+            interface = ipaddress.ip_interface(cidr)
+        except ValueError as exc:
+            raise ValueError('debug_access.ssh_ingress_cidrs must be canonical IPv4 /32 values') from exc
+        if interface.version != 4 or interface.network.prefixlen != 32 or str(interface) != cidr:
+            raise ValueError('debug_access.ssh_ingress_cidrs must be canonical IPv4 /32 values')
+    return cidrs
+
+
 def validate_observation_windows(desktop_window, node_window):
     node_window = str(node_window)
     if desktop_window not in DESKTOP_WINDOWS or node_window not in NODE_WINDOWS | {'auto'}:
@@ -217,6 +237,7 @@ def main():
     if action == 'resources':
         desktop_window = int(os.environ.get('DESKTOP_JOIN_WINDOW_MINUTES', '0'))
         desktop_ingress_cidrs = validate_desktop_validation(spec, desktop_window)
+        ssh_debug_ingress_cidrs = validate_ssh_debug_access(spec)
         uuid.UUID(os.environ['LAB_VLESS_ID'])
         if len(os.environ['ZERO_SERVICE_TOKEN']) < 32:
             raise ValueError('Vault ZERO_SERVICE_TOKEN must contain at least 32 characters')
@@ -233,6 +254,7 @@ def main():
         values.update(aws_ami=ami, runner_cidr=ip + '/32',
                       ssh_public_key=(folder / 'id_ed25519.pub').read_text().strip(),
                       desktop_ingress_cidrs=desktop_ingress_cidrs,
+                      ssh_debug_ingress_cidrs=ssh_debug_ingress_cidrs,
                       expires_at=(datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=spec['ttl_minutes'])).strftime('%Y-%m-%dT%H:%M:%SZ'))
     elif action == 'cleanup':
         root_module = json.loads((folder / 'state.json').read_text()).get('values', {}).get('root_module', {})
@@ -251,7 +273,8 @@ def main():
                 raise ValueError('AWS lab ownership mismatch')
         # Destroy does not create anything; variables needed only to decode configuration.
         values.update(aws_ami='ami-unused-for-destroy', runner_cidr='127.0.0.1/32',
-                      ssh_public_key='unused-for-destroy', expires_at='1970-01-01T00:00:00Z')
+                      ssh_public_key='unused-for-destroy', ssh_debug_ingress_cidrs=[],
+                      expires_at='1970-01-01T00:00:00Z')
     else:
         raise ValueError('Unknown operation')
     save(folder / 'variables.json', values)

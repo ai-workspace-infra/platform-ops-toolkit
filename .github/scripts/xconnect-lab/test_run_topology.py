@@ -58,6 +58,8 @@ def declaration():
                 'acceptance': ['formal-invite', 'signed-sync-ack', 'owned-runtime',
                                'exact-peer-handshake', 'private-ping', 'exact-run-http-marker'],
             },
+            'debug_access': {'ssh_ingress_cidrs': ['35.79.83.48/32'],
+                             'purpose': 'temporary operator SSH debugging'},
             'aws': {'reuse_default_vpc': True, 'reuse_default_subnet': True,
                     'ami_ssm_parameter': '/test/arm64/ami-id', 'region': 'ap-northeast-1',
                     'role_arn': 'arn:aws:iam::123456789012:role/test'},
