@@ -6,7 +6,11 @@ gateway_id="$2"
 network_id="$3"
 client_id="$4"
 state="${XCONNECT_GATEWAY_STATE_DIR:-/var/lib/xconnect-gateway}"
-if ! xconnect-gateway up --state-dir "$state" >/dev/null 2>&1; then
+# Observation must not re-apply the WireGuard configuration: `up` tears down
+# and recreates the interface, which resets the peer handshake timestamp just
+# before we read it. The verify stage already performs the active apply; this
+# stage is intentionally read-only and only checks the local state contract.
+if ! xconnect-gateway status --state-dir "$state" >/dev/null 2>&1; then
   echo 'refresh=UNVERIFIED'
   exit 0
 fi
