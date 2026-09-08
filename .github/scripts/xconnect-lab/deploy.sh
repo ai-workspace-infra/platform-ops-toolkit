@@ -109,7 +109,7 @@ echo 'Stage: formal control plane and two-node data-plane verification'
 gateway_public_key=$(<"$LAB_DIR/gateway-public-key")
 client_public_key=$(ssh "${SSH[@]}" "$client_user@$client" 'sudo wg show xconone0 public-key')
 [[ "$client_public_key" =~ ^[A-Za-z0-9+/]{43}=$ ]] || { echo 'One returned an invalid WireGuard public key'; exit 1; }
-ssh "${SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$run_id" <<'GATEWAY_VERIFY'
+if ! ssh "${SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$run_id" <<'GATEWAY_VERIFY'
 set -euo pipefail
 [[ "$(cat /etc/xconnect-lab/node-role)" == relay ]]
 [[ "$(cat /etc/xconnect-lab/lab-run)" == "$1" ]]
@@ -119,6 +119,17 @@ wg show xconzero0 >/dev/null
 ss -ltn | grep -Eq ':443[[:space:]]'
 xconnect-gateway status --state-dir /var/lib/xconnect-gateway
 GATEWAY_VERIFY
+then
+  echo 'Gateway verification failed; collecting public runtime health only.'
+  ssh "${SSH[@]}" "$gateway_user@$gateway" sudo bash -s <<'GATEWAY_EARLY_FAILURE_DIAGNOSTICS' || true
+set -euo pipefail
+if systemctl is-active --quiet xconnect-gateway-xray.service; then echo 'gateway_xray_process=active'; else echo 'gateway_xray_process=inactive'; fi
+if systemctl is-active --quiet xconnect-lab-http.service; then echo 'gateway_http_service=active'; else echo 'gateway_http_service=inactive'; fi
+if ss -ltn | grep -Eq ':443[[:space:]]'; then echo 'gateway_xray_listener=active'; else echo 'gateway_xray_listener=inactive'; fi
+if ip link show xconzero0 >/dev/null 2>&1; then echo 'gateway_wireguard_interface=active'; else echo 'gateway_wireguard_interface=inactive'; fi
+GATEWAY_EARLY_FAILURE_DIAGNOSTICS
+  exit 1
+fi
 
 if ! ssh "${SSH[@]}" "$client_user@$client" sudo bash -s -- "$run_id" "$gateway_transport" "$gateway_public_key" "$client_id" "$network_id" <<'CLIENT_VERIFY'
 set -euo pipefail
@@ -136,7 +147,7 @@ client_failure() {
 [[ "$(cat /etc/xconnect-lab/node-role)" == controlled-client ]] || client_failure role
 tls_verify=$(timeout 10 openssl s_client -connect "$2:443" -servername xconnect-lab.invalid \
   -CAfile /etc/ssl/certs/ca-certificates.crt </dev/null 2>/dev/null \
-  | awk '/Verify return code:/ {print $4; exit}')
+  | awk '/Verify return code:/ {print $4; exit}' || true)
 [[ "$tls_verify" == 0 ]] || client_failure tls-trust-or-transport
 connected=0
 for attempt in {1..30}; do
