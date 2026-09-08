@@ -31,9 +31,9 @@ on:
         type: string
         default: ''
       mac_join_window_minutes:
-        description: Apply only - bounded macOS One enrollment and handshake window (0, 5, 10, or 15 minutes)
+        description: Compatibility input - Linux validation only; desktop acceptance requires a separate identity-bound external access stage
         type: choice
-        options: ['0', '5', '10', '15']
+        options: ['0']
         default: '0'
 permissions:
   contents: read
@@ -101,6 +101,9 @@ jobs:
       - name: Resolve the UAT declaration
         id: topology
         run: bash .github/scripts/xconnect-lab/run.sh topology
+      - name: Verify formal Accounts and deployed Portal BFF boundary
+        if: inputs.mode != 'cleanup'
+        run: python3 .github/scripts/xconnect-lab/probe-control-plane.py gitops/vpn-overlay/uat/xconnect-lab.json
       - name: Private CLI release access
         if: inputs.mode != 'cleanup'
         id: cli-token
@@ -158,9 +161,24 @@ jobs:
       - name: Prepare isolated state and inspect account prerequisites
         if: inputs.mode != 'dry-run'
         run: bash .github/scripts/xconnect-lab/run.sh prepare
-      - name: Provision and verify the real overlay
+      - name: Provision the two isolated Spot nodes
         if: inputs.mode == 'apply'
         run: bash .github/scripts/xconnect-lab/run.sh apply
+      - name: Install released runtimes and create the Gateway local identity
+        if: inputs.mode == 'apply'
+        run: bash .github/scripts/xconnect-lab/run.sh setup
+      - name: Real Accounts - provision network and one-use Gateway/One invitations
+        if: inputs.mode == 'apply'
+        run: bash .github/scripts/xconnect-lab/run.sh bootstrap
+      - name: Deploy formal Gateway using its invitation and signed config
+        if: inputs.mode == 'apply'
+        run: bash .github/scripts/xconnect-lab/run.sh gateway
+      - name: Join Linux One using its formal invitation and reconcile Gateway
+        if: inputs.mode == 'apply'
+        run: bash .github/scripts/xconnect-lab/run.sh one
+      - name: Verify signed sync/ACK, services, exact-peer handshake and private ping/HTTP
+        if: inputs.mode == 'apply'
+        run: bash .github/scripts/xconnect-lab/run.sh verify
       - name: Always destroy only this lab state
         if: always() && inputs.mode != 'dry-run'
         run: bash .github/scripts/xconnect-lab/run.sh cleanup

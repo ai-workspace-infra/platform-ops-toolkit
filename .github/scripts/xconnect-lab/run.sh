@@ -20,6 +20,7 @@ case "${1:?command}" in
     if [[ "${MAC_JOIN_WINDOW_MINUTES:-0}" != 0 && "$MODE" != apply ]]; then
       die 'mac_join_window_minutes is valid only with mode=apply'
     fi
+    [[ "${MAC_JOIN_WINDOW_MINUTES:-0}" == 0 ]] || die 'Desktop validation requires scoped external ingress, TLS trust delivery and exact device identity; the former peer-count window is not a valid macOS acceptance test. Use mac_join_window_minutes=0 for Linux validation.'
     if [[ "$MODE" == cleanup ]]; then
       [[ "$CLEANUP_RUN" =~ ^xcl-[0-9]+-[0-9]+$ ]] || die 'cleanup requires an exact previous run identity'
     else
@@ -121,7 +122,10 @@ case "${1:?command}" in
     touch "$LAB_DIR/apply-started"
     tf apply -input=false "$LAB_DIR/plan"
     terraform -chdir="$TF" output -json > "$LAB_DIR/outputs.json"
-    timeout 25m bash "$ROOT/.github/scripts/xconnect-lab/deploy.sh"
+    ;;
+  setup|bootstrap|gateway|one|verify)
+    [[ "$MODE" == apply && -f "$LAB_DIR/apply-started" && -s "$LAB_DIR/outputs.json" ]] || die 'Real lab provisioning is required before deployment stages'
+    timeout 25m bash "$ROOT/.github/scripts/xconnect-lab/deploy.sh" "$1"
     ;;
   cleanup)
     if [[ ! -f "$LAB_DIR/backend-ready" ]]; then echo 'No initialized lab state; no provisioning was allowed.'; exit 0; fi

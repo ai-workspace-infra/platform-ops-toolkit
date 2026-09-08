@@ -1,115 +1,105 @@
-# XConnect cloud integration lab
+# Formal XConnect UAT integration validation
 
-Manual workflow: `.github/workflows/xconnect-cloud-lab.yml`. Default `dry-run`
-checks immutable infrastructure refs, private Release access, artifact checksums, topology and
-Terraform schema. It creates no cloud resources. `apply` then reads Vault runtime
-secrets, checks account prerequisites, and adds only a `t4g.small` AWS Spot Gateway
-and `t4g.micro` AWS Spot One client to the reused UAT environment for one hour.
-It performs joint data-plane checks and always cleans up. This workflow is an experimental cloud-lab controller, not the formal Zero
-Accounts API or Portal and never becomes their configuration source.
+The `.github/workflows/xconnect-cloud-lab.yml` deployment workflow consumes
+reviewed GitOps/IAC commits and versioned GitHub Release artifacts. It does not
+build application code or run the experimental Zero controller. Accounts is
+the sole formal control/configuration source. Portal retains its current layout.
 
-The Gateway and One have the same independent Linux-node baseline and both run
-external WireGuard and Xray. Gateway is `role=relay` / `relay/service`; One is
-`role=controlled-client`. Gateway additionally provides forwarding, relay health,
-and the private service probe. Cloud Run, Cloudflare Workers, and other
-serverless/edge-function platforms are not Gateway deployment targets.
+## Execution order
 
-The final configuration flow is fixed: XConnect Zero Accounts (devices,
-networks, policy, signed config) and the Zero Portal are the sole centralized
-control/config source. Gateway consumes the relay/service projection; One consumes
-the controlled-client projection. The temporary `xconnect-zero-lab` process is
-co-located only to debug the API/runtime contract in the cloud and issue a
-disposable test enrollment; it is explicitly not a formal Accounts or Portal
-endpoint.
+1. Validate immutable refs, GitOps topology, and deployed Accounts/Portal API
+   boundaries. The anonymous Portal check must reach `ssr-console` and the
+   actual session-aware Zero BFF, not the generic API origin.
+2. Download and verify One, Gateway and external Xray release checksums.
+3. Reuse the UAT account/default VPC/subnet; create one `t4g.small` Spot
+   Gateway and one `t4g.micro` Spot Linux One, plus isolated security groups.
+4. Install released runtimes and generate the Gateway WireGuard identity on
+   the Gateway. Its private key never leaves that node.
+5. Use the protected formal Accounts bootstrap API to provision the run-scoped
+   network and one-use, role/device-bound Gateway and Linux One invitations.
+6. Enroll the formal Gateway with its invitation; verify/apply signed relay
+   config and start external Xray/WireGuard.
+7. Enroll One with its formal invitation; verify/apply signed client config,
+   then reconcile the Gateway peer set after the new device joins.
+8. Verify identity-bound signed sync/ACK state, external services, exact-peer
+   recent handshakes on both nodes, private ping and an exact run-specific
+   HTTP marker over WireGuard over VLESS.
+9. Always destroy only this run's dedicated Terraform state and verify it is
+   empty. Connectivity success and cleanup success are separate results.
 
-## Exact dispatch inputs
+The preparation of Gateway key material precedes invitation issuance, but
+the Gateway data-plane service is started only after formal enrollment.
+Each deployment/verification phase is a separate GitHub Actions step.
 
-| Input | Required value |
+## Inputs and release boundary
+
+| Input | Contract |
 |---|---|
-| `mode` | `dry-run` (default), `apply`, or recovery `cleanup` |
-| `iac_ref` | Full reviewed SHA containing `vpn-overlay/xconnect-lab` in `ai-workspace-infra/iac_modules` |
-| `gitops_ref` | Full reviewed SHA containing `topology/uat/xconnect-lab.json` in `ai-workspace-infra/gitops` |
-| `cli_release_tag` | Version tag in private `ai-workspace-xstream/XConnect-One` publishing the Linux CLI and experimental lab controller |
-| `xray_release_tag` | Version tag in `XTLS/Xray-core` publishing the verified Linux ARM64 archive |
-| `cleanup_run` | Empty except cleanup: exact `xcl-RUN_ID-ATTEMPT` from original run |
+| `mode` | `dry-run`, `apply`, or recovery `cleanup` |
+| `iac_ref` | Full reviewed commit SHA containing `vpn-overlay/xconnect-lab` |
+| `gitops_ref` | Full reviewed commit SHA containing `vpn-overlay/uat/xconnect-lab.json` |
+| `cli_release_tag` | GitOps-pinned XConnect-One version; `xconnect-linux-arm64` and `SHA256SUMS` |
+| `gateway_release_tag` | GitOps-pinned XConnect-Gateway version; `xconnect-gateway-linux-arm64` and `SHA256SUMS` |
+| `xray_release_tag` | GitOps-pinned official Xray ARM64 archive and digest |
+| `cleanup_run` | Cleanup only: exact `xcl-RUN_ID-ATTEMPT` |
+| `mac_join_window_minutes` | Compatibility field; `0` only until the external desktop stage is ready |
 
-The XConnect-One Release must contain `xconnect-linux-arm64`,
-`xconnect-zero-lab-linux-arm64`, and `SHA256SUMS`; Xray is downloaded from its
-official Release and its `SHA2-256` digest is checked before extraction. No arbitrary
-container or mock endpoint is substituted. The two infrastructure SHAs and two
-Release tags must exist remotely before this workflow can run. Dispatch from a toolkit ref
-accepted by BOTH the current Vault role and AWS role trust; do not weaken existing
-trust policies just to run a feature branch.
+Full UAT delivery is initiated through `daily-main-snapshot.yaml`, which keeps
+its daily schedule and publishes one immutable application TAG before deployment.
+The combined UAT dispatch then resolves reviewed IAC/GitOps main commits to SHAs
+and starts this lab with the topology's release versions. The lab itself has no
+scheduled deployment and cannot authenticate to Vault from an untrusted branch.
 
-## Authentication and Vault fields
+## Credentials
 
-CI uses GitHub OIDC JWT with audience `vault`, Vault address
-`https://vault.svc.plus`, and the dedicated role
-`github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab` through
-the existing `hashicorp/vault-action@v4` pattern. There are no new static GitHub
-cloud-credential secrets. Missing paths/fields are fatal.
+GitHub OIDC JWT (`aud=vault`) authenticates to `https://vault.svc.plus` using
+`github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab`, restricted to the
+main-ref workflow. Do not widen that trust to run a branch.
 
-The Vault administrator must re-run
-`scripts/create_vault_service_repo_roles.sh` after enabling this workflow so the
-dedicated role exists. Its `job_workflow_ref` is pinned to
-`platform-ops-toolkit/.github/workflows/xconnect-cloud-lab.yml@refs/heads/main`;
-it reuses the UAT data policy but cannot authenticate from another workflow or
-branch. The workflow does not broaden or self-modify Vault role bindings.
-
-| Vault KV v2 API path | Exact fields |
+| Vault KV v2 API path | Fields used by this workflow |
 |---|---|
 | `kv/data/CICD/github-app/daily-snapshot` | `app_private_key` |
 | `kv/data/CICD/uat` | `TF_STATE_ENDPOINT`, `TF_STATE_BUCKET`, `TF_STATE_ACCESS_KEY`, `TF_STATE_SECRET_KEY`, `TF_STATE_REGION` |
-| `kv/data/uat/xconnect-one` | `ADMIN_TOKEN` (at least 32 characters), `SIGNING_KEY` (base64 Ed25519 32-byte seed), `VLESS_ID` (UUID) |
+| `kv/data/uat/xconnect-one` | `VLESS_ID`, `ZERO_SERVICE_TOKEN`, `ZERO_OWNER_EMAIL` |
 
-Existing GitHub App client ID `Iv23liNwStpQIiXajhpb` must be installed with Contents
-read on `ai-workspace-infra/{iac_modules,gitops}` AND separately on
-`ai-workspace-xstream/XConnect-One` Releases. Installation tokens are generated per owner;
-the default repository token cannot read the private CLI Release. Existing
-`CROSS_REPO_GH_TOKEN` is deliberately not used.
+The owner email must identify the account that will inspect the run in Portal.
+Owner isolation is not bypassed to make another user's nodes visible.
+Accounts signing-key injection belongs to the Accounts UAT deployment; this
+workflow never exports that signing key to a Gateway, One, or browser.
 
-AWS uses native short-lived GitHub OIDC credentials, following existing workflows,
-with the GitOps-declared role/account/region and `sts.amazonaws.com` audience. The
-role needs SSM GetParameter plus EC2 read/create/delete for the two one-time ARM64 Spot
-instances and their disposable security groups (including Spot service-linked role
-availability). No Vultr credentials or provider are used. Backend credentials must
-read/write only the intended `uat/xconnect-lab/` namespace, including list/get/put/
-delete of `_leases/` objects for expiry recovery. Provisioning code does
-not create roles, edit Vault policy, or bootstrap Spot account permissions.
+Provider, Vault, GitHub and internal service credentials stay on the protected
+runner. Nodes receive only their scoped invitations and runtime material.
+No secrets, state files or Terraform logs are uploaded as artifacts.
 
-The CI Vault role does not become the runtime controller identity: only three
-runtime values are injected into root-owned mode-0600 files over SSH. No Vault,
-GitHub, AWS or Vultr credential is copied to either VPS. Fresh SSH/WireGuard keys
-and one-day TLS CA are scoped to the disposable run. Host SSH keys use first-use
-pinning per fresh run; subsequent key changes fail. The CA is explicitly trusted
-on the client; TLS verification is never disabled.
+## Evidence boundaries
 
-## Verification and cleanup
+Linux PASS proves only the explicit Linux checks. An HTTP 200 for the Portal
+page or a valid anonymous BFF response does **not** prove an authenticated
+user can list/manage their resources. That requires a signed-in Portal
+acceptance check after deployment.
 
-The real lab server installs the device peer before returning a disposable debug
-enrollment. The CLI verifies a signed v1 configuration, runs external Xray and
-wg-quick, and ACKs local readiness. Independent Gateway checks require the
-`relay` marker, active wg-quick/Xray/Zero API TLS health, and a recent relay-side
-WireGuard handshake. Client checks require `controlled-client`, a recent client-side
-handshake, private ping and an exact run-specific HTTP body on `10.77.0.1:8080`.
-Sync is tested, followed by tunnel down and a negative private HTTP check. Gateway
-policy accepts only the intended UDP 127.0.0.1:51820 target through VLESS; public
-WG UDP is closed.
+Accounts `recent_ack` is a recent configuration acknowledgement, not real-time
+WireGuard link telemetry. Node enrollment records remain in Accounts after
+Spot cleanup; they must not be presented as currently online.
 
-State/plan/logs are private runner files, never uploaded. The S3 state survives a
-runner failure. Every normal apply attempt triggers `always()` cleanup, including
-partial Terraform failures. Cleanup validates the exact run namespace and state
-resource ownership before destroy, then asserts empty state. Before apply a durable
-nonsecret lease records the two infrastructure refs, two Release tags, exact run ID
-and 60-minute expiry.
-A scheduled job every 15 minutes reads expired leases and dispatches `cleanup`;
-the lease is removed only after empty state is verified. This provides recovery
-after runner loss; schedules must be enabled on main and may be delayed by GitHub,
-so expiry is not an exact billing cutoff. Manual `cleanup` with original refs and
-exact identity remains available and deletes only that lab's saved resources.
-Report cleanup failures as
-resource leaks requiring action; never treat a successful connectivity test as
-proof of cleanup.
+The former macOS check counted any second peer and lacked external transport
+access/TLS trust delivery. It has been removed as invalid acceptance evidence.
+Desktop runs require scoped external TCP 443 ingress, a reachable Gateway
+endpoint, public CA trust delivery, exact device identity, and per-client
+sync/status/handshake/ping/HTTP results. macOS/Windows are not covered by Linux
+PASS. No host-adapter/Packet Tunnel integration is required by standalone One.
+Policy enforcement, revocation and session-renewal acceptance are separate
+checks; signed v1 sync alone does not prove them.
 
-Existing workflows, production resources, and existing repositories' working
-copies are unaffected by this dedicated pipeline.
+## Resource limits and recovery
+
+Gateway is an independent Linux relay, never Cloud Run or a Worker. Both
+cloud nodes are ARM64 one-time Spot, with encrypted disposable disks. Public
+WireGuard UDP is closed. SSH is restricted to the runner /32.
+
+Dedicated state: `uat/xconnect-lab/xcl-RUN_ID-ATTEMPT/terraform.tfstate`.
+A nonsecret lease retains the run identity, refs, release pins and a 60-minute
+expiry. Normal runs use `always()` cleanup, including partial provisioning
+failures. An expiry tag does not independently terminate EC2. After runner
+loss/cancellation, explicitly run recovery `cleanup` with the original refs
+and exact run ID; report any cleanup failure as a potential resource leak.
