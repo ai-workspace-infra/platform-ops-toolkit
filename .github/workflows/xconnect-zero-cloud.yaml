@@ -10,7 +10,7 @@ on:
         description: Advanced override - reviewed iac_modules commit SHA
         type: string
         required: false
-        default: '24517908371bdd0664e34592b5be594f22b38790'
+        default: '2b93f822637dd1ff51ce7b7dd7ec77de43b85672'
       gitops_ref:
         description: Advanced override - reviewed gitops commit SHA
         type: string
