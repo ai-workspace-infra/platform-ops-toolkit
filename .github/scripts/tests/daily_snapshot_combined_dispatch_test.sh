@@ -83,4 +83,5 @@ bash "${dispatcher}"
 
 grep -Fq -- '-f cli_release_tag=v0.1.9' "${workdir}/gh-override.log"
 grep -Fq -- '-f gateway_release_tag=v0.1.4' "${workdir}/gh-override.log"
+grep -Fq -- '-f allow_release_overrides=true' "${workdir}/gh-override.log"
 echo "daily_snapshot_combined_dispatch_test: PASS"

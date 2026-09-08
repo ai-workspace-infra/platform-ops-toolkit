@@ -181,6 +181,23 @@ class ShellTopologyContract(unittest.TestCase):
             with self.subTest(refs=refs):
                 self.assertNotEqual(self.preflight(declaration(), refs=refs)[0], 0)
 
+    def test_explicit_release_override_keeps_infrastructure_contract(self):
+        code, output, _ = self.preflight(
+            declaration(),
+            refs={
+                'ALLOW_XCONNECT_RELEASE_OVERRIDES': 'true',
+                'CLI_RELEASE_TAG': 'v0.1.9',
+                'GATEWAY_RELEASE_TAG': 'v0.1.5',
+            },
+        )
+        self.assertEqual(code, 0, output)
+
+    def test_release_override_requires_explicit_boolean(self):
+        self.assertNotEqual(
+            self.preflight(declaration(), refs={'ALLOW_XCONNECT_RELEASE_OVERRIDES': 'yes'})[0],
+            0,
+        )
+
 
 if __name__ == '__main__':
     unittest.main()
