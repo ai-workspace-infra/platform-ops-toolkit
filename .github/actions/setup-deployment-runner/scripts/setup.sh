@@ -51,12 +51,22 @@ configure_ssh_options() {
   fi
 }
 
+# ConnectTimeout only bounds the TCP connection phase.  A node that accepts a
+# connection but never completes the SSH banner/key exchange can otherwise
+# keep the release job running forever.  Bound every probe so the outer retry
+# loop retains ownership of the deployment timeout.
+ssh_with_timeout() {
+  local timeout_seconds="${1:?SSH command timeout is required}"
+  shift
+  command timeout --foreground --kill-after=2s "${timeout_seconds}s" ssh "$@"
+}
+
 wait_for_ssh() {
   resolve_host_ip
   configure_ssh_options 5
   echo "Waiting for SSH to become ready on ${ACTION_MATRIX_HOST} (${target_user}@${target_ip})..."
   for _ in $(seq 1 60); do
-    if ssh "${ssh_options[@]}" "${target_user}@${target_ip}" true 2>/dev/null; then
+    if ssh_with_timeout 12 "${ssh_options[@]}" "${target_user}@${target_ip}" true 2>/dev/null; then
       echo "SSH is ready on ${ACTION_MATRIX_HOST} (${target_ip})."
       return
     fi
@@ -76,7 +86,7 @@ wait_for_package_init() {
   [[ "${target_user}" == "root" ]] || privileged_shell='sudo -n bash -s'
 
   echo "Disabling unattended-upgrades on ${ACTION_MATRIX_HOST} (${target_ip})..."
-  ssh "${ssh_options[@]}" "${target_user}@${target_ip}" "${privileged_shell}" <<'REMOTE' 2>/dev/null || true
+  ssh_with_timeout 15 "${ssh_options[@]}" "${target_user}@${target_ip}" "${privileged_shell}" <<'REMOTE' 2>/dev/null || true
     if command -v systemctl >/dev/null 2>&1; then
       systemctl stop unattended-upgrades.service >/dev/null 2>&1 || true
       systemctl disable unattended-upgrades.service >/dev/null 2>&1 || true
@@ -103,7 +113,7 @@ REMOTE
 
   local deadline=$((SECONDS + timeout_secs)) last='' out=''
   while ((SECONDS < deadline)); do
-    if out="$(ssh "${ssh_options[@]}" "${target_user}@${target_ip}" "${privileged_shell}" <<<"${probe}" 2>/dev/null)" && [[ "${out}" == *READY* ]]; then
+    if out="$(ssh_with_timeout 15 "${ssh_options[@]}" "${target_user}@${target_ip}" "${privileged_shell}" <<<"${probe}" 2>/dev/null)" && [[ "${out}" == *READY* ]]; then
       echo "Host ${ACTION_MATRIX_HOST} (${target_ip}) finished first-boot package work."
       return
     fi
