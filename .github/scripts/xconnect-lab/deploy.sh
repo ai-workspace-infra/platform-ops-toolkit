@@ -162,7 +162,7 @@ deploy_observability() {
       ansible-playbook -i "${host}," "$playbook" \
         --user "$user" --private-key "$key" \
         --ssh-common-args="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$LAB_DIR/known_hosts" \
-        --extra-vars "xconnect_observability_role=$role xconnect_observability_environment=$OBSERVABILITY_ENVIRONMENT xconnect_observability_instance=$instance xconnect_observability_wireguard_interface=$interface xconnect_observability_state_dir=$state_dir"
+        --extra-vars "xconnect_observability_hosts=all xconnect_observability_role=$role xconnect_observability_environment=$OBSERVABILITY_ENVIRONMENT xconnect_observability_instance=$instance xconnect_observability_wireguard_interface=$interface xconnect_observability_state_dir=$state_dir"
   }
 
   local gateway_key="$LAB_DIR/id_ed25519"
