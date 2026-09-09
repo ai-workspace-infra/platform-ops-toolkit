@@ -56,7 +56,8 @@ EOF
 
 cat > "${test_dir}/cmdb.json" <<'EOF'
 {
-  "agent-proxy-vps-uat.onwalk.net": {
+  "jp-xconnect.onwalk.net": {
+    "fqdn": "jp-xconnect.onwalk.net",
     "ip": "167.179.105.137",
     "groups": ["agent_proxy"]
   }
@@ -74,7 +75,7 @@ output="$({
   "${reconciler}"
 } 2>&1)"
 
-grep -Fq 'Created agent-proxy-vps-uat.onwalk.net -> 167.179.105.137 (A)' <<< "${output}"
+grep -Fq 'Created jp-xconnect.onwalk.net -> 167.179.105.137 (A)' <<< "${output}"
 grep -Fq 'completed for 1 Agent Proxy records' <<< "${output}"
 if grep -Fq 'console-selfhost-uat.onwalk.net' "${test_dir}/curl.log"; then
   echo 'Agent Proxy-only DNS must not reconcile Web SaaS records' >&2
