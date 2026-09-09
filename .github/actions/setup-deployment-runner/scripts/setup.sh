@@ -28,6 +28,7 @@ resolve_host_ip() {
     echo "::error::No SSH user for ${ACTION_MATRIX_HOST} in ${ACTION_CMDB_FILE}" >&2
     exit 1
   }
+  target_port="$(jq -r --arg host "${ACTION_MATRIX_HOST}" '.[$host].ansible_port // .[$host].host_vars.ansible_port // 22' "${ACTION_CMDB_FILE}")"
 }
 
 configure_ssh_key() {
@@ -46,6 +47,7 @@ ssh_options=()
 configure_ssh_options() {
   local connect_timeout="${1:-10}"
   ssh_options=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o "ConnectTimeout=${connect_timeout}")
+  ssh_options+=(-p "${target_port}")
   if [[ -f "${HOME}/.ssh/id_deploy" ]]; then
     ssh_options+=(-i "${HOME}/.ssh/id_deploy")
   fi
@@ -66,16 +68,16 @@ wait_for_ssh() {
   configure_ssh_options 5
   local timeout_secs="${HOST_SSH_WAIT_TIMEOUT:-180}"
   local deadline=$((SECONDS + timeout_secs))
-  echo "Waiting for SSH to become ready on ${ACTION_MATRIX_HOST} (${target_user}@${target_ip})..."
+  echo "Waiting for SSH to become ready on ${ACTION_MATRIX_HOST} (${target_user}@${target_ip}:${target_port})..."
   while ((SECONDS < deadline)); do
     if ssh_with_timeout 12 "${ssh_options[@]}" "${target_user}@${target_ip}" true 2>/dev/null; then
-      echo "SSH is ready on ${ACTION_MATRIX_HOST} (${target_ip})."
+      echo "SSH is ready on ${ACTION_MATRIX_HOST} (${target_ip}:${target_port})."
       return
     fi
     sleep 3
   done
 
-  echo "::error::Timed out waiting for SSH on ${ACTION_MATRIX_HOST} (${target_ip}) after ${timeout_secs}s" >&2
+  echo "::error::Timed out waiting for SSH on ${ACTION_MATRIX_HOST} (${target_ip}:${target_port}) after ${timeout_secs}s" >&2
   exit 1
 }
 
@@ -87,7 +89,7 @@ wait_for_package_init() {
   local privileged_shell='bash -s'
   [[ "${target_user}" == "root" ]] || privileged_shell='sudo -n bash -s'
 
-  echo "Disabling unattended-upgrades on ${ACTION_MATRIX_HOST} (${target_ip})..."
+  echo "Disabling unattended-upgrades on ${ACTION_MATRIX_HOST} (${target_ip}:${target_port})..."
   ssh_with_timeout 15 "${ssh_options[@]}" "${target_user}@${target_ip}" "${privileged_shell}" <<'REMOTE' 2>/dev/null || true
     if command -v systemctl >/dev/null 2>&1; then
       systemctl stop unattended-upgrades.service >/dev/null 2>&1 || true
@@ -116,7 +118,7 @@ REMOTE
   local deadline=$((SECONDS + timeout_secs)) last='' out=''
   while ((SECONDS < deadline)); do
     if out="$(ssh_with_timeout 15 "${ssh_options[@]}" "${target_user}@${target_ip}" "${privileged_shell}" <<<"${probe}" 2>/dev/null)" && [[ "${out}" == *READY* ]]; then
-      echo "Host ${ACTION_MATRIX_HOST} (${target_ip}) finished first-boot package work."
+      echo "Host ${ACTION_MATRIX_HOST} (${target_ip}:${target_port}) finished first-boot package work."
       return
     fi
     [[ "${out}" == "${last}" ]] || {
@@ -126,7 +128,7 @@ REMOTE
     sleep "${interval_secs}"
   done
 
-  echo "::warning::${ACTION_MATRIX_HOST} (${target_ip}) still had package locks held after ${timeout_secs}s; continuing and relying on apt lock_timeout."
+  echo "::warning::${ACTION_MATRIX_HOST} (${target_ip}:${target_port}) still had package locks held after ${timeout_secs}s; continuing and relying on apt lock_timeout."
 }
 
 install_ansible() {

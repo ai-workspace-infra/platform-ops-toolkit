@@ -33,7 +33,18 @@ cat >"${workdir}/bin/ssh" <<'EOF'
 printf '%s\n' "$*" >>"${SSH_LOG}"
 exit 0
 EOF
-chmod +x "${workdir}/bin/ssh"
+cat >"${workdir}/bin/timeout" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+while (($#)); do
+  case "$1" in
+    --foreground|--kill-after=*|[0-9]*s) shift ;;
+    *) break ;;
+  esac
+done
+exec "$@"
+EOF
+chmod +x "${workdir}/bin/ssh" "${workdir}/bin/timeout"
 
 PATH="${workdir}/bin:${PATH}" \
 SSH_LOG="${workdir}/ssh.log" \
@@ -48,6 +59,22 @@ ACTION_ASSERT_ANSIBLE_TARGET=false \
 ACTION_ANSIBLE_INVENTORY="${workdir}/inventory.ini" \
 bash "${script}"
 grep -Fq 'admin@192.0.2.10 true' "${workdir}/ssh.log"
+
+printf '%s\n' '{"hk-xconnect.onwalk.net":{"ip":"198.51.100.22","ansible_user":"admin","ansible_port":2222}}' >"${workdir}/cmdb.json"
+PATH="${workdir}/bin:${PATH}" \
+SSH_LOG="${workdir}/ssh.log" \
+HOME="${workdir}/home" \
+ACTION_SSH_KEY_B64="${key_b64}" \
+ACTION_MATRIX_HOST=hk-xconnect.onwalk.net \
+ACTION_CMDB_FILE="${workdir}/cmdb.json" \
+ACTION_WAIT_FOR_SSH=true \
+ACTION_WAIT_FOR_PACKAGE_INIT=false \
+ACTION_INSTALL_ANSIBLE=false \
+ACTION_ASSERT_ANSIBLE_TARGET=false \
+ACTION_ANSIBLE_INVENTORY="${workdir}/inventory.ini" \
+bash "${script}"
+grep -Fq -- '-p 2222' "${workdir}/ssh.log"
+grep -Fq 'admin@198.51.100.22 true' "${workdir}/ssh.log"
 
 cat >"${workdir}/bin/python3" <<'EOF'
 #!/usr/bin/env bash
