@@ -67,7 +67,6 @@ expected_console_selfhost_name="console-selfhost-${DEPLOY_ENV}.${UAT_ZONE}"
 expected_accounts_selfhost_name="accounts-selfhost-${DEPLOY_ENV}.${UAT_ZONE}"
 expected_billing_name="billing-selfhost-${DEPLOY_ENV}.${UAT_ZONE}"
 expected_postgresql_name="postgresql-selfhost-${DEPLOY_ENV}.${UAT_ZONE}"
-expected_agent_proxy_name="agent-proxy-vps-${DEPLOY_ENV}.${UAT_ZONE}"
 canonical_records_json="$(jq -c -er '.spec.runtime.routing.dns.canonical_records' "${GITOPS_ROUTING_CONFIG}")"
 if [[ "${agent_proxy_only}" != true ]]; then
   actual_console_target="$(jq -r --arg name "${expected_console_name}" '.[$name] // empty' <<<"${canonical_records_json}")"
@@ -110,9 +109,14 @@ mapfile -t agent_proxy_hosts < <(
   jq -r 'to_entries[] | select((.value.groups // []) | index("agent_proxy")) | .key' "${cmdb_file}"
 )
 
-agent_proxy_ips=()
+agent_proxy_records=()
 for agent_proxy_host in "${agent_proxy_hosts[@]}"; do
+  agent_proxy_name="$(jq -er --arg host "${agent_proxy_host}" '.[$host].fqdn // $host' "${cmdb_file}")"
   agent_proxy_ip="$(jq -er --arg host "${agent_proxy_host}" '.[$host].ip // empty' "${cmdb_file}")"
+  if [[ "${agent_proxy_name}" != *."${UAT_ZONE}" ]]; then
+    echo "::error::CMDB agent_proxy host ${agent_proxy_host} must use a ${UAT_ZONE} public FQDN; got ${agent_proxy_name}." >&2
+    exit 1
+  fi
   if [[ ! "${agent_proxy_ip}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || ! jq -n -e --arg ip "${agent_proxy_ip}" '
     ($ip | split(".")) as $octets
     | ($octets | length == 4)
@@ -125,19 +129,18 @@ for agent_proxy_host in "${agent_proxy_hosts[@]}"; do
     echo "::error::UAT DNS refuses to reconcile: agent-proxy host ${agent_proxy_host} shares Web SaaS IP ${web_saas_ip}. Fix Terraform state/CMDB before changing DNS." >&2
     exit 1
   fi
-  agent_proxy_ips+=("${agent_proxy_ip}")
+  agent_proxy_records+=("${agent_proxy_name}"$'\t'"${agent_proxy_ip}")
 done
 
-if [[ "${agent_proxy_only}" == true && "${#agent_proxy_ips[@]}" -eq 0 ]]; then
+if [[ "${agent_proxy_only}" == true && "${#agent_proxy_records[@]}" -eq 0 ]]; then
   echo "::error::Agent Proxy-only UAT DNS requires at least one agent_proxy host in ${cmdb_file}." >&2
   exit 1
 fi
 
-# Multiple CMDB entries may represent a future Agent Proxy pool.  A single
-# hostname is reconciled as one or more A records, while duplicate IPs are
-# collapsed so repeated aliases cannot accumulate.
-if [[ "${#agent_proxy_ips[@]}" -gt 0 ]]; then
-  mapfile -t agent_proxy_ips < <(printf '%s\n' "${agent_proxy_ips[@]}" | sort -u)
+# Each CMDB node owns its declared regional FQDN. Do not merge regions into a
+# single round-robin name: the selected XConnect region must remain stable.
+if [[ "${#agent_proxy_records[@]}" -gt 0 ]]; then
+  mapfile -t agent_proxy_records < <(printf '%s\n' "${agent_proxy_records[@]}" | sort -u)
 fi
 
 api_request() {
@@ -320,17 +323,19 @@ if [[ "${agent_proxy_only}" != true ]]; then
   reconcile_record "${expected_postgresql_name}" A "${web_saas_ip}" 1
 fi
 
-if [[ "${#agent_proxy_ips[@]}" -gt 0 ]]; then
-  reconcile_multi_a_records "${expected_agent_proxy_name}" 1 "${agent_proxy_ips[@]}"
+if [[ "${#agent_proxy_records[@]}" -gt 0 ]]; then
+  while IFS=$'\t' read -r agent_proxy_name agent_proxy_ip; do
+    reconcile_record "${agent_proxy_name}" A "${agent_proxy_ip}" 1
+  done < <(printf '%s\n' "${agent_proxy_records[@]}")
 fi
 
-record_count="${#agent_proxy_ips[@]}"
+record_count="${#agent_proxy_records[@]}"
 if [[ "${agent_proxy_only}" != true ]]; then
-  record_count=$((canonical_count + 4 + ${#agent_proxy_ips[@]}))
+  record_count=$((canonical_count + 4 + ${#agent_proxy_records[@]}))
 fi
 agent_proxy_summary=""
-if [[ "${#agent_proxy_ips[@]}" -gt 0 ]]; then
-  agent_proxy_summary="$(IFS=', '; echo "${agent_proxy_ips[*]}")"
+if [[ "${#agent_proxy_records[@]}" -gt 0 ]]; then
+  agent_proxy_summary="$(printf '%s\n' "${agent_proxy_records[@]}" | tr '\t' '=' | paste -sd ', ' -)"
 fi
 if [[ "${agent_proxy_only}" == true ]]; then
   echo "UAT DNS reconciliation completed for ${record_count} Agent Proxy records in ${UAT_ZONE}; agent-proxy [${agent_proxy_summary}]."
