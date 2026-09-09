@@ -256,9 +256,9 @@ def main():
     folder = Path(directory)
     spec = json.loads(Path(declaration).read_text())['spec']
     run = os.environ['TF_VAR_run_id']
-    gateway_provider = spec['gateway_provider']
-    if gateway_provider != 'aws-spot':
-        raise ValueError('UAT validation requires gateway_provider=aws-spot')
+    gateway_provider = os.environ.get('GATEWAY_PROVIDER', spec['gateway_provider']).strip()
+    if gateway_provider not in {'aws-spot', 'external'}:
+        raise ValueError('GATEWAY_PROVIDER must be aws-spot or external')
     if action == 'backend':
         save(folder / 'backend.json', {
             'bucket': os.environ['TF_STATE_BUCKET'],
@@ -305,6 +305,15 @@ def main():
                       gateway_transport_ingress_cidrs=desktop_ingress_cidrs,
                       ssh_debug_ingress_cidrs=ssh_debug_ingress_cidrs,
                       expires_at=(datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=spec['ttl_minutes'])).strftime('%Y-%m-%dT%H:%M:%SZ'))
+        if gateway_provider == 'external':
+            external_ip = os.environ.get('EXTERNAL_GATEWAY_HOST', '').strip()
+            try:
+                parsed_external_ip = ipaddress.ip_address(external_ip)
+            except ValueError as exc:
+                raise ValueError('EXTERNAL_GATEWAY_HOST must be an IPv4 address') from exc
+            if parsed_external_ip.version != 4:
+                raise ValueError('EXTERNAL_GATEWAY_HOST must be an IPv4 address')
+            values['external_gateway_ip'] = external_ip
     elif action == 'cleanup':
         root_module = json.loads((folder / 'state.json').read_text()).get('values', {}).get('root_module', {})
         if root_module.get('child_modules'):
@@ -325,6 +334,8 @@ def main():
                       ssh_public_key='unused-for-destroy', gateway_transport_ingress_cidrs=[],
                       ssh_debug_ingress_cidrs=[],
                       expires_at='1970-01-01T00:00:00Z')
+        if gateway_provider == 'external':
+            values['external_gateway_ip'] = os.environ.get('EXTERNAL_GATEWAY_HOST', '127.0.0.1')
     else:
         raise ValueError('Unknown operation')
     save(folder / 'variables.json', values)

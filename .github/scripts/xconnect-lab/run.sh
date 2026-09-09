@@ -52,6 +52,7 @@ case "${1:?command}" in
     [[ "${CLI_RELEASE_TAG:-}" =~ ^v[0-9A-Za-z._-]+$ ]] || die 'CLI_RELEASE_TAG requires a version tag'
     [[ "${GATEWAY_RELEASE_TAG:-}" =~ ^v[0-9A-Za-z._-]+$ ]] || die 'GATEWAY_RELEASE_TAG requires a version tag'
     [[ "${XRAY_RELEASE_TAG:-}" =~ ^v[0-9A-Za-z._-]+$ ]] || die 'XRAY_RELEASE_TAG requires a version tag'
+    [[ "${GATEWAY_PROVIDER:-external}" =~ ^(external|aws-spot)$ ]] || die 'GATEWAY_PROVIDER must be external or aws-spot'
     [[ "${ALLOW_XCONNECT_RELEASE_OVERRIDES:-false}" =~ ^(true|false)$ ]] || die 'ALLOW_XCONNECT_RELEASE_OVERRIDES must be true or false'
     [[ "$MODE" =~ ^(dry-run|apply|cleanup)$ ]] || die 'Invalid mode'
     [[ "${MAC_JOIN_WINDOW_MINUTES:-0}" =~ ^(0|5|10|15)$ ]] || die 'mac_join_window_minutes must be 0, 5, 10, or 15'
@@ -117,7 +118,7 @@ case "${1:?command}" in
       echo "vault_role=$(jq -r .spec.vault.role "$DECL")"
       echo "aws_role=$(jq -r .spec.aws.role_arn "$DECL")"
       echo "aws_region=$(jq -r .spec.aws.region "$DECL")"
-      echo "gateway_provider=$(jq -r .spec.gateway_provider "$DECL")"
+      echo "gateway_provider=${GATEWAY_PROVIDER:-$(jq -r .spec.gateway_provider "$DECL")}"
       echo "zero_accounts_api_url=$(jq -r .spec.zero.accounts_api_url "$DECL")"
       echo "zero_portal_url=$(jq -r .spec.zero.portal_url "$DECL")"
       echo "lab_controller_mode=$(jq -r .spec.zero.lab_controller.purpose "$DECL")"
@@ -187,6 +188,15 @@ case "${1:?command}" in
       for name in LAB_VLESS_ID ZERO_SERVICE_TOKEN ZERO_OWNER_EMAIL; do [[ -n "${!name:-}" ]] || die "Missing Vault runtime field $name"; done
       ssh-keygen -q -t ed25519 -N '' -f "$LAB_DIR/id_ed25519"
       python3 "$ROOT/.github/scripts/xconnect-lab/prepare.py" resources "$LAB_DIR" "$DECL"
+      if [[ "${GATEWAY_PROVIDER:-external}" == external ]]; then
+        [[ -n "${EXTERNAL_GATEWAY_HOST:-}" ]] || die 'EXTERNAL_GATEWAY_HOST is required for an external Gateway'
+        [[ -n "${EXTERNAL_GATEWAY_USER:-}" ]] || die 'EXTERNAL_GATEWAY_USER is required for an external Gateway'
+        [[ -n "${EXTERNAL_GATEWAY_SSH_PRIVATE_KEY_B64:-}" ]] || die 'EXTERNAL_GATEWAY_SSH_PRIVATE_KEY_B64 is required for an external Gateway'
+        printf '%s' "$EXTERNAL_GATEWAY_SSH_PRIVATE_KEY_B64" | base64 --decode > "$LAB_DIR/external-gateway.key" || die 'External Gateway SSH key is not valid base64'
+        chmod 600 "$LAB_DIR/external-gateway.key"
+        ssh-keygen -y -f "$LAB_DIR/external-gateway.key" > "$LAB_DIR/external-gateway.pub" || die 'External Gateway SSH key is invalid'
+        echo "EXTERNAL_GATEWAY_SSH_KEY=$LAB_DIR/external-gateway.key" >> "$GITHUB_ENV"
+      fi
       cp "$LAB_DIR/variables.json" "$TF/terraform.auto.tfvars.json"
       tf plan -input=false -out="$LAB_DIR/plan"
     fi

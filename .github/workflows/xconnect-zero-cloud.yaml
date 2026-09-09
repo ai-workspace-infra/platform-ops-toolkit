@@ -31,6 +31,27 @@ on:
         type: string
         required: false
         default: 'v26.3.27'
+      gateway_provider:
+        description: Gateway mode; external reuses the persistent TW Gateway from Vault
+        type: choice
+        options: [external, aws-spot]
+        required: false
+        default: external
+      external_gateway_id:
+        description: Stable Gateway identity for the external non-IaC node
+        type: string
+        required: false
+        default: 'gw-uat-tw-xconnect'
+      external_network_id:
+        description: Stable Zero network identity for the external Gateway
+        type: string
+        required: false
+        default: 'net_uat-tw-xconnect'
+      external_gateway_server_name:
+        description: TLS SNI name for the external Gateway
+        type: string
+        required: false
+        default: 'TW-XConnect.onwalk.net'
       allow_release_overrides:
         description: Explicitly allow this run to use One/Gateway tags different from the GitOps declaration
         type: boolean
@@ -70,6 +91,10 @@ jobs:
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.11' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.5' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
+      GATEWAY_PROVIDER: ${{ inputs.gateway_provider || 'external' }}
+      EXTERNAL_GATEWAY_ID: ${{ inputs.external_gateway_id || 'gw-uat-tw-xconnect' }}
+      EXTERNAL_NETWORK_ID: ${{ inputs.external_network_id || 'net_uat-tw-xconnect' }}
+      EXTERNAL_GATEWAY_SERVER_NAME: ${{ inputs.external_gateway_server_name || 'TW-XConnect.onwalk.net' }}
       ALLOW_XCONNECT_RELEASE_OVERRIDES: ${{ inputs.allow_release_overrides || false }}
       CLEANUP_RUN: ${{ inputs.cleanup_run }}
       SSH_DEBUG_INGRESS_CIDRS: ${{ inputs.ssh_debug_ingress_cidrs || '35.79.83.48/32' }}
@@ -168,7 +193,10 @@ jobs:
           secrets: |
             kv/data/uat/xconnect-one VLESS_ID | LAB_VLESS_ID ;
             kv/data/uat/xconnect-one ZERO_SERVICE_TOKEN | ZERO_SERVICE_TOKEN ;
-            kv/data/uat/xconnect-one ZERO_OWNER_EMAIL | ZERO_OWNER_EMAIL
+            kv/data/uat/xconnect-one ZERO_OWNER_EMAIL | ZERO_OWNER_EMAIL ;
+            kv/data/prod/ulighthost-xconnect/TW-XConnect.onwalk.net host | EXTERNAL_GATEWAY_HOST ;
+            kv/data/prod/ulighthost-xconnect/TW-XConnect.onwalk.net user | EXTERNAL_GATEWAY_USER ;
+            kv/data/prod/ulighthost-xconnect/TW-XConnect.onwalk.net ssh_private_key_b64 | EXTERNAL_GATEWAY_SSH_PRIVATE_KEY_B64
       - name: AWS short-lived OIDC credentials
         if: inputs.mode != 'dry-run'
         uses: aws-actions/configure-aws-credentials@v4
@@ -199,7 +227,7 @@ jobs:
         if: inputs.mode == 'apply'
         run: bash .github/scripts/xconnect-lab/run.sh verify
       - name: Publish non-secret desktop handoff
-        if: inputs.mode == 'apply'
+        if: inputs.mode == 'apply' && inputs.gateway_provider != 'external'
         uses: actions/upload-artifact@v4
         with:
           name: xconnect-desktop-handoff-${{ github.run_id }}-${{ github.run_attempt }}
