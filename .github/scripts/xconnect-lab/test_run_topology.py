@@ -69,6 +69,10 @@ def declaration():
             'overlay': {'transport': 'vless-tls-xudp', 'gateway_address': '10.77.0.1/32',
                         'device_address': '10.77.0.2/32', 'public_wireguard_ingress': False,
                         'private_checks': ['ping', 'http', 'wireguard-handshake', 'config-sync']},
+            'gateway_transport': {'enabled': True, 'exposure': 'public-restricted',
+                                  'transport': 'vless-tls-xudp', 'port': 443,
+                                  'ingress_cidrs': [], 'public_wireguard_ingress': False,
+                                  'allowlist_source': 'workflow-dispatch-runtime-only'},
         },
     }
 

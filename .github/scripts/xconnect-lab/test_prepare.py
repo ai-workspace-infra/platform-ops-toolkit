@@ -137,6 +137,38 @@ class SSHDebugContract(unittest.TestCase):
             with self.subTest(cidrs=cidrs), self.assertRaises(ValueError):
                 prepare.validate_ssh_debug_access({'debug_access': {'ssh_ingress_cidrs': cidrs}})
 
+
+class GatewayTransportContract(unittest.TestCase):
+    def spec(self, **updates):
+        value = {'gateway_transport': {
+            'enabled': True,
+            'port': 443,
+            'transport': 'vless-tls-xudp',
+            'ingress_cidrs': [],
+            'public_wireguard_ingress': False,
+        }}
+        value['gateway_transport'].update(updates)
+        return value
+
+    def test_empty_allowlist_is_closed(self):
+        self.assertEqual(prepare.validate_gateway_transport_ingress(self.spec()), [])
+
+    def test_dispatch_allowlist_is_ephemeral_and_bounded(self):
+        self.assertEqual(
+            prepare.validate_gateway_transport_ingress(self.spec(), '35.79.83.48/32, 192.0.2.20/32'),
+            ['35.79.83.48/32', '192.0.2.20/32'])
+        for value in ('0.0.0.0/0', '35.79.83.48/24', '2001:db8::1/32',
+                      '35.79.83.48/32,35.79.83.48/32',
+                      '35.79.83.48/32,192.0.2.20/32,198.51.100.30/32'):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                prepare.validate_gateway_transport_ingress(self.spec(), value)
+
+    def test_public_transport_policy_is_fail_closed(self):
+        for updates in ({'enabled': False}, {'port': 1443},
+                        {'transport': 'vless-xhttp'}, {'public_wireguard_ingress': True}):
+            with self.subTest(updates=updates), self.assertRaises(ValueError):
+                prepare.validate_gateway_transport_ingress(self.spec(**updates), '35.79.83.48/32')
+
     def handoff(self):
         run = 'xcl-123-1'
         return {

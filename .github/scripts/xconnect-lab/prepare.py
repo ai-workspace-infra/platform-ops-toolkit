@@ -63,6 +63,36 @@ def validate_desktop_validation(spec, window):
     return cidrs
 
 
+def validate_gateway_transport_ingress(spec, requested=''):
+    """Validate the ephemeral public allowlist for Gateway TCP 443.
+
+    The reviewed GitOps declaration authorizes the exposure policy, while the
+    workflow dispatch value supplies the current controlled-node egress IPs.
+    No address is persisted in GitOps.
+    """
+    transport = spec.get('gateway_transport')
+    if not isinstance(transport, dict) or transport.get('enabled') is not True:
+        raise ValueError('gateway_transport.enabled must be true')
+    if transport.get('port') != 443 or transport.get('transport') != 'vless-tls-xudp':
+        raise ValueError('Gateway public transport must be VLESS/TLS on TCP 443')
+    if transport.get('public_wireguard_ingress') is not False:
+        raise ValueError('Gateway public transport must not expose WireGuard UDP')
+    raw = str(requested or '').strip()
+    cidrs = [] if not raw else [item.strip() for item in raw.split(',')]
+    if len(cidrs) > 2 or any(not isinstance(cidr, str) or not cidr for cidr in cidrs):
+        raise ValueError('Gateway transport ingress must contain at most two IPv4 /32 values')
+    if len(set(cidrs)) != len(cidrs):
+        raise ValueError('Gateway transport ingress must be unique')
+    for cidr in cidrs:
+        try:
+            interface = ipaddress.ip_interface(cidr)
+        except ValueError as exc:
+            raise ValueError('Gateway transport ingress must be canonical IPv4 /32 values') from exc
+        if interface.version != 4 or interface.network.prefixlen != 32 or str(interface) != cidr:
+            raise ValueError('Gateway transport ingress must be canonical IPv4 /32 values')
+    return cidrs
+
+
 def validate_ssh_debug_access(spec, requested=None):
     """Return a narrowly scoped, temporary operator SSH allowlist.
 
@@ -200,6 +230,12 @@ def main():
         declaration = json.loads(Path(sys.argv[2]).read_text())
         validate_desktop_validation(declaration['spec'], int(sys.argv[3]))
         return
+    if len(sys.argv) >= 2 and sys.argv[1] == 'validate-transport':
+        if len(sys.argv) != 4:
+            raise ValueError('validate-transport requires a declaration and comma-separated ingress list')
+        declaration = json.loads(Path(sys.argv[2]).read_text())
+        validate_gateway_transport_ingress(declaration['spec'], sys.argv[3])
+        return
     if len(sys.argv) >= 2 and sys.argv[1] == 'validate-windows':
         if len(sys.argv) != 4:
             raise ValueError('validate-windows requires desktop and node windows')
@@ -245,7 +281,10 @@ def main():
               'zero_portal_url': zero['portal_url']}
     if action == 'resources':
         desktop_window = int(os.environ.get('DESKTOP_JOIN_WINDOW_MINUTES', '0'))
-        desktop_ingress_cidrs = validate_desktop_validation(spec, desktop_window)
+        desktop_ingress_cidrs = validate_gateway_transport_ingress(
+            spec, os.environ.get('GATEWAY_TRANSPORT_INGRESS_CIDRS'))
+        if desktop_window:
+            desktop_ingress_cidrs = validate_desktop_validation(spec, desktop_window)
         ssh_debug_ingress_cidrs = validate_ssh_debug_access(
             spec, os.environ.get('SSH_DEBUG_INGRESS_CIDRS'))
         uuid.UUID(os.environ['LAB_VLESS_ID'])
@@ -263,7 +302,7 @@ def main():
             ip = str(ipaddress.IPv4Address(response.read().decode().strip()))
         values.update(aws_ami=ami, runner_cidr=ip + '/32',
                       ssh_public_key=(folder / 'id_ed25519.pub').read_text().strip(),
-                      desktop_ingress_cidrs=desktop_ingress_cidrs,
+                      gateway_transport_ingress_cidrs=desktop_ingress_cidrs,
                       ssh_debug_ingress_cidrs=ssh_debug_ingress_cidrs,
                       expires_at=(datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=spec['ttl_minutes'])).strftime('%Y-%m-%dT%H:%M:%SZ'))
     elif action == 'cleanup':
@@ -283,7 +322,8 @@ def main():
                 raise ValueError('AWS lab ownership mismatch')
         # Destroy does not create anything; variables needed only to decode configuration.
         values.update(aws_ami='ami-unused-for-destroy', runner_cidr='127.0.0.1/32',
-                      ssh_public_key='unused-for-destroy', ssh_debug_ingress_cidrs=[],
+                      ssh_public_key='unused-for-destroy', gateway_transport_ingress_cidrs=[],
+                      ssh_debug_ingress_cidrs=[],
                       expires_at='1970-01-01T00:00:00Z')
     else:
         raise ValueError('Unknown operation')

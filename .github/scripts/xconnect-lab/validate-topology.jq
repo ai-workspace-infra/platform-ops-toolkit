@@ -50,6 +50,13 @@ lease_ok and
 .spec.overlay.gateway_address == "10.77.0.1/32" and
 .spec.overlay.device_address == "10.77.0.2/32" and
 .spec.overlay.public_wireguard_ingress == false and
+.spec.gateway_transport.enabled == true and
+.spec.gateway_transport.exposure == "public-restricted" and
+.spec.gateway_transport.transport == "vless-tls-xudp" and
+.spec.gateway_transport.port == 443 and
+.spec.gateway_transport.ingress_cidrs == [] and
+.spec.gateway_transport.public_wireguard_ingress == false and
+.spec.gateway_transport.allowlist_source == "workflow-dispatch-runtime-only" and
 (.spec.overlay.private_checks | index("ping")) != null and
 (.spec.overlay.private_checks | index("http")) != null and
 (.spec.overlay.private_checks | index("wireguard-handshake")) != null and

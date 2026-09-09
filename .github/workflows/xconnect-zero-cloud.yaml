@@ -10,12 +10,12 @@ on:
         description: Advanced override - reviewed iac_modules commit SHA
         type: string
         required: false
-        default: 'b5e7e869a10cf3b40e8f6666db2518b7d58ada53'
+        default: 'bc5da9966a1603150c2fe854eb74efddc5b72cdb'
       gitops_ref:
         description: Advanced override - reviewed gitops commit SHA
         type: string
         required: false
-        default: '0bd3295b5950445350f6075ff12c333b3c18084e'
+        default: 'a16636679a2c13af9c4366812544010f90d080c5'
       cli_release_tag:
         description: Advanced override - XConnect-One GitHub Release tag
         type: string
@@ -45,6 +45,11 @@ on:
         type: string
         required: false
         default: '35.79.83.48/32'
+      gateway_transport_ingress_cidrs:
+        description: Temporary controlled-node IPv4 /32 allowlist for the public Gateway VLESS/TLS TCP 443 entrypoint; not stored in GitOps
+        type: string
+        required: false
+        default: '35.79.83.48/32'
 permissions:
   contents: read
   id-token: write
@@ -60,14 +65,15 @@ jobs:
     timeout-minutes: 90
     env:
       MODE: ${{ inputs.mode }}
-      IAC_REF: ${{ inputs.iac_ref || 'b5e7e869a10cf3b40e8f6666db2518b7d58ada53' }}
-      GITOPS_REF: ${{ inputs.gitops_ref || '0bd3295b5950445350f6075ff12c333b3c18084e' }}
+      IAC_REF: ${{ inputs.iac_ref || 'bc5da9966a1603150c2fe854eb74efddc5b72cdb' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || 'a16636679a2c13af9c4366812544010f90d080c5' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.11' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.4' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
       ALLOW_XCONNECT_RELEASE_OVERRIDES: ${{ inputs.allow_release_overrides || false }}
       CLEANUP_RUN: ${{ inputs.cleanup_run }}
       SSH_DEBUG_INGRESS_CIDRS: ${{ inputs.ssh_debug_ingress_cidrs || '35.79.83.48/32' }}
+      GATEWAY_TRANSPORT_INGRESS_CIDRS: ${{ inputs.gateway_transport_ingress_cidrs || '35.79.83.48/32' }}
       NODE_OBSERVATION_INPUT: 'until-expiry'
     steps:
       - uses: actions/checkout@v7
