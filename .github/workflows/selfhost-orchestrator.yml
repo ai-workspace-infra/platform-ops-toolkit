@@ -251,6 +251,9 @@ jobs:
       hosts_ai_workspace: ${{ steps.matrix.outputs.hosts_ai_workspace || '[]' }}
       hosts_infra_platform: ${{ steps.matrix.outputs.hosts_infra_platform || '[]' }}
       hosts_agent_proxy:  ${{ steps.matrix.outputs.hosts_agent_proxy  || '[]' }}
+      hosts_agent_proxy_iac: ${{ steps.agent_proxy_matrix.outputs.hosts_agent_proxy_iac || steps.matrix.outputs.hosts_agent_proxy || '[]' }}
+      hosts_agent_proxy_non_iac: ${{ steps.agent_proxy_matrix.outputs.hosts_agent_proxy_non_iac || '[]' }}
+      agent_proxy_region_count: ${{ steps.agent_proxy_matrix.outputs.agent_proxy_region_count || '0' }}
       count:              ${{ steps.matrix.outputs.count || '0' }}
     steps:
     - name: Checkout repository
@@ -291,6 +294,7 @@ jobs:
         sparse-checkout-cone-mode: false
         sparse-checkout: |
           topology/${{ steps.route.outputs.deployment_env }}/selfhost/runtime-topology.yaml
+          topology/${{ steps.route.outputs.deployment_env }}/selfhost/ulighthost-xconnect.yaml
           topology/${{ steps.route.outputs.deployment_env }}/serverless/runtime-topology.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/github-actions-oidc.json
 
@@ -534,6 +538,21 @@ jobs:
       working-directory: ${{ env.ENV_DIR }}
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_build-deploy-matrix.sh
+
+    - name: Build Agent Proxy IaC and non-IaC matrices
+      id: agent_proxy_matrix
+      if: >-
+        ${{ steps.route.outputs.run_infrastructure == 'true' &&
+        steps.route.outputs.terraform_action == 'apply' &&
+        steps.route.outputs.deployment_env == 'prod' &&
+        contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
+        steps.route.outputs.target_domains) }}
+      env:
+        CMDB_FILE: ${{ env.ENV_DIR }}/cmdb.json
+        GITOPS_XCONNECT_CONFIG: ${{ github.workspace }}/gitops/topology/${{ steps.route.outputs.deployment_env }}/selfhost/ulighthost-xconnect.yaml
+      run: >-
+        python3
+        ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_build-agent-proxy-matrices.py
 
 
     - name: Initialize Databases Credentials
@@ -1069,6 +1088,7 @@ jobs:
       deploy_web_saas,
       deploy_infra_platform,
       deploy_agent_proxy,
+      deploy_agent_proxy_non_iac,
       deploy_ai_workspace
     ]
     if: >-
@@ -1077,6 +1097,7 @@ jobs:
       (needs.deploy_web_saas.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       (needs.deploy_infra_platform.result == 'success' || !contains(fromJSON('["all","infra-platform"]'), needs.provision.outputs.target_domains)) &&
       (needs.deploy_agent_proxy.result == 'success' || !contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
+      (needs.deploy_agent_proxy_non_iac.result == 'success' || needs.provision.outputs.hosts_agent_proxy_non_iac == '[]' || !contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       (needs.deploy_ai_workspace.result == 'success' || !contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.target_domains)) &&
       needs.provision.outputs.terraform_action == 'apply' &&
       contains(fromJSON('["prod-cutover","uat-records"]'), needs.provision.outputs.dns_mode) }}
@@ -1335,13 +1356,13 @@ jobs:
       needs.provision.result == 'success' &&
       needs.switch_dns.result == 'success' &&
       contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
-      needs.provision.outputs.hosts_agent_proxy != '[]' &&
-      needs.provision.outputs.hosts_agent_proxy != '' }}
+      needs.provision.outputs.hosts_agent_proxy_iac != '[]' &&
+      needs.provision.outputs.hosts_agent_proxy_iac != '' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
-        host: ${{ fromJSON(needs.provision.outputs.hosts_agent_proxy) }}
+        host: ${{ fromJSON(needs.provision.outputs.hosts_agent_proxy_iac) }}
     env:
       MATRIX_HOST: ${{ matrix.host }}
       ANSIBLE_HOST_KEY_CHECKING: "False"
@@ -1392,6 +1413,7 @@ jobs:
       deploy_web_saas,
       initialize_web_saas_databases,
       deploy_agent_proxy,
+      deploy_agent_proxy_non_iac,
       switch_dns,
       observe_web_saas_after_dns,
       observe_agent_proxy_after_dns,
@@ -1407,6 +1429,7 @@ jobs:
       needs.deploy_web_saas.result != '' &&
       needs.initialize_web_saas_databases.result != '' &&
       needs.deploy_agent_proxy.result != '' &&
+      needs.deploy_agent_proxy_non_iac.result != '' &&
       needs.switch_dns.result != '' &&
       needs.observe_web_saas_after_dns.result != '' &&
       needs.observe_agent_proxy_after_dns.result != '' &&
@@ -1425,6 +1448,7 @@ jobs:
         WEB_SAAS_DEPLOY_RESULT: ${{ needs.deploy_web_saas.result }}
         DB_INIT_RESULT: ${{ needs.initialize_web_saas_databases.result }}
         AGENT_PROXY_DEPLOY_RESULT: ${{ needs.deploy_agent_proxy.result }}
+        AGENT_PROXY_NON_IAC_DEPLOY_RESULT: ${{ needs.deploy_agent_proxy_non_iac.result }}
         DNS_UPDATE_RESULT: ${{ needs.switch_dns.result }}
         WEB_SAAS_STATUS_RESULT: ${{ needs.observe_web_saas_after_dns.result }}
         AGENT_PROXY_STATUS_RESULT: ${{ needs.observe_agent_proxy_after_dns.result }}
@@ -1460,7 +1484,7 @@ jobs:
       deploy_tag: ${{ needs.provision.outputs.deploy_tag }}
 
   deploy_agent_proxy:
-    name: "[3] Agent Proxy | ${{ matrix.host }}"
+    name: "[3] Agent Proxy IaC | ${{ matrix.host }}"
     # Agent installation is parallel with the other post-bootstrap deployment
     # jobs. Its controller may still be behind DNS at this point, so runtime
     # configuration and service readiness are checked by the final DNS gate.
@@ -1473,12 +1497,12 @@ jobs:
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
       contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
-      needs.provision.outputs.hosts_agent_proxy != '[]' &&
-      needs.provision.outputs.hosts_agent_proxy != '' }}
+      needs.provision.outputs.hosts_agent_proxy_iac != '[]' &&
+      needs.provision.outputs.hosts_agent_proxy_iac != '' }}
     strategy:
       fail-fast: false
       matrix:
-        host: ${{ fromJSON(needs.provision.outputs.hosts_agent_proxy) }}
+        host: ${{ fromJSON(needs.provision.outputs.hosts_agent_proxy_iac) }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     env:
       MATRIX_HOST: ${{ matrix.host }}
@@ -1598,6 +1622,180 @@ jobs:
         -e agent_proxy_build_on_target=true
         -e agent_proxy_wait_for_runtime_config=false
         -e agent_billing_enabled="${AGENT_BILLING_ENABLED}"
+
+  deploy_agent_proxy_non_iac:
+    name: "[3] Agent Proxy non-IaC | ${{ matrix.host }}"
+    # PH is deliberately outside Terraform state. Its public address and
+    # password come from the GitOps declaration plus Vault, while the three
+    # AWS regions continue through deploy_agent_proxy's CMDB matrix above.
+    needs: [provision]
+    if: >-
+      ${{ always() && !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.provision.outputs.deployment_env == 'prod' &&
+      needs.provision.outputs.run_application_deploy == 'true' &&
+      needs.provision.outputs.terraform_action == 'apply' &&
+      contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
+      needs.provision.outputs.target_domains) &&
+      needs.provision.outputs.hosts_agent_proxy_non_iac != '[]' &&
+      needs.provision.outputs.hosts_agent_proxy_non_iac != '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host: ${{ fromJSON(needs.provision.outputs.hosts_agent_proxy_non_iac) }}
+    runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
+    env:
+      MATRIX_HOST: ${{ matrix.host }}
+      ANSIBLE_HOST_KEY_CHECKING: "False"
+      ANSIBLE_PIPELINING: "True"
+      ANSIBLE_SSH_ARGS: "-o ControlMaster=auto -o ControlPersist=60s -o StrictHostKeyChecking=no"
+      VAULT_ENV_PATH: ${{ needs.provision.outputs.vault_env_path }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ needs.provision.outputs.toolkit_ref }}
+
+    - name: Checkout playbooks
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/playbooks
+        ref: ${{ needs.provision.outputs.playbooks_ref }}
+        path: playbooks
+
+    - name: Checkout GitOps XConnect topology
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/gitops
+        ref: ${{ needs.provision.outputs.gitops_ref }}
+        path: gitops
+        sparse-checkout-cone-mode: false
+        sparse-checkout: |
+          topology/prod/selfhost/ulighthost-xconnect.yaml
+
+    - name: Download CMDB
+      uses: actions/download-artifact@v8
+      with:
+        name: platform-ops-toolkit-cmdb
+        path: cmdb
+
+    - name: Resolve Agent Proxy controller IP
+      id: controller
+      env:
+        CMDB_FILE: cmdb/cmdb.json
+        AGENT_CONTROLLER_URL: ${{ needs.provision.outputs.agent_controller_url }}
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_agent_proxy_resolve-controller-ip.sh
+
+    - name: Load non-IaC Agent Proxy secrets
+      id: vault
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        method: jwt
+        role: ${{ env.VAULT_ROLE }}
+        jwtGithubAudience: vault
+        exportToken: true
+        secrets: |
+          ${{ env.VAULT_KV_WEB_SAAS }} INTERNAL_SERVICE_TOKEN | INTERNAL_SERVICE_TOKEN
+
+    - name: Install Ansible and password transport
+      run: |
+        if ! command -v sshpass >/dev/null 2>&1; then
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+        fi
+
+    - name: Setup deployment runner
+      uses: ./.github/actions/setup-deployment-runner
+      with:
+        matrix_host: ${{ matrix.host }}
+        install_ansible: 'true'
+
+    - name: Resolve non-IaC node Vault path
+      id: vault_path
+      env:
+        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/prod/selfhost/ulighthost-xconnect.yaml
+        XCONNECT_NODE_ID: ${{ matrix.host }}
+      run: >-
+        python3
+        ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_resolve-non-iac-agent-proxy-vault-path.py
+
+    - name: Read PH node record from Vault
+      env:
+        XCONNECT_VAULT_API_PATH: ${{ steps.vault_path.outputs.vault_api_path }}
+        XCONNECT_VAULT_RESPONSE_FILE: ${{ runner.temp }}/xconnect-vault.json
+      run: |
+        set -euo pipefail
+        umask 077
+        test -n "${VAULT_TOKEN:-}" || {
+          echo "::error::Vault token was not exported for the non-IaC XConnect deployment." >&2
+          exit 1
+        }
+        curl --fail --silent --show-error \
+          -H "X-Vault-Token: ${VAULT_TOKEN}" \
+          "${VAULT_ADDR}/v1/${XCONNECT_VAULT_API_PATH}" \
+          > "${XCONNECT_VAULT_RESPONSE_FILE}"
+
+    - name: Render non-IaC Agent Proxy inventory
+      id: inventory
+      env:
+        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/prod/selfhost/ulighthost-xconnect.yaml
+        XCONNECT_VAULT_RESPONSE_FILE: ${{ runner.temp }}/xconnect-vault.json
+        XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/ph-agent-proxy-inventory.yml
+        XCONNECT_NODE_ID: ${{ matrix.host }}
+      run: >-
+        python3
+        ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_render-non-iac-agent-proxy-inventory.py
+
+    - name: Resolve Xray Exporter image
+      id: xray_exporter
+      env:
+        INPUT_XRAY_EXPORTER_IMAGE: ${{ github.event.inputs.xray_exporter_image }}
+        DEPLOYMENT_ENV: ${{ needs.provision.outputs.deployment_env }}
+        DEPLOY_TAG: ${{ needs.provision.outputs.deploy_tag }}
+        GH_TOKEN: ${{ github.token }}
+      run: >-
+        ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_resolve-xray-exporter-image.sh
+
+    - name: Deploy non-IaC Agent Proxy services
+      working-directory: playbooks
+      env:
+        INTERNAL_SERVICE_TOKEN: ${{ steps.vault.outputs.INTERNAL_SERVICE_TOKEN }}
+        AGENT_CONTROLLER_URL: ${{ needs.provision.outputs.agent_controller_url }}
+        AGENT_CONTROLLER_IP: ${{ steps.controller.outputs.ip }}
+        AGENT_REPO_VERSION: ${{ contains(needs.provision.outputs.deploy_tag, 'daily-build') && 'main' || needs.provision.outputs.deploy_tag }}
+        AGENT_ID: ${{ matrix.host }}
+        AGENT_PROXY_DOMAIN: ${{ steps.inventory.outputs.domain }}
+        AGENT_DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
+        BILLING_SERVICE_BASE_URL: ${{ needs.provision.outputs.billing_service_base_url }}
+        AGENT_XRAY_ENABLED: "true"
+        AGENT_BILLING_ENABLED: "true"
+        EXPORTER_ENV: prod
+        ACCOUNTS_BASE_URL: ${{ needs.provision.outputs.agent_controller_url }}
+        XRAY_EXPORTER_RELEASE_REPOSITORY: ${{ steps.xray_exporter.outputs.repository }}
+        XRAY_EXPORTER_VERSION: ${{ steps.xray_exporter.outputs.version }}
+        XRAY_EXPORTER_LISTEN_ADDR: 127.0.0.1:8080
+        XRAY_EXPORTER_TCP_LISTEN_ADDR: 127.0.0.1:8081
+        VECTOR_SNAPSHOT_URL: ""
+      run: >-
+        ansible-playbook -i "${{ runner.temp }}/ph-agent-proxy-inventory.yml"
+        setup-agent-proxy-domain.yml
+        --limit "${MATRIX_HOST}"
+        -e agent_service_hosts=agent_proxy
+        -e xray_exporter_hosts=agent_proxy
+        -e agent_proxy_manage_source_checkout=true
+        -e agent_proxy_build_on_target=true
+        -e agent_proxy_wait_for_runtime_config=false
+        -e agent_billing_enabled=true
+
+    - name: Verify non-IaC Agent Proxy services
+      working-directory: playbooks
+      run: >-
+        ansible
+        -i "${{ runner.temp }}/ph-agent-proxy-inventory.yml"
+        "${MATRIX_HOST}"
+        -m shell
+        -a 'systemctl is-active --quiet caddy && systemctl is-active --quiet xray'
 
   deploy_ai_workspace:
     name: "[2] AI Workspace | ${{ matrix.host }}"
