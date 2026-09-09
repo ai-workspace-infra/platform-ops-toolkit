@@ -44,7 +44,11 @@ assert_contains 'XRAY_EXPORTER_SNAPSHOT_FEATURES_ENABLED: "true"'
 assert_contains "VECTOR_SNAPSHOT_URL: http://127.0.0.1:8686"
 assert_contains 'AGENT_PROXY_DOMAIN: ${{ matrix.host }}'
 assert_contains "AGENT_PROXY_LEGACY_DOMAIN: \${{ needs.provision.outputs.deployment_env == 'prod' && (matrix.host == format('agent-proxy-selfhost-{0}-jp.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) || matrix.host == format('agent-proxy-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base)) && 'tky-proxy.svc.plus' || '' }}"
+assert_contains 'AGENT_REPO_URL: https://github.com/ai-workspace-xstream/xconnect-edge-agent.git'
+assert_contains 'AGENT_PROXY_VERSION: ${{ needs.provision.outputs.deploy_tag }}'
+assert_contains 'AGENT_REPO_VERSION: ${{ needs.provision.outputs.deploy_tag }}'
 assert_absent "agent-proxy-vps-"
+assert_absent "contains(needs.provision.outputs.deploy_tag, 'daily-build') && 'main'"
 
 assert_absent "agent_svc_plus_manage_source_checkout"
 assert_absent "agent_svc_plus_build_on_target"

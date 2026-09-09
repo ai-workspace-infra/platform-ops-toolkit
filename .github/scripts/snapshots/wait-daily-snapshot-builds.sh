@@ -12,12 +12,14 @@ workflow_for_repo() {
     ai-workspace-services/frontend-router) printf '%s\n' release.yml ;;
     ai-workspace-lab/xworkmate-bridge) printf '%s\n' pipeline.yml ;;
     ai-workspace-xstream/xray-exporter) printf '%s\n' build-release-deploy.yml ;;
+    ai-workspace-xstream/xconnect-edge-agent) printf '%s\n' build-release-artifacts.yml ;;
   esac
 }
 
 release_asset_for_repo() {
   case "$1" in
     ai-workspace-xstream/xray-exporter) printf '%s\n' xray-exporter-linux-amd64 ;;
+    ai-workspace-xstream/xconnect-edge-agent) printf '%s\n' xconnect-edge-agent-linux-amd64 ;;
     ai-workspace-services/frontend-router) printf '%s\n' frontend-router-worker.js ;;
   esac
 }
