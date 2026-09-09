@@ -15,11 +15,9 @@
 
 `workflow_dispatch:` 没有任何 inputs，派发体只需要 `ref`。
 
-- `VAULT_ROLE: github-actions-platform-ops-toolkit-prod`。PROD role 的来源白名单必须
-  严格限制为 `refs/tags/v*` 与 `refs/heads/release/v*`。若 Vault role、workflow 或
-  运行时脚本仍允许 `main`、其他 `release/*`、daily/UAT/SIT/snapshot/prod 标签或其他
-  来源，这是安全漂移，不构成合法的 PROD 路由；文档不能把漂移行为视为允许项。派发前
-  应核对实际 Vault role 绑定和 run 的 `github.ref`，并按失败关闭处理。
+- `VAULT_ROLE: github-actions-platform-ops-toolkit-tls-rotation`。该 role 只绑定本
+  workflow 与 `refs/heads/main`，policy 只允许读取 `kv/data/CICD` 和更新
+  `kv/data/CICD/domains/*`；不要改回通用 PROD role。
 - 没有参数，agent 侧价值全在验收：run 结论为 success 不代表证书真的换了。
 
 **验收**：不要只看 run 结论。查实际证书有效期/签发时间。已知故障模式——

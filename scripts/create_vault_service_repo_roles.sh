@@ -36,6 +36,7 @@ REPO="ai-workspace-infra/platform-ops-toolkit"
 PLAYBOOKS_REPO="ai-workspace-infra/playbooks"
 TOKEN_TTL="1h"
 XCONNECT_CLOUD_LAB_ROLE="github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab"
+TLS_ROTATION_ROLE="github-actions-platform-ops-toolkit-tls-rotation"
 
 # -----------------------------------------------------------------------------
 # Workflow Allowlists for Platform-Ops & Playbooks
@@ -160,11 +161,30 @@ EOF
   fi
 }
 
+emit_tls_rotation_policy() {
+  cat <<'EOF'
+path "kv/data/CICD" {
+  capabilities = ["read"]
+}
+path "kv/metadata/CICD" {
+  capabilities = ["list", "read"]
+}
+path "kv/data/CICD/domains/*" {
+  capabilities = ["create", "read", "update", "list"]
+}
+path "kv/metadata/CICD/domains/*" {
+  capabilities = ["list", "read"]
+}
+EOF
+}
+
 echo "=== Provisioning Platform-Ops Policies ==="
 for env in dev sit uat prod; do
   echo "  Writing policy github-actions-platform-ops-toolkit-${env}..."
   emit_env_policy "${env}" | vault policy write "github-actions-platform-ops-toolkit-${env}" -
 done
+echo "  Writing policy ${TLS_ROTATION_ROLE}..."
+emit_tls_rotation_policy | vault policy write "${TLS_ROTATION_ROLE}" -
 
 # -----------------------------------------------------------------------------
 # Platform-Ops & Playbooks Roles
@@ -209,6 +229,30 @@ write_xconnect_cloud_lab_role() {
     "ref": "refs/heads/main"
   },
   "token_policies": ["github-actions-platform-ops-toolkit-uat"],
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": "${TOKEN_TTL}",
+  "token_max_ttl": "${TOKEN_TTL}"
+}
+EOF
+}
+
+# Certificate rotation runs from protected main on a schedule and must not
+# inherit the broad production role, whose refs are limited to release tags
+# and release branches.
+write_tls_rotation_role() {
+  vault write "auth/jwt/role/${TLS_ROTATION_ROLE}" - <<EOF
+{
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": ["vault"],
+  "bound_claims_type": "glob",
+  "bound_claims": {
+    "repository": "${REPO}",
+    "job_workflow_ref": "${WF_PREFIX}/cron-rotate-domain-tls-certs.yaml@*",
+    "ref": "refs/heads/main"
+  },
+  "token_policies": ["${TLS_ROTATION_ROLE}"],
   "token_no_default_policy": true,
   "token_type": "batch",
   "token_ttl": "${TOKEN_TTL}",
@@ -317,6 +361,8 @@ echo "  Creating PROD role..."
 write_role prod github-actions-platform-ops-toolkit-prod '["refs/tags/v*", "refs/heads/release/v*"]'
 echo "  Creating PROD release-authoring role..."
 write_daily_snapshot_prod_release_role
+echo "  Creating dedicated TLS rotation role..."
+write_tls_rotation_role
 echo "  Creating dedicated AWS OIDC bootstrap role..."
 write_aws_oidc_bootstrap_policy
 write_aws_oidc_bootstrap_role
