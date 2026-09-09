@@ -1713,7 +1713,7 @@ jobs:
         jwtGithubAudience: vault
         exportToken: true
         secrets: |
-          ${{ env.VAULT_KV_WEB_SAAS }} INTERNAL_SERVICE_TOKEN | INTERNAL_SERVICE_TOKEN
+          ${{ env.VAULT_KV_WEB_SAAS }} INTERNAL_SERVICE_TOKEN | INTERNAL_SERVICE_TOKEN ;
           kv/data/CICD/observability user | VECTOR_AUTH_USER ;
           kv/data/CICD/observability password | VECTOR_AUTH_PASSWORD
 
