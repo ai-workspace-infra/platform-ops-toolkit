@@ -16,6 +16,8 @@ import yaml
 
 workflow = yaml.safe_load(Path(sys.argv[1]).read_text(encoding="utf-8"))
 jobs = workflow["jobs"]
+if "skip_stripe_catalog" not in workflow[True]["workflow_dispatch"]["inputs"]:
+    raise SystemExit("serverless workflow must expose skip_stripe_catalog")
 bootstrap = jobs.get("stripe_catalog")
 if bootstrap is None:
     raise SystemExit("serverless workflow must bootstrap the Stripe catalog")
@@ -27,6 +29,7 @@ condition = str(bootstrap.get("if", ""))
 for required in (
     'inputs.deploy_cloud_run == true',
     'inputs.deploy_cloudflare == true',
+    'inputs.skip_stripe_catalog != true',
     "needs.serverless_domains.result == 'success'",
 ):
     if required not in condition:

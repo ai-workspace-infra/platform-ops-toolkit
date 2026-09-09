@@ -135,6 +135,11 @@ on:
         - sit
         - uat
         - prod
+      skip_stripe_catalog:
+        description: "跳过可选 Stripe Catalog 同步，不阻断核心发布"
+        required: false
+        default: false
+        type: boolean
       agent_controller_url:
         description: "Agent Proxy 注册到的 Accounts 控制器 HTTPS 地址；留空使用同一 Selfhost Web SaaS Accounts"
         required: false
@@ -1191,6 +1196,7 @@ jobs:
       needs.provision.result == 'success' &&
       needs.initialize_web_saas_databases.result == 'success' &&
       needs.switch_dns.result == 'success' &&
+      inputs.skip_stripe_catalog != true &&
       contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     steps:
