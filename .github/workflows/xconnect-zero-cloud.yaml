@@ -15,12 +15,12 @@ on:
         description: Advanced override - reviewed gitops commit SHA
         type: string
         required: false
-        default: '470b0ab2d1efc119f43451fe574a838b6f80b16c'
+        default: 'ef59056908ee1c5af6205d99edc957607de31f35'
       playbooks_ref:
         description: Advanced override - reviewed playbooks commit SHA
         type: string
         required: false
-        default: '9e4ea2f1b2503365ee82ef76967a7a7680378907'
+        default: '90386754916d73a6a7981eb255ab37731a33def1'
       cli_release_tag:
         description: Advanced override - XConnect-One GitHub Release tag
         type: string
