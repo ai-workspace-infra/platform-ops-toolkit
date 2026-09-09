@@ -173,7 +173,7 @@ deploy_observability() {
   check_node_collector() {
     local ssh_key="$1" user="$2" host="$3" role="$4" instance="$5"
     ssh -i "$ssh_key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$LAB_DIR/known_hosts" "$user@$host" \
-      "sudo systemctl is-active --quiet node-exporter process-exporter vector xconnect-observability-collector.timer && sudo test -s /var/lib/node_exporter/xconnect.prom && sudo grep -Fq 'xconnect_runtime_info{role=\"$role\",environment=\"$OBSERVABILITY_ENVIRONMENT\",instance=\"$instance\"}' /var/lib/node_exporter/xconnect.prom"
+      "sudo systemctl is-active --quiet xconnect-node-exporter vector xconnect-observability-collector.timer && sudo test -s /var/lib/xconnect-node-exporter/xconnect.prom && sudo grep -Fq 'xconnect_runtime_info{role=\"$role\",environment=\"$OBSERVABILITY_ENVIRONMENT\",instance=\"$instance\"}' /var/lib/xconnect-node-exporter/xconnect.prom"
   }
   check_node_collector "$gateway_key" "$gateway_user" "$gateway" gateway "$gateway_id"
   check_node_collector "$LAB_DIR/id_ed25519" "$client_user" "$client" one "$client_id"

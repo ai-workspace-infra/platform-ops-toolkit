@@ -3,7 +3,7 @@
 Every deployed Linux Gateway and One receives the same base collector:
 
 ```text
-node_exporter + process_exporter + XConnect textfile collector
+xconnect-node-exporter + XConnect textfile collector
   -> Vector remote write
   -> https://observability.svc.plus
   -> VictoriaMetrics datasource in Grafana
@@ -25,7 +25,9 @@ external TW Gateway the instance is `gw-uat-tw-xconnect`; each disposable One
 uses its run-bound device ID.
 
 The cloud workflow accepts deployment only after each node has a local
-textfile metric, `node-exporter`, `process-exporter`, `vector`, and the
-collector timer active, and the central VictoriaMetrics query endpoint returns
-one `xconnect_runtime_info` series for both Gateway and One. Grafana reads the
-same datasource, so no separate Grafana-side agent registration is required.
+textfile metric, `xconnect-node-exporter` listening locally on `127.0.0.1:19100`,
+`vector`, and the collector timer active, and the central VictoriaMetrics query
+endpoint returns one `xconnect_runtime_info` series for both Gateway and One.
+Grafana reads the same datasource, so no separate Grafana-side agent
+registration is required. This deployment deliberately does not change the
+Gateway host baseline, firewall, hostname or SSH configuration.

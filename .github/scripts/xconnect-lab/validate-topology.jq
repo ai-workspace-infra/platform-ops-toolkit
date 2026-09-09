@@ -61,7 +61,7 @@ lease_ok and
 .spec.observability.endpoint == "https://observability.svc.plus" and
 .spec.observability.metrics_query_path == "/vmetrics/api/v1/query" and
 .spec.observability.environment == "uat" and
-.spec.observability.collection == ["node_exporter", "process_exporter", "xconnect_textfile_metrics", "vector_remote_write"] and
+.spec.observability.collection == ["node_exporter", "xconnect_textfile_metrics", "vector_remote_write"] and
 .spec.observability.metric_prefix == "xconnect_" and
 .spec.observability.credential_source == "vault:kv/data/CICD/observability" and
 (.spec.overlay.private_checks | index("ping")) != null and
