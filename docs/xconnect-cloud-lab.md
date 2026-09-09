@@ -13,8 +13,10 @@ the sole formal control/configuration source. Portal retains its current layout.
 2. Download and verify One, Gateway and external Xray release checksums.
 3. Reuse the UAT account/default VPC/subnet; create one `t4g.small` Spot
    Gateway and one `t4g.micro` Spot Linux One, plus isolated security groups.
-4. Install released runtimes and generate the Gateway WireGuard identity on
-   the Gateway. Its private key never leaves that node.
+4. Install the released Gateway runtime and generate its WireGuard identity.
+   Linux One receives only the released CLI; `join --bootstrap` prepares its
+   checksum-pinned managed Xray and verifies the WireGuard tools. Private keys
+   never leave their owning nodes.
 5. Use the protected formal Accounts bootstrap API to provision the run-scoped
    network and one-use, role/device-bound Gateway and Linux One invitations.
 6. Enroll the formal Gateway with its invitation; verify/apply signed relay

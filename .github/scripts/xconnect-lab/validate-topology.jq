@@ -32,7 +32,7 @@ lease_ok and
 .spec.nodes.gateway.purchase_model == "spot" and
 .spec.nodes.one.product == "XConnect One Linux client CLI" and
 .spec.nodes.one.role == "controlled-client" and
-.spec.nodes.one.baseline == "independent-linux-node-external-wireguard-xray" and
+.spec.nodes.one.baseline == "independent-linux-node-managed-xray-wireguard" and
 .spec.nodes.one.architecture == "arm64" and
 .spec.nodes.one.instance_type == "t4g.micro" and
 .spec.nodes.one.vcpu == 2 and
