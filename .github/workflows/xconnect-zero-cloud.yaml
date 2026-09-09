@@ -45,6 +45,11 @@ on:
         type: string
         required: false
         default: '35.79.83.48/32'
+      gateway_transport_ingress_cidrs:
+        description: Temporary controlled-node IPv4 /32 allowlist for the public Gateway VLESS/TLS TCP 443 entrypoint; not stored in GitOps
+        type: string
+        required: false
+        default: '35.79.83.48/32'
 permissions:
   contents: read
   id-token: write
@@ -68,6 +73,7 @@ jobs:
       ALLOW_XCONNECT_RELEASE_OVERRIDES: ${{ inputs.allow_release_overrides || false }}
       CLEANUP_RUN: ${{ inputs.cleanup_run }}
       SSH_DEBUG_INGRESS_CIDRS: ${{ inputs.ssh_debug_ingress_cidrs || '35.79.83.48/32' }}
+      GATEWAY_TRANSPORT_INGRESS_CIDRS: ${{ inputs.gateway_transport_ingress_cidrs || '35.79.83.48/32' }}
       NODE_OBSERVATION_INPUT: 'until-expiry'
     steps:
       - uses: actions/checkout@v7

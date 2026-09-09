@@ -106,6 +106,7 @@ case "${1:?command}" in
       ' "$DECL" >/dev/null || die 'Release inputs do not match the immutable GitOps XConnect artifact declaration'
     fi
     python3 "$ROOT/.github/scripts/xconnect-lab/prepare.py" validate-desktop "$DECL" "${DESKTOP_JOIN_WINDOW_MINUTES:-0}" || die 'GitOps desktop validation does not authorize the requested join window'
+    python3 "$ROOT/.github/scripts/xconnect-lab/prepare.py" validate-transport "$DECL" "${GATEWAY_TRANSPORT_INGRESS_CIDRS:-}" || die 'Gateway public transport ingress is not authorized or is not a canonical IPv4 /32 allowlist'
     jq -e --argjson cleanup "$([[ "$MODE" == cleanup ]] && echo true || echo false)" \
       -f "$ROOT/.github/scripts/xconnect-lab/validate-topology.jq" "$DECL" >/dev/null || die 'Missing or incompatible UAT lab topology'
     resolved_node=$(python3 "$ROOT/.github/scripts/xconnect-lab/prepare.py" resolve-node-observation "$DECL" "${NODE_OBSERVATION_INPUT:-auto}" "$MODE" "${DESKTOP_JOIN_WINDOW_MINUTES:-0}") || die 'Node observation window is incompatible with the reviewed topology'
