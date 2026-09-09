@@ -519,6 +519,13 @@ jobs:
         # AWS_* from GITHUB_ENV
       run: python3 scripts/generate.py inventory --resources ${{ steps.route.outputs.resource_files_full }} --workdir envs/platform-ops-toolkit
 
+    - name: Verify AWS EC2 boot health
+      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.terraform_action == 'apply' && steps.route.outputs.cloud_provider == 'aws-cloud'
+      working-directory: ${{ env.ENV_DIR }}
+      env:
+        CMDB_FILE: cmdb.json
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_verify-aws-boot-health.sh
+
     # 备份计划由这里落实, 不由 vultr_instance 声明 —— provider 在创建实例后
     # 立刻设置计划会撞上 Vultr 的 404 Invalid instance-id, 让实例以半成品状态
     # 进入 state。实例 active 之后再设就没有这个竞态; 先读后写, 一致则不发请求。
