@@ -54,7 +54,7 @@ assert_absent "agent_svc_plus_manage_source_checkout"
 assert_absent "agent_svc_plus_build_on_target"
 assert_absent "agent_svc_plus_wait_for_runtime_config"
 
-assert_monitor_contains "needs: [provision, deploy_base, deploy_agent_proxy]"
+assert_monitor_contains "needs: [provision, deploy_base, deploy_agent_proxy, deploy_agent_proxy_non_iac]"
 assert_monitor_contains "always() && !cancelled()"
 assert_monitor_contains "needs.deploy_agent_proxy.result == 'success'"
 assert_monitor_contains "Verify Xray to Billing ingest chain"
