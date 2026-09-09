@@ -46,7 +46,7 @@ tf_read() {
 }
 case "${1:?command}" in
   validate)
-    for name in IAC_REF GITOPS_REF; do
+    for name in IAC_REF GITOPS_REF PLAYBOOKS_REF; do
       [[ "${!name:-}" =~ ^[0-9a-f]{40}$ ]] || die "$name requires a full immutable commit SHA"
     done
     [[ "${CLI_RELEASE_TAG:-}" =~ ^v[0-9A-Za-z._-]+$ ]] || die 'CLI_RELEASE_TAG requires a version tag'
@@ -121,6 +121,9 @@ case "${1:?command}" in
       echo "gateway_provider=${GATEWAY_PROVIDER:-$(jq -r .spec.gateway_provider "$DECL")}"
       echo "zero_accounts_api_url=$(jq -r .spec.zero.accounts_api_url "$DECL")"
       echo "zero_portal_url=$(jq -r .spec.zero.portal_url "$DECL")"
+      echo "observability_endpoint=$(jq -r .spec.observability.endpoint "$DECL")"
+      echo "observability_query_path=$(jq -r .spec.observability.metrics_query_path "$DECL")"
+      echo "observability_environment=$(jq -r .spec.observability.environment "$DECL")"
       echo "lab_controller_mode=$(jq -r .spec.zero.lab_controller.purpose "$DECL")"
     } >> "$GITHUB_OUTPUT"
     ;;
@@ -170,6 +173,7 @@ case "${1:?command}" in
     if [[ "$MODE" != cleanup ]]; then
       test -f "$TF/expiry_timer_test.sh" || die 'Apply requires an IaC revision with independent absolute-expiry protection'
       bash "$TF/contract_test.sh"
+      test -f "$ROOT/playbooks/deploy_xconnect_observability.yml" || die 'The reviewed playbooks revision is missing the XConnect observability entrypoint'
     fi
     terraform -chdir="$TF" fmt -check
     tf init -backend=false -input=false
@@ -208,7 +212,7 @@ case "${1:?command}" in
     tf apply -input=false "$LAB_DIR/plan"
     tf_read output "$LAB_DIR/outputs.json" -json
     ;;
-  setup|bootstrap|gateway|one|verify|desktop|node-observation)
+  setup|bootstrap|gateway|one|observability|verify|desktop|node-observation)
     [[ "$MODE" == apply && -f "$LAB_DIR/apply-started" && -s "$LAB_DIR/outputs.json" ]] || die 'Real lab provisioning is required before deployment stages'
     if [[ "$1" == desktop ]]; then
       test -f "$LAB_DIR/verify.done" || die 'Linux verification is required before the desktop observation window'

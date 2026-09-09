@@ -15,7 +15,12 @@ on:
         description: Advanced override - reviewed gitops commit SHA
         type: string
         required: false
-        default: 'a16636679a2c13af9c4366812544010f90d080c5'
+        default: '470b0ab2d1efc119f43451fe574a838b6f80b16c'
+      playbooks_ref:
+        description: Advanced override - reviewed playbooks commit SHA
+        type: string
+        required: false
+        default: '9e4ea2f1b2503365ee82ef76967a7a7680378907'
       cli_release_tag:
         description: Advanced override - XConnect-One GitHub Release tag
         type: string
@@ -87,7 +92,8 @@ jobs:
     env:
       MODE: ${{ inputs.mode }}
       IAC_REF: ${{ inputs.iac_ref || 'f0f3c523357b42420facc7502c44eae4432b3bb8' }}
-      GITOPS_REF: ${{ inputs.gitops_ref || 'a16636679a2c13af9c4366812544010f90d080c5' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || '470b0ab2d1efc119f43451fe574a838b6f80b16c' }}
+      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '9e4ea2f1b2503365ee82ef76967a7a7680378907' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.11' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.5' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
@@ -126,7 +132,7 @@ jobs:
           client-id: Iv23liNwStpQIiXajhpb
           private-key: ${{ steps.bootstrap.outputs.APP_PRIVATE_KEY }}
           owner: ai-workspace-infra
-          repositories: iac_modules,gitops
+          repositories: iac_modules,gitops,playbooks
       - uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/iac_modules
@@ -140,6 +146,13 @@ jobs:
           ref: ${{ env.GITOPS_REF }}
           token: ${{ steps.infra-token.outputs.token }}
           path: gitops
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ env.PLAYBOOKS_REF }}
+          token: ${{ steps.infra-token.outputs.token }}
+          path: playbooks
           persist-credentials: false
       - name: Resolve the UAT declaration
         id: topology
@@ -196,7 +209,9 @@ jobs:
             kv/data/uat/xconnect-one ZERO_OWNER_EMAIL | ZERO_OWNER_EMAIL ;
             kv/data/prod/ulighthost-xconnect/TW-XConnect.onwalk.net host | EXTERNAL_GATEWAY_HOST ;
             kv/data/prod/ulighthost-xconnect/TW-XConnect.onwalk.net user | EXTERNAL_GATEWAY_USER ;
-            kv/data/prod/ulighthost-xconnect/TW-XConnect.onwalk.net ssh_private_key_b64 | EXTERNAL_GATEWAY_SSH_PRIVATE_KEY_B64
+            kv/data/prod/ulighthost-xconnect/TW-XConnect.onwalk.net ssh_private_key_b64 | EXTERNAL_GATEWAY_SSH_PRIVATE_KEY_B64 ;
+            kv/data/CICD/observability user | OBSERVABILITY_USER ;
+            kv/data/CICD/observability password | OBSERVABILITY_PASSWORD
       - name: AWS short-lived OIDC credentials
         if: inputs.mode != 'dry-run'
         uses: aws-actions/configure-aws-credentials@v4
@@ -223,6 +238,18 @@ jobs:
       - name: Join Linux One using its formal invitation and reconcile Gateway
         if: inputs.mode == 'apply'
         run: bash .github/scripts/xconnect-lab/run.sh one
+      - name: Install Ansible controller for XConnect observability
+        if: inputs.mode == 'apply'
+        run: |
+          python3 -m pip install --user 'ansible-core==2.17.7'
+          echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
+      - name: Register Gateway and One base metrics with Observability
+        if: inputs.mode == 'apply'
+        env:
+          OBSERVABILITY_ENDPOINT: ${{ steps.topology.outputs.observability_endpoint }}
+          OBSERVABILITY_QUERY_PATH: ${{ steps.topology.outputs.observability_query_path }}
+          OBSERVABILITY_ENVIRONMENT: ${{ steps.topology.outputs.observability_environment }}
+        run: bash .github/scripts/xconnect-lab/run.sh observability
       - name: Verify signed sync/ACK, services, exact-peer handshake and private ping/HTTP
         if: inputs.mode == 'apply'
         run: bash .github/scripts/xconnect-lab/run.sh verify

@@ -57,6 +57,13 @@ lease_ok and
 .spec.gateway_transport.ingress_cidrs == [] and
 .spec.gateway_transport.public_wireguard_ingress == false and
 .spec.gateway_transport.allowlist_source == "workflow-dispatch-runtime-only" and
+.spec.observability.enabled == true and
+.spec.observability.endpoint == "https://observability.svc.plus" and
+.spec.observability.metrics_query_path == "/vmetrics/api/v1/query" and
+.spec.observability.environment == "uat" and
+.spec.observability.collection == ["node_exporter", "process_exporter", "xconnect_textfile_metrics", "vector_remote_write"] and
+.spec.observability.metric_prefix == "xconnect_" and
+.spec.observability.credential_source == "vault:kv/data/CICD/observability" and
 (.spec.overlay.private_checks | index("ping")) != null and
 (.spec.overlay.private_checks | index("http")) != null and
 (.spec.overlay.private_checks | index("wireguard-handshake")) != null and
