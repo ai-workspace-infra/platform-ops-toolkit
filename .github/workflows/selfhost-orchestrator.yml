@@ -796,7 +796,7 @@ jobs:
         WEB_SAAS_CONSOLE_DOMAIN:           ${{ format('console-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
         WEB_SAAS_ACCOUNTS_DOMAIN:          ${{ format('accounts-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
         WEB_SAAS_BILLING_DOMAIN:           ${{ format('billing-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
-        AGENT_CONTROLLER_URL:              ${{ needs.provision.outputs.agent_controller_url }}
+        AGENT_CONTROLLER_URL:              ${{ needs.provision.outputs.agent_accounts_base_url }}
         # Agent Proxy follows the same immutable deploy tag as the rest of the
         # environment. The repository was migrated to xconnect-edge-agent;
         # do not silently deploy the legacy x-evor repository or main.
@@ -1470,7 +1470,7 @@ jobs:
         DEPLOYMENT_ENV: ${{ needs.provision.outputs.deployment_env }}
         TARGET_DOMAINS: ${{ needs.provision.outputs.target_domains }}
         DEPLOY_TAG: ${{ needs.provision.outputs.deploy_tag }}
-        AGENT_CONTROLLER_URL: ${{ needs.provision.outputs.agent_controller_url }}
+        AGENT_CONTROLLER_URL: ${{ needs.provision.outputs.agent_accounts_base_url }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_deployment-summary.sh
 
   deploy_infra_platform:
@@ -1546,7 +1546,7 @@ jobs:
       id: controller
       env:
         CMDB_FILE: cmdb/cmdb.json
-        AGENT_CONTROLLER_URL: ${{ needs.provision.outputs.agent_controller_url }}
+        AGENT_CONTROLLER_URL: ${{ needs.provision.outputs.agent_accounts_base_url }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_agent_proxy_resolve-controller-ip.sh
 
     - name: Load agent-proxy secrets
@@ -1598,7 +1598,7 @@ jobs:
         # AGENT_PROXY_VERSION takes precedence over the legacy daily-build
         # fallback in the playbook and preserves the unified immutable tag.
         AGENT_PROXY_VERSION: ${{ needs.provision.outputs.deploy_tag }}
-        AGENT_CONTROLLER_URL: ${{ needs.provision.outputs.agent_controller_url }}
+        AGENT_CONTROLLER_URL: ${{ needs.provision.outputs.agent_accounts_base_url }}
         AGENT_CONTROLLER_IP: ${{ steps.controller.outputs.ip }}
         AGENT_REPO_VERSION: ${{ needs.provision.outputs.deploy_tag }}
         AGENT_ID: ${{ matrix.host }}
@@ -1700,7 +1700,7 @@ jobs:
       id: controller
       env:
         CMDB_FILE: cmdb/cmdb.json
-        AGENT_CONTROLLER_URL: ${{ needs.provision.outputs.agent_controller_url }}
+        AGENT_CONTROLLER_URL: ${{ needs.provision.outputs.agent_accounts_base_url }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_agent_proxy_resolve-controller-ip.sh
 
     - name: Load non-IaC Agent Proxy secrets
@@ -1792,7 +1792,7 @@ jobs:
         AGENT_XRAY_ENABLED: "true"
         AGENT_BILLING_ENABLED: "true"
         EXPORTER_ENV: prod
-        ACCOUNTS_BASE_URL: ${{ needs.provision.outputs.agent_controller_url }}
+        ACCOUNTS_BASE_URL: ${{ needs.provision.outputs.agent_accounts_base_url }}
         XRAY_EXPORTER_RELEASE_REPOSITORY: ${{ steps.xray_exporter.outputs.repository }}
         XRAY_EXPORTER_VERSION: ${{ steps.xray_exporter.outputs.version }}
         XRAY_EXPORTER_LISTEN_ADDR: 127.0.0.1:8080
