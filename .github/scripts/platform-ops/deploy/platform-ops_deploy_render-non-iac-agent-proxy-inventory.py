@@ -45,9 +45,17 @@ def main() -> int:
     if source is None and selected_pool.get("name") != "ph":
         fail(f"legacy topology without connection_source is only accepted for the PH pool: {node_id}")
 
+    domain = ((selected_pool.get("entrypoint") or {}).get("fqdn") or "").strip()
     vault = json.loads(vault_file.read_text(encoding="utf-8"))
     secret = ((vault.get("data") or {}).get("data") or {})
-    node_secret = secret.get(node_id)
+    # The regional FQDN is the stable Vault record key.  A node ID is an
+    # operational label and can change when the provider host is replaced.
+    node_secret = secret.get(domain)
+    if not isinstance(node_secret, dict):
+        node_secret = (secret.get("nodes") or {}).get(domain)
+    # Keep old node-keyed records usable during the transition.
+    if not isinstance(node_secret, dict):
+        node_secret = secret.get(node_id)
     if not isinstance(node_secret, dict):
         node_secret = (secret.get("nodes") or {}).get(node_id)
     if not isinstance(node_secret, dict):
@@ -57,7 +65,6 @@ def main() -> int:
     host = selected.get("ansible_host") or node_secret.get("public_ipv4") or node_secret.get("ip")
     user = selected.get("ansible_user") or node_secret.get("ansible_user")
     password = node_secret.get("SSH_PASSWORD") or node_secret.get("ansible_password")
-    domain = ((selected_pool.get("entrypoint") or {}).get("fqdn") or "").strip()
     if not host or not user or not password or not domain:
         fail(f"Vault/GitOps metadata is incomplete for non-IaC node {node_id}")
 
