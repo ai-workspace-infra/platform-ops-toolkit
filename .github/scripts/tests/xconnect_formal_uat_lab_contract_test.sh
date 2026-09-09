@@ -18,7 +18,11 @@ grep -Fq '/api/internal/overlay/networks/bootstrap' "${deploy}"
 grep -Fq 'gateway_address=$(jq -er .spec.overlay.gateway_address "$DECL")' "${deploy}"
 grep -Fq '.spec.overlay.gateway_address == "10.77.0.1/32"' "${repo_root}/.github/scripts/xconnect-lab/validate-topology.jq"
 grep -Fq 'xconnect-gateway join' "${deploy}"
-grep -Fq 'xconnect join' "${deploy}"
+grep -Fq 'xconnect join --bootstrap' "${deploy}"
+if grep -F 'scp "${SSH[@]}" "$LAB_DIR/bin/xconnect"' "${deploy}" | grep -Fq 'bin/xray'; then
+  echo 'Linux One must obtain its managed Xray through CLI bootstrap' >&2
+  exit 1
+fi
 grep -Fq 'sudo xconnect sync --state-dir /var/lib/xconnect-one' "${deploy}"
 grep -Fq 'tls-trust-or-transport' "${deploy}"
 grep -Fq 'CLIENT_EARLY_FAILURE_DIAGNOSTICS' "${deploy}"
@@ -30,12 +34,14 @@ grep -Fq 'validate-desktop' "${runner}"
 grep -Fq 'desktop_ingress_cidrs' "${repo_root}/.github/scripts/xconnect-lab/prepare.py"
 grep -Fq "NODE_OBSERVATION_INPUT: 'until-expiry'" "${workflow}"
 grep -Fq 'run.sh node-observation' "${workflow}"
-for forbidden in mac_join_window_minutes desktop_join_window_minutes node_observation_window_minutes 'run.sh desktop' 'upload-artifact@v4' 'xconnect-desktop-public-'; do
+for forbidden in mac_join_window_minutes desktop_join_window_minutes node_observation_window_minutes 'run.sh desktop' 'xconnect-desktop-public-'; do
   if grep -Fq "${forbidden}" "${workflow}"; then
     echo "Desktop/observation stage must remain outside the cloud lab workflow: ${forbidden}" >&2
     exit 1
   fi
 done
+grep -Fq 'xconnect-desktop-handoff-${{ github.run_id }}-${{ github.run_attempt }}' "${workflow}"
+grep -Fq 'retention-days: 1' "${workflow}"
 grep -Fq '$1 == peer && $2 > 0' "${deploy}"
 grep -Fq 'signed-config-ack-status' "${deploy}"
 grep -Fq 'probe-control-plane.py' "${workflow}"

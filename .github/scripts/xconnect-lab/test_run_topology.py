@@ -28,7 +28,7 @@ def declaration():
             },
             'artifacts': {
                 'one': {'repository': 'ai-workspace-xstream/XConnect-One',
-                        'asset': 'xconnect-linux-arm64', 'release_tag': 'v0.1.8'},
+                        'asset': 'xconnect-linux-arm64', 'release_tag': 'v0.1.11'},
                 'gateway': {'repository': 'ai-workspace-xstream/XConnect-Gateway',
                             'asset': 'xconnect-gateway-linux-arm64', 'release_tag': 'v0.1.4'},
                 'xray': {'repository': 'XTLS/Xray-core',
@@ -45,7 +45,7 @@ def declaration():
                 },
                 'one': {
                     'product': 'XConnect One Linux client CLI', 'role': 'controlled-client',
-                    'baseline': 'independent-linux-node-external-wireguard-xray',
+                    'baseline': 'independent-linux-node-managed-xray-wireguard',
                     'architecture': 'arm64', 'instance_type': 't4g.micro',
                     'vcpu': 2, 'memory_gib': 1, 'purchase_model': 'spot',
                     'max_runtime_minutes': 60,
@@ -88,7 +88,7 @@ class ShellTopologyContract(unittest.TestCase):
                    'LAB_DIR': str(root / 'lab'), 'GITHUB_OUTPUT': str(root / 'output'),
                    'GITHUB_ENV': str(root / 'env'), 'MODE': mode,
                    'IAC_REF': 'a' * 40, 'GITOPS_REF': 'b' * 40,
-                   'CLI_RELEASE_TAG': 'v0.1.8', 'GATEWAY_RELEASE_TAG': 'v0.1.4',
+                   'CLI_RELEASE_TAG': 'v0.1.11', 'GATEWAY_RELEASE_TAG': 'v0.1.4',
                    'XRAY_RELEASE_TAG': 'v26.3.27', 'NODE_OBSERVATION_INPUT': window,
                    'SSH_DEBUG_INGRESS_CIDRS': '',
                    'DESKTOP_JOIN_WINDOW_MINUTES': desktop, 'MAC_JOIN_WINDOW_MINUTES': '0',
