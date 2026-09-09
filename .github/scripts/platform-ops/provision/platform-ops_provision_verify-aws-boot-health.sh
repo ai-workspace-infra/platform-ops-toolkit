@@ -4,6 +4,8 @@ set -euo pipefail
 : "${CMDB_FILE:?CMDB_FILE must point to the generated cmdb.json}"
 : "${AWS_BOOT_HEALTH_TIMEOUT_SECONDS:=180}"
 : "${AWS_BOOT_HEALTH_POLL_INTERVAL_SECONDS:=6}"
+: "${AWS_SSH_BANNER_TIMEOUT_SECONDS:=60}"
+: "${AWS_SSH_BANNER_POLL_INTERVAL_SECONDS:=5}"
 
 [[ -f "${CMDB_FILE}" ]] || {
   echo "::error::CMDB file not found: ${CMDB_FILE}" >&2
@@ -18,7 +20,9 @@ jq -r '
   | [
       (.value.name // .key),
       .value.instance_id,
-      (.value.cloud_region // .value.region // "")
+      (.value.cloud_region // .value.region // ""),
+      (.value.ip // ""),
+      ((.value.ansible_port // 22) | tostring)
     ]
   | @tsv
 ' "${CMDB_FILE}" >"${instances_file}"
@@ -51,7 +55,7 @@ show_console_output() {
 }
 
 failed=0
-while IFS=$'\t' read -r name instance_id region; do
+while IFS=$'\t' read -r name instance_id region ip ssh_port; do
   if [[ -z "${region}" ]]; then
     echo "::error::${name} (${instance_id}) has no cloud_region or region in ${CMDB_FILE}." >&2
     failed=1
@@ -85,10 +89,37 @@ while IFS=$'\t' read -r name instance_id region; do
     fi
     sleep "${AWS_BOOT_HEALTH_POLL_INTERVAL_SECONDS}"
   done
+
+  if [[ "${state}" != "running" || "${system_status}" != "ok" || "${instance_status}" != "ok" ]]; then
+    continue
+  fi
+
+  if [[ -z "${ip}" ]]; then
+    echo "::error::${name} (${instance_id}) has no public IP in ${CMDB_FILE}." >&2
+    show_console_output "${name}" "${instance_id}" "${region}"
+    failed=1
+    continue
+  fi
+
+  ssh_deadline=$((SECONDS + AWS_SSH_BANNER_TIMEOUT_SECONDS))
+  while true; do
+    if ssh_keys="$(ssh-keyscan -T 5 -p "${ssh_port}" "${ip}" 2>/dev/null)" && [[ -n "${ssh_keys}" ]]; then
+      echo "AWS SSH readiness: ${name} instance=${instance_id} ip=${ip} port=${ssh_port} banner=ready"
+      break
+    fi
+
+    if ((SECONDS >= ssh_deadline)); then
+      echo "::error::${name} (${instance_id}, ${region}) did not return an SSH banner on ${ip}:${ssh_port} within ${AWS_SSH_BANNER_TIMEOUT_SECONDS}s." >&2
+      show_console_output "${name}" "${instance_id}" "${region}"
+      failed=1
+      break
+    fi
+    sleep "${AWS_SSH_BANNER_POLL_INTERVAL_SECONDS}"
+  done
 done <"${instances_file}"
 
 if ((failed != 0)); then
   exit 1
 fi
 
-echo "AWS boot health: all ${instance_count} instance(s) passed system and instance status checks."
+echo "AWS boot health: all ${instance_count} instance(s) passed EC2 status and SSH banner checks."
