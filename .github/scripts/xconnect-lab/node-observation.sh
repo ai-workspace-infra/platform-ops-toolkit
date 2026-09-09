@@ -7,6 +7,25 @@ LAB_DIR="${LAB_DIR:?}"
 window="${NODE_OBSERVATION_WINDOW_MINUTES:-0}"
 [[ "$window" =~ ^(10|20|until-expiry)$ ]] || { [[ "$window" == 0 ]] && exit 0; echo 'Invalid resolved node observation window' >&2; exit 1; }
 
+gateway_provider=$(jq -er '.gateway_provider.value' "$LAB_DIR/outputs.json")
+if [[ "$gateway_provider" == external ]]; then
+  run_id=$(<"$LAB_DIR/run-id")
+  expires_at=$(jq -er '.expires_at' "$LAB_DIR/variables.json")
+  lease_deadline=$(python3 - "$expires_at" <<'PY'
+from datetime import datetime
+import sys
+print(int(datetime.fromisoformat(sys.argv[1].replace('Z', '+00:00')).timestamp()))
+PY
+)
+  echo "NODE_OBSERVATION_OPEN run=$run_id minutes=$window lease_expires_at=$expires_at"
+  while (( $(date +%s) < lease_deadline )); do
+    remaining=$((lease_deadline - $(date +%s)))
+    (( remaining > 30 )) && sleep 30 || sleep "$remaining"
+  done
+  echo 'NODE_OBSERVATION_RESULT=SUMMARY_ONLY external_gateway_persistent=true'
+  exit 0
+fi
+
 handoff="$LAB_DIR/desktop-public/desktop-handoff.json"
 test -f "$handoff" || { echo 'Public observation handoff is missing' >&2; exit 1; }
 python3 "$ROOT/.github/scripts/xconnect-lab/prepare.py" validate-handoff "$handoff"
