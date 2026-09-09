@@ -790,7 +790,12 @@ jobs:
         WEB_SAAS_ACCOUNTS_DOMAIN:          ${{ format('accounts-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
         WEB_SAAS_BILLING_DOMAIN:           ${{ format('billing-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
         AGENT_CONTROLLER_URL:              ${{ needs.provision.outputs.agent_controller_url }}
-        AGENT_REPO_VERSION:                ${{ contains(needs.provision.outputs.deploy_tag, 'daily-build') && 'main' || needs.provision.outputs.deploy_tag }}
+        # Agent Proxy follows the same immutable deploy tag as the rest of the
+        # environment. The repository was migrated to xconnect-edge-agent;
+        # do not silently deploy the legacy x-evor repository or main.
+        AGENT_REPO_URL:                    https://github.com/ai-workspace-xstream/xconnect-edge-agent.git
+        AGENT_REPO_VERSION:                ${{ needs.provision.outputs.deploy_tag }}
+        AGENT_PROXY_VERSION:               ${{ needs.provision.outputs.deploy_tag }}
         AGENT_SVC_PLUS_MANAGE_SOURCE_CHECKOUT: "true"
         AGENT_SVC_PLUS_BUILD_ON_TARGET:    "true"
         # 给了它 web_saas_host_config 就渲染 DNS-01 + *.<base> 泛域名 Caddyfile,
@@ -1581,9 +1586,13 @@ jobs:
       working-directory: playbooks
       env:
         INTERNAL_SERVICE_TOKEN: ${{ steps.vault.outputs.INTERNAL_SERVICE_TOKEN }}
+        AGENT_REPO_URL: https://github.com/ai-workspace-xstream/xconnect-edge-agent.git
+        # AGENT_PROXY_VERSION takes precedence over the legacy daily-build
+        # fallback in the playbook and preserves the unified immutable tag.
+        AGENT_PROXY_VERSION: ${{ needs.provision.outputs.deploy_tag }}
         AGENT_CONTROLLER_URL: ${{ needs.provision.outputs.agent_controller_url }}
         AGENT_CONTROLLER_IP: ${{ steps.controller.outputs.ip }}
-        AGENT_REPO_VERSION: ${{ contains(needs.provision.outputs.deploy_tag, 'daily-build') && 'main' || needs.provision.outputs.deploy_tag }}
+        AGENT_REPO_VERSION: ${{ needs.provision.outputs.deploy_tag }}
         AGENT_ID: ${{ matrix.host }}
         # The CMDB key is the first service domain declared for this host.
         # Use it per matrix entry so a regional pool does not render the same
@@ -1761,9 +1770,11 @@ jobs:
       working-directory: playbooks
       env:
         INTERNAL_SERVICE_TOKEN: ${{ steps.vault.outputs.INTERNAL_SERVICE_TOKEN }}
+        AGENT_REPO_URL: https://github.com/ai-workspace-xstream/xconnect-edge-agent.git
+        AGENT_PROXY_VERSION: ${{ needs.provision.outputs.deploy_tag }}
         AGENT_CONTROLLER_URL: ${{ needs.provision.outputs.agent_controller_url }}
         AGENT_CONTROLLER_IP: ${{ steps.controller.outputs.ip }}
-        AGENT_REPO_VERSION: ${{ contains(needs.provision.outputs.deploy_tag, 'daily-build') && 'main' || needs.provision.outputs.deploy_tag }}
+        AGENT_REPO_VERSION: ${{ needs.provision.outputs.deploy_tag }}
         AGENT_ID: ${{ matrix.host }}
         AGENT_PROXY_DOMAIN: ${{ steps.inventory.outputs.domain }}
         AGENT_DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}

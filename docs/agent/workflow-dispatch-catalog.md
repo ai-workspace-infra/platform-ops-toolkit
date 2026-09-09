@@ -82,6 +82,11 @@ Serverless 工作流成功完成并通过 Accounts 验证后，组合派发器�
 `https://accounts-serverless-uat.onwalk.net`，所以注册不会误连到 Selfhost Accounts；
 手工 Selfhost 派发若不提供该输入，仍回退到同一 Selfhost Web SaaS Accounts。
 
+Agent Proxy 的源码仓为 `ai-workspace-xstream/xconnect-edge-agent`，必须由同一个
+不可变 `deploy_tag` 触发其构建 workflow；Selfhost 部署再由 toolkit 从 Vault 读取
+`INTERNAL_SERVICE_TOKEN`，按该 tag checkout 源码并部署。Agent 仓库只负责构建/发布制品，
+不再通过自身 GitHub Actions 直接 SSH 部署，也不读取仓库级 Secret。
+
 组合派发只在完整矩阵成功且 `repositories` 为空时执行；部分仓库筛选不会解析 TAG，也不会
 派发任一下游环境。
 

@@ -73,6 +73,13 @@
       "trigger": "push",
       "environments": ["sit", "uat"],
       "artifacts": ["release-assets", "xray-exporter-linux-amd64"]
+    },
+    {
+      "repository": "ai-workspace-xstream/xconnect-edge-agent",
+      "workflow": "build-release-artifacts.yml",
+      "trigger": "push",
+      "environments": ["sit", "uat"],
+      "artifacts": ["release-assets", "xconnect-edge-agent-linux-amd64"]
     }
   ]
 }
