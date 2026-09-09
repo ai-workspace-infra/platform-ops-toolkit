@@ -73,6 +73,16 @@ def declaration():
                                   'transport': 'vless-tls-xudp', 'port': 443,
                                   'ingress_cidrs': [], 'public_wireguard_ingress': False,
                                   'allowlist_source': 'workflow-dispatch-runtime-only'},
+            'observability': {
+                'enabled': True,
+                'endpoint': 'https://observability.svc.plus',
+                'metrics_query_path': '/vmetrics/api/v1/query',
+                'environment': 'uat',
+                'collection': ['node_exporter', 'process_exporter',
+                               'xconnect_textfile_metrics', 'vector_remote_write'],
+                'metric_prefix': 'xconnect_',
+                'credential_source': 'vault:kv/data/CICD/observability',
+            },
         },
     }
 
@@ -91,7 +101,7 @@ class ShellTopologyContract(unittest.TestCase):
             env = {'PATH': os.environ['PATH'], 'GITHUB_WORKSPACE': str(root),
                    'LAB_DIR': str(root / 'lab'), 'GITHUB_OUTPUT': str(root / 'output'),
                    'GITHUB_ENV': str(root / 'env'), 'MODE': mode,
-                   'IAC_REF': 'a' * 40, 'GITOPS_REF': 'b' * 40,
+                   'IAC_REF': 'a' * 40, 'GITOPS_REF': 'b' * 40, 'PLAYBOOKS_REF': 'c' * 40,
                    'CLI_RELEASE_TAG': 'v0.1.11', 'GATEWAY_RELEASE_TAG': 'v0.1.4',
                    'XRAY_RELEASE_TAG': 'v26.3.27', 'NODE_OBSERVATION_INPUT': window,
                    'SSH_DEBUG_INGRESS_CIDRS': '',
@@ -168,6 +178,8 @@ class ShellTopologyContract(unittest.TestCase):
             (['spec', 'overlay', 'transport'], 'plain-wireguard'),
             (['spec', 'overlay', 'public_wireguard_ingress'], True),
             (['spec', 'overlay', 'private_checks'], ['ping']),
+            (['spec', 'observability', 'endpoint'], 'https://untrusted.example'),
+            (['spec', 'observability', 'credential_source'], 'git:plaintext'),
             (['spec', 'artifacts', 'one', 'release_tag'], 'v0.1.7'),
         ]
         for path, changed in mutations:

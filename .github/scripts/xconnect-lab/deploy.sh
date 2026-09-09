@@ -143,6 +143,62 @@ ssh "${CLIENT_SSH[@]}" "$client_user@$client" 'sudo xconnect sync --state-dir /v
 ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" 'sudo xconnect-gateway up --state-dir /var/lib/xconnect-gateway --tls-cert /etc/xconnect-gateway/tls.crt --tls-key /etc/xconnect-gateway/tls.key'
 }
 
+deploy_observability() {
+  echo 'Stage: register Gateway and One base metrics with central Observability'
+  : "${OBSERVABILITY_ENDPOINT:?OBSERVABILITY_ENDPOINT is required}"
+  : "${OBSERVABILITY_QUERY_PATH:?OBSERVABILITY_QUERY_PATH is required}"
+  : "${OBSERVABILITY_ENVIRONMENT:?OBSERVABILITY_ENVIRONMENT is required}"
+  : "${OBSERVABILITY_USER:?OBSERVABILITY_USER is required}"
+  : "${OBSERVABILITY_PASSWORD:?OBSERVABILITY_PASSWORD is required}"
+  local playbook="$ROOT/playbooks/deploy_xconnect_observability.yml"
+  test -f "$playbook" || { echo 'Reviewed playbooks revision does not contain the XConnect observability entrypoint'; exit 1; }
+
+  deploy_node_observability() {
+    local host="$1" user="$2" key="$3" role="$4" interface="$5" state_dir="$6" instance="$7"
+    ANSIBLE_HOST_KEY_CHECKING=True \
+      VECTOR_AUTH_USER="$OBSERVABILITY_USER" \
+      VECTOR_AUTH_PASSWORD="$OBSERVABILITY_PASSWORD" \
+      OBSERVABILITY_ENDPOINT="$OBSERVABILITY_ENDPOINT" \
+      ansible-playbook -i "${host}," "$playbook" \
+        --user "$user" --private-key "$key" \
+        --ssh-common-args="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$LAB_DIR/known_hosts" \
+        --extra-vars "xconnect_observability_role=$role xconnect_observability_environment=$OBSERVABILITY_ENVIRONMENT xconnect_observability_instance=$instance xconnect_observability_wireguard_interface=$interface xconnect_observability_state_dir=$state_dir"
+  }
+
+  local gateway_key="$LAB_DIR/id_ed25519"
+  if [[ "$gateway_provider" == external ]]; then gateway_key="${EXTERNAL_GATEWAY_SSH_KEY:?EXTERNAL_GATEWAY_SSH_KEY is required}"; fi
+  deploy_node_observability "$gateway" "$gateway_user" "$gateway_key" gateway xconzero0 /var/lib/xconnect-gateway "$gateway_id"
+  deploy_node_observability "$client" "$client_user" "$LAB_DIR/id_ed25519" one xconone0 /var/lib/xconnect-one "$client_id"
+
+  check_node_collector() {
+    local ssh_key="$1" user="$2" host="$3" role="$4" instance="$5"
+    ssh -i "$ssh_key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$LAB_DIR/known_hosts" "$user@$host" \
+      "sudo systemctl is-active --quiet node-exporter process-exporter vector xconnect-observability-collector.timer && sudo test -s /var/lib/node_exporter/xconnect.prom && sudo grep -Fq 'xconnect_runtime_info{role=\"$role\",environment=\"$OBSERVABILITY_ENVIRONMENT\",instance=\"$instance\"}' /var/lib/node_exporter/xconnect.prom"
+  }
+  check_node_collector "$gateway_key" "$gateway_user" "$gateway" gateway "$gateway_id"
+  check_node_collector "$LAB_DIR/id_ed25519" "$client_user" "$client" one "$client_id"
+
+  query_metric() {
+    local role="$1" instance="$2" query result_file
+    query="xconnect_runtime_info{role=\"${role}\",environment=\"${OBSERVABILITY_ENVIRONMENT}\",instance=\"${instance}\"}"
+    result_file="$LAB_DIR/observability-${role}.json"
+    for attempt in {1..12}; do
+      if curl --fail --silent --show-error --user "$OBSERVABILITY_USER:$OBSERVABILITY_PASSWORD" --get \
+        --data-urlencode "query=$query" "${OBSERVABILITY_ENDPOINT%/}${OBSERVABILITY_QUERY_PATH}" -o "$result_file" \
+        && jq -e '.status == "success" and (.data.result | length) > 0' "$result_file" >/dev/null; then
+        return 0
+      fi
+      sleep 10
+    done
+    echo "Observability did not return base metrics for ${role}/${instance}" >&2
+    return 1
+  }
+  query_metric gateway "$gateway_id"
+  query_metric one "$client_id"
+  rm -f "$LAB_DIR/observability-gateway.json" "$LAB_DIR/observability-one.json"
+  echo 'PASS: Gateway and One base metrics are visible through the central VictoriaMetrics query endpoint and Grafana datasource.'
+}
+
 verify_overlay() {
 echo 'Stage: formal control plane and two-node data-plane verification'
 gateway_public_key=$(<"$LAB_DIR/gateway-public-key")
@@ -322,8 +378,9 @@ case "$stage" in
   bootstrap) test -f "$LAB_DIR/setup.done"; bootstrap_accounts ;;
   gateway) test -f "$LAB_DIR/bootstrap.done"; enroll_gateway ;;
   one) test -f "$LAB_DIR/gateway.done"; enroll_one ;;
-  verify) test -f "$LAB_DIR/one.done"; verify_overlay ;;
-  all) prepare_runtime; bootstrap_accounts; enroll_gateway; enroll_one; verify_overlay ;;
+  observability) test -f "$LAB_DIR/one.done"; deploy_observability ;;
+  verify) test -f "$LAB_DIR/observability.done"; verify_overlay ;;
+  all) prepare_runtime; bootstrap_accounts; enroll_gateway; enroll_one; deploy_observability; verify_overlay ;;
   *) echo 'Unknown deployment stage' >&2; exit 1 ;;
 esac
 touch "$LAB_DIR/$stage.done"
