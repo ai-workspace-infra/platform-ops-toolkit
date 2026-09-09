@@ -243,6 +243,7 @@ jobs:
         run: |
           python3 -m pip install --user 'ansible-core==2.17.7'
           echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
+          ansible-galaxy collection install ansible.posix
       - name: Register Gateway and One base metrics with Observability
         if: inputs.mode == 'apply'
         env:
