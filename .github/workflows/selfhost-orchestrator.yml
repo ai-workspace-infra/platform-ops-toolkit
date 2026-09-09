@@ -536,6 +536,9 @@ jobs:
       id: matrix
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.terraform_action == 'apply'
       working-directory: ${{ env.ENV_DIR }}
+      env:
+        DEPLOYMENT_ENV: ${{ steps.route.outputs.deployment_env }}
+        TARGET_DOMAINS: ${{ steps.route.outputs.target_domains }}
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_build-deploy-matrix.sh
 
