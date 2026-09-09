@@ -92,8 +92,8 @@ jobs:
     env:
       MODE: ${{ inputs.mode }}
       IAC_REF: ${{ inputs.iac_ref || 'f0f3c523357b42420facc7502c44eae4432b3bb8' }}
-      GITOPS_REF: ${{ inputs.gitops_ref || '470b0ab2d1efc119f43451fe574a838b6f80b16c' }}
-      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '9e4ea2f1b2503365ee82ef76967a7a7680378907' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || 'ef59056908ee1c5af6205d99edc957607de31f35' }}
+      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '90386754916d73a6a7981eb255ab37731a33def1' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.11' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.5' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
@@ -243,7 +243,6 @@ jobs:
         run: |
           python3 -m pip install --user 'ansible-core==2.17.7'
           echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
-          ansible-galaxy collection install ansible.posix
       - name: Register Gateway and One base metrics with Observability
         if: inputs.mode == 'apply'
         env:
