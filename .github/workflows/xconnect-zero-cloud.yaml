@@ -10,12 +10,12 @@ on:
         description: Advanced override - reviewed iac_modules commit SHA
         type: string
         required: false
-        default: 'b5e7e869a10cf3b40e8f6666db2518b7d58ada53'
+        default: 'ce49642b814c184312f59c45e67a05820e484205'
       gitops_ref:
         description: Advanced override - reviewed gitops commit SHA
         type: string
         required: false
-        default: '0bd3295b5950445350f6075ff12c333b3c18084e'
+        default: '5e35176fa69b423537e2972b7b63e73dea17ab5d'
       cli_release_tag:
         description: Advanced override - XConnect-One GitHub Release tag
         type: string
@@ -65,8 +65,8 @@ jobs:
     timeout-minutes: 90
     env:
       MODE: ${{ inputs.mode }}
-      IAC_REF: ${{ inputs.iac_ref || 'b5e7e869a10cf3b40e8f6666db2518b7d58ada53' }}
-      GITOPS_REF: ${{ inputs.gitops_ref || '0bd3295b5950445350f6075ff12c333b3c18084e' }}
+      IAC_REF: ${{ inputs.iac_ref || 'ce49642b814c184312f59c45e67a05820e484205' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || '5e35176fa69b423537e2972b7b63e73dea17ab5d' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.11' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.4' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
