@@ -10,7 +10,7 @@ on:
         description: Advanced override - reviewed iac_modules commit SHA
         type: string
         required: false
-        default: 'bc5da9966a1603150c2fe854eb74efddc5b72cdb'
+        default: 'f0f3c523357b42420facc7502c44eae4432b3bb8'
       gitops_ref:
         description: Advanced override - reviewed gitops commit SHA
         type: string
@@ -86,7 +86,7 @@ jobs:
     timeout-minutes: 90
     env:
       MODE: ${{ inputs.mode }}
-      IAC_REF: ${{ inputs.iac_ref || 'bc5da9966a1603150c2fe854eb74efddc5b72cdb' }}
+      IAC_REF: ${{ inputs.iac_ref || 'f0f3c523357b42420facc7502c44eae4432b3bb8' }}
       GITOPS_REF: ${{ inputs.gitops_ref || 'a16636679a2c13af9c4366812544010f90d080c5' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.11' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.5' }}
