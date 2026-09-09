@@ -16,20 +16,34 @@ set -euo pipefail
 #   - state 空, 云上也没有对应 label   -> 真的已经销毁干净了, 放行(重复
 #                                          destroy 必须保持幂等)。
 #   - state 空, 云上却有对应 label     -> 假绿, 硬失败并报出实例 ID。
-# label 取自 render 阶段就落盘的 hosts_manifest.json, 不依赖 apply 后的 cmdb。
+# Vultr 的 label 取自 render 阶段落盘的 hosts_manifest.json；AWS 的渲染器不
+# 生成这个 Vultr 专用文件，因此改为从 terraform.auto.tfvars.json 读取
+# name_prefix，并用 Tag_<name_prefix> 查询 EC2。两条路径都不依赖 apply 后的 CMDB。
 # -----------------------------------------------------------------------------
 
 : "${ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE:?terraform workspace is required}"
 : "${ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY:?terraform state key is required}"
-: "${VULTR_API_KEY:?VULTR_API_KEY is required}"
-: "${HOSTS_MANIFEST:=hosts_manifest.json}"
+: "${ENV_STEPS_ROUTE_OUTPUTS_CLOUD_PROVIDER:=vultr-vps}"
 
 state_json="$(terraform show -json 2>/dev/null || echo '{}')"
+case "${ENV_STEPS_ROUTE_OUTPUTS_CLOUD_PROVIDER}" in
+  aws-cloud)
+    managed_resource_type="aws_instance"
+    ;;
+  vultr-vps)
+    managed_resource_type="vultr_instance"
+    ;;
+  *)
+    echo "::error::unsupported destroy scope provider: ${ENV_STEPS_ROUTE_OUTPUTS_CLOUD_PROVIDER}" >&2
+    exit 1
+    ;;
+esac
+
 managed_instances="$(
-  jq -r '
+  jq -r --arg resource_type "${managed_resource_type}" '
     def resources: .. | objects | select(has("resources")) | .resources[];
     [ (.values.root_module? // empty) | resources ]
-    | map(select(.mode == "managed" and .type == "vultr_instance"))
+    | map(select(.mode == "managed" and .type == $resource_type))
     | length
   ' <<<"${state_json}"
 )"
@@ -39,8 +53,56 @@ if [[ "${managed_instances}" -gt 0 ]]; then
   exit 0
 fi
 
+if [[ "${ENV_STEPS_ROUTE_OUTPUTS_CLOUD_PROVIDER}" == "aws-cloud" ]]; then
+  : "${AWS_DESTROY_REGIONS:=${AWS_REGION:-ap-northeast-1}}"
+  terraform_vars="terraform.auto.tfvars.json"
+  [[ -f "${terraform_vars}" ]] || {
+    echo "::error::${terraform_vars} is missing; run generate.py render before asserting AWS destroy scope." >&2
+    exit 1
+  }
+
+  name_prefix="$(jq -r '.name_prefix // empty' "${terraform_vars}")"
+  [[ -n "${name_prefix}" ]] || {
+    echo "::error::AWS destroy scope cannot determine name_prefix from ${terraform_vars}." >&2
+    exit 1
+  }
+
+  IFS=',' read -r -a regions <<<"${AWS_DESTROY_REGIONS}"
+  stray=()
+  for region in "${regions[@]}"; do
+    [[ -n "${region}" ]] || continue
+    matches="$(aws ec2 describe-instances \
+      --region "${region}" \
+      --filters \
+        "Name=tag:Tag_${name_prefix},Values=true" \
+        'Name=instance-state-name,Values=pending,running,stopping,stopped' \
+      --query 'Reservations[].Instances[].{id:InstanceId,ip:PublicIpAddress,state:State.Name}' \
+      --output json)"
+    while IFS=$'\t' read -r instance_id public_ip state; do
+      [[ -n "${instance_id}" ]] || continue
+      stray+=("${region}: ${instance_id} (${state}, ${public_ip:-no-public-ip})")
+    done < <(jq -r '.[]? | [.id, (.ip // ""), .state] | @tsv' <<<"${matches}")
+  done
+
+  if [[ "${#stray[@]}" -eq 0 ]]; then
+    echo "Destroy scope: state is empty and AWS has no EC2 instance tagged Tag_${name_prefix}=true; already destroyed."
+    exit 0
+  fi
+
+  {
+    echo "::error::Refusing to report a successful destroy that would delete nothing."
+    echo "Workspace ${ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE} (state ${ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY}) manages no instances, but AWS still has ${#stray[@]} EC2 instance(s) matching Tag_${name_prefix}=true:"
+    printf '  - %s\n' "${stray[@]}"
+    echo "They belong to a different workspace/state. Re-run destroy with the target_domains value that created them, or adopt them into this state first."
+  } >&2
+  exit 1
+fi
+
+: "${VULTR_API_KEY:?VULTR_API_KEY is required for Vultr destroy scope checks}"
+: "${HOSTS_MANIFEST:=hosts_manifest.json}"
+
 [[ -f "${HOSTS_MANIFEST}" ]] || {
-  echo "::error::${HOSTS_MANIFEST} is missing; run generate.py render before asserting destroy scope." >&2
+  echo "::error::${HOSTS_MANIFEST} is missing; run generate.py render before asserting Vultr destroy scope." >&2
   exit 1
 }
 
