@@ -69,6 +69,11 @@ on:
         required: false
         default: true
         type: boolean
+      skip_stripe_catalog:
+        description: 'Skip optional Stripe catalog synchronization without blocking core deployment'
+        required: false
+        default: false
+        type: boolean
       dns_mode:
         description: 'DNS 行为：none 不发布；uat-records 更新 SIT/UAT canonical；prod-cutover 接管生产 canonical（普通部署不会改 canonical）'
         required: false
