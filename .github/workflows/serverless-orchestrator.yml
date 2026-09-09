@@ -107,11 +107,6 @@ on:
         required: false
         default: 'ubuntu-latest'
         type: string
-      skip_stripe_catalog:
-        description: '跳过 Stripe 目录同步，仅用于先验证核心生产部署链路'
-        required: false
-        default: false
-        type: boolean
 jobs:
   preflight:
     name: Validate / Dispatch inputs
