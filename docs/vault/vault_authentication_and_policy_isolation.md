@@ -20,6 +20,7 @@
 | **`uat`** | `github-actions-platform-ops-toolkit-uat` | **`refs/heads/main`**、**`refs/heads/release/*`**（生产例外见下行） | `main` 与非 `release/v*` 的 `release/*` push 路由到 UAT。 |
 | **`prod`** | `github-actions-platform-ops-toolkit-prod` | **仅 `refs/tags/v*` 或 `refs/heads/release/v*`** | 受控正式 tag 或受保护的版本发布分支。 |
 | **`prod` release authoring** | `github-actions-platform-ops-toolkit-prod-release` | **仅 `refs/heads/main` + `daily-main-snapshot.yaml`** | 只能把已验证的 immutable `v*` 或 `uat-daily-build-*` source tag 重新标记为全新 `v*` release tag。 |
+| **`TLS rotation`** | `github-actions-platform-ops-toolkit-tls-rotation` | **仅 `refs/heads/main` + `cron-rotate-domain-tls-certs.yaml`** | 仅读取 Cloudflare DNS 凭据并写入 `kv/CICD/domains/*`，不继承通用 PROD 权限。 |
 
 通用 PROD role 的 ref allowlist 是严格且封闭的：`refs/tags/v*` 与
 `refs/heads/release/v*` 之外的任何 ref 都必须拒绝。`main` 只可通过专用
@@ -45,6 +46,10 @@ release-authoring role 运行 Daily Main Snapshot，且不能作为制品来源�
 > `refs/heads/release/v*` 触发。专用 `prod-release` role 是唯一例外，且仅授予
 > `daily-main-snapshot.yaml@refs/heads/main` 以创建新 release tag；workflow 输入、
 > tag 名称或脚本推断都不能再放宽这个范围。
+
+证书轮转是另一个受控例外：使用专用 `tls-rotation` role，精确绑定到证书轮转
+workflow 和 `main`，其 policy 只允许读取 `kv/data/CICD` 以及更新
+`kv/data/CICD/domains/*`。
 >
 > 已删除的死角色：`github-actions-platform-ops-toolkit-prod-tags` 从未被任何 workflow 请求过，职责已并入 `-prod`。
 
