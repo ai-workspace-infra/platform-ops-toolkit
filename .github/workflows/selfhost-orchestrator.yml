@@ -1766,6 +1766,14 @@ jobs:
         python3
         ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_render-non-iac-agent-proxy-inventory.py
 
+    - name: Restore domain TLS state to non-IaC node
+      env:
+        VAULT_ROLE: ${{ env.VAULT_ROLE }}
+        VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
+        DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
+        RESTORE_INVENTORY_FILE: ${{ runner.temp }}/ph-agent-proxy-inventory.yml
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_base_restore-caddy-certs.sh
+
     - name: Resolve Xray Exporter image
       id: xray_exporter
       env:

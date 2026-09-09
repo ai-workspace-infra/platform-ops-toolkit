@@ -25,19 +25,42 @@ set -euo pipefail
 : "${ACTIONS_ID_TOKEN_REQUEST_URL:?ACTIONS_ID_TOKEN_REQUEST_URL is required (needs id-token: write)}"
 : "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:?ACTIONS_ID_TOKEN_REQUEST_TOKEN is required (needs id-token: write)}"
 
-# Bootstrap runs before DNS cutover. Always connect to the IP created by this
-# run's CMDB; MATRIX_HOST may still resolve to a deleted previous instance.
-cmdb_file="${CMDB_FILE:-cmdb/cmdb.json}"
-matrix_ip="$(jq -r --arg host "${MATRIX_HOST}" '.[$host].ip // empty' "${cmdb_file}")"
-[[ -n "${matrix_ip}" ]] || {
-  echo "::error::No CMDB IP found for ${MATRIX_HOST}; refusing to bootstrap through stale DNS." >&2
-  exit 1
-}
-matrix_user="$(jq -r --arg host "${MATRIX_HOST}" '.[$host].ansible_user // "root"' "${cmdb_file}")"
-[[ -n "${matrix_user}" && "${matrix_user}" != "null" ]] || {
-  echo "::error::No CMDB SSH user found for ${MATRIX_HOST}." >&2
-  exit 1
-}
+# Bootstrap runs before DNS cutover. IaC nodes connect to the IP created by
+# this run's CMDB. A manually provisioned node instead supplies a private
+# temporary Ansible inventory whose password came from its environment-scoped
+# Vault record.
+ssh_command=(ssh)
+if [[ -n "${RESTORE_INVENTORY_FILE:-}" ]]; then
+  [[ -f "${RESTORE_INVENTORY_FILE}" ]] || {
+    echo "::error::Restore inventory not found: ${RESTORE_INVENTORY_FILE}" >&2
+    exit 1
+  }
+  inventory_record="$(ansible-inventory -i "${RESTORE_INVENTORY_FILE}" --host "${MATRIX_HOST}")"
+  matrix_ip="$(jq -r '.ansible_host // empty' <<<"${inventory_record}")"
+  matrix_user="$(jq -r '.ansible_user // empty' <<<"${inventory_record}")"
+  SSHPASS="$(jq -r '.ansible_password // empty' <<<"${inventory_record}")"
+  unset inventory_record
+  [[ -n "${matrix_ip}" && -n "${matrix_user}" && -n "${SSHPASS}" ]] || {
+    echo "::error::Restore inventory is missing host, user, or password for ${MATRIX_HOST}." >&2
+    exit 1
+  }
+  export SSHPASS
+  ssh_command=(sshpass -e ssh)
+  ssh_opts=(-o StrictHostKeyChecking=no -o PreferredAuthentications=password -o PubkeyAuthentication=no -o BatchMode=no -o ConnectTimeout=20)
+else
+  cmdb_file="${CMDB_FILE:-cmdb/cmdb.json}"
+  matrix_ip="$(jq -r --arg host "${MATRIX_HOST}" '.[$host].ip // empty' "${cmdb_file}")"
+  [[ -n "${matrix_ip}" ]] || {
+    echo "::error::No CMDB IP found for ${MATRIX_HOST}; refusing to bootstrap through stale DNS." >&2
+    exit 1
+  }
+  matrix_user="$(jq -r --arg host "${MATRIX_HOST}" '.[$host].ansible_user // "root"' "${cmdb_file}")"
+  [[ -n "${matrix_user}" && "${matrix_user}" != "null" ]] || {
+    echo "::error::No CMDB SSH user found for ${MATRIX_HOST}." >&2
+    exit 1
+  }
+  ssh_opts=(-i ~/.ssh/id_deploy -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=20)
+fi
 
 # 临近到期就不恢复了, 直接让 Caddy 签新的。恢复一张还剩三天的证书, 只会让
 # Caddy 一起来立刻进入续期流程 —— 白白多一次重启窗口, 还可能在续期成功前就
@@ -45,7 +68,6 @@ matrix_user="$(jq -r --arg host "${MATRIX_HOST}" '.[$host].ansible_user // "root
 # 这里取 14 天: 比它保守, 又不至于频繁作废可复用的备份。
 renew_margin_days="${CADDY_CERT_RENEW_MARGIN_DAYS:-14}"
 
-ssh_opts=(-i ~/.ssh/id_deploy -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=20)
 host="${matrix_user}@${matrix_ip}"
 
 # 1. 用 GitHub 的 OIDC id-token 换 Vault JWT 登录用的 JWT。
@@ -228,7 +250,7 @@ REMOTE
     if [[ "${matrix_user}" != "root" ]]; then
       remote_command="sudo -n ${remote_command}"
     fi
-    if tar -C "${pem_tmp}" -czf - fullchain.pem cert.pem key.pem ca.pem trust-bundle.pem | ssh "${ssh_opts[@]}" "${host}" \
+    if tar -C "${pem_tmp}" -czf - fullchain.pem cert.pem key.pem ca.pem trust-bundle.pem | "${ssh_command[@]}" "${ssh_opts[@]}" "${host}" \
       "${remote_command}"; then
       success=true
       break
