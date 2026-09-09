@@ -1744,6 +1744,7 @@ jobs:
         jwtGithubAudience: vault
         exportToken: true
         secrets: |
+          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
           ${{ env.VAULT_KV_WEB_SAAS }} INTERNAL_SERVICE_TOKEN | INTERNAL_SERVICE_TOKEN ;
           kv/data/CICD/observability user | VECTOR_AUTH_USER ;
           kv/data/CICD/observability password | VECTOR_AUTH_PASSWORD
@@ -1759,6 +1760,7 @@ jobs:
       uses: ./.github/actions/setup-deployment-runner
       with:
         matrix_host: ${{ matrix.host }}
+        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         install_ansible: 'true'
 
     - name: Resolve non-IaC node Vault path
@@ -1793,9 +1795,20 @@ jobs:
         XCONNECT_VAULT_RESPONSE_FILE: ${{ runner.temp }}/xconnect-vault.json
         XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/ph-agent-proxy-inventory.yml
         XCONNECT_NODE_ID: ${{ matrix.host }}
+        XCONNECT_DEPLOY_KEY_FILE: ${{ env.HOME }}/.ssh/id_deploy
       run: >-
         python3
         ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_render-non-iac-agent-proxy-inventory.py
+
+    - name: Preserve deploy-key access on non-IaC node
+      working-directory: playbooks
+      run: |-
+        SSH_PUBLIC_DEPLOY_KEY="$(ssh-keygen -y -f ~/.ssh/id_deploy)"
+        export SSH_PUBLIC_DEPLOY_KEY
+        ansible-playbook
+        -i "${{ runner.temp }}/ph-agent-proxy-inventory.yml"
+        prepare_non_iac_ssh_access.yml
+        --limit "${MATRIX_HOST}"
 
     - name: Restore domain TLS state to non-IaC node
       env:

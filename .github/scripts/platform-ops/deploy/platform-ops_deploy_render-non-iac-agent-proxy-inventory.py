@@ -20,6 +20,7 @@ def main() -> int:
     vault_file = Path(os.environ["XCONNECT_VAULT_RESPONSE_FILE"])
     inventory_file = Path(os.environ["XCONNECT_INVENTORY_FILE"])
     node_id = os.environ["XCONNECT_NODE_ID"]
+    deploy_key_file = os.environ.get("XCONNECT_DEPLOY_KEY_FILE", "").strip()
 
     topology = yaml.safe_load(topology_file.read_text(encoding="utf-8")) or {}
     pools = (topology.get("spec") or {}).get("pools") or []
@@ -68,21 +69,25 @@ def main() -> int:
     if not host or not user or not password or not domain:
         fail(f"Vault/GitOps metadata is incomplete for non-IaC node {node_id}")
 
+    host_vars = {
+        "ansible_host": host,
+        "ansible_user": user,
+        "ansible_password": password,
+        "service_domains": [domain],
+        "xconnect_region": selected_pool.get("region", "ph-mnl"),
+        "xconnect_pool": selected_pool.get("name", "ph"),
+        "xconnect_fqdn": domain,
+        "xconnect_connection_source": "vault",
+    }
+    if deploy_key_file:
+        host_vars["ansible_ssh_private_key_file"] = deploy_key_file
+
     inventory = {
         "all": {
             "children": {
                 "agent_proxy": {
                     "hosts": {
-                        node_id: {
-                            "ansible_host": host,
-                            "ansible_user": user,
-                            "ansible_password": password,
-                            "service_domains": [domain],
-                            "xconnect_region": selected_pool.get("region", "ph-mnl"),
-                            "xconnect_pool": selected_pool.get("name", "ph"),
-                            "xconnect_fqdn": domain,
-                            "xconnect_connection_source": "vault",
-                        }
+                        node_id: host_vars
                     }
                 },
                 "xray_exporter": {"children": {"agent_proxy": {}}},
