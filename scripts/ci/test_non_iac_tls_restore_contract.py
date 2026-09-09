@@ -26,7 +26,25 @@ class NonIaCTLSRestoreContractTest(unittest.TestCase):
         ).read_text()
         self.assertIn('ansible-inventory -i "${RESTORE_INVENTORY_FILE}"', script)
         self.assertIn("ssh_command=(sshpass -e ssh)", script)
+        self.assertIn("PreferredAuthentications=publickey,password", script)
+        self.assertIn("ssh_opts=(-i ~/.ssh/id_deploy", script)
         self.assertIn('"${ssh_command[@]}" "${ssh_opts[@]}"', script)
+
+    def test_workflow_preserves_key_access_before_observability_hardening(self) -> None:
+        workflow = (ROOT / ".github/workflows/selfhost-orchestrator.yml").read_text()
+        preserve = workflow.index("- name: Preserve deploy-key access on non-IaC node")
+        observe = workflow.index("- name: Deploy Observability Agent for non-IaC Agent Proxy")
+        self.assertLess(preserve, observe)
+        segment = workflow[preserve:observe]
+        self.assertIn("prepare_non_iac_ssh_access.yml", segment)
+        self.assertIn("ssh-keygen -y -f ~/.ssh/id_deploy", segment)
+        self.assertIn("XCONNECT_DEPLOY_KEY_FILE: ${{ env.HOME }}/.ssh/id_deploy", workflow)
+
+        renderer = (
+            ROOT
+            / ".github/scripts/platform-ops/deploy/platform-ops_deploy_render-non-iac-agent-proxy-inventory.py"
+        ).read_text()
+        self.assertIn('host_vars["ansible_ssh_private_key_file"] = deploy_key_file', renderer)
 
 
 if __name__ == "__main__":

@@ -46,7 +46,10 @@ if [[ -n "${RESTORE_INVENTORY_FILE:-}" ]]; then
   }
   export SSHPASS
   ssh_command=(sshpass -e ssh)
-  ssh_opts=(-o StrictHostKeyChecking=no -o PreferredAuthentications=password -o PubkeyAuthentication=no -o BatchMode=no -o ConnectTimeout=20)
+  ssh_opts=(-o StrictHostKeyChecking=no -o PreferredAuthentications=publickey,password -o PubkeyAuthentication=yes -o BatchMode=no -o ConnectTimeout=20)
+  if [[ -s ~/.ssh/id_deploy ]]; then
+    ssh_opts=(-i ~/.ssh/id_deploy "${ssh_opts[@]}")
+  fi
 else
   cmdb_file="${CMDB_FILE:-cmdb/cmdb.json}"
   matrix_ip="$(jq -r --arg host "${MATRIX_HOST}" '.[$host].ip // empty' "${cmdb_file}")"
