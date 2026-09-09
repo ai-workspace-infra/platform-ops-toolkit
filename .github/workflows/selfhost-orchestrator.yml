@@ -1147,6 +1147,20 @@ jobs:
         sparse-checkout: |
           topology/uat/selfhost/runtime-topology.yaml
 
+    - name: Checkout GitOps XConnect topology
+      if: >-
+        ${{ needs.provision.outputs.deployment_env == 'prod' &&
+        needs.provision.outputs.dns_mode == 'prod-cutover' &&
+        contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
+        needs.provision.outputs.target_domains) }}
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/gitops
+        ref: ${{ needs.provision.outputs.gitops_ref }}
+        path: gitops-xconnect
+        sparse-checkout-cone-mode: false
+        sparse-checkout: topology/prod/selfhost/ulighthost-xconnect.yaml
+
     - name: Render GitOps selfhost routing declaration
       if: ${{ needs.provision.outputs.deployment_env == 'uat' && needs.provision.outputs.dns_mode == 'uat-records' }}
       run: ${{ github.workspace }}/.github/scripts/serverless/prepare_gitops_routing_config.sh
@@ -1179,6 +1193,7 @@ jobs:
         method: jwt
         role: ${{ env.VAULT_ROLE }}
         jwtGithubAudience: vault
+        exportToken: true
         ignoreNotFound: true
         secrets: |
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
@@ -1196,6 +1211,22 @@ jobs:
         CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops/dns/platform-ops_switch_dns_switch-cloudflare-dns-records.sh
+
+    - name: Reconcile production XConnect regional entrypoints
+      if: >-
+        ${{ needs.provision.outputs.deployment_env == 'prod' &&
+        needs.provision.outputs.dns_mode == 'prod-cutover' &&
+        contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
+        needs.provision.outputs.target_domains) }}
+      working-directory: playbooks
+      env:
+        CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
+        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops-xconnect/topology/prod/selfhost/ulighthost-xconnect.yaml
+        XCONNECT_CMDB_FILE: ${{ github.workspace }}/cmdb/cmdb.json
+      run: |-
+        for pool in jp us hk ph; do
+          XCONNECT_POOL="${pool}" ansible-playbook reconcile_xconnect_entrypoint.yml
+        done
 
     - name: Reconcile UAT DNS records
       if: ${{ needs.provision.outputs.deployment_env == 'uat' && needs.provision.outputs.dns_mode == 'uat-records' }}
