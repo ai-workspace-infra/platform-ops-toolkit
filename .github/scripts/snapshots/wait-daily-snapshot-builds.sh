@@ -33,8 +33,28 @@ repo_requires_release_manifest() {
 
 ci_trigger_for_repo() {
   case "$1" in
+    ai-workspace-services/accounts|ai-workspace-services/billing-service|ai-workspace-services/content-service)
+      if [[ "${SNAPSHOT_TAG}" == v* ]]; then
+        printf '%s\n' workflow_dispatch
+      else
+        printf '%s\n' push
+      fi
+      ;;
     ai-workspace-lab/xworkmate-bridge) printf '%s\n' workflow_dispatch ;;
     *) printf '%s\n' push ;;
+  esac
+}
+
+ci_branch_for_repo() {
+  case "$1" in
+    ai-workspace-services/accounts|ai-workspace-services/billing-service|ai-workspace-services/content-service)
+      if [[ "${SNAPSHOT_TAG}" == v* ]]; then
+        printf '%s\n' main
+      else
+        printf '%s\n' "${SNAPSHOT_TAG}"
+      fi
+      ;;
+    *) printf '%s\n' "${SNAPSHOT_TAG}" ;;
   esac
 }
 
@@ -103,13 +123,14 @@ for repo in "${repos[@]}"; do
   fi
   run_sha="$expected_sha"
   expected_event="$(ci_trigger_for_repo "$repo")"
+  expected_branch="$(ci_branch_for_repo "$repo")"
   while [[ -z "$run_id" && $(date +%s) -lt $deadline ]]; do
     runs="$(gh run list -R "$repo" -w "$workflow" -L 50 --json databaseId,event,status,headBranch,headSha 2>/dev/null || printf '[]')"
     run_id="$(jq -r \
-      --arg tag "$SNAPSHOT_TAG" \
+      --arg branch "$expected_branch" \
       --arg sha "$expected_sha" \
       --arg event "$expected_event" \
-      '[.[] | select(.event == $event and .headBranch == $tag and .headSha == $sha)] | first | .databaseId // empty' \
+      '[.[] | select(.event == $event and .headBranch == $branch and .headSha == $sha)] | first | .databaseId // empty' \
       <<< "$runs")"
     [[ -n "$run_id" ]] || sleep "$poll_seconds"
   done
