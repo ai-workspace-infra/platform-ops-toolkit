@@ -497,8 +497,9 @@ jobs:
       env:
         ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_ACTION:    ${{ steps.route.outputs.terraform_action }}
         ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE: ${{ steps.route.outputs.terraform_workspace }}
-        # destroy 的作用域断言要报出是哪一份 state 空着, 并按 label 现查云上
-        # 是否还有本 profile 的实例。
+        ENV_STEPS_ROUTE_OUTPUTS_CLOUD_PROVIDER:     ${{ steps.route.outputs.cloud_provider }}
+        # destroy 的作用域断言要报出是哪一份 state 空着，并按云服务商的
+        # 标签现查云上是否还有本 profile 的实例。AWS 不读取 Vultr manifest。
         ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY:           ${{ steps.route.outputs.state_key }}
         # AWS_* / TF_VAR_vultr_api_key / VULTR_API_KEY from GITHUB_ENV
       run: |-
