@@ -57,8 +57,6 @@ for svc in "${SERVICES[@]}"; do
         "AUTH_TOKEN_PUBLIC_TOKEN=${AUTH_TOKEN_PUBLIC_TOKEN:?AUTH_TOKEN_PUBLIC_TOKEN is required from Vault}"
         "AUTH_TOKEN_REFRESH_SECRET=${AUTH_TOKEN_REFRESH_SECRET:?AUTH_TOKEN_REFRESH_SECRET is required from Vault}"
         "AUTH_TOKEN_ACCESS_SECRET=${AUTH_TOKEN_ACCESS_SECRET:?AUTH_TOKEN_ACCESS_SECRET is required from Vault}"
-        "XCONNECT_OVERLAY_SIGNING_PRIVATE_KEY=${XCONNECT_OVERLAY_SIGNING_PRIVATE_KEY:?XCONNECT_OVERLAY_SIGNING_PRIVATE_KEY is required from Vault}"
-        "XCONNECT_OVERLAY_SIGNING_KEY_ID=${XCONNECT_OVERLAY_SIGNING_KEY_ID:?XCONNECT_OVERLAY_SIGNING_KEY_ID is required from Vault}"
         "GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:?GITHUB_CLIENT_ID is required from GitOps OAuth metadata}"
         "GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:?GITHUB_CLIENT_SECRET is required from Vault}"
         "OAUTH_FRONTEND_URL=${OAUTH_FRONTEND_URL:?OAUTH_FRONTEND_URL is required from GitOps OAuth metadata}"
@@ -73,6 +71,18 @@ for svc in "${SERVICES[@]}"; do
         "STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}"
         "STRIPE_XCONNECT_PAY_URL=${STRIPE_XCONNECT_PAY_URL:-}"
       )
+      if [[ -n "${XCONNECT_OVERLAY_SIGNING_PRIVATE_KEY:-}" || -n "${XCONNECT_OVERLAY_SIGNING_KEY_ID:-}" ]]; then
+        if [[ -z "${XCONNECT_OVERLAY_SIGNING_PRIVATE_KEY:-}" || -z "${XCONNECT_OVERLAY_SIGNING_KEY_ID:-}" ]]; then
+          echo "XConnect Zero Signing configuration must include both the private key and key id" >&2
+          exit 1
+        fi
+        env_vars+=(
+          "XCONNECT_OVERLAY_SIGNING_PRIVATE_KEY=${XCONNECT_OVERLAY_SIGNING_PRIVATE_KEY}"
+          "XCONNECT_OVERLAY_SIGNING_KEY_ID=${XCONNECT_OVERLAY_SIGNING_KEY_ID}"
+        )
+      else
+        echo "==> [Cloud Run] XConnect Zero Signing is not configured; deploying accounts without it."
+      fi
       # Browser origins the accounts CORS middleware must accept, derived by the
       # orchestrator from the GitOps console host. Without it gin-contrib/cors
       # aborts every browser login with an empty 403 that the portal can only

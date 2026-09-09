@@ -72,11 +72,13 @@ cat >"${test_dir}/cmdb.json" <<'EOF'
     "ip": "45.77.128.182",
     "groups": ["web_saas"]
   },
-  "agent-proxy-vps-uat.onwalk.net": {
+  "jp-xconnect.onwalk.net": {
+    "fqdn": "jp-xconnect.onwalk.net",
     "ip": "167.179.105.137",
     "groups": ["agent_proxy"]
   },
-  "agent-proxy-vps-uat-2.onwalk.net": {
+  "us-xconnect.onwalk.net": {
+    "fqdn": "us-xconnect.onwalk.net",
     "ip": "167.179.110.129",
     "groups": ["agent_proxy"]
   }
@@ -102,8 +104,8 @@ grep -Fq 'Created billing-selfhost-uat.onwalk.net -> 45.77.128.182 (A)' <<<"${ou
 grep -Fq 'Created console-uat.onwalk.net -> console-selfhost-uat.onwalk.net (CNAME)' <<<"${output}"
 grep -Fq 'Created accounts-uat.onwalk.net -> accounts-selfhost-uat.onwalk.net (CNAME)' <<<"${output}"
 grep -Fq 'Created postgresql-selfhost-uat.onwalk.net -> 45.77.128.182 (A)' <<<"${output}"
-grep -Fq 'Created agent-proxy-vps-uat.onwalk.net -> 167.179.105.137 (A)' <<<"${output}"
-grep -Fq 'Created agent-proxy-vps-uat.onwalk.net -> 167.179.110.129 (A)' <<<"${output}"
+grep -Fq 'Created jp-xconnect.onwalk.net -> 167.179.105.137 (A)' <<<"${output}"
+grep -Fq 'Created us-xconnect.onwalk.net -> 167.179.110.129 (A)' <<<"${output}"
 grep -Fq 'completed for 8 desired records' <<<"${output}"
 
 cut -f3 "${test_dir}/curl.log" | jq -s -e \
@@ -115,9 +117,9 @@ cut -f3 "${test_dir}/curl.log" | jq -s -e \
 cut -f3 "${test_dir}/curl.log" | jq -s -e \
   'any(.[]; .type == "A" and .name == "postgresql-selfhost-uat.onwalk.net" and .content == "45.77.128.182")' >/dev/null
 cut -f3 "${test_dir}/curl.log" | jq -s -e \
-  'any(.[]; .type == "A" and .name == "agent-proxy-vps-uat.onwalk.net" and .content == "167.179.105.137")' >/dev/null
+  'any(.[]; .type == "A" and .name == "jp-xconnect.onwalk.net" and .content == "167.179.105.137")' >/dev/null
 cut -f3 "${test_dir}/curl.log" | jq -s -e \
-  'any(.[]; .type == "A" and .name == "agent-proxy-vps-uat.onwalk.net" and .content == "167.179.110.129")' >/dev/null
+  'any(.[]; .type == "A" and .name == "us-xconnect.onwalk.net" and .content == "167.179.110.129")' >/dev/null
 
 cat >"${test_dir}/duplicate-cmdb.json" <<'EOF'
 {
@@ -125,7 +127,7 @@ cat >"${test_dir}/duplicate-cmdb.json" <<'EOF'
     "ip": "45.77.128.182",
     "groups": ["web_saas"]
   },
-  "agent-proxy-vps-uat.onwalk.net": {
+  "jp-xconnect.onwalk.net": {
     "ip": "45.77.128.182",
     "groups": ["agent_proxy"]
   }
@@ -149,7 +151,7 @@ duplicate_exit=$?
 set -e
 
 [[ "${duplicate_exit}" -ne 0 ]]
-grep -Fq 'agent-proxy host agent-proxy-vps-uat.onwalk.net shares Web SaaS IP 45.77.128.182' <<<"${duplicate_output}"
+grep -Fq 'agent-proxy host jp-xconnect.onwalk.net shares Web SaaS IP 45.77.128.182' <<<"${duplicate_output}"
 
 # A canonical public entry that already exists belongs to whoever published it
 # -- in UAT that is the serverless orchestrator's Worker custom domain, which

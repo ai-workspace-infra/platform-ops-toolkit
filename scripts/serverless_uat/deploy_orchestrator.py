@@ -279,6 +279,29 @@ def require_runtime_secret(secrets: dict, key: str) -> str:
     return value
 
 
+def optional_runtime_secrets(secrets: dict, keys: dict[str, str], label: str) -> dict:
+    """Return an optional runtime secret group when it is configured.
+
+    Optional capabilities must be configured atomically. An absent group is
+    valid and is omitted from the service environment; a partially configured
+    group is rejected so the service cannot start with an unusable contract.
+    """
+    values = {
+        runtime_key: str(secrets.get(vault_key, "")).strip()
+        for runtime_key, vault_key in keys.items()
+    }
+    configured = [value for value in values.values() if value]
+    if not configured:
+        log(f"Optional {label} runtime secrets are not configured; skipping.")
+        return {}
+    if len(configured) != len(values):
+        missing = [runtime_key for runtime_key, value in values.items() if not value]
+        raise SystemExit(
+            f"Vault {label} runtime secret group is incomplete; missing {', '.join(missing)}"
+        )
+    return values
+
+
 def deploy_cloudflare(script_dir: str, env_context: dict) -> None:
     if not DEPLOY_CLOUDFLARE:
         log("Cloudflare deployment is disabled.")
@@ -362,14 +385,18 @@ def main():
             "AUTH_TOKEN_ACCESS_SECRET",
         )
     } if DEPLOY_CLOUD_RUN else {}
-    xconnect_zero_runtime = {
-        "XCONNECT_OVERLAY_SIGNING_PRIVATE_KEY": require_runtime_secret(
-            xconnect_zero_secrets, "ZERO_SIGNING_PRIVATE_KEY"
-        ),
-        "XCONNECT_OVERLAY_SIGNING_KEY_ID": require_runtime_secret(
-            xconnect_zero_secrets, "ZERO_SIGNING_KEY_ID"
-        ),
-    } if deploys_accounts else {}
+    xconnect_zero_runtime = (
+        optional_runtime_secrets(
+            xconnect_zero_secrets,
+            {
+                "XCONNECT_OVERLAY_SIGNING_PRIVATE_KEY": "ZERO_SIGNING_PRIVATE_KEY",
+                "XCONNECT_OVERLAY_SIGNING_KEY_ID": "ZERO_SIGNING_KEY_ID",
+            },
+            "XConnect Zero Signing",
+        )
+        if deploys_accounts
+        else {}
+    )
     shared_tenant_domain = (
         str(runtime_secrets.get("XWORKMATE_SHARED_TENANT_DOMAIN", "onwalk.net")).strip()
         if DEPLOY_CLOUD_RUN

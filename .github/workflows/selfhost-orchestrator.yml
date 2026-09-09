@@ -276,7 +276,6 @@ jobs:
         ${{ (steps.route.outputs.run_infrastructure == 'true' ||
         steps.route.outputs.run_application_deploy == 'true' ||
         steps.route.outputs.toolkit_action == 'migrate') &&
-        steps.route.outputs.terraform_action != 'destroy' &&
         (contains(fromJSON('["all","web-saas","agent-proxy","web-saas + agent-proxy"]'),
         steps.route.outputs.target_domains) || steps.route.outputs.cloud_provider == 'aws-cloud') }}
       uses: actions/checkout@v7
