@@ -25,7 +25,7 @@ on:
         description: Advanced override - XConnect-Gateway GitHub Release tag
         type: string
         required: false
-        default: 'v0.1.4'
+        default: 'v0.1.5'
       xray_release_tag:
         description: Advanced override - XTLS/Xray-core Release tag
         type: string
@@ -68,7 +68,7 @@ jobs:
       IAC_REF: ${{ inputs.iac_ref || 'bc5da9966a1603150c2fe854eb74efddc5b72cdb' }}
       GITOPS_REF: ${{ inputs.gitops_ref || 'a16636679a2c13af9c4366812544010f90d080c5' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.11' }}
-      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.4' }}
+      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.5' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
       ALLOW_XCONNECT_RELEASE_OVERRIDES: ${{ inputs.allow_release_overrides || false }}
       CLEANUP_RUN: ${{ inputs.cleanup_run }}
