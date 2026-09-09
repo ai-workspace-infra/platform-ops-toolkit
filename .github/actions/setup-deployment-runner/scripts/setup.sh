@@ -64,8 +64,10 @@ ssh_with_timeout() {
 wait_for_ssh() {
   resolve_host_ip
   configure_ssh_options 5
+  local timeout_secs="${HOST_SSH_WAIT_TIMEOUT:-180}"
+  local deadline=$((SECONDS + timeout_secs))
   echo "Waiting for SSH to become ready on ${ACTION_MATRIX_HOST} (${target_user}@${target_ip})..."
-  for _ in $(seq 1 60); do
+  while ((SECONDS < deadline)); do
     if ssh_with_timeout 12 "${ssh_options[@]}" "${target_user}@${target_ip}" true 2>/dev/null; then
       echo "SSH is ready on ${ACTION_MATRIX_HOST} (${target_ip})."
       return
@@ -73,7 +75,7 @@ wait_for_ssh() {
     sleep 3
   done
 
-  echo "::error::Timed out waiting for SSH on ${ACTION_MATRIX_HOST} (${target_ip})" >&2
+  echo "::error::Timed out waiting for SSH on ${ACTION_MATRIX_HOST} (${target_ip}) after ${timeout_secs}s" >&2
   exit 1
 }
 
