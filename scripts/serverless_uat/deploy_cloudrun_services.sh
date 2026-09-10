@@ -52,6 +52,12 @@ for svc in "${SERVICES[@]}"; do
     accounts)
       env_vars+=(
         "CONFIG_TEMPLATE=${CONFIG_TEMPLATE:-/app/config/account.cloudrun.yaml}"
+        # The PROD/UAT Supabase Session Pooler has a shared session limit. The
+        # account service opens both business and admin-settings pools, so a
+        # VPS-sized pool of 30 per instance can exhaust it before the revision
+        # starts listening. Keep the cap deployment-scoped and overridable.
+        "DB_MAX_OPEN_CONNS=${DB_MAX_OPEN_CONNS:-3}"
+        "DB_MAX_IDLE_CONNS=${DB_MAX_IDLE_CONNS:-1}"
         "ROOT_BOOTSTRAP_EMAIL=${ROOT_BOOTSTRAP_EMAIL:?ROOT_BOOTSTRAP_EMAIL is required}"
         "ROOT_BOOTSTRAP_PASSWORD=${ROOT_BOOTSTRAP_PASSWORD:?ROOT_BOOTSTRAP_PASSWORD is required from Vault}"
         "AUTH_TOKEN_PUBLIC_TOKEN=${AUTH_TOKEN_PUBLIC_TOKEN:?AUTH_TOKEN_PUBLIC_TOKEN is required from Vault}"
@@ -99,7 +105,11 @@ for svc in "${SERVICES[@]}"; do
       )
       ;;
     billing-service)
-      env_vars+=("BILLING_INGEST_MODE=${BILLING_INGEST_MODE:-push}")
+      env_vars+=(
+        "DB_MAX_OPEN_CONNS=${DB_MAX_OPEN_CONNS:-2}"
+        "DB_MAX_IDLE_CONNS=${DB_MAX_IDLE_CONNS:-1}"
+        "BILLING_INGEST_MODE=${BILLING_INGEST_MODE:-push}"
+      )
       ;;
   esac
   env_delimiter=""
