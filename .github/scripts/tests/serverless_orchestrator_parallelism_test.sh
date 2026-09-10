@@ -21,17 +21,47 @@ dns_mode = dispatch_inputs.get("dns_mode")
 if dns_mode is None or dns_mode.get("default") != "none" or dns_mode.get("options") != ["none", "uat-records", "prod-cutover"]:
     raise SystemExit("serverless workflow must default DNS mode to none and expose the standard DNS choices")
 
-parallel = {
+# The deployment lanes used to fan out from preflight in parallel and converge
+# only at serverless_domains. That convergence protects the public DNS/CORS
+# chain, but not live traffic: the SSR boundaries, the router and the edge
+# gateway update existing routes in place, so a new Worker reaches real users
+# the moment it is published, without waiting for serverless_domains. A backend
+# that had just failed therefore got a freshly shipped frontend pointing at it.
+# PROD safety now outranks the few minutes of parallelism those lanes bought, so
+# the Cloudflare lanes wait on backend_gate. Supabase and Cloud Run still fan out
+# from preflight directly — nothing downstream of them is user-visible yet.
+preflight_only = {
     "supabase",
     "cloud_run",
+}
+for job in preflight_only:
+    needs = jobs[job].get("needs")
+    if needs != "preflight":
+        raise SystemExit(f"{job} must depend only on preflight, got {needs!r}")
+
+gated_frontend = {
     "cloudflare_ssr",
     "frontend_router",
     "edge_gateway",
 }
-for job in parallel:
+for job in gated_frontend:
     needs = jobs[job].get("needs")
-    if needs != "preflight":
-        raise SystemExit(f"{job} must depend only on preflight, got {needs!r}")
+    if needs != ["preflight", "backend_gate"]:
+        raise SystemExit(
+            f"{job} must wait on backend_gate so a failed or partial Cloud Run "
+            f"rollout cannot ship a frontend against it, got {needs!r}"
+        )
+
+# The gate is only meaningful if it actually consumes the matrix result: with
+# fail-fast: false a single failed service still reports the matrix as failed,
+# and that is the signal which must block the frontend.
+backend_gate = jobs["backend_gate"]
+if backend_gate.get("needs") != ["preflight", "cloud_run"]:
+    raise SystemExit(
+        f"backend_gate must aggregate the cloud_run matrix, got {backend_gate.get('needs')!r}"
+    )
+if "needs.cloud_run.result" not in yaml.safe_dump(backend_gate.get("steps", [])):
+    raise SystemExit("backend_gate must consume needs.cloud_run.result")
 
 # Cloud Run services share the Supabase Session Pooler quota. The accounts
 # runtime has separate business and admin-settings pools, so replacing
