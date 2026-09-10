@@ -294,7 +294,7 @@ jobs:
         sparse-checkout-cone-mode: false
         sparse-checkout: |
           topology/${{ steps.route.outputs.deployment_env }}/selfhost/runtime-topology.yaml
-          topology/${{ steps.route.outputs.deployment_env }}/selfhost/ulighthost-xconnect.yaml
+          topology/${{ steps.route.outputs.deployment_env }}/selfhost/xconnect-regional-pools.yaml
           topology/${{ steps.route.outputs.deployment_env }}/serverless/runtime-topology.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/github-actions-oidc.json
 
@@ -556,7 +556,7 @@ jobs:
         steps.route.outputs.target_domains) }}
       env:
         CMDB_FILE: ${{ env.ENV_DIR }}/cmdb.json
-        GITOPS_XCONNECT_CONFIG: ${{ github.workspace }}/gitops/topology/${{ steps.route.outputs.deployment_env }}/selfhost/ulighthost-xconnect.yaml
+        GITOPS_XCONNECT_CONFIG: ${{ github.workspace }}/gitops/topology/${{ steps.route.outputs.deployment_env }}/selfhost/xconnect-regional-pools.yaml
       run: >-
         python3
         ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_build-agent-proxy-matrices.py
@@ -1159,7 +1159,7 @@ jobs:
         ref: ${{ needs.provision.outputs.gitops_ref }}
         path: gitops-xconnect
         sparse-checkout-cone-mode: false
-        sparse-checkout: topology/prod/selfhost/ulighthost-xconnect.yaml
+        sparse-checkout: topology/prod/selfhost/xconnect-regional-pools.yaml
 
     - name: Render GitOps selfhost routing declaration
       if: ${{ needs.provision.outputs.deployment_env == 'uat' && needs.provision.outputs.dns_mode == 'uat-records' }}
@@ -1221,7 +1221,7 @@ jobs:
       working-directory: playbooks
       env:
         CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
-        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops-xconnect/topology/prod/selfhost/ulighthost-xconnect.yaml
+        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops-xconnect/topology/prod/selfhost/xconnect-regional-pools.yaml
         XCONNECT_CMDB_FILE: ${{ github.workspace }}/cmdb/cmdb.json
       run: |-
         for pool in jp us hk ph; do
@@ -1719,7 +1719,7 @@ jobs:
         path: gitops
         sparse-checkout-cone-mode: false
         sparse-checkout: |
-          topology/prod/selfhost/ulighthost-xconnect.yaml
+          topology/prod/selfhost/xconnect-regional-pools.yaml
 
     - name: Download CMDB
       uses: actions/download-artifact@v8
@@ -1767,7 +1767,7 @@ jobs:
     - name: Resolve non-IaC node Vault path
       id: vault_path
       env:
-        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/prod/selfhost/ulighthost-xconnect.yaml
+        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/prod/selfhost/xconnect-regional-pools.yaml
         XCONNECT_NODE_ID: ${{ matrix.host }}
       run: >-
         python3
@@ -1792,7 +1792,7 @@ jobs:
     - name: Render non-IaC Agent Proxy inventory
       id: bootstrap_inventory
       env:
-        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/prod/selfhost/ulighthost-xconnect.yaml
+        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/prod/selfhost/xconnect-regional-pools.yaml
         XCONNECT_VAULT_RESPONSE_FILE: ${{ runner.temp }}/xconnect-vault.json
         XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/ph-agent-proxy-bootstrap-inventory.yml
         XCONNECT_NODE_ID: ${{ matrix.host }}
@@ -1826,7 +1826,7 @@ jobs:
     - name: Render deploy-key inventory for non-IaC node
       id: inventory
       env:
-        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/prod/selfhost/ulighthost-xconnect.yaml
+        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/prod/selfhost/xconnect-regional-pools.yaml
         XCONNECT_VAULT_RESPONSE_FILE: ${{ runner.temp }}/xconnect-vault.json
         XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/ph-agent-proxy-inventory.yml
         XCONNECT_NODE_ID: ${{ matrix.host }}
