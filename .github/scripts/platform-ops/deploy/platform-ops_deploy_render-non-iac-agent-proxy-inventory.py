@@ -63,8 +63,11 @@ def main() -> int:
         # Older records store the single PH node directly at the KV root.
         node_secret = secret
 
-    host = selected.get("ansible_host") or node_secret.get("public_ipv4") or node_secret.get("ip")
-    user = selected.get("ansible_user") or node_secret.get("ansible_user")
+    # The Vault record is the source of truth for manually provisioned nodes.
+    # GitOps may retain stale labels after a provider-side replacement, so do
+    # not let optional topology values override the live connection details.
+    host = node_secret.get("public_ipv4") or node_secret.get("ip") or selected.get("ansible_host")
+    user = node_secret.get("ansible_user") or selected.get("ansible_user")
     password = node_secret.get("SSH_PASSWORD") or node_secret.get("ansible_password")
     if not host or not user or not password or not domain:
         fail(f"Vault/GitOps metadata is incomplete for non-IaC node {node_id}")

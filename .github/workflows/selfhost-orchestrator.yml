@@ -1757,6 +1757,7 @@ jobs:
         fi
 
     - name: Setup deployment runner
+      id: runner
       uses: ./.github/actions/setup-deployment-runner
       with:
         matrix_host: ${{ matrix.host }}
@@ -1789,26 +1790,42 @@ jobs:
           > "${XCONNECT_VAULT_RESPONSE_FILE}"
 
     - name: Render non-IaC Agent Proxy inventory
-      id: inventory
+      id: bootstrap_inventory
       env:
         XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/prod/selfhost/ulighthost-xconnect.yaml
         XCONNECT_VAULT_RESPONSE_FILE: ${{ runner.temp }}/xconnect-vault.json
-        XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/ph-agent-proxy-inventory.yml
+        XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/ph-agent-proxy-bootstrap-inventory.yml
         XCONNECT_NODE_ID: ${{ matrix.host }}
-        XCONNECT_DEPLOY_KEY_FILE: ${{ env.HOME }}/.ssh/id_deploy
       run: >-
         python3
         ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_render-non-iac-agent-proxy-inventory.py
 
     - name: Preserve deploy-key access on non-IaC node
       working-directory: playbooks
+      env:
+        # The PH host is manually provisioned and may not have the release
+        # key yet. Bootstrap this one connection with the password from Vault;
+        # the deploy key is installed by the playbook below.
+        ANSIBLE_SSH_ARGS: "-o ControlMaster=auto -o ControlPersist=60s -o PubkeyAuthentication=no -o PreferredAuthentications=password -o StrictHostKeyChecking=no"
       run: |-
-        SSH_PUBLIC_DEPLOY_KEY="$(ssh-keygen -y -f ~/.ssh/id_deploy)"
+        SSH_PUBLIC_DEPLOY_KEY="$(ssh-keygen -y -f "${{ steps.runner.outputs.deploy_key_file }}")"
         export SSH_PUBLIC_DEPLOY_KEY
         ansible-playbook \
-          -i "${{ runner.temp }}/ph-agent-proxy-inventory.yml" \
+          -i "${{ runner.temp }}/ph-agent-proxy-bootstrap-inventory.yml" \
           prepare_non_iac_ssh_access.yml \
           --limit "${MATRIX_HOST}"
+
+    - name: Render deploy-key inventory for non-IaC node
+      id: inventory
+      env:
+        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/prod/selfhost/ulighthost-xconnect.yaml
+        XCONNECT_VAULT_RESPONSE_FILE: ${{ runner.temp }}/xconnect-vault.json
+        XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/ph-agent-proxy-inventory.yml
+        XCONNECT_NODE_ID: ${{ matrix.host }}
+        XCONNECT_DEPLOY_KEY_FILE: ${{ steps.runner.outputs.deploy_key_file }}
+      run: >-
+        python3
+        ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_render-non-iac-agent-proxy-inventory.py
 
     - name: Restore domain TLS state to non-IaC node
       env:
