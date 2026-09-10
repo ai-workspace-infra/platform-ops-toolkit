@@ -33,6 +33,15 @@ for job in parallel:
     if needs != "preflight":
         raise SystemExit(f"{job} must depend only on preflight, got {needs!r}")
 
+# Cloud Run services share the Supabase Session Pooler quota. The accounts
+# runtime has separate business and admin-settings pools, so replacing
+# accounts and billing concurrently can exhaust pool_size before either new
+# revision becomes ready. Keep the matrix jobs independent for failure
+# reporting, but serialize the actual deployments.
+cloud_run_strategy = jobs["cloud_run"].get("strategy", {})
+if cloud_run_strategy.get("max-parallel") != 1:
+    raise SystemExit("cloud_run matrix must serialize deployments with max-parallel: 1")
+
 # static_pages is the one deliberate exception: the Pages deployment publishes
 # the client chunks of every SSR boundary (assetPrefix -> static_cdn_url), so it
 # has to wait for the boundary builds instead of racing them.

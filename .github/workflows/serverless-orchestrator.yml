@@ -244,6 +244,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      # Accounts owns two PostgreSQL pools (business + admin settings) and
+      # shares Supabase's session pooler quota with billing-service. Parallel
+      # rolling revisions can exceed the shared pool_size before either
+      # replacement revision becomes ready.
+      max-parallel: 1
       matrix:
         service:
           - accounts
