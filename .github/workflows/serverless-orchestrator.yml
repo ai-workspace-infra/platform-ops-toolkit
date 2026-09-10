@@ -339,6 +339,7 @@ jobs:
     needs: [preflight, cloud_run]
     if: >-
       ${{ always() && needs.preflight.result == 'success' &&
+      needs.cloud_run.result == 'success' &&
       contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) &&
       inputs.deploy_cloud_run == true }}
     runs-on: ubuntu-latest
