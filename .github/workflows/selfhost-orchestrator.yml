@@ -294,6 +294,7 @@ jobs:
         sparse-checkout-cone-mode: false
         sparse-checkout: |
           topology/${{ steps.route.outputs.deployment_env }}/selfhost/runtime-topology.yaml
+          topology/${{ steps.route.outputs.deployment_env }}/selfhost/xconnect-regional-pool.yaml
           topology/${{ steps.route.outputs.deployment_env }}/selfhost/xconnect-regional-pools.yaml
           topology/${{ steps.route.outputs.deployment_env }}/serverless/runtime-topology.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/github-actions-oidc.json

@@ -19,6 +19,7 @@ class SelfhostXConnectDNSContractTest(unittest.TestCase):
         self.assertIn("ansible-playbook reconcile_xconnect_entrypoint.yml", step)
         self.assertIn("XCONNECT_CMDB_FILE:", step)
         self.assertIn("xconnect-regional-pools.yaml", workflow)
+        self.assertIn("xconnect-regional-pool.yaml", workflow)
         self.assertNotIn("ulighthost-xconnect.yaml", workflow)
         vault_step = workflow[workflow.index("- name: Load Vault secrets for DNS"):reconcile]
         self.assertIn("exportToken: true", vault_step)
