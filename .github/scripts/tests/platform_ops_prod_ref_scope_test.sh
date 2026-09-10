@@ -6,10 +6,12 @@ route_script="${repo_root}/.github/scripts/platform-ops/provision/platform-ops_p
 
 run_push_route() {
   local ref="$1" output
+  local ref_name="${ref#refs/heads/}"
+  ref_name="${ref_name#refs/tags/}"
   output="$(mktemp)"
   if ! GITHUB_EVENT_NAME=push \
     GITHUB_REF="${ref}" \
-    GITHUB_REF_NAME="${ref##*/}" \
+    GITHUB_REF_NAME="${ref_name}" \
     INPUT_OFFLINE_MODE=off \
     INPUT_SOURCE_HOST=install.svc.plus \
     INPUT_SOURCE_DOMAIN_BASE=svc.plus \

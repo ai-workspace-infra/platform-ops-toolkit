@@ -310,7 +310,8 @@ else
   case "${deployment_env}" in
     prod)
       case "${GITHUB_REF:-}" in
-        refs/heads/release/v*|refs/tags/v*) deploy_tag="${GITHUB_REF_NAME}" ;;
+        refs/heads/release/v*) deploy_tag="${GITHUB_REF_NAME#release/}" ;;
+        refs/tags/v*) deploy_tag="${GITHUB_REF_NAME}" ;;
         *)
           echo "::error::prod deploy_tag must come from refs/tags/v* or refs/heads/release/v* on non-dispatch triggers." >&2
           exit 1
