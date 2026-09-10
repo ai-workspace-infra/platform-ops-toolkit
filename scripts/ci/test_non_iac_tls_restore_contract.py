@@ -63,6 +63,18 @@ class NonIaCTLSRestoreContractTest(unittest.TestCase):
             / ".github/scripts/platform-ops/deploy/platform-ops_deploy_render-non-iac-agent-proxy-inventory.py"
         ).read_text()
         self.assertIn('host_vars["ansible_ssh_private_key_file"] = deploy_key_file', renderer)
+        self.assertIn(
+            'host = node_secret.get("public_ipv4") or node_secret.get("ip") or selected.get("ansible_host")',
+            renderer,
+        )
+        self.assertIn(
+            'user = node_secret.get("ansible_user") or selected.get("ansible_user")',
+            renderer,
+        )
+        self.assertIn(
+            'password = node_secret.get("SSH_PASSWORD") or node_secret.get("ansible_password")',
+            renderer,
+        )
 
 
 if __name__ == "__main__":
