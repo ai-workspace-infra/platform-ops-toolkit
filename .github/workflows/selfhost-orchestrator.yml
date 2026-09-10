@@ -1803,10 +1803,18 @@ jobs:
     - name: Preserve deploy-key access on non-IaC node
       working-directory: playbooks
       env:
-        # The PH host is manually provisioned and may not have the release
-        # key yet. Bootstrap this one connection with the password from Vault;
-        # the deploy key is installed by the playbook below.
-        ANSIBLE_SSH_ARGS: "-o ControlMaster=auto -o ControlPersist=60s -o PubkeyAuthentication=no -o PreferredAuthentications=password -o StrictHostKeyChecking=no"
+        # The PH host is manually provisioned and may not carry the release key
+        # yet, so the rendered inventory still supplies the Vault password. That
+        # password must not be the *only* permitted method: this step installs
+        # the deploy key, and later steps in this same job harden sshd with
+        # `PasswordAuthentication no`. Pinning the connection to password-only
+        # therefore worked exactly once — on every later run the node offers
+        # publickey alone and refuses with "Permission denied (publickey)",
+        # which is how a re-run of this job failed after its first success.
+        # Offer the deploy key first and let ssh fall back to the password for a
+        # genuine first contact. That makes the step idempotent and matches the
+        # transport every other Ansible step in this workflow uses.
+        ANSIBLE_SSH_ARGS: "-o ControlMaster=auto -o ControlPersist=60s -o IdentityFile=~/.ssh/id_deploy -o PreferredAuthentications=publickey,password -o StrictHostKeyChecking=no"
       run: |-
         SSH_PUBLIC_DEPLOY_KEY="$(ssh-keygen -y -f "${{ steps.runner.outputs.deploy_key_file }}")"
         export SSH_PUBLIC_DEPLOY_KEY

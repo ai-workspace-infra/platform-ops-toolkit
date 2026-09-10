@@ -49,8 +49,18 @@ class NonIaCTLSRestoreContractTest(unittest.TestCase):
             "XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/ph-agent-proxy-bootstrap-inventory.yml",
             workflow,
         )
+        # The bootstrap connection must accept the deploy key as well as the
+        # Vault password. This step installs that key and later steps in the
+        # same job harden sshd with `PasswordAuthentication no`, so a
+        # password-only transport here authenticates exactly once and every
+        # re-run is refused with "Permission denied (publickey)". This mirrors
+        # the restore script asserted above, which already offers both.
         self.assertIn(
-            "PreferredAuthentications=password",
+            "PreferredAuthentications=publickey,password",
+            workflow[preserve:observe],
+        )
+        self.assertIn(
+            "IdentityFile=~/.ssh/id_deploy",
             workflow[preserve:observe],
         )
         self.assertIn(
