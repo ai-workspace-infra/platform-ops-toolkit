@@ -1851,7 +1851,10 @@ jobs:
         INTERNAL_SERVICE_TOKEN: ${{ steps.vault.outputs.INTERNAL_SERVICE_TOKEN }}
         AGENT_REPO_URL: https://github.com/ai-workspace-xstream/xconnect-edge-agent.git
         AGENT_PROXY_VERSION: ${{ needs.provision.outputs.deploy_tag }}
-        AGENT_CONTROLLER_URL: ${{ needs.provision.outputs.agent_controller_url }}
+        # Use the resolved Cloud Run origin for serverless Accounts.  The
+        # vanity controller hostname can be protected by a certificate for a
+        # different hostname, which prevents the node from registering.
+        AGENT_CONTROLLER_URL: ${{ needs.provision.outputs.agent_accounts_base_url }}
         AGENT_CONTROLLER_IP: ${{ steps.controller.outputs.ip }}
         AGENT_REPO_VERSION: ${{ needs.provision.outputs.deploy_tag }}
         AGENT_ID: ${{ matrix.host }}
