@@ -1,0 +1,85 @@
+name: Configure Email DNS
+
+# Reconciles the transactional-email DNS of every zone declared in GitOps:
+# Google Workspace MX, the merged apex SPF, DKIM selectors and DMARC.
+#
+# It lives here rather than in ai-workspace-infra/playbooks because this is the
+# orchestration repository - playbooks holds the Ansible content, and every
+# other pipeline that runs it is driven from here.
+#
+# PREREQUISITE, and the way this fails when it is missing: the Vault role
+# authenticated below is bound to THIS repository's OIDC subject, so moving the
+# workflow changed which role reads the Cloudflare token. Grant
+# `github-actions-platform-ops-toolkit-<env>` read on
+# `kv/data/<env>/xworktech-email`, or the run stops at the Vault step with a
+# 403 that names the path.
+
+on:
+  workflow_dispatch:
+    inputs:
+      vault_env_path:
+        description: Target environment
+        required: true
+        default: prod
+        type: choice
+        options: [prod]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  reconcile:
+    name: Reconcile ${{ matrix.zone }}
+    runs-on: ubuntu-latest
+    environment: prod
+    strategy:
+      # Serial, and one zone's failure must not abandon the other half-applied:
+      # both policies edit the same Cloudflare account, and the apex SPF of each
+      # zone is rewritten in place rather than diffed.
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        zone: [xworktech.com, svc.plus]
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Checkout playbooks
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: main
+          path: playbooks
+
+      - name: Checkout GitOps declarations
+        uses: actions/checkout@v7
+        with:
+          # The declared state is the source of truth for this run; keep it on
+          # main even when the toolkit is dispatched from a tag.
+          repository: ai-workspace-infra/gitops
+          ref: main
+          path: gitops
+
+      - name: Load provider credentials from Vault
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/${{ inputs.vault_env_path }}/xworktech-email cloudflare_api_token | CLOUDFLARE_DNS_API_TOKEN
+
+      - name: Install Ansible
+        run: ./.github/scripts/serverless/install_email_dns_deps.sh
+
+      - name: Reconcile DNS
+        env:
+          EMAIL_DNS_APPLY: "true"
+          CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
+          EMAIL_DNS_CONFIG_PATH: gitops/resources/${{ matrix.zone }}/${{ inputs.vault_env_path }}/cloudflare/email-dns.yaml
+        run: >-
+          ansible-playbook -i localhost, -c local
+          playbooks/configure_email_dns.yml
