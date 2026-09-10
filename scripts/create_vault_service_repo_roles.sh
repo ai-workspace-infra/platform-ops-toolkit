@@ -14,7 +14,11 @@ set -euo pipefail
 #
 # 1. Platform-Ops Toolkit & Playbooks:
 #    - user_claim is set to 'sub' (workload identity: repo + ref + workflow).
-#    - job_workflow_ref is pinned to the explicit workflow allowlist.
+#    - job_workflow_ref is pinned to the explicit workflow allowlist. Entries end
+#      in @* on purpose: the ref bound_claim already restricts dispatch to release
+#      tags, so pinning a specific tag here adds no isolation and silently breaks
+#      the workflow on the next release, at the Vault step, where nothing points
+#      back at the tag as the cause.
 #    - Token policies provide strict tier-based isolation for sit, uat, and prod.
 #    - Token type is batch (1h TTL, no default policy).
 #
@@ -51,6 +55,7 @@ read -r -d '' ALLOWED_WORKFLOWS <<EOF || true
     "${WF_PREFIX}/iac-pipeline-multi-cloud-resources-matrix.yaml@*",
     "${WF_PREFIX}/iac-pipeline-multi-cloud-landingzone-baseline.yaml@*",
     "${WF_PREFIX}/cron-rotate-domain-tls-certs.yaml@*",
+    "${WF_PREFIX}/configure-email-dns.yaml@*",
     "${WF_PREFIX}/data-migration.yaml@*",
     "${WF_PREFIX}/k6-performance-test.yaml@*",
     "${WF_PREFIX}/uat-serverless-orchestrator.yml@*",

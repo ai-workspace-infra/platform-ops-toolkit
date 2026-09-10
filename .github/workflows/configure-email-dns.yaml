@@ -7,12 +7,16 @@ name: Configure Email DNS
 # orchestration repository - playbooks holds the Ansible content, and every
 # other pipeline that runs it is driven from here.
 #
-# PREREQUISITE, and the way this fails when it is missing: the Vault role
-# authenticated below is bound to THIS repository's OIDC subject, so moving the
-# workflow changed which role reads the Cloudflare token. Grant
-# `github-actions-platform-ops-toolkit-<env>` read on
-# `kv/data/<env>/xworktech-email`, or the run stops at the Vault step with a
-# 403 that names the path.
+# The Cloudflare token comes from `kv/data/<env>/serverless/cloudflare`, the
+# same entry the serverless orchestrator reads. It is deliberately not copied
+# into a mail-specific path: one credential in two places is two rotation
+# points, and the second one is the one nobody remembers.
+#
+# Dispatch is restricted to release tags by the Vault role's `ref` bound claim,
+# not by this file. The role's workflow allowlist lives in
+# scripts/create_vault_service_repo_roles.sh and ends in @* - pinning a tag
+# there breaks this workflow on the next release, at the Vault step, where
+# nothing points back at the tag as the cause.
 
 on:
   workflow_dispatch:
@@ -70,7 +74,7 @@ jobs:
           role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path }}
           jwtGithubAudience: vault
           secrets: |
-            kv/data/${{ inputs.vault_env_path }}/xworktech-email cloudflare_api_token | CLOUDFLARE_DNS_API_TOKEN
+            kv/data/${{ inputs.vault_env_path }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN
 
       - name: Install Ansible
         run: ./.github/scripts/serverless/install_email_dns_deps.sh
