@@ -56,7 +56,7 @@ for svc in "${SERVICES[@]}"; do
         # account service opens both business and admin-settings pools, so a
         # VPS-sized pool of 30 per instance can exhaust it before the revision
         # starts listening. Keep the cap deployment-scoped and overridable.
-        "DB_MAX_OPEN_CONNS=${DB_MAX_OPEN_CONNS:-3}"
+        "DB_MAX_OPEN_CONNS=${DB_MAX_OPEN_CONNS:-2}"
         "DB_MAX_IDLE_CONNS=${DB_MAX_IDLE_CONNS:-1}"
         "ROOT_BOOTSTRAP_EMAIL=${ROOT_BOOTSTRAP_EMAIL:?ROOT_BOOTSTRAP_EMAIL is required}"
         "ROOT_BOOTSTRAP_PASSWORD=${ROOT_BOOTSTRAP_PASSWORD:?ROOT_BOOTSTRAP_PASSWORD is required from Vault}"
