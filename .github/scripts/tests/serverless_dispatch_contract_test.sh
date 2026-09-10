@@ -68,7 +68,26 @@ VAULT_ENV_PATH=prod \
 TAG_REF=v2026.08.17 \
 DEPLOY_CLOUDFLARE=true \
 DEPLOY_CLOUD_RUN=true \
+GITHUB_REF=refs/tags/v2026.08.17 \
 "${validate_script}" >/dev/null
+
+# A control-plane-only recovery may run from a newer formal toolkit tag while
+# reusing an already published application image tag.
+SERVERLESS_DNS_MODE=none \
+OPERATION=deploy \
+TARGET_DOMAINS=web-saas \
+CLOUD_PROVIDER=vultr-vps \
+VAULT_ENV_PATH=prod \
+TAG_REF=v2026.09.10-r2 \
+DEPLOY_CLOUDFLARE=false \
+DEPLOY_CLOUD_RUN=true \
+GITHUB_REF=refs/tags/v2026.09.10-r3 \
+"${validate_script}" >/dev/null
+
+if SERVERLESS_DNS_MODE=none OPERATION=deploy TARGET_DOMAINS=web-saas CLOUD_PROVIDER=vultr-vps VAULT_ENV_PATH=prod TAG_REF=v2026.09.10-r2 DEPLOY_CLOUDFLARE=false DEPLOY_CLOUD_RUN=true GITHUB_REF=refs/heads/main GITHUB_EVENT_NAME=workflow_dispatch GITHUB_ACTOR=haitaopanhq "${validate_script}" >/dev/null 2>&1; then
+  echo "personal main control-plane recovery unexpectedly succeeded" >&2
+  exit 1
+fi
 
 if SERVERLESS_DNS_MODE=prod-cutover OPERATION=deploy TARGET_DOMAINS=all CLOUD_PROVIDER=vultr-vps VAULT_ENV_PATH=uat TAG_REF=daily-build-2026.08.17-r1 DEPLOY_CLOUDFLARE=true DEPLOY_CLOUD_RUN=true "${validate_script}" >/dev/null 2>&1; then
   echo "prod-cutover unexpectedly accepted for uat" >&2
