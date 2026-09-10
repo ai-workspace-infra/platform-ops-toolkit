@@ -1764,6 +1764,20 @@ jobs:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         install_ansible: 'true'
 
+    - name: Materialize non-IaC deploy key at runner temp
+      id: deploy_key
+      env:
+        DEPLOY_KEY_FILE: ${{ runner.temp }}/xconnect-non-iac-deploy-key
+      run: |-
+        set -euo pipefail
+        DEPLOY_KEY_SOURCE="${HOME}/.ssh/id_deploy"
+        test -f "${DEPLOY_KEY_SOURCE}" || {
+          echo "::error::Deployment runner did not create the expected SSH key file." >&2
+          exit 1
+        }
+        install -m 600 "${DEPLOY_KEY_SOURCE}" "${DEPLOY_KEY_FILE}"
+        printf 'path=%s\n' "${DEPLOY_KEY_FILE}" >>"${GITHUB_OUTPUT}"
+
     - name: Resolve non-IaC node Vault path
       id: vault_path
       env:
@@ -1814,9 +1828,9 @@ jobs:
         # Offer the deploy key first and let ssh fall back to the password for a
         # genuine first contact. That makes the step idempotent and matches the
         # transport every other Ansible step in this workflow uses.
-        ANSIBLE_SSH_ARGS: "-o ControlMaster=auto -o ControlPersist=60s -o IdentityFile=~/.ssh/id_deploy -o PreferredAuthentications=publickey,password -o StrictHostKeyChecking=no"
+        ANSIBLE_SSH_ARGS: "-o ControlMaster=auto -o ControlPersist=60s -o IdentityFile=${{ runner.temp }}/xconnect-non-iac-deploy-key -o PreferredAuthentications=publickey,password -o StrictHostKeyChecking=no"
       run: |-
-        SSH_PUBLIC_DEPLOY_KEY="$(ssh-keygen -y -f "${{ steps.runner.outputs.deploy_key_file }}")"
+        SSH_PUBLIC_DEPLOY_KEY="$(ssh-keygen -y -f "${{ steps.deploy_key.outputs.path }}")"
         export SSH_PUBLIC_DEPLOY_KEY
         ansible-playbook \
           -i "${{ runner.temp }}/ph-agent-proxy-bootstrap-inventory.yml" \
@@ -1830,7 +1844,7 @@ jobs:
         XCONNECT_VAULT_RESPONSE_FILE: ${{ runner.temp }}/xconnect-vault.json
         XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/ph-agent-proxy-inventory.yml
         XCONNECT_NODE_ID: ${{ matrix.host }}
-        XCONNECT_DEPLOY_KEY_FILE: ${{ steps.runner.outputs.deploy_key_file }}
+        XCONNECT_DEPLOY_KEY_FILE: ${{ steps.deploy_key.outputs.path }}
       run: >-
         python3
         ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_render-non-iac-agent-proxy-inventory.py

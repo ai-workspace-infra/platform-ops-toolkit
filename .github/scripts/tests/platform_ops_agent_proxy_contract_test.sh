@@ -10,6 +10,7 @@ grep -Fq "contains(needs.provision.outputs.target_domains, 'agent-proxy')" "${wo
 }
 
 deployment_block="$(sed -n '/- name: Deploy native agent-proxy services/,/^  deploy_ai_workspace:/p' "${workflow}")"
+non_iac_block="$(sed -n '/^  deploy_agent_proxy_non_iac:/,/^  deploy_ai_workspace:/p' "${workflow}")"
 monitor_block="$(sed -n '/^  deploy_monitor_agent:/,/^  trigger_data_migration:/p' "${workflow}")"
 
 assert_contains() {
@@ -53,6 +54,23 @@ assert_absent "contains(needs.provision.outputs.deploy_tag, 'daily-build') && 'm
 assert_absent "agent_svc_plus_manage_source_checkout"
 assert_absent "agent_svc_plus_build_on_target"
 assert_absent "agent_svc_plus_wait_for_runtime_config"
+
+grep -Fq "Materialize non-IaC deploy key at runner temp" <<<"${non_iac_block}" || {
+  echo "non-IaC Agent Proxy deployment must materialize its key at an absolute runner-temp path" >&2
+  exit 1
+}
+grep -Fq 'IdentityFile=${{ runner.temp }}/xconnect-non-iac-deploy-key' <<<"${non_iac_block}" || {
+  echo "non-IaC SSH bootstrap must use the absolute runner-temp deploy-key path" >&2
+  exit 1
+}
+if grep -Fq 'IdentityFile=~/.ssh/id_deploy' <<<"${non_iac_block}"; then
+  echo "non-IaC SSH bootstrap must not rely on tilde expansion for IdentityFile" >&2
+  exit 1
+fi
+grep -Fq 'XCONNECT_DEPLOY_KEY_FILE: ${{ steps.deploy_key.outputs.path }}' <<<"${non_iac_block}" || {
+  echo "non-IaC inventory must receive the materialized deploy-key path" >&2
+  exit 1
+}
 
 assert_monitor_contains "needs: [provision, deploy_base, deploy_agent_proxy, deploy_agent_proxy_non_iac]"
 assert_monitor_contains "always() && !cancelled()"
