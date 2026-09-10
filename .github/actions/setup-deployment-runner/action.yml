@@ -35,10 +35,16 @@ inputs:
     required: false
     default: cmdb/inventory.ini
 
+outputs:
+  deploy_key_file:
+    description: Absolute path of the deploy private key configured on the runner.
+    value: ${{ steps.prepare.outputs.deploy_key_file }}
+
 runs:
   using: composite
   steps:
     - name: Prepare deployment runner
+      id: prepare
       shell: bash
       env:
         ACTION_SSH_KEY_B64: ${{ inputs.ssh_key_b64 }}

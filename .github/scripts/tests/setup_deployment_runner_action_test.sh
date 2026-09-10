@@ -11,6 +11,7 @@ ssh-keygen -q -t ed25519 -N '' -f "${workdir}/input/id_deploy"
 key_b64="$(base64 <"${workdir}/input/id_deploy" | tr -d '\n')"
 
 HOME="${workdir}/home" \
+GITHUB_OUTPUT="${workdir}/output" \
 ACTION_SSH_KEY_B64="${key_b64}" \
 ACTION_MATRIX_HOST='' \
 ACTION_CMDB_FILE="${workdir}/cmdb.json" \
@@ -25,6 +26,7 @@ test -f "${workdir}/home/.ssh/id_deploy"
 mode="$(stat -c '%a' "${workdir}/home/.ssh/id_deploy" 2>/dev/null || stat -f '%Lp' "${workdir}/home/.ssh/id_deploy")"
 test "${mode}" = 600
 test "$(ssh-keygen -y -f "${workdir}/home/.ssh/id_deploy")" = "$(cat "${workdir}/input/id_deploy.pub")"
+grep -Fxq "deploy_key_file=${workdir}/home/.ssh/id_deploy" "${workdir}/output"
 
 mkdir -p "${workdir}/bin"
 printf '%s\n' '{"console-uat.onwalk.net":{"ip":"192.0.2.10","ansible_user":"admin"}}' >"${workdir}/cmdb.json"

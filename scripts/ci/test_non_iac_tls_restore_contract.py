@@ -37,8 +37,26 @@ class NonIaCTLSRestoreContractTest(unittest.TestCase):
         self.assertLess(preserve, observe)
         segment = workflow[preserve:observe]
         self.assertIn("prepare_non_iac_ssh_access.yml", segment)
-        self.assertIn("ssh-keygen -y -f ~/.ssh/id_deploy", segment)
-        self.assertIn("XCONNECT_DEPLOY_KEY_FILE: ${{ env.HOME }}/.ssh/id_deploy", workflow)
+        self.assertIn(
+            'ssh-keygen -y -f "${{ steps.runner.outputs.deploy_key_file }}"',
+            segment,
+        )
+        self.assertIn(
+            "XCONNECT_DEPLOY_KEY_FILE: ${{ steps.runner.outputs.deploy_key_file }}",
+            workflow,
+        )
+        self.assertIn(
+            "XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/ph-agent-proxy-bootstrap-inventory.yml",
+            workflow,
+        )
+        self.assertIn(
+            "PreferredAuthentications=password",
+            workflow[preserve:observe],
+        )
+        self.assertIn(
+            "Render deploy-key inventory for non-IaC node",
+            workflow[preserve:observe],
+        )
 
         renderer = (
             ROOT

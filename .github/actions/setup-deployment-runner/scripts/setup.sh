@@ -41,6 +41,10 @@ configure_ssh_key() {
   printf '%s' "${ACTION_SSH_KEY_B64}" | base64 -d > "${HOME}/.ssh/id_deploy"
   chmod 600 "${HOME}/.ssh/id_deploy"
   ssh-keygen -y -f "${HOME}/.ssh/id_deploy" >/dev/null
+
+  if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+    printf 'deploy_key_file=%s\n' "${HOME}/.ssh/id_deploy" >>"${GITHUB_OUTPUT}"
+  fi
 }
 
 ssh_options=()
