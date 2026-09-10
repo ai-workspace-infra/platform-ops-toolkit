@@ -59,6 +59,14 @@ grep -Fq "Materialize non-IaC deploy key at runner temp" <<<"${non_iac_block}" |
   echo "non-IaC Agent Proxy deployment must materialize its key at an absolute runner-temp path" >&2
   exit 1
 }
+grep -Fq 'DEPLOY_KEY_B64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}' <<<"${non_iac_block}" || {
+  echo "non-IaC SSH bootstrap must source its deploy key from the Vault action output" >&2
+  exit 1
+}
+grep -Fq "base64 --decode >\"\${DEPLOY_KEY_FILE}\"" <<<"${non_iac_block}" || {
+  echo "non-IaC SSH bootstrap must materialize the Vault key at the stable path" >&2
+  exit 1
+}
 grep -Fq 'IdentityFile=${{ runner.temp }}/xconnect-non-iac-deploy-key' <<<"${non_iac_block}" || {
   echo "non-IaC SSH bootstrap must use the absolute runner-temp deploy-key path" >&2
   exit 1
