@@ -1768,15 +1768,17 @@ jobs:
     - name: Materialize non-IaC deploy key at runner temp
       id: deploy_key
       env:
+        DEPLOY_KEY_B64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         DEPLOY_KEY_FILE: ${{ runner.temp }}/xconnect-non-iac-deploy-key
       run: |-
         set -euo pipefail
-        DEPLOY_KEY_SOURCE="${HOME}/.ssh/id_deploy"
-        test -f "${DEPLOY_KEY_SOURCE}" || {
-          echo "::error::Deployment runner did not create the expected SSH key file." >&2
+        test -n "${DEPLOY_KEY_B64}" || {
+          echo "::error::Vault did not provide the non-IaC deployment key." >&2
           exit 1
         }
-        install -m 600 "${DEPLOY_KEY_SOURCE}" "${DEPLOY_KEY_FILE}"
+        umask 077
+        printf '%s' "${DEPLOY_KEY_B64}" | base64 --decode >"${DEPLOY_KEY_FILE}"
+        ssh-keygen -y -f "${DEPLOY_KEY_FILE}" >/dev/null
         printf 'path=%s\n' "${DEPLOY_KEY_FILE}" >>"${GITHUB_OUTPUT}"
 
     - name: Resolve non-IaC node Vault path
