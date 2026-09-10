@@ -290,7 +290,8 @@ jobs:
           exportToken: true
           secrets: |
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_WORKLOAD_IDENTITY_PROVIDER | GCP_WORKLOAD_IDENTITY_PROVIDER ;
-            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL ;
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_PROJECT_ID | GCP_PROJECT_ID
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -300,6 +301,17 @@ jobs:
 
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
+
+      # accounts is the only service that sends mail today. Its Cloud Run
+      # revision reads SMTP credentials as secretKeyRef, so Secret Manager has
+      # to carry what Vault holds before the new revision starts.
+      - name: Sync SMTP credentials from Vault to Secret Manager
+        if: ${{ matrix.service == 'accounts' }}
+        run: ./.github/scripts/serverless/sync_smtp_secrets.sh
+        env:
+          VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
+          GCP_PROJECT_ID: ${{ steps.vault.outputs.GCP_PROJECT_ID }}
 
       - name: Deploy Cloud Run service
         run: ./.github/scripts/platform-ops/deploy/uat_orchestrator_runner.sh
