@@ -13,12 +13,15 @@ grep -Fq 'INPUT_AGENT_CONTROLLER_URL:' "${workflow}"
 grep -Fq 'agent_controller_url:     ${{ steps.route.outputs.agent_controller_url }}' "${workflow}"
 grep -Fq 'agent_accounts_base_url:  ${{ steps.agent_proxy_origins.outputs.accounts_service_base_url || steps.route.outputs.agent_controller_url }}' "${workflow}"
 grep -Fq 'billing_service_base_url: ${{ steps.agent_proxy_origins.outputs.billing_service_base_url || steps.route.outputs.billing_service_base_url }}' "${workflow}"
-grep -Fq 'AGENT_CONTROLLER_URL: ${{ needs.provision.outputs.agent_controller_url }}' "${workflow}"
 grep -Fq 'ACCOUNTS_BASE_URL: ${{ needs.provision.outputs.agent_accounts_base_url }}' "${workflow}"
 grep -Fq 'agent_controller_url="${INPUT_AGENT_CONTROLLER_URL:-}"' "${route}"
 grep -Fq 'billing_service_base_url="https://billing-serverless-' "${route}"
 grep -Fq 'getent ahostsv4' "${resolver}"
 grep -Fq 'Agent Proxy controller:' "${summary}"
+
+non_iac_job="$(sed -n '/^  deploy_agent_proxy_non_iac:/,/^  deploy_ai_workspace:/p' "${workflow}")"
+grep -Fq 'AGENT_CONTROLLER_URL: ${{ needs.provision.outputs.agent_accounts_base_url }}' <<<"${non_iac_job}"
+grep -Fq 'ACCOUNTS_BASE_URL: ${{ needs.provision.outputs.agent_accounts_base_url }}' <<<"${non_iac_job}"
 
 route_output="$(mktemp)"
 trap 'rm -f "${route_output}"' EXIT
