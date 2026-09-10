@@ -1805,10 +1805,10 @@ jobs:
       run: |-
         SSH_PUBLIC_DEPLOY_KEY="$(ssh-keygen -y -f ~/.ssh/id_deploy)"
         export SSH_PUBLIC_DEPLOY_KEY
-        ansible-playbook
-        -i "${{ runner.temp }}/ph-agent-proxy-inventory.yml"
-        prepare_non_iac_ssh_access.yml
-        --limit "${MATRIX_HOST}"
+        ansible-playbook \
+          -i "${{ runner.temp }}/ph-agent-proxy-inventory.yml" \
+          prepare_non_iac_ssh_access.yml \
+          --limit "${MATRIX_HOST}"
 
     - name: Restore domain TLS state to non-IaC node
       env:
