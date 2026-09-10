@@ -315,10 +315,41 @@ jobs:
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
           GITOPS_OAUTH_GITHUB_CONFIG: ${{ github.workspace }}/gitops/services/accounts/${{ inputs.vault_env_path || 'uat' }}/oauth/github.json
 
+  backend_gate:
+    name: Gate / backend rollout
+    # `gcloud run deploy` only exits 0 once the revision is serving, so the
+    # matrix result already carries backend readiness. What was missing is that
+    # nothing consumed it: the Cloudflare jobs depended on preflight alone, so a
+    # failed backend still shipped a frontend pointing at it, and `fail-fast:
+    # false` could leave one service on the new tag while another stayed on the
+    # previous one. This gate turns both into an explicit stop before any
+    # frontend job runs.
+    needs: [preflight, cloud_run]
+    if: >-
+      ${{ always() && needs.preflight.result == 'success' &&
+      contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) &&
+      inputs.deploy_cloud_run == true }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a complete Cloud Run rollout
+        env:
+          CLOUD_RUN_RESULT: ${{ needs.cloud_run.result }}
+        run: |
+          if [[ "${CLOUD_RUN_RESULT}" != "success" ]]; then
+            echo "::error::Cloud Run rollout is '${CLOUD_RUN_RESULT}'; refusing to publish a frontend against a partial or failed backend."
+            echo "A partial rollout leaves some services on the new tag and others on the previous one, a state nothing downstream describes." >&2
+            exit 1
+          fi
+          echo "Cloud Run rollout complete; frontend deployment may proceed."
+
   cloudflare_ssr:
     name: Cloudflare / SSR / ${{ matrix.boundary }}
-    needs: preflight
-    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true }}
+    needs: [preflight, backend_gate]
+    if: >-
+      ${{ always() && needs.preflight.result == 'success' &&
+      contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) &&
+      inputs.deploy_cloudflare == true &&
+      (needs.backend_gate.result == 'success' || needs.backend_gate.result == 'skipped') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -407,8 +438,12 @@ jobs:
 
   frontend_router:
     name: Cloudflare / frontend-router
-    needs: preflight
-    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true }}
+    needs: [preflight, backend_gate]
+    if: >-
+      ${{ always() && needs.preflight.result == 'success' &&
+      contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) &&
+      inputs.deploy_cloudflare == true &&
+      (needs.backend_gate.result == 'success' || needs.backend_gate.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout platform toolkit
@@ -474,8 +509,12 @@ jobs:
 
   edge_gateway:
     name: Cloudflare / ${{ matrix.display_name }}
-    needs: preflight
-    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloudflare == true }}
+    needs: [preflight, backend_gate]
+    if: >-
+      ${{ always() && needs.preflight.result == 'success' &&
+      contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) &&
+      inputs.deploy_cloudflare == true &&
+      (needs.backend_gate.result == 'success' || needs.backend_gate.result == 'skipped') }}
     runs-on: ubuntu-latest
     # hybrid-orchestrator writes these same three Worker names on the same
     # routes, differing only in the vars it sets, so the two orchestrators must
