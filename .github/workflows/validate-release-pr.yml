@@ -88,6 +88,13 @@ jobs:
     - name: Verify Agent Proxy controller registration contract
       run: bash .github/scripts/tests/platform_ops_agent_proxy_controller_contract_test.sh
 
+    # The non-IaC node's observability step interpolates an endpoint that the
+    # job has to define. When it was missing the deployment still reported
+    # success and the node simply shipped no metrics, so nothing but this
+    # assertion catches it.
+    - name: Verify monitor agent matrix and non-IaC observability contract
+      run: bash .github/scripts/tests/platform_ops_monitor_agent_matrix_contract_test.sh
+
     - name: Verify AWS OIDC is resolved from GitOps
       run: bash .github/scripts/tests/aws_oidc_gitops_contract_test.sh
 
