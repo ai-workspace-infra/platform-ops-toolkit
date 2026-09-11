@@ -438,10 +438,10 @@ def main():
         **github_oauth_runtime,
         "JWT_SECRET": os.environ.get("JWT_SECRET", "uat-jwt-secret-default"),
         "CONFIG_TEMPLATE": "/app/config/account.cloudrun.yaml",
-        "SMTP_HOST": runtime_secrets.get("SMTP_HOST", "smtp.qq.com"),
+        "SMTP_HOST": runtime_secrets.get("SMTP_HOST", "smtp.gmail.com"),
         "SMTP_PORT": runtime_secrets.get("SMTP_PORT", "587"),
         "SMTP_FROM": runtime_secrets.get(
-            "SMTP_FROM", "XControl Account <no-reply@example.com>"
+            "SMTP_FROM", "XWorkmate <no-reply@xworktech.com>"
         ),
         "STRIPE_SECRET_KEY": billing_secret(billing_secrets, "STRIPE_SECRET_KEY"),
         "STRIPE_WEBHOOK_SECRET": billing_secret(billing_secrets, "STRIPE_WEBHOOK_SECRET"),

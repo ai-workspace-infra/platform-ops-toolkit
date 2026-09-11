@@ -70,9 +70,9 @@ for svc in "${SERVICES[@]}"; do
         "XWORKMATE_SHARED_TENANT_DOMAIN=${XWORKMATE_SHARED_TENANT_DOMAIN:?XWORKMATE_SHARED_TENANT_DOMAIN is required}"
         "XWORKMATE_SHARED_TENANT_DOMAINS=${XWORKMATE_SHARED_TENANT_DOMAINS:-${XWORKMATE_SHARED_TENANT_DOMAIN}}"
         "XWORKMATE_BRIDGE_SERVER_URL=${XWORKMATE_BRIDGE_SERVER_URL:?XWORKMATE_BRIDGE_SERVER_URL is required}"
-        "SMTP_HOST=${SMTP_HOST:-smtp.qq.com}"
+        "SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}"
         "SMTP_PORT=${SMTP_PORT:-587}"
-        "SMTP_FROM=${SMTP_FROM:-XControl Account <no-reply@example.com>}"
+        "SMTP_FROM=${SMTP_FROM:-XWorkmate <no-reply@xworktech.com>}"
         "STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}"
         "STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}"
         "STRIPE_XCONNECT_PAY_URL=${STRIPE_XCONNECT_PAY_URL:-}"
@@ -132,6 +132,17 @@ for svc in "${SERVICES[@]}"; do
   fi
   env_vars_joined="$(IFS="${env_delimiter}"; printf '%s' "${env_vars[*]}")"
 
+  secret_flags=()
+  if [[ "${svc}" == "accounts" ]]; then
+    if gcloud secrets describe smtp-username --project="${GCP_PROJECT}" --quiet >/dev/null 2>&1 && \
+       gcloud secrets describe smtp-password --project="${GCP_PROJECT}" --quiet >/dev/null 2>&1; then
+      echo "==> [Cloud Run] Binding Secret Manager SMTP credentials (smtp-username, smtp-password)..."
+      secret_flags+=("--set-secrets=SMTP_USERNAME=smtp-username:latest,SMTP_PASSWORD=smtp-password:latest")
+    else
+      echo "==> [Cloud Run] SMTP secrets not present in Secret Manager; skipping secret bindings."
+    fi
+  fi
+
   echo "==> [Cloud Run] Deploying ${SERVICE_NAME} (min=0, max=2)..."
   
   # Deploy and inject the service-specific runtime contract.
@@ -146,6 +157,7 @@ for svc in "${SERVICES[@]}"; do
     --cpu=1 \
     --memory=512Mi \
     --set-env-vars="^${env_delimiter}^${env_vars_joined}" \
+    "${secret_flags[@]}" \
     --quiet
 done
 
