@@ -20,6 +20,8 @@ if grep -Fq 'path "kv/data/prod/*"' "${roles}"; then
   echo "XConnect cloud lab must not receive broad production access" >&2
   exit 1
 fi
+grep -Fq 'path "kv/data/uat/xconnect-one"' "${roles}"
+grep -Fq 'path "kv/data/CICD/observability"' "${roles}"
 
 if grep -Fq '"${WF_PREFIX}/xconnect-cloud-lab.yml@*"' "${roles}"; then
   echo "XConnect cloud lab must use its dedicated main-only role, not the general workflow allowlist" >&2

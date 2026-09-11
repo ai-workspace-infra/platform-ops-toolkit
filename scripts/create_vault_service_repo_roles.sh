@@ -207,6 +207,30 @@ path "kv/metadata/CICD/domains/*" {
 EOF
 }
 
+# The disposable XConnect cloud lab gets only the exact paths consumed by its
+# workflow. Do not reuse the broad UAT policy here: the lab needs the UAT
+# Terraform backend plus its short-lived runtime inputs, but it must not gain
+# access to unrelated UAT secrets.
+emit_xconnect_cloud_lab_policy() {
+  cat <<'EOF'
+path "kv/data/CICD/github-app/daily-snapshot" {
+  capabilities = ["read"]
+}
+path "kv/data/CICD/uat" {
+  capabilities = ["read"]
+}
+path "kv/data/uat/xconnect-one" {
+  capabilities = ["read"]
+}
+path "kv/data/prod/ulighthost-xconnect/TW-XConnect.onwalk.net" {
+  capabilities = ["read"]
+}
+path "kv/data/CICD/observability" {
+  capabilities = ["read"]
+}
+EOF
+}
+
 echo "=== Provisioning Platform-Ops Policies ==="
 for env in dev sit uat prod; do
   echo "  Writing policy github-actions-platform-ops-toolkit-${env}..."
@@ -216,6 +240,8 @@ echo "  Writing policy ${XCONNECT_CLOUD_LAB_POLICY}..."
 emit_xconnect_cloud_lab_policy | vault policy write "${XCONNECT_CLOUD_LAB_POLICY}" -
 echo "  Writing policy ${TLS_ROTATION_ROLE}..."
 emit_tls_rotation_policy | vault policy write "${TLS_ROTATION_ROLE}" -
+echo "  Writing policy ${XCONNECT_CLOUD_LAB_POLICY}..."
+emit_xconnect_cloud_lab_policy | vault policy write "${XCONNECT_CLOUD_LAB_POLICY}" -
 
 # -----------------------------------------------------------------------------
 # Platform-Ops & Playbooks Roles
