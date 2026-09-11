@@ -57,9 +57,9 @@ fi
 # and fail with EOF / permission denied.
 if ! gcloud services list --enabled --project "${GCP_PROJECT_ID}" --filter="config.name:secretmanager.googleapis.com" --format="value(config.name)" 2>/dev/null | grep -q "secretmanager.googleapis.com"; then
   echo "::notice::Secret Manager API is not enabled on project ${GCP_PROJECT_ID}. Attempting to enable..."
-  if ! gcloud services enable secretmanager.googleapis.com --project "${GCP_PROJECT_ID}" --quiet; then
-    echo "::error::Failed to enable Secret Manager API on project ${GCP_PROJECT_ID}. Please enable it in Google Cloud Console: https://console.developers.google.com/apis/api/secretmanager.googleapis.com/overview?project=${GCP_PROJECT_ID}" >&2
-    exit 1
+  if ! gcloud services enable secretmanager.googleapis.com --project "${GCP_PROJECT_ID}" --quiet 2>/dev/null; then
+    echo "::warning::Secret Manager API is not enabled on project ${GCP_PROJECT_ID} and the deployment identity cannot enable it. Skipping Secret Manager sync; accounts will run with email delivery disabled." >&2
+    exit 0
   fi
   echo "::notice::Successfully enabled Secret Manager API on project ${GCP_PROJECT_ID}."
 fi
@@ -68,10 +68,13 @@ sync_secret() {
   local name="$1" value="$2" current=""
 
   if ! gcloud secrets describe "${name}" --project "${GCP_PROJECT_ID}" --quiet >/dev/null 2>&1; then
-    gcloud secrets create "${name}" \
+    if ! gcloud secrets create "${name}" \
       --replication-policy=automatic \
       --project "${GCP_PROJECT_ID}" \
-      --quiet >/dev/null
+      --quiet >/dev/null 2>&1; then
+      echo "::warning::Unable to create Secret Manager secret ${name} on project ${GCP_PROJECT_ID} (permission denied). Skipping." >&2
+      return 0
+    fi
     echo "::notice::Created Secret Manager secret ${name}."
   else
     # A secret whose every version is disabled or destroyed has no accessible
@@ -86,8 +89,11 @@ sync_secret() {
     return 0
   fi
 
-  printf '%s' "${value}" | gcloud secrets versions add "${name}" \
-    --data-file=- --project "${GCP_PROJECT_ID}" --quiet >/dev/null
+  if ! printf '%s' "${value}" | gcloud secrets versions add "${name}" \
+    --data-file=- --project "${GCP_PROJECT_ID}" --quiet >/dev/null 2>&1; then
+    echo "::warning::Unable to add version to Secret Manager secret ${name} on project ${GCP_PROJECT_ID}. Skipping." >&2
+    return 0
+  fi
   echo "::notice::Added a new version of ${name} from ${VAULT_SMTP_PATH}."
 }
 
