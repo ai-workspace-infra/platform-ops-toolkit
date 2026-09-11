@@ -13,7 +13,11 @@ bash -n "${roles}"
 
 grep -Fq "XCONNECT_CLOUD_LAB_ROLE=\"${role}\"" "${roles}"
 grep -Fq '"job_workflow_ref": "${WF_PREFIX}/xconnect-zero-cloud.yaml@refs/heads/main"' "${roles}"
-grep -Fq '"token_policies": ["github-actions-platform-ops-toolkit-uat"]' "${roles}"
+grep -Fq 'XCONNECT_CLOUD_LAB_POLICY="github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab"' "${roles}"
+grep -Fq '"token_policies": ["${XCONNECT_CLOUD_LAB_POLICY}"]' "${roles}"
+grep -Fq 'path "kv/data/uat/xconnect-one"' "${roles}"
+grep -Fq 'path "kv/data/prod/ulighthost-xconnect/TW-XConnect.onwalk.net"' "${roles}"
+grep -Fq 'path "kv/data/CICD/observability"' "${roles}"
 
 if grep -Fq '"${WF_PREFIX}/xconnect-cloud-lab.yml@*"' "${roles}"; then
   echo "XConnect cloud lab must use its dedicated main-only role, not the general workflow allowlist" >&2
