@@ -66,6 +66,11 @@ main-ref workflow. Do not widen that trust to run a branch.
 | `kv/data/CICD/github-app/daily-snapshot` | `app_private_key` |
 | `kv/data/CICD/uat` | `TF_STATE_ENDPOINT`, `TF_STATE_BUCKET`, `TF_STATE_ACCESS_KEY`, `TF_STATE_SECRET_KEY`, `TF_STATE_REGION` |
 | `kv/data/uat/xconnect-one` | `VLESS_ID`, `ZERO_SERVICE_TOKEN`, `ZERO_OWNER_EMAIL` |
+| `kv/data/prod/ulighthost-xconnect/TW-XConnect.onwalk.net` | `host`, `user`, `ssh_private_key_b64` (read-only exception for the external UAT relay) |
+
+The dedicated role has no broad production policy; it can read only this exact
+external relay record because the UAT lab connects through that production-owned
+host.
 
 The owner email must identify the account that will inspect the run in Portal.
 Owner isolation is not bypassed to make another user's nodes visible.

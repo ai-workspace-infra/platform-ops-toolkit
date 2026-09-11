@@ -40,6 +40,7 @@ REPO="ai-workspace-infra/platform-ops-toolkit"
 PLAYBOOKS_REPO="ai-workspace-infra/playbooks"
 TOKEN_TTL="1h"
 XCONNECT_CLOUD_LAB_ROLE="github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab"
+XCONNECT_CLOUD_LAB_POLICY="github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab"
 TLS_ROTATION_ROLE="github-actions-platform-ops-toolkit-tls-rotation"
 
 # -----------------------------------------------------------------------------
@@ -150,6 +151,7 @@ EOF
 path "kv/data/${env}/*" {
   capabilities = ["create", "read", "update", "list"]
 }
+
 path "kv/metadata/${env}/*" {
   capabilities = ["list", "read"]
 }
@@ -164,6 +166,28 @@ path "kv/metadata/${env}/*" {
 }
 EOF
   fi
+}
+
+# The cloud-lab workflow is UAT-scoped, but its external relay is a shared
+# production-owned host. Grant only the one relay record it needs instead of
+# attaching the broad UAT policy (which also permits writes to all UAT paths).
+emit_xconnect_cloud_lab_policy() {
+  emit_common_read_paths
+  emit_base_credential_paths uat
+  cat <<'EOF'
+path "kv/data/uat/xconnect-one" {
+  capabilities = ["read"]
+}
+path "kv/metadata/uat/xconnect-one" {
+  capabilities = ["list", "read"]
+}
+path "kv/data/prod/ulighthost-xconnect/TW-XConnect.onwalk.net" {
+  capabilities = ["read"]
+}
+path "kv/metadata/prod/ulighthost-xconnect/TW-XConnect.onwalk.net" {
+  capabilities = ["list", "read"]
+}
+EOF
 }
 
 emit_tls_rotation_policy() {
@@ -188,6 +212,8 @@ for env in dev sit uat prod; do
   echo "  Writing policy github-actions-platform-ops-toolkit-${env}..."
   emit_env_policy "${env}" | vault policy write "github-actions-platform-ops-toolkit-${env}" -
 done
+echo "  Writing policy ${XCONNECT_CLOUD_LAB_POLICY}..."
+emit_xconnect_cloud_lab_policy | vault policy write "${XCONNECT_CLOUD_LAB_POLICY}" -
 echo "  Writing policy ${TLS_ROTATION_ROLE}..."
 emit_tls_rotation_policy | vault policy write "${TLS_ROTATION_ROLE}" -
 
@@ -233,7 +259,7 @@ write_xconnect_cloud_lab_role() {
     "job_workflow_ref": "${WF_PREFIX}/xconnect-zero-cloud.yaml@refs/heads/main",
     "ref": "refs/heads/main"
   },
-  "token_policies": ["github-actions-platform-ops-toolkit-uat"],
+  "token_policies": ["${XCONNECT_CLOUD_LAB_POLICY}"],
   "token_no_default_policy": true,
   "token_type": "batch",
   "token_ttl": "${TOKEN_TTL}",
