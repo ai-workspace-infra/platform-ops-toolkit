@@ -20,7 +20,7 @@ case "$1 $2" in
     printf 'test-sha\n'
     ;;
   "run list")
-    printf '%s\n' '[{"databaseId":42,"event":"push","status":"completed","headBranch":"v2026.08.28-r3","headSha":"test-sha"}]'
+    printf '%s\n' '[{"databaseId":42,"event":"workflow_dispatch","status":"completed","headBranch":"main","headSha":"test-sha"}]'
     ;;
   "run view")
     printf '%s\n' '{"status":"completed","conclusion":"success"}'

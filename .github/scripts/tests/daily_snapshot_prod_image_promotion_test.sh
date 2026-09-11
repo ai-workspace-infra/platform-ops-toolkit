@@ -41,7 +41,7 @@ case "$1" in
   run)
     case "$2" in
       list)
-        printf '%s\n' '[{"databaseId":42,"event":"push","status":"completed","conclusion":"success","headBranch":"v2026.09.01-r99","headSha":"test-sha"}]'
+        printf '%s\n' '[{"databaseId":42,"event":"workflow_dispatch","status":"completed","conclusion":"success","headBranch":"main","headSha":"test-sha"}]'
         ;;
       watch)
         [[ "$3" =~ ^[0-9]+$ && "$4" == "--repo" ]] || {
