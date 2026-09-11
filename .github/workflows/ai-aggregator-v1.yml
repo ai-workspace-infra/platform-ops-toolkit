@@ -1,0 +1,97 @@
+name: AI Aggregator v1
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ai-aggregator-v1.yml'
+      - 'scripts/ci/validate_ai_aggregator_manifest.py'
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "plan validates only; stage creates non-secret host configuration"
+        required: true
+        default: plan
+        type: choice
+        options: [plan, stage]
+      environment:
+        description: "Target environment (uat: ai.onwalk.net, prod: ai.svc.plus)"
+        required: true
+        default: uat
+        type: choice
+        options: [uat, prod]
+      gitops_ref:
+        description: "Immutable GitOps ref"
+        required: true
+        default: main
+      playbooks_ref:
+        description: "Immutable Playbooks ref"
+        required: true
+        default: main
+      target:
+        description: "Inventory host to inspect or stage"
+        required: true
+        default: jp-xhttp-contabo.svc.plus
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ai-aggregator-v1-${{ inputs.environment || 'uat' }}-${{ inputs.target || github.head_ref || 'validation' }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install manifest parser
+        run: pip install --quiet pyyaml
+      - name: Checkout GitOps declaration
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_ref || github.head_ref || 'main' }}
+          path: gitops
+      - name: Validate GitOps declarations (UAT & PROD)
+        run: |
+          if [ -f gitops/topology/uat/selfhost/ai-aggregator.yaml ]; then
+            python3 scripts/ci/validate_ai_aggregator_manifest.py gitops/topology/uat/selfhost/ai-aggregator.yaml
+          fi
+          if [ -f gitops/topology/prod/selfhost/ai-aggregator.yaml ]; then
+            python3 scripts/ci/validate_ai_aggregator_manifest.py gitops/topology/prod/selfhost/ai-aggregator.yaml
+          fi
+
+  plan:
+    needs: validate
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ inputs.playbooks_ref || github.head_ref || 'main' }}
+          path: playbooks
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_ref || github.head_ref || 'main' }}
+          path: gitops
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Ansible
+        run: pip install --quiet ansible-core
+      - name: Check deployment syntax
+        working-directory: playbooks
+        run: >-
+          ansible-playbook --syntax-check -i localhost, deploy-ai-aggregator-v1.yml
+          -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/${{ inputs.environment }}/selfhost/ai-aggregator.yaml
+      - name: Require an enabled declaration before remote staging
+        if: ${{ inputs.operation == 'stage' }}
+        run: >-
+          grep -q '^  enabled: true$' gitops/topology/${{ inputs.environment }}/selfhost/ai-aggregator.yaml
