@@ -83,7 +83,7 @@ jobs:
         env:
           EMAIL_DNS_APPLY: "true"
           CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
-          EMAIL_DNS_CONFIG_PATH: gitops/resources/${{ matrix.zone }}/${{ inputs.vault_env_path }}/cloudflare/email-dns.yaml
+          EMAIL_DNS_CONFIG_PATH: ${{ github.workspace }}/gitops/resources/${{ matrix.zone }}/${{ inputs.vault_env_path }}/cloudflare/email-dns.yaml
         run: >-
           ansible-playbook -i localhost, -c local
           playbooks/configure_email_dns.yml
