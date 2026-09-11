@@ -13,14 +13,20 @@ on:
         default: plan
         type: choice
         options: [plan, stage]
+      environment:
+        description: "Target environment (uat: ai.onwalk.net, prod: ai.svc.plus)"
+        required: true
+        default: uat
+        type: choice
+        options: [uat, prod]
       gitops_ref:
         description: "Immutable GitOps ref"
         required: true
-        default: feat/ai-aggregator-v1-delivery
+        default: main
       playbooks_ref:
         description: "Immutable Playbooks ref"
         required: true
-        default: feat/ai-aggregator-v1-delivery
+        default: main
       target:
         description: "Inventory host to inspect or stage"
         required: true
@@ -31,7 +37,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: ai-aggregator-v1-${{ inputs.target || github.head_ref || 'validation' }}
+  group: ai-aggregator-v1-${{ inputs.environment || 'uat' }}-${{ inputs.target || github.head_ref || 'validation' }}
   cancel-in-progress: false
 
 jobs:
@@ -48,10 +54,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/gitops
-          ref: ${{ inputs.gitops_ref || github.head_ref || 'feat/ai-aggregator-v1-delivery' }}
+          ref: ${{ inputs.gitops_ref || github.head_ref || 'main' }}
           path: gitops
-      - name: Validate GitOps declaration
-        run: python3 scripts/ci/validate_ai_aggregator_manifest.py gitops/topology/uat/selfhost/ai-aggregator.yaml
+      - name: Validate GitOps declarations (UAT & PROD)
+        run: |
+          if [ -f gitops/topology/uat/selfhost/ai-aggregator.yaml ]; then
+            python3 scripts/ci/validate_ai_aggregator_manifest.py gitops/topology/uat/selfhost/ai-aggregator.yaml
+          fi
+          if [ -f gitops/topology/prod/selfhost/ai-aggregator.yaml ]; then
+            python3 scripts/ci/validate_ai_aggregator_manifest.py gitops/topology/prod/selfhost/ai-aggregator.yaml
+          fi
 
   plan:
     needs: validate
@@ -62,12 +74,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/playbooks
-          ref: ${{ inputs.playbooks_ref || github.head_ref || 'feat/ai-aggregator-v1-delivery' }}
+          ref: ${{ inputs.playbooks_ref || github.head_ref || 'main' }}
           path: playbooks
       - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/gitops
-          ref: ${{ inputs.gitops_ref || github.head_ref || 'feat/ai-aggregator-v1-delivery' }}
+          ref: ${{ inputs.gitops_ref || github.head_ref || 'main' }}
           path: gitops
       - uses: actions/setup-python@v5
         with:
@@ -78,8 +90,8 @@ jobs:
         working-directory: playbooks
         run: >-
           ansible-playbook --syntax-check -i localhost, deploy-ai-aggregator-v1.yml
-          -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/uat/selfhost/ai-aggregator.yaml
+          -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/${{ inputs.environment }}/selfhost/ai-aggregator.yaml
       - name: Require an enabled declaration before remote staging
         if: ${{ inputs.operation == 'stage' }}
         run: >-
-          grep -q '^  enabled: true$' gitops/topology/uat/selfhost/ai-aggregator.yaml
+          grep -q '^  enabled: true$' gitops/topology/${{ inputs.environment }}/selfhost/ai-aggregator.yaml

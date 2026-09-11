@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import ipaddress
 import sys
 from pathlib import Path
@@ -22,13 +21,28 @@ def main() -> None:
     data = yaml.safe_load(path.read_text())
     if data.get("kind") != "PersonalAIAggregator":
         fail("kind must be PersonalAIAggregator")
+    
+    meta = data.get("metadata", {})
+    env = meta.get("environment")
     spec = data.get("spec", {})
-    if spec.get("entrypoint", {}).get("component") != "caddy":
+    entrypoint = spec.get("entrypoint", {})
+    
+    if entrypoint.get("component") != "caddy":
         fail("Caddy must be the public entrypoint")
+    
+    # Environment to domain binding check:
+    domain = entrypoint.get("domain", "")
+    if env == "uat":
+        if not domain.endswith(".onwalk.net") and domain != "ai.onwalk.net":
+            fail(f"UAT environment must bind to *.onwalk.net (got: {domain})")
+    elif env == "prod":
+        if domain != "ai.svc.plus":
+            fail(f"PROD environment must bind to ai.svc.plus (got: {domain})")
+
     if spec.get("new_api", {}).get("bind_address") not in {"127.0.0.1", "::1"}:
         fail("New API must bind to loopback")
 
-    # Testing environment constraints: AWS Spot t4g 1h rule
+    # Testing environment constraints for UAT: AWS Spot t4g 1h rule
     test_env = spec.get("testing_environment")
     if test_env:
         if test_env.get("provider") != "aws":
@@ -58,7 +72,7 @@ def main() -> None:
             fail(f"CPA instance {instance.get('id')} lacks a Vault reference")
 
     enabled = bool(spec.get("enabled"))
-    cidrs = spec.get("entrypoint", {}).get("source_cidrs", [])
+    cidrs = entrypoint.get("source_cidrs", [])
     if enabled:
         if not cidrs:
             fail("enabled deployment requires an IP allowlist")
