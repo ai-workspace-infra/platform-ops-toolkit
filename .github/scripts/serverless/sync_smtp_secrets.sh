@@ -89,15 +89,33 @@ case "${secretmanager_state}" in
     ;;
 esac
 
+# Report what gcloud actually said. Asserting a cause in the message - "permission
+# denied" - is how the enablement probe above wasted a cycle: the text named a
+# reason nobody had checked, and the real one (a refusal to list services) stayed
+# hidden behind 2>/dev/null. A failure here can be missing IAM, a disabled API, an
+# org policy or a quota, and only gcloud knows which.
+gcloud_err=""
+run_gcloud() {
+  local out
+  if out="$("$@" 2>&1)"; then
+    gcloud_err=""
+    printf '%s' "${out}"
+    return 0
+  fi
+  # Keep it to one line and drop the usage footer gcloud appends to some errors.
+  gcloud_err="$(printf '%s' "${out}" | grep -viE "^(usage:|  |for more| *$)" | head -2 | tr '\n' ' ')"
+  return 1
+}
+
 sync_secret() {
   local name="$1" value="$2" current=""
 
-  if ! gcloud secrets describe "${name}" --project "${GCP_PROJECT_ID}" --quiet >/dev/null 2>&1; then
-    if ! gcloud secrets create "${name}" \
+  if ! run_gcloud gcloud secrets describe "${name}" --project "${GCP_PROJECT_ID}" --quiet >/dev/null; then
+    if ! run_gcloud gcloud secrets create "${name}" \
       --replication-policy=automatic \
       --project "${GCP_PROJECT_ID}" \
-      --quiet >/dev/null 2>&1; then
-      echo "::warning::Unable to create Secret Manager secret ${name} on project ${GCP_PROJECT_ID} (permission denied). Skipping." >&2
+      --quiet >/dev/null; then
+      echo "::warning::Cannot create Secret Manager secret ${name} on project ${GCP_PROJECT_ID}. gcloud said: ${gcloud_err}" >&2
       return 0
     fi
     echo "::notice::Created Secret Manager secret ${name}."
@@ -114,9 +132,9 @@ sync_secret() {
     return 0
   fi
 
-  if ! printf '%s' "${value}" | gcloud secrets versions add "${name}" \
-    --data-file=- --project "${GCP_PROJECT_ID}" --quiet >/dev/null 2>&1; then
-    echo "::warning::Unable to add version to Secret Manager secret ${name} on project ${GCP_PROJECT_ID}. Skipping." >&2
+  if ! printf '%s' "${value}" | run_gcloud gcloud secrets versions add "${name}" \
+    --data-file=- --project "${GCP_PROJECT_ID}" --quiet >/dev/null; then
+    echo "::warning::Cannot add a version to Secret Manager secret ${name} on project ${GCP_PROJECT_ID}. gcloud said: ${gcloud_err}" >&2
     return 0
   fi
   echo "::notice::Added a new version of ${name} from ${VAULT_SMTP_PATH}."
