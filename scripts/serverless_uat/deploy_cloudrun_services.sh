@@ -72,7 +72,11 @@ for svc in "${SERVICES[@]}"; do
         "XWORKMATE_BRIDGE_SERVER_URL=${XWORKMATE_BRIDGE_SERVER_URL:?XWORKMATE_BRIDGE_SERVER_URL is required}"
         "SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}"
         "SMTP_PORT=${SMTP_PORT:-587}"
-        "SMTP_FROM=${SMTP_FROM:-XWorkmate <no-reply@xworktech.com>}"
+        # The display name carries the whole impression here. Gmail rewrites the
+        # address to the authenticating account when the alias is not a verified
+        # send-as, so a recipient currently sees a person's mailbox; a name that
+        # reads as a system keeps the mail from looking like someone wrote it.
+        "SMTP_FROM=${SMTP_FROM:-svc.plus Notifications <no-reply@xworktech.com>}"
         "STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}"
         "STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}"
         "STRIPE_XCONNECT_PAY_URL=${STRIPE_XCONNECT_PAY_URL:-}"
