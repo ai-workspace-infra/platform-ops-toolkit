@@ -52,20 +52,33 @@ if [ -z "${smtp_username}" ] || [ -z "${smtp_password}" ]; then
   exit 1
 fi
 
+# Ensure the Secret Manager API is enabled on the target project before proceeding.
+# In a non-interactive CI runner, an un-enabled API causes gcloud to prompt (y/N)?
+# and fail with EOF / permission denied.
+if ! gcloud services list --enabled --project "${GCP_PROJECT_ID}" --filter="config.name:secretmanager.googleapis.com" --format="value(config.name)" 2>/dev/null | grep -q "secretmanager.googleapis.com"; then
+  echo "::notice::Secret Manager API is not enabled on project ${GCP_PROJECT_ID}. Attempting to enable..."
+  if ! gcloud services enable secretmanager.googleapis.com --project "${GCP_PROJECT_ID}" --quiet; then
+    echo "::error::Failed to enable Secret Manager API on project ${GCP_PROJECT_ID}. Please enable it in Google Cloud Console: https://console.developers.google.com/apis/api/secretmanager.googleapis.com/overview?project=${GCP_PROJECT_ID}" >&2
+    exit 1
+  fi
+  echo "::notice::Successfully enabled Secret Manager API on project ${GCP_PROJECT_ID}."
+fi
+
 sync_secret() {
   local name="$1" value="$2" current=""
 
-  if ! gcloud secrets describe "${name}" --project "${GCP_PROJECT_ID}" >/dev/null 2>&1; then
+  if ! gcloud secrets describe "${name}" --project "${GCP_PROJECT_ID}" --quiet >/dev/null 2>&1; then
     gcloud secrets create "${name}" \
       --replication-policy=automatic \
-      --project "${GCP_PROJECT_ID}" >/dev/null
+      --project "${GCP_PROJECT_ID}" \
+      --quiet >/dev/null
     echo "::notice::Created Secret Manager secret ${name}."
   else
     # A secret whose every version is disabled or destroyed has no accessible
     # latest; treat that as "no current value" rather than letting the failure
     # escape and abort the deploy.
     current="$(gcloud secrets versions access latest \
-      --secret "${name}" --project "${GCP_PROJECT_ID}" 2>/dev/null || true)"
+      --secret "${name}" --project "${GCP_PROJECT_ID}" --quiet 2>/dev/null || true)"
   fi
 
   if [ "${current}" = "${value}" ]; then
@@ -74,7 +87,7 @@ sync_secret() {
   fi
 
   printf '%s' "${value}" | gcloud secrets versions add "${name}" \
-    --data-file=- --project "${GCP_PROJECT_ID}" >/dev/null
+    --data-file=- --project "${GCP_PROJECT_ID}" --quiet >/dev/null
   echo "::notice::Added a new version of ${name} from ${VAULT_SMTP_PATH}."
 }
 
