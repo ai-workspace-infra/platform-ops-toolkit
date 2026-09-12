@@ -21,6 +21,9 @@ agent_controller_url="${AGENT_CONTROLLER_URL:-https://accounts-serverless-uat.on
 # the AWS UAT resource configuration.
 agent_proxy_plan="${AGENT_PROXY_PLAN:-2C2G}"
 skip_stripe_catalog="${SKIP_STRIPE_CATALOG:-false}"
+enable_migration="${ENABLE_MIGRATION:-true}"
+accounts_source_backend="${ACCOUNTS_SOURCE_BACKEND:-supabase}"
+serverless_operation="${SERVERLESS_OPERATION:-}"
 wait_timeout_seconds="${UAT_SERVERLESS_WAIT_TIMEOUT_SECONDS:-3600}"
 wait_interval_seconds="${UAT_SERVERLESS_WAIT_INTERVAL_SECONDS:-20}"
 
@@ -59,13 +62,22 @@ done
 export GH_TOKEN="${gh_token}"
 
 dispatch_serverless() {
-  # Daily releases deploy immutable application artifacts only. User-data
-  # migration has a separate explicitly invoked workflow because its source
-  # can be private or serverless and must never be assumed SSH-reachable.
+  # UAT defaults to one-way migration from PROD Supabase to UAT Supabase (deploy+migrate).
+  # If migration is disabled or an operation is explicitly passed, honor the override.
+  local op="${serverless_operation}"
+  if [[ -z "${op}" ]]; then
+    if [[ "${enable_migration}" == "true" ]]; then
+      op="deploy+migrate"
+    else
+      op="deploy"
+    fi
+  fi
+
   gh workflow run "${serverless_workflow}" \
     --repo "${target_repo}" \
     --ref main \
-    -f operation=deploy \
+    -f "operation=${op}" \
+    -f "accounts_source_backend=${accounts_source_backend}" \
     -f target_domains=web-saas \
     -f vault_env_path=uat \
     -f "tag_ref=${snapshot_tag}" \

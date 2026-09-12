@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: '执行范围：plan 仅校验；init-schema 初始化 Supabase schema；deploy 部署应用；migrate 迁移；deploy+migrate 部署+迁移；destroy 销毁（Prod 禁止）'
+        description: '执行范围：plan 仅校验；init-schema 初始化 Supabase schema；deploy 部署应用；upgrade 升级应用无状态组件（不迁移数据）；migrate 迁移；deploy+migrate 部署+迁移；destroy 销毁（Prod 禁止）'
         required: true
         default: 'deploy'
         type: choice
@@ -16,6 +16,7 @@ on:
           - plan
           - init-schema
           - deploy
+          - upgrade
           - migrate
           - deploy+migrate
           - destroy
@@ -83,8 +84,16 @@ on:
           - none
           - uat-records
           - prod-cutover
+      accounts_source_backend:
+        description: '仅 migrate/deploy+migrate：Accounts 数据迁移源端：supabase（PROD Supabase 云直连）或 vps（传统 VPS 容器 SSH）'
+        required: false
+        default: 'supabase'
+        type: choice
+        options:
+          - supabase
+          - vps
       supabase_source_tunnel_host:
-        description: '仅 migrate/deploy+migrate：PROD 源 PostgreSQL SSH 主机；在 postgresql-svc-plus 容器内执行只读导出'
+        description: '仅 migrate/deploy+migrate (vps 源)：PROD 源 PostgreSQL SSH 主机；在 postgresql-svc-plus 容器内执行只读导出'
         required: false
         default: 'console.svc.plus'
         type: string
@@ -172,7 +181,7 @@ jobs:
     needs: preflight
     # Deployment paths verify the existing Supabase service before Cloud Run
     # and migration start. Schema initialization is a separate manual workflow.
-    if: ${{ contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) }}
+    if: ${{ contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout platform toolkit
@@ -197,6 +206,35 @@ jobs:
           VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
           INITIALIZE_SUPABASE: 'false'
           VERIFY_SUPABASE: 'true'
+
+      - name: Load Supabase credentials from Vault for checkpoint
+        id: vault_checkpoint
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/supabase DATABASE_SESSION_POOLER_URL | TARGET_DSN ;
+
+      - name: Create release checkpoint before deployment
+        run: ./.github/scripts/database/create_release_checkpoint.sh
+        env:
+          RELEASE_TAG: ${{ inputs.tag_ref || github.sha }}
+          DATABASE_BACKEND: supabase
+          DATABASE_ENV: ${{ inputs.vault_env_path || 'uat' }}
+          TARGET_DSN: ${{ steps.vault_checkpoint.outputs.TARGET_DSN }}
+          GIT_SHA: ${{ github.sha }}
+
+      - name: Upload release checkpoint artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: database-checkpoint-${{ inputs.vault_env_path || 'uat' }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/database-checkpoints/
+          if-no-files-found: ignore
+          retention-days: 7
 
   init_schema:
     name: Supabase / xworktech schema initialization
@@ -240,7 +278,7 @@ jobs:
   cloud_run:
     name: Cloud Run / ${{ matrix.service }}
     needs: preflight
-    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloud_run == true }}
+    if: ${{ always() && needs.preflight.result == 'success' && contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloud_run == true }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -340,7 +378,7 @@ jobs:
     if: >-
       ${{ always() && needs.preflight.result == 'success' &&
       needs.cloud_run.result != 'cancelled' &&
-      contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) &&
+      contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
       inputs.deploy_cloud_run == true }}
     runs-on: ubuntu-latest
     steps:
@@ -360,7 +398,7 @@ jobs:
     needs: [preflight, backend_gate]
     if: >-
       ${{ always() && needs.preflight.result == 'success' &&
-      contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) &&
+      contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
       inputs.deploy_cloudflare == true &&
       (needs.backend_gate.result == 'success' || needs.backend_gate.result == 'skipped') }}
     runs-on: ubuntu-latest
@@ -454,7 +492,7 @@ jobs:
     needs: [preflight, backend_gate]
     if: >-
       ${{ always() && needs.preflight.result == 'success' &&
-      contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) &&
+      contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
       inputs.deploy_cloudflare == true &&
       (needs.backend_gate.result == 'success' || needs.backend_gate.result == 'skipped') }}
     runs-on: ubuntu-latest
@@ -525,7 +563,7 @@ jobs:
     needs: [preflight, backend_gate]
     if: >-
       ${{ always() && needs.preflight.result == 'success' &&
-      contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) &&
+      contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
       inputs.deploy_cloudflare == true &&
       (needs.backend_gate.result == 'success' || needs.backend_gate.result == 'skipped') }}
     runs-on: ubuntu-latest
@@ -621,7 +659,7 @@ jobs:
     needs: [preflight, cloudflare_ssr]
     if: >-
       ${{ always() && needs.preflight.result == 'success' &&
-      contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) &&
+      contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
       inputs.deploy_cloudflare == true &&
       needs.cloudflare_ssr.result == 'success' }}
     runs-on: ubuntu-latest
@@ -702,7 +740,7 @@ jobs:
     needs: [preflight, supabase, cloud_run, cloudflare_ssr, frontend_router, edge_gateway, static_pages]
     if: >-
       ${{ always() && needs.preflight.result == 'success' &&
-      contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) &&
+      contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
       inputs.deploy_cloudflare == true &&
       (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') &&
       (needs.cloud_run.result == 'success' || needs.cloud_run.result == 'skipped') &&
@@ -792,6 +830,7 @@ jobs:
       migration_scope: accounts
       accounts_dry_run: false
       accounts_ref: ${{ inputs.tag_ref || 'main' }}
+      accounts_source_backend: ${{ inputs.accounts_source_backend || 'supabase' }}
       accounts_target_backend: supabase
       accounts_migration_mode: metadata_and_data
       supabase_metadata_dry_run: false
@@ -813,7 +852,7 @@ jobs:
     if: >-
       ${{ always() && !cancelled() &&
       needs.preflight.result == 'success' &&
-      contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) &&
+      contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
       inputs.deploy_cloud_run == true &&
       inputs.skip_stripe_catalog != true &&
       inputs.deploy_cloudflare == true &&
@@ -941,7 +980,7 @@ jobs:
     needs: [preflight, supabase, cloud_run, cloudflare_ssr, frontend_router, edge_gateway, static_pages, serverless_domains, trigger_data_migration, stripe_catalog]
     if: >-
       ${{ always() && needs.preflight.result == 'success' &&
-      contains(fromJSON('["deploy","deploy+migrate"]'), inputs.operation) &&
+      contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
       needs.supabase.result != 'cancelled' &&
       needs.cloud_run.result != 'cancelled' &&
       needs.cloudflare_ssr.result != 'cancelled' &&

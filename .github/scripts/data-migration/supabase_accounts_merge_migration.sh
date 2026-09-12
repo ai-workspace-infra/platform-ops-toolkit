@@ -13,6 +13,8 @@ VAULT_REF="${SUPABASE_VAULT_PROJECT_REF:-}"
 DRY_RUN="${SUPABASE_METADATA_DRY_RUN:-true}"
 MODE="${SUPABASE_MIGRATION_MODE:-metadata_and_data}"
 CONNECTION_MODE="${SUPABASE_TARGET_CONNECTION_MODE:-session_pooler}"
+SOURCE_BACKEND="${SUPABASE_SOURCE_BACKEND:-supabase}"
+SOURCE_DSN="${SUPABASE_SOURCE_DSN:-}"
 SOURCE_SSH_HOST="${SUPABASE_SOURCE_TUNNEL_HOST:-}"
 SOURCE_SSH_USER="${SUPABASE_SOURCE_SSH_USER:-root}"
 SOURCE_SSH_KEY_PATH="${SUPABASE_SOURCE_SSH_KEY_PATH:-${HOME}/.ssh/id_deploy}"
@@ -39,7 +41,7 @@ SSH_OPTIONS=(
 )
 
 cleanup() {
-  if [[ -n "${SOURCE_SSH_HOST}" ]]; then
+  if [[ -n "${SOURCE_SSH_HOST}" && "${SOURCE_BACKEND}" == "vps" ]]; then
     ssh "${SSH_OPTIONS[@]}" "${SOURCE_SSH_USER}@${SOURCE_SSH_HOST}" \
       "rm -rf $(printf '%q' "${REMOTE_DIR}")" >/dev/null 2>&1 || true
   fi
@@ -47,8 +49,16 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [[ -z "${TARGET_DSN}" || -z "${SOURCE_SSH_HOST}" || -z "${MIGRATECTL_BIN}" ]]; then
-  echo "ERROR: target DSN, PROD source SSH host, and MIGRATECTL_BIN are required." >&2
+case "${SOURCE_BACKEND}" in
+  vps|supabase) ;;
+  *)
+    echo "ERROR: Unsupported source backend: ${SOURCE_BACKEND}. Allowed: vps, supabase." >&2
+    exit 1
+    ;;
+esac
+
+if [[ -z "${TARGET_DSN}" || -z "${MIGRATECTL_BIN}" ]]; then
+  echo "ERROR: target DSN and MIGRATECTL_BIN are required." >&2
   exit 1
 fi
 if [[ ! -x "${MIGRATECTL_BIN}" ]]; then
@@ -59,17 +69,35 @@ if [[ "${MODE}" != "metadata_and_data" ]]; then
   echo "ERROR: Accounts merge requires SUPABASE_MIGRATION_MODE=metadata_and_data." >&2
   exit 1
 fi
-if [[ ! -r "${SOURCE_SSH_KEY_PATH}" ]]; then
-  echo "ERROR: source PostgreSQL SSH key is missing: ${SOURCE_SSH_KEY_PATH}" >&2
-  exit 1
-fi
-if [[ "${SOURCE_DB_USER}" != "readonly" ]]; then
-  echo "ERROR: source DB role must remain readonly; refusing to run as ${SOURCE_DB_USER}." >&2
-  exit 1
-fi
-if [[ ! "${SOURCE_CONTAINER}" =~ ^[a-zA-Z0-9_.-]+$ || ! "${SOURCE_DB_NAME}" =~ ^[a-zA-Z0-9_.-]+$ ]]; then
-  echo "ERROR: source container and database names contain unsafe characters." >&2
-  exit 1
+
+if [[ "${SOURCE_BACKEND}" == "supabase" ]]; then
+  if [[ -z "${SOURCE_DSN}" ]]; then
+    echo "ERROR: source Supabase DSN (SUPABASE_SOURCE_DSN) is required when SOURCE_BACKEND=supabase." >&2
+    exit 1
+  fi
+  if [[ "${SOURCE_DSN}" == "${TARGET_DSN}" ]]; then
+    echo "ERROR: source DSN and target DSN must not be identical." >&2
+    exit 1
+  fi
+elif [[ "${SOURCE_BACKEND}" == "vps" ]]; then
+  if [[ -z "${SOURCE_SSH_HOST}" ]]; then
+    echo "ERROR: PROD source SSH host is required when SOURCE_BACKEND=vps." >&2
+    exit 1
+  fi
+  if [[ ! -r "${SOURCE_SSH_KEY_PATH}" ]]; then
+    echo "ERROR: source PostgreSQL SSH key is missing: ${SOURCE_SSH_KEY_PATH}" >&2
+    exit 1
+  fi
+  if [[ "${SOURCE_DB_USER}" != "readonly" ]]; then
+    echo "ERROR: source DB role must remain readonly; refusing to run as ${SOURCE_DB_USER}." >&2
+    exit 1
+  fi
+  if [[ ! "${SOURCE_CONTAINER}" =~ ^[a-zA-Z0-9_.-]+$ || ! "${SOURCE_DB_NAME}" =~ ^[a-zA-Z0-9_.-]+$ ]]; then
+    echo "ERROR: source container and database names contain unsafe characters." >&2
+    exit 1
+  fi
+  command -v ssh >/dev/null || { echo "ERROR: ssh is required." >&2; exit 1; }
+  command -v scp >/dev/null || { echo "ERROR: scp is required." >&2; exit 1; }
 fi
 if [[ "${TARGET_DSN}" != *"supabase.com"* || "${TARGET_DSN}" == *"svc.plus"* ]]; then
   echo "ERROR: Accounts merge target must be a Supabase DSN, never a PROD platform DSN." >&2
@@ -101,8 +129,6 @@ if [[ -z "${EXPECTED_REF}" || "${VAULT_REF}" != "${EXPECTED_REF}" ]]; then
   echo "ERROR: Supabase Vault PROJECT_REF does not match the requested project ref." >&2
   exit 1
 fi
-command -v ssh >/dev/null || { echo "ERROR: ssh is required." >&2; exit 1; }
-command -v scp >/dev/null || { echo "ERROR: scp is required." >&2; exit 1; }
 command -v psql >/dev/null || { echo "ERROR: psql is required to inspect the target server version." >&2; exit 1; }
 
 target_pg_dump() {
@@ -136,33 +162,44 @@ run_remote() {
 }
 
 echo "Supabase Accounts domain merge (PROD -> UAT)"
-echo "  source: ${SOURCE_SSH_USER}@${SOURCE_SSH_HOST}/${SOURCE_CONTAINER}:${SOURCE_DB_NAME} (role ${SOURCE_DB_USER})"
+if [[ "${SOURCE_BACKEND}" == "supabase" ]]; then
+  echo "  source: $(redact_dsn "${SOURCE_DSN}") (Supabase)"
+else
+  echo "  source: ${SOURCE_SSH_USER}@${SOURCE_SSH_HOST}/${SOURCE_CONTAINER}:${SOURCE_DB_NAME} (role ${SOURCE_DB_USER})"
+fi
 echo "  target: $(redact_dsn "${TARGET_DSN}")"
 echo "  dry-run: ${DRY_RUN}"
 
-run_remote mkdir -p "${REMOTE_DIR}"
-run_remote chmod 700 "${REMOTE_DIR}"
-scp "${SSH_OPTIONS[@]}" -q "${MIGRATECTL_BIN}" "${SOURCE_SSH_USER}@${SOURCE_SSH_HOST}:${REMOTE_DIR}/migratectl"
-run_remote chmod 700 "${REMOTE_DIR}/migratectl"
+if [[ "${SOURCE_BACKEND}" == "supabase" ]]; then
+  echo "[1/4] Exporting Accounts snapshot directly from source Supabase..."
+  "${MIGRATECTL_BIN}" export \
+    --dsn "${SOURCE_DSN}" \
+    --output "${SNAPSHOT_FILE}"
+else
+  echo "[1/4] Exporting Accounts snapshot inside PROD PostgreSQL container..."
+  run_remote mkdir -p "${REMOTE_DIR}"
+  run_remote chmod 700 "${REMOTE_DIR}"
+  scp "${SSH_OPTIONS[@]}" -q "${MIGRATECTL_BIN}" "${SOURCE_SSH_USER}@${SOURCE_SSH_HOST}:${REMOTE_DIR}/migratectl"
+  run_remote chmod 700 "${REMOTE_DIR}/migratectl"
 
-if ! run_remote docker image inspect "${RUNTIME_IMAGE}" >/dev/null 2>&1; then
-  echo "  pulling source runtime image: ${RUNTIME_IMAGE}"
-  run_remote docker pull -q "${RUNTIME_IMAGE}" >/dev/null
+  if ! run_remote docker image inspect "${RUNTIME_IMAGE}" >/dev/null 2>&1; then
+    echo "  pulling source runtime image: ${RUNTIME_IMAGE}"
+    run_remote docker pull -q "${RUNTIME_IMAGE}" >/dev/null
+  fi
+
+  remote_export=(
+    docker run --rm
+    --network "container:${SOURCE_CONTAINER}"
+    -v "${REMOTE_DIR}:/work"
+    "${RUNTIME_IMAGE}"
+    /work/migratectl export
+    --dsn "postgres://${SOURCE_DB_USER}@127.0.0.1:5432/${SOURCE_DB_NAME}?sslmode=disable"
+    --output /work/snapshot.yaml
+  )
+  run_remote "${remote_export[@]}"
+  ssh "${SSH_OPTIONS[@]}" "${SOURCE_SSH_USER}@${SOURCE_SSH_HOST}" \
+    "cat $(printf '%q' "${REMOTE_DIR}/snapshot.yaml")" >"${SNAPSHOT_FILE}"
 fi
-
-echo "[1/4] Exporting Accounts snapshot inside PROD PostgreSQL container..."
-remote_export=(
-  docker run --rm
-  --network "container:${SOURCE_CONTAINER}"
-  -v "${REMOTE_DIR}:/work"
-  "${RUNTIME_IMAGE}"
-  /work/migratectl export
-  --dsn "postgres://${SOURCE_DB_USER}@127.0.0.1:5432/${SOURCE_DB_NAME}?sslmode=disable"
-  --output /work/snapshot.yaml
-)
-run_remote "${remote_export[@]}"
-ssh "${SSH_OPTIONS[@]}" "${SOURCE_SSH_USER}@${SOURCE_SSH_HOST}" \
-  "cat $(printf '%q' "${REMOTE_DIR}/snapshot.yaml")" >"${SNAPSHOT_FILE}"
 [[ -s "${SNAPSHOT_FILE}" ]] || { echo "ERROR: Accounts snapshot is empty." >&2; exit 1; }
 
 echo "[2/4] Running Accounts merge dry-run against Supabase..."

@@ -57,10 +57,10 @@ jq -se '
 grep -Fq -- 'git/ref/tags/${release_tag}' "${prod_dispatcher}"
 grep -Fq -- 'resolved to ref' "${prod_dispatcher}"
 
-# The routine production snapshot must not implicitly require the separate
-# PROD accounts-migration SSH contract.
-grep -Fq -- '-f operation=deploy -f target_domains=web-saas' "${prod_dispatcher}"
-! grep -Fq -- '-f operation=deploy+migrate' "${prod_dispatcher}"
+# The routine production snapshot must use 'upgrade' instead of data migration
+# and never implicitly require the separate PROD accounts-migration contract.
+grep -Fq -- 'serverless_op="upgrade"' "${prod_dispatcher}"
+grep -Fq -- '-f "operation=${serverless_op}" -f target_domains=web-saas' "${prod_dispatcher}"
 grep -Fq -- '-f target_domain_base=svc.plus -f dns_mode=prod-cutover' "${prod_dispatcher}"
 
 echo "daily_snapshot_prod_manifest_test: PASS"
