@@ -1,0 +1,32 @@
+groups:
+  - name: release_checkpoints_alerts
+    rules:
+      - alert: ProductionDatabaseRollbackExecuted
+        expr: increase(pg_release_checkpoints_summary_total_rollbacks{environment="prod"}[1h]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          tier: database
+        annotations:
+          summary: "生产环境数据库已触发回滚操作！"
+          description: "环境 {{ $labels.environment }} 后端 {{ $labels.database_backend }} 检测到数据库回滚事件，请立即核实业务影响与数据一致性！"
+
+      - alert: ProductionUpgradeMissingCheckpoint
+        expr: (time() - pg_release_checkpoints_created_timestamp{environment="prod"}) > 86400 * 14
+        for: 30m
+        labels:
+          severity: warning
+          tier: release
+        annotations:
+          summary: "生产环境超过 14 天未生成版本检查点"
+          description: "生产环境长时间未记录新的 Release Checkpoint，请确认日常流水线快照是否按预期运行。"
+
+      - alert: ReleaseCheckpointSlowExecution
+        expr: pg_release_checkpoints_duration_seconds{status="checkpointed"} > 180
+        for: 1m
+        labels:
+          severity: warning
+          tier: pipeline
+        annotations:
+          summary: "数据库检查点创建耗时超过 3 分钟"
+          description: "Tag {{ $labels.release_tag }} 在环境 {{ $labels.environment }} 导出耗时为 {{ $value }} 秒，可能存在锁争用或 Session Pooler 吞吐瓶颈。"

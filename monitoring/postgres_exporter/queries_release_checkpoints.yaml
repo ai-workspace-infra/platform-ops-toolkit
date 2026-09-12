@@ -1,0 +1,75 @@
+pg_release_checkpoints:
+  query: |
+    SELECT
+      release_tag,
+      environment,
+      database_backend,
+      database_name,
+      git_sha,
+      status,
+      EXTRACT(EPOCH FROM created_at) AS created_timestamp,
+      COALESCE(EXTRACT(EPOCH FROM completed_at), EXTRACT(EPOCH FROM NOW())) - EXTRACT(EPOCH FROM created_at) AS duration_seconds,
+      CASE status
+        WHEN 'checkpointed' THEN 1
+        WHEN 'upgraded' THEN 2
+        WHEN 'rolled_back' THEN 0
+        ELSE -1
+      END AS status_code
+    FROM public.system_release_checkpoints
+    ORDER BY id DESC
+    LIMIT 20;
+  metrics:
+    - release_tag:
+        usage: "LABEL"
+        description: "Release tag associated with this checkpoint"
+    - environment:
+        usage: "LABEL"
+        description: "Environment (prod/uat)"
+    - database_backend:
+        usage: "LABEL"
+        description: "Database backend (supabase/vps)"
+    - database_name:
+        usage: "LABEL"
+        description: "Database name"
+    - git_sha:
+        usage: "LABEL"
+        description: "Git commit SHA"
+    - status:
+        usage: "LABEL"
+        description: "Release checkpoint status"
+    - created_timestamp:
+        usage: "GAUGE"
+        description: "Epoch timestamp when the checkpoint was created"
+    - duration_seconds:
+        usage: "GAUGE"
+        description: "Time taken to complete the checkpoint or duration in state"
+    - status_code:
+        usage: "GAUGE"
+        description: "Numeric status: 1=checkpointed, 2=upgraded, 0=rolled_back"
+
+pg_release_checkpoints_summary:
+  query: |
+    SELECT
+      environment,
+      database_backend,
+      COUNT(*) AS total_checkpoints,
+      COUNT(*) FILTER (WHERE status = 'rolled_back') AS total_rollbacks,
+      MAX(created_at) AS last_checkpoint_time
+    FROM public.system_release_checkpoints
+    GROUP BY environment, database_backend;
+  metrics:
+    - environment:
+        usage: "LABEL"
+        description: "Environment name"
+    - database_backend:
+        usage: "LABEL"
+        description: "Backend type"
+    - total_checkpoints:
+        usage: "COUNTER"
+        description: "Total number of checkpoints recorded"
+    - total_rollbacks:
+        usage: "COUNTER"
+        description: "Total number of rollbacks executed"
+    - last_checkpoint_time:
+        usage: "GAUGE"
+        description: "Timestamp of the most recent checkpoint"

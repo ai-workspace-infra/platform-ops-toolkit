@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+source_backend="${ACCOUNTS_SOURCE_BACKEND:-supabase}"
 backend="${ACCOUNTS_TARGET_BACKEND:-vps}"
 mode="${ACCOUNTS_MIGRATION_MODE:-data}"
 project_ref="${SUPABASE_PROJECT_REF:-}"
 target_strategy="${SUPABASE_TARGET_EXISTING_STRATEGY:-reject}"
+
+case "${source_backend}" in
+  vps|supabase) ;;
+  *)
+    echo "::error::Unsupported Accounts source backend: ${source_backend}. Allowed: vps, supabase." >&2
+    exit 1
+    ;;
+esac
 
 case "${target_strategy}" in
   reject|replace_public|accounts_merge) ;;
@@ -17,7 +26,7 @@ esac
 
 case "${backend}:${mode}" in
   vps:data)
-    echo "Migration target validated: VPS self-hosted PostgreSQL data flow."
+    echo "Migration target validated: VPS self-hosted PostgreSQL data flow (source=${source_backend})."
     ;;
   supabase:metadata|supabase:metadata_and_data)
     if [[ -n "${project_ref}" && ! "${project_ref}" =~ ^[a-z0-9]{20}$ ]]; then
@@ -28,10 +37,10 @@ case "${backend}:${mode}" in
       echo "::error::SUPABASE_TARGET_EXISTING_STRATEGY=accounts_merge requires ACCOUNTS_MIGRATION_MODE=metadata_and_data." >&2
       exit 1
     fi
-    if [[ -n "${project_ref}" ]]; then
-      echo "Migration target validated: Supabase Cloud one-way metadata/data flow (${project_ref})."
+    if [[ "${source_backend}" == "supabase" ]]; then
+      echo "Migration path validated: PROD Supabase -> UAT Supabase one-way data flow (strategy=${target_strategy})."
     else
-      echo "Migration target validated: Supabase Cloud one-way metadata/data flow (PROJECT_REF from Vault)."
+      echo "Migration path validated: PROD VPS -> UAT Supabase one-way data flow (strategy=${target_strategy})."
     fi
     ;;
   *)

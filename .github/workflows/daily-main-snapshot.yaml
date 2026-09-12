@@ -43,6 +43,10 @@ on:
         required: false
         default: ''
         type: string
+      enable_migration:
+        description: "可选：是否触发数据迁移（UAT 默认 true 并单向拉取 PROD Supabase；PROD 默认 false，需显式开启）"
+        required: false
+        type: boolean
 
 permissions:
   contents: write
@@ -277,6 +281,7 @@ jobs:
           SKIP_STRIPE_CATALOG: ${{ inputs.skip_stripe_catalog || false }}
           XCONNECT_ONE_RELEASE_TAG: ${{ inputs.xconnect_one_release_tag }}
           XCONNECT_GATEWAY_RELEASE_TAG: ${{ inputs.xconnect_gateway_release_tag }}
+          ENABLE_MIGRATION: ${{ inputs.enable_migration }}
 
       - name: Load GitHub App private key for production dispatch
         if: ${{ (inputs.deploy_env || 'uat') == 'prod' && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' }}
@@ -318,6 +323,7 @@ jobs:
           GH_TOKEN: ${{ steps.prod-app-token.outputs.token }}
           RELEASE_TAG: ${{ steps.resolve_release_tag.outputs.release_tag }}
           SKIP_STRIPE_CATALOG: ${{ inputs.skip_stripe_catalog || false }}
+          ENABLE_MIGRATION: ${{ inputs.enable_migration }}
 
       - name: Publish unified snapshot matrix summary
         env:
