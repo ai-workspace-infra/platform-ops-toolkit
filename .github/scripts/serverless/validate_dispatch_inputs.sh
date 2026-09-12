@@ -52,21 +52,21 @@ esac
 case "${operation}" in
   plan|init-schema|migrate|destroy)
     ;;
-  deploy|deploy+migrate)
+  deploy|upgrade|deploy+migrate)
     if [[ -z "${tag_ref}" ]]; then
       echo "TAG_REF is required for operation=${operation}" >&2
       exit 2
     fi
     ;;
   *)
-    echo "OPERATION must be one of: plan, init-schema, deploy, migrate, deploy+migrate, destroy" >&2
+    echo "OPERATION must be one of: plan, init-schema, deploy, upgrade, migrate, deploy+migrate, destroy" >&2
     exit 2
     ;;
 esac
 
 if [[ "${serverless_dns_mode}" != "none" ]] &&
-   [[ "${operation}" != "deploy" && "${operation}" != "deploy+migrate" ]]; then
-  echo "dns_mode=${serverless_dns_mode} requires operation=deploy or operation=deploy+migrate" >&2
+   [[ "${operation}" != "deploy" && "${operation}" != "upgrade" && "${operation}" != "deploy+migrate" ]]; then
+  echo "dns_mode=${serverless_dns_mode} requires operation=deploy, operation=upgrade, or operation=deploy+migrate" >&2
   exit 2
 fi
 
@@ -130,7 +130,7 @@ else
   esac
 fi
 
-if [[ "${operation}" == "deploy" || "${operation}" == "deploy+migrate" ]] &&
+if [[ "${operation}" == "deploy" || "${operation}" == "upgrade" || "${operation}" == "deploy+migrate" ]] &&
    [[ "${deploy_cloudflare}" != "true" && "${deploy_cloud_run}" != "true" ]]; then
   echo "At least one of deploy_cloudflare or deploy_cloud_run must be enabled for operation=${operation}" >&2
   exit 2

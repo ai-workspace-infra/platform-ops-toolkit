@@ -45,5 +45,9 @@ grep -Fq 'source DB role must remain readonly' "${merge_script}"
 grep -Fq "server_version_num" "${merge_script}"
 grep -Fq 'postgres:${server_major}' "${merge_script}"
 grep -Fq 'Accounts merge requires SUPABASE_MIGRATION_MODE=metadata_and_data' "${merge_script}"
+grep -Fq 'SOURCE_BACKEND="${SUPABASE_SOURCE_BACKEND:-supabase}"' "${merge_script}"
+grep -Fq 'source Supabase DSN (SUPABASE_SOURCE_DSN) is required' "${merge_script}"
+grep -Fq 'Exporting Accounts snapshot directly from source Supabase' "${merge_script}"
 
 echo "supabase_target_strategy_contract_test: PASS"
+
