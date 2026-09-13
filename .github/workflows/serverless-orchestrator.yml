@@ -742,7 +742,7 @@ jobs:
       ${{ always() && needs.preflight.result == 'success' &&
       contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
       inputs.deploy_cloudflare == true &&
-      (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') &&
+      (needs.supabase.result == 'success' || needs.supabase.result == 'failure' || needs.supabase.result == 'skipped') &&
       (needs.cloud_run.result == 'success' || needs.cloud_run.result == 'skipped') &&
       (needs.cloudflare_ssr.result == 'success' || needs.cloudflare_ssr.result == 'skipped') &&
       (needs.frontend_router.result == 'success' || needs.frontend_router.result == 'skipped') &&

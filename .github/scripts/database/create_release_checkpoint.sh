@@ -27,6 +27,37 @@ redact_dsn() {
   printf '%s' "$1" | sed -E 's#(://[^:/@]+):[^@]*@#\1:***@#'
 }
 
+dump_supabase_public_schema() {
+  local output_file="$1"
+  local client_major
+  local server_major
+  client_major="$(pg_dump --version | awk '{print $3}' | cut -d. -f1)"
+  server_major="$(psql "${TARGET_DSN}" -Atqc "select current_setting('server_version_num')::int / 10000" | tr -d '[:space:]')"
+
+  if [[ -n "${server_major}" && "${client_major}" != "${server_major}" ]]; then
+    if ! command -v docker >/dev/null 2>&1; then
+      echo "ERROR: pg_dump ${client_major} cannot back up PostgreSQL ${server_major}, and Docker is unavailable for a matching client." >&2
+      return 1
+    fi
+    echo "  pg_dump ${client_major} does not match PostgreSQL ${server_major}; using postgres:${server_major} client container."
+    docker run --rm "postgres:${server_major}" pg_dump "${TARGET_DSN}" \
+      --schema=public \
+      --no-owner \
+      --no-privileges \
+      --no-publications \
+      --no-subscriptions >"${output_file}"
+    return
+  fi
+
+  pg_dump "${TARGET_DSN}" \
+    --schema=public \
+    --no-owner \
+    --no-privileges \
+    --no-publications \
+    --no-subscriptions \
+    --file="${output_file}"
+}
+
 mkdir -p "${CHECKPOINT_DIR}"
 
 ensure_ledger_table() {
@@ -118,13 +149,7 @@ checkpoint_supabase() {
   local s3_uri="s3://${S3_BUCKET:-local}/${S3_PREFIX}/${DATABASE_ENV}/supabase/${RELEASE_TAG}/$(basename "${enc_file}")"
 
   echo "  exporting public schema and business data via pg_dump..."
-  pg_dump "${TARGET_DSN}" \
-    --schema=public \
-    --no-owner \
-    --no-privileges \
-    --no-publications \
-    --no-subscriptions \
-    --file="${raw_sql}"
+  dump_supabase_public_schema "${raw_sql}"
 
   [[ -s "${raw_sql}" ]] || { echo "ERROR: Checkpoint dump is empty!" >&2; exit 1; }
   local dump_size
