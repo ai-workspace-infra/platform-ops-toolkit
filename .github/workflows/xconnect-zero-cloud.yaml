@@ -20,7 +20,7 @@ on:
         description: Advanced override - reviewed playbooks commit SHA
         type: string
         required: false
-        default: '7b179971a1cb32fb37893710a9cb8435801977e3'
+        default: '39abb54784cbbc7b28ea44df7b9d6acc17c771c6'
       cli_release_tag:
         description: Advanced override - XConnect-One GitHub Release tag
         type: string
@@ -98,7 +98,7 @@ jobs:
       MODE: ${{ inputs.mode }}
       IAC_REF: ${{ inputs.iac_ref || '9dd120ee027ea999b41d15b80ead20878c1ff468' }}
       GITOPS_REF: ${{ inputs.gitops_ref || '61923e1168797e35e01612c34857c778fd0f2a31' }}
-      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '7b179971a1cb32fb37893710a9cb8435801977e3' }}
+      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '39abb54784cbbc7b28ea44df7b9d6acc17c771c6' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.11' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.5' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
