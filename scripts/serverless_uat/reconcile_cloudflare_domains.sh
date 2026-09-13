@@ -348,9 +348,10 @@ remove_worker_domain_dns_records() {
   local hostname_zone_id
 
   # Worker custom domains cannot coexist with any DNS record for the same
-  # hostname. Only the explicit production cutover is allowed to remove
-  # records, and only for a hostname declared as a Worker custom domain below.
-  [[ "${serverless_dns_mode}" == "prod-cutover" ]] || return 0
+  # hostname. UAT and production cutovers explicitly transfer ownership of
+  # the declared Worker hostnames, so remove the conflicting records before
+  # asking the Workers API to attach the custom domain.
+  [[ "${serverless_dns_mode}" == "uat-records" || "${serverless_dns_mode}" == "prod-cutover" ]] || return 0
   hostname_zone_id="$(zone_id_for_hostname "${hostname}")"
   records_response="$(api_request GET "${CLOUDFLARE_API_BASE}/zones/${hostname_zone_id}/dns_records?name=${hostname}&per_page=100")"
   while IFS=$'\t' read -r record_id record_type record_content; do
@@ -416,6 +417,7 @@ while IFS= read -r console_alias; do
   [[ -n "${console_alias}" ]] || continue
   safeguard_pages_domain "${console_alias}"
 done < <(jq -r '(.spec.serverless.console_aliases // []) + (.spec.serverless.frontend_router.website.hosts // []) | unique[]' "${CONFIG_FILE}")
+remove_worker_domain_dns_records "${console_host}"
 reconcile_worker_domain "${console_host}" "${frontend_router_worker}"
 while IFS= read -r console_alias; do
   [[ -n "${console_alias}" ]] || continue
