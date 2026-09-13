@@ -37,7 +37,7 @@ on:
         description: Stable Gateway Vault record key under prod/ulighthost-xconnect
         type: string
         required: false
-        default: 'TW-XConnect.onwalk.net'
+        default: 'tw-xconnect.onwalk.net'
       ssh_debug_ingress_cidrs:
         description: Optional operator SSH IPv4 /32 allowlist; not stored in GitOps
         type: string
@@ -68,7 +68,7 @@ jobs:
       ZERO_NETWORK_ID: ${{ inputs.network_id || 'net_uat' }}
       ONE_DEVICE_ID: observability-uat
       ONE_VAULT_KEY: ${{ inputs.one_vault_key || 'observability.svc.plus' }}
-      GATEWAY_VAULT_KEY: ${{ inputs.gateway_vault_key || 'TW-XConnect.onwalk.net' }}
+      GATEWAY_VAULT_KEY: ${{ inputs.gateway_vault_key || 'tw-xconnect.onwalk.net' }}
       GATEWAY_SERVER_NAME: TW-XConnect.svc.plus
       SSH_DEBUG_INGRESS_CIDRS: ${{ inputs.ssh_debug_ingress_cidrs || '35.79.83.48/32' }}
     steps:
