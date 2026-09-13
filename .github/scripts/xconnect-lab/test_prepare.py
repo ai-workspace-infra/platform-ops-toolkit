@@ -186,7 +186,7 @@ class GatewayTransportContract(unittest.TestCase):
             'gateway_public_key': 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
             'gateway_endpoint': {'host': '8.8.8.8', 'port': 443, 'server_name': 'xconnect-lab.invalid'},
             'accounts_url': 'https://accounts-uat.onwalk.net',
-            'portal_url': 'https://console-cloudflare-uat.onwalk.net/panel/xconnect-zero',
+            'portal_url': 'https://console-serverless-uat.onwalk.net/panel/xconnect-zero',
             'instances': {
                 'gateway': {'instance_id': 'i-abcdef123', 'public_ip': '8.8.8.8', 'private_ip': '10.0.0.10'},
                 'linux_one': {'instance_id': 'i-0123abcd', 'public_ip': '1.1.1.1', 'private_ip': '10.0.0.20'},

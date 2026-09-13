@@ -5,6 +5,7 @@ ROOT="${GITHUB_WORKSPACE:-$PWD}"
 LAB_DIR="${LAB_DIR:?LAB_DIR is required}"
 TF="$ROOT/iac_modules/vpn-overlay/xconnect-lab"
 DECL="$ROOT/gitops/vpn-overlay/uat/xconnect-lab.json"
+ZERO_DECL="$ROOT/gitops/vpn-overlay/uat/xconnect-zero.json"
 die() { echo "::error::$*" >&2; exit 1; }
 tf() {
   local command="$1" code
@@ -82,6 +83,29 @@ case "${1:?command}" in
     mkdir -p "$LAB_DIR"
     ;;
   topology)
+    test -f "$ZERO_DECL" || die 'Missing formal UAT XConnect Zero control-plane declaration'
+    jq -e -f "$ROOT/.github/scripts/xconnect-lab/validate-zero.jq" "$ZERO_DECL" >/dev/null \
+      || die 'Missing or incompatible formal UAT XConnect Zero control-plane declaration'
+    jq -e -s --arg ref 'vpn-overlay/uat/xconnect-zero.json' \
+      --arg accounts 'https://accounts-uat.onwalk.net' \
+      --arg portal 'https://console-serverless-uat.onwalk.net/panel/xconnect-zero' \
+      --arg vault 'https://vault.svc.plus' \
+      --arg runtime 'kv/data/uat/xconnect-one' \
+      --arg tls 'kv/data/CICD/domains/svc.plus' \
+      --arg obs 'kv/data/CICD/observability' \
+      '.[0].spec.zero.control_plane_ref == $ref and
+       .[0].spec.zero.accounts_api_url == $accounts and
+       .[0].spec.zero.portal_url == $portal and
+       .[0].spec.vault.address == $vault and
+       .[0].spec.vault.runtime_path == $runtime and
+       .[1].spec.accounts_api_url == $accounts and
+       .[1].spec.portal_url == $portal and
+       .[1].spec.vault.address == $vault and
+       .[1].spec.vault.runtime_secret_path == $runtime and
+       .[1].spec.vault.gateway_tls_path == $tls and
+       .[1].spec.vault.observability_path == $obs' \
+      "$DECL" "$ZERO_DECL" >/dev/null \
+      || die 'Lab topology and formal XConnect Zero declaration are inconsistent'
     if [[ "${ALLOW_XCONNECT_RELEASE_OVERRIDES:-false}" == true ]]; then
       jq -e '
         .spec.zero.lab_controller.enabled == false and
@@ -122,6 +146,7 @@ case "${1:?command}" in
       echo "gateway_provider=${GATEWAY_PROVIDER:-$(jq -r .spec.gateway_provider "$DECL")}"
       echo "zero_accounts_api_url=$(jq -r .spec.zero.accounts_api_url "$DECL")"
       echo "zero_portal_url=$(jq -r .spec.zero.portal_url "$DECL")"
+      echo "zero_control_plane_ref=$(jq -r .spec.zero.control_plane_ref "$DECL")"
       echo "observability_endpoint=$(jq -r .spec.observability.endpoint "$DECL")"
       echo "observability_query_path=$(jq -r .spec.observability.metrics_query_path "$DECL")"
       echo "observability_environment=$(jq -r .spec.observability.environment "$DECL")"
