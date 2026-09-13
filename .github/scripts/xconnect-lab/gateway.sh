@@ -8,6 +8,8 @@ formal_zero="${3:?formal Zero accounts API URL}"
 formal_portal="${4:?formal Zero portal URL}"
 network_id="${5:?overlay network ID}"
 gateway_id="${6:?gateway ID}"
+gateway_address="${7:?gateway WireGuard address}"
+gateway_wireguard_ip="${gateway_address%/*}"
 
 install -d -m 700 /opt/xconnect-lab /var/lib/xconnect-gateway /etc/xconnect-gateway
 install -m 755 /tmp/xconnect-gateway /tmp/xray /usr/local/bin/
@@ -75,11 +77,13 @@ Description=XConnect Gateway private relay probe
 After=network-online.target
 Wants=network-online.target
 [Service]
-ExecStart=/usr/bin/python3 -m http.server 8080 --bind 10.77.0.1 --directory /opt/xconnect-lab/http
+ExecStart=/usr/bin/python3 -m http.server 8080 --bind __GATEWAY_WIREGUARD_IP__ --directory /opt/xconnect-lab/http
 Restart=always
 [Install]
 WantedBy=multi-user.target
 UNIT
+
+sed -i "s/__GATEWAY_WIREGUARD_IP__/$gateway_wireguard_ip/" /etc/systemd/system/xconnect-lab-http.service
 
 systemctl daemon-reload
 xconnect-gateway diagnose >/dev/null
