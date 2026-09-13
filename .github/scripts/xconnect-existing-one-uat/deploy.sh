@@ -257,16 +257,22 @@ fi
 issue_invite one "$ONE_DEVICE_ID" "$invite"
 
 echo 'Stage: enroll and synchronize the existing Linux One'
-ANSIBLE_HOST_KEY_CHECKING=True \
-  VECTOR_AUTH_USER="$OBSERVABILITY_USER" \
-  VECTOR_AUTH_PASSWORD="$OBSERVABILITY_PASSWORD" \
-  OBSERVABILITY_ENDPOINT=https://observability.svc.plus \
-  ansible-playbook -i "$ONE_HOST," "$GITHUB_WORKSPACE/playbooks/deploy_xconnect_one.yml" \
-  --user "$ONE_USER" \
-  --private-key "$one_key" \
-  --ssh-common-args="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known_hosts" \
-  --extra-vars "xconnect_one_hosts=all xconnect_one_enabled=true xconnect_one_environment=uat xconnect_one_state_dir=/var/lib/xconnect-one/uat xconnect_one_binary_source=$LAB_DIR/xconnect xconnect_one_device_id=$ONE_DEVICE_ID xconnect_one_device_name=observability-uat xconnect_one_invite_file_source=$invite xconnect_one_expected_overlay_cidr=$overlay_cidr xconnect_one_expected_wireguard_interface=xconone0 xconnect_one_expected_xray_loopback_port=18080 xconnect_one_sync_interval_seconds=300 xconnect_one_install_observability=true" \
-  >/dev/null
+ansible_one_log="$LAB_DIR/ansible-one.log"
+if ! ANSIBLE_HOST_KEY_CHECKING=True \
+    VECTOR_AUTH_USER="$OBSERVABILITY_USER" \
+    VECTOR_AUTH_PASSWORD="$OBSERVABILITY_PASSWORD" \
+    OBSERVABILITY_ENDPOINT=https://observability.svc.plus \
+    ansible-playbook -i "$ONE_HOST," "$GITHUB_WORKSPACE/playbooks/deploy_xconnect_one.yml" \
+    --user "$ONE_USER" \
+    --private-key "$one_key" \
+    --ssh-common-args="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known_hosts" \
+    --extra-vars "xconnect_one_hosts=all xconnect_one_enabled=true xconnect_one_environment=uat xconnect_one_state_dir=/var/lib/xconnect-one/uat xconnect_one_binary_source=$LAB_DIR/xconnect xconnect_one_device_id=$ONE_DEVICE_ID xconnect_one_device_name=observability-uat xconnect_one_invite_file_source=$invite xconnect_one_expected_overlay_cidr=$overlay_cidr xconnect_one_expected_wireguard_interface=xconone0 xconnect_one_expected_xray_loopback_port=18080 xconnect_one_sync_interval_seconds=300 xconnect_one_install_observability=true" \
+    >"$ansible_one_log" 2>&1; then
+  echo 'XConnect One Ansible deployment failed; sanitized task summary:' >&2
+  perl -pe 's{xconnect://join/\S+}{xconnect://join/[REDACTED]}g; s{(?i)(password|token|private[_-]?key|secret)(\s*[:=]\s*)\S+}{$1$2[REDACTED]}g' \
+    "$ansible_one_log" | grep -E 'TASK \[|fatal:|FAILED!|ERROR|msg:' | tail -n 80 >&2 || true
+  exit 2
+fi
 
 echo 'Stage: reconcile the stable Gateway peer set'
 "${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" \
