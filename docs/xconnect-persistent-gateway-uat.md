@@ -1,20 +1,20 @@
 # UAT persistent XConnect Gateway
 
 The UAT cloud workflow supports a persistent, non-IaC Gateway for the
-`tw-xconnect.onwalk.net` entrypoint. In this mode the workflow creates only one
+`tw-xconnect.svc.plus` entrypoint. In this mode the workflow creates only one
 `t4g.micro` one-time Spot Linux One in the existing UAT network. It never
 creates, updates, or destroys the persistent Gateway host.
 
 ## Ownership
 
 ```text
-Vault:   kv/prod/ulighthost-xconnect/tw-xconnect.onwalk.net
+Vault:   kv/uat/ulighthost-xconnect/tw-xconnect.onwalk.net
          ├─ host / user / ssh_private_key_b64
          └─ endpoint metadata (sensitive values remain in Vault)
 
 GitOps:  public transport and protocol declaration only
 AWS:     one disposable t4g.micro Spot, one-hour lease
-Gateway: tw-xconnect.onwalk.net, external Linux relay/service
+Gateway: tw-xconnect.svc.plus, external Linux relay/service
 ```
 
 The persistent host is outside Terraform ownership. Its Gateway state,
@@ -31,7 +31,7 @@ mode=apply
 gateway_provider=external
 external_gateway_id=gw-uat-tw-xconnect
 external_network_id=net_uat-tw-xconnect
-external_gateway_server_name=tw-xconnect.onwalk.net
+external_gateway_server_name=tw-xconnect.svc.plus
 ```
 
 The workflow then performs:
