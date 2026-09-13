@@ -42,19 +42,46 @@ dispatch_and_assert_ref() {
   local dispatch_url=""
   local run_id=""
   local actual_ref=""
+  local actual_sha=""
 
-  dispatch_url="$(gh workflow run "${workflow}" --repo "${repo}" --ref "${release_tag}" "$@" | tail -n 1)"
-  run_id="${dispatch_url##*/}"
-  for attempt in {1..15}; do
-    actual_ref="$(gh run view "${run_id}" --repo "${repo}" --json headBranch --jq '.headBranch' 2>/dev/null || true)"
-    [[ "${actual_ref}" == "${release_tag}" ]] && break
-    sleep 2
-  done
-  if [[ "${actual_ref}" != "${release_tag}" ]]; then
+  # A newly-created tag can be visible through the refs API before the
+  # Actions dispatcher indexes it. In that short window GitHub may create a
+  # workflow_dispatch run on the default branch (main), which would produce a
+  # refs/heads/main OIDC claim and fail the protected PROD Vault role. Cancel
+  # that run and retry after a bounded backoff until the run resolves to the
+  # requested tag. Never continue from main.
+  for dispatch_attempt in {1..5}; do
+    dispatch_url="$(gh workflow run "${workflow}" --repo "${repo}" --ref "${release_tag}" "$@" | tail -n 1)"
+    run_id="${dispatch_url##*/}"
+    actual_ref=""
+    actual_sha=""
+    for attempt in {1..15}; do
+      run_json="$(gh run view "${run_id}" --repo "${repo}" --json headBranch,headSha 2>/dev/null || true)"
+      actual_ref="$(jq -r '.headBranch // empty' <<<"${run_json}" 2>/dev/null || true)"
+      actual_sha="$(jq -r '.headSha // empty' <<<"${run_json}" 2>/dev/null || true)"
+      # Keep local contract tests (and older gh wrappers) compatible when
+      # `run view` returns only the branch value instead of JSON.
+      [[ -n "${actual_ref}" || "${run_json}" == \{* ]] || actual_ref="${run_json}"
+      [[ "${actual_ref}" == "${release_tag}" ]] && {
+        printf '%s\n' "${dispatch_url}"
+        return 0
+      }
+      sleep 2
+    done
+
+    if [[ "${actual_ref}" == "main" && "${actual_sha}" == "${tag_sha}" ]]; then
+      echo "::warning::${workflow} run ${run_id} resolved to main while tag ${release_tag} propagated; cancelling and retrying." >&2
+      gh run cancel "${run_id}" --repo "${repo}" >/dev/null 2>&1 || true
+      sleep $((dispatch_attempt * 5))
+      continue
+    fi
+
     echo "::error::${workflow} run ${run_id} resolved to ref '${actual_ref:-unset}', expected '${release_tag}'; refusing PROD deployment." >&2
     return 1
-  fi
-  printf '%s\n' "${dispatch_url}"
+  done
+
+  echo "::error::${workflow} did not resolve to ${release_tag} after bounded retries; refusing PROD deployment." >&2
+  return 1
 }
 
 # A production daily snapshot publishes immutable application artifacts using 'upgrade'
