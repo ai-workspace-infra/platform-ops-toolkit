@@ -54,6 +54,22 @@ Accounts implementation; they should later become a policy digest/reference
 and a Vault secret reference in an additive migration. Do not remove them by
 hand from UAT or PROD while the deployed binary still selects them.
 
+### Cleanup inventory and order
+
+| Object | Decision | Removal gate |
+| --- | --- | --- |
+| `overlay_nodes` | Transitional legacy gateway read/write model; keep empty for compatibility now | Remove legacy `/api/overlay` and heartbeat code, prove zero references in source and runtime logs, then drop in a versioned migration |
+| `overlay_config_acks` | Transitional ACK model; keep empty for compatibility now | Move all ACK writes/reads to `overlay_signed_config_acks`, verify the Portal/BFF and Gateway/One smoke test, then drop in the same or a later migration |
+| `overlay_networks.policy_json` | Overly large policy payload in the metadata row | Add `policy_digest`/`policy_ref`, make the signer and Portal use the reference, backfill and verify, then drop the JSON column |
+| `overlay_networks.transport_auth_id` | Transport credential currently coupled to the network row | Replace with a Vault locator/reference; the signer resolves the runtime credential without persisting the secret in Accounts, then drop the raw field |
+| `overlay_devices.user_id` | Duplicate owner representation beside `user_uuid` | Normalize all queries and foreign-key checks to the tenant/account UUID, backfill verification, then drop only the duplicate text column |
+| `overlay_invites`, `overlay_device_credentials`, `overlay_enrollment_sessions`, `overlay_signed_config_acks`, `overlay_registrations` | Required v1 lifecycle and audit metadata | Retain; apply TTL/retention cleanup to expired token digests and old ACKs without deleting active device or account metadata |
+
+The cleanup must be implemented in this order: code cutover and reference
+check, additive replacement columns, backfill/verification, compatible
+deployment, retention cleanup, and only then removal of the obsolete object.
+The migration must fail closed if an old table or column is still referenced.
+
 ## Production migration contract
 
 The production path is a maintenance-window migration:
@@ -71,6 +87,13 @@ Destructive cleanup of old overlay rows, if ever required in PROD, must be a
 separately reviewed, tenant-scoped retention operation. It cannot be part of a
 schema migration and cannot use `DROP`, `TRUNCATE ... CASCADE`, or a broad
 `DELETE` over business tables.
+
+The PROD migration must use `ALTER TABLE ... ADD COLUMN`, backfill in bounded
+batches, and only remove a legacy column/table in a later release after the
+previous release no longer reads it. A rollback plan must restore the previous
+Accounts binary before any destructive DDL; the backup must include users,
+subscriptions, invoices, and historical usage even though those tables are
+outside the XConnect overlay scope.
 
 ## Gateway WireGuard address
 
