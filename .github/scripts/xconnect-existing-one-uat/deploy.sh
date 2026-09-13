@@ -80,6 +80,7 @@ test -s "$known_hosts" || { echo 'SSH host key discovery failed' >&2; exit 1; }
 SSH_COMMON=(-o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$known_hosts")
 one_ssh=(ssh -i "$one_key" "${SSH_COMMON[@]}")
 gateway_ssh=(ssh -i "$gateway_key" "${SSH_COMMON[@]}")
+gateway_scp=(scp -i "$gateway_key" "${SSH_COMMON[@]}")
 
 echo 'Stage: verify the fixed UAT One declaration'
 declaration="$GITHUB_WORKSPACE/gitops/vpn-overlay/uat/xconnect-one-nodes.yaml"
@@ -133,7 +134,7 @@ xray_actual="$(sha256sum "$LAB_DIR/releases/$xray_asset" | awk '{print $1}')"
 unzip -p "$LAB_DIR/releases/$xray_asset" xray > "$xray_binary" || { echo 'Xray release archive is missing xray' >&2; exit 1; }
 chmod 755 "$xray_binary"
 
-scp "${gateway_ssh[@]}" "$gateway_binary" "$xray_binary" "$gateway_tls_cert" "$gateway_tls_key" \
+"${gateway_scp[@]}" "$gateway_binary" "$xray_binary" "$gateway_tls_cert" "$gateway_tls_key" \
   "$GATEWAY_USER@$GATEWAY_HOST:/tmp/" >/dev/null
 ssh "${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" sudo bash -s -- "$ZERO_ACCOUNTS_API_URL" "$GATEWAY_RELEASE_TAG" <<'GATEWAY_RUNTIME_BOOTSTRAP'
 set -euo pipefail
@@ -229,7 +230,7 @@ issue_invite() {
 gateway_credential_present="$("${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" 'sudo jq -r ".credential.credential // empty" /var/lib/xconnect-gateway/state.json')"
 if [[ -z "$gateway_credential_present" ]]; then
   issue_invite gateway gw-uat-tw-xconnect "$gateway_invite"
-  scp "${gateway_ssh[@]}" "$gateway_invite" "$GATEWAY_USER@$GATEWAY_HOST:/tmp/xconnect-gateway.invite" >/dev/null
+  "${gateway_scp[@]}" "$gateway_invite" "$GATEWAY_USER@$GATEWAY_HOST:/tmp/xconnect-gateway.invite" >/dev/null
   ssh "${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" sudo bash -s -- <<'GATEWAY_ENROLL'
 set -euo pipefail
 install -m 600 /tmp/xconnect-gateway.invite /var/lib/xconnect-gateway/join-uri
