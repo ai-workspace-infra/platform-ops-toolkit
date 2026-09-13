@@ -363,7 +363,12 @@ def main():
         for resource in resources:
             if resource.get('mode') == 'data':
                 continue
-            if resource['address'] not in allowed:
+            # Terraform renders counted resources with an index in state
+            # (for example aws_instance.gateway[0]). Normalize only the
+            # expected top-level addresses; never broaden this to arbitrary
+            # indexed or nested resources.
+            address = re.sub(r'\[0\]$', '', resource['address'])
+            if address not in allowed:
                 raise ValueError('Unexpected resource in lab state; refusing cleanup')
             v = resource['values']
             if resource['type'].startswith('aws_') and 'tags_all' in v and v['tags_all'].get('LabRun') != run:
