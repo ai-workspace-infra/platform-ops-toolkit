@@ -240,7 +240,7 @@ issue_invite() {
   chmod 600 "$destination"
 }
 
-gateway_credential_present="$("${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" 'sudo jq -r ".credential.credential // empty" /var/lib/xconnect-gateway/state.json')"
+gateway_credential_present="$("${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" 'sudo jq -r ".device_credential.credential // empty" /var/lib/xconnect-gateway/state.json')"
 if [[ -z "$gateway_credential_present" ]]; then
   issue_invite gateway gw-uat-tw-xconnect "$gateway_invite"
   "${gateway_scp[@]}" "$gateway_invite" "$GATEWAY_USER@$GATEWAY_HOST:/tmp/xconnect-gateway.invite" >/dev/null
@@ -252,7 +252,7 @@ rm -f /tmp/xconnect-gateway.invite /var/lib/xconnect-gateway/join-uri
 GATEWAY_ENROLL
 fi
 "${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" \
-  "sudo jq -e --arg network '$ZERO_NETWORK_ID' '.network_id == \$network and (.credential.credential | length) > 0' /var/lib/xconnect-gateway/state.json >/dev/null"
+  "sudo jq -e --arg network '$ZERO_NETWORK_ID' '.network_id == \$network and (.device_credential.credential | length) > 0' /var/lib/xconnect-gateway/state.json >/dev/null"
 
 issue_invite one "$ONE_DEVICE_ID" "$invite"
 
