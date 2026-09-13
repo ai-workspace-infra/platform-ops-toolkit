@@ -213,9 +213,9 @@ jobs:
             kv/data/uat/xconnect-one VLESS_ID | LAB_VLESS_ID ;
             kv/data/uat/xconnect-one ZERO_SERVICE_TOKEN | ZERO_SERVICE_TOKEN ;
             kv/data/uat/xconnect-one ZERO_OWNER_EMAIL | ZERO_OWNER_EMAIL ;
-            kv/data/uat/ulighthost-xconnect/tw-xconnect.onwalk.net host | EXTERNAL_GATEWAY_HOST ;
-            kv/data/uat/ulighthost-xconnect/tw-xconnect.onwalk.net user | EXTERNAL_GATEWAY_USER ;
-            kv/data/uat/ulighthost-xconnect/tw-xconnect.onwalk.net ssh_private_key_b64 | EXTERNAL_GATEWAY_SSH_PRIVATE_KEY_B64 ;
+            kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus host | EXTERNAL_GATEWAY_HOST ;
+            kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus user | EXTERNAL_GATEWAY_USER ;
+            kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus ssh_private_key_b64 | EXTERNAL_GATEWAY_SSH_PRIVATE_KEY_B64 ;
             kv/data/CICD/observability user | OBSERVABILITY_USER ;
             kv/data/CICD/observability password | OBSERVABILITY_PASSWORD
       - name: AWS short-lived OIDC credentials
