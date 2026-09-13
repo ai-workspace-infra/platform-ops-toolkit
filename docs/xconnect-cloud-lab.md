@@ -72,6 +72,11 @@ The dedicated role has no broad production policy; it can read only this exact
 external relay record because the UAT lab connects through that production-owned
 host.
 
+The fixed-One UAT workflow additionally reads the shared certificate record
+`kv/data/CICD/domains/svc.plus` and injects only the fullchain and key into the
+Gateway's protected runtime paths. The cloud lab itself does not read or rotate
+that certificate because it treats the persistent Gateway as externally owned.
+
 The owner email must identify the account that will inspect the run in Portal.
 Owner isolation is not bypassed to make another user's nodes visible.
 Accounts signing-key injection belongs to the Accounts UAT deployment; this
