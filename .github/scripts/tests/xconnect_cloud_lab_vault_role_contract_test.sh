@@ -24,6 +24,9 @@ if grep -Fq 'path "kv/data/prod/*"' "${roles}"; then
 fi
 grep -Fq 'path "kv/data/uat/xconnect-one"' "${roles}"
 grep -Fq 'path "kv/data/CICD/observability"' "${roles}"
+cloud_lab_policy=$(awk '/^emit_xconnect_cloud_lab_policy\(\)/,/^}/' "${roles}")
+grep -Fq 'path "kv/data/CICD/domains/svc.plus"' <<<"${cloud_lab_policy}"
+grep -Fq 'path "kv/metadata/CICD/domains/svc.plus"' <<<"${cloud_lab_policy}"
 grep -Fq 'XCONNECT_EXISTING_ONE_ROLE="github-actions-platform-ops-toolkit-uat-xconnect-existing-one"' "${roles}"
 grep -Fq '"job_workflow_ref": "${WF_PREFIX}/xconnect-one-uat.yaml@refs/heads/main"' "${roles}"
 grep -Fq '"token_policies": ["${XCONNECT_EXISTING_ONE_POLICY}"]' "${roles}"

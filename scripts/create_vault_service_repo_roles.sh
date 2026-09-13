@@ -177,6 +177,12 @@ emit_xconnect_cloud_lab_policy() {
   emit_common_read_paths
   emit_base_credential_paths uat
   cat <<'EOF'
+path "kv/data/CICD/domains/svc.plus" {
+  capabilities = ["read"]
+}
+path "kv/metadata/CICD/domains/svc.plus" {
+  capabilities = ["list", "read"]
+}
 path "kv/data/uat/xconnect-one" {
   capabilities = ["read"]
 }
