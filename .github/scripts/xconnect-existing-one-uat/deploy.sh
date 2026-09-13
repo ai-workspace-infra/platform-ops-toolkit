@@ -6,6 +6,8 @@ umask 077
 : "${LAB_DIR:?}"
 : "${CLI_RELEASE_TOKEN:?}"
 : "${CLI_RELEASE_TAG:?}"
+: "${GATEWAY_RELEASE_TAG:?}"
+: "${XRAY_RELEASE_TAG:?}"
 : "${ZERO_ACCOUNTS_API_URL:?}"
 : "${ZERO_SERVICE_TOKEN:?}"
 : "${ZERO_OWNER_EMAIL:?}"
@@ -18,6 +20,8 @@ umask 077
 : "${GATEWAY_HOST:?}"
 : "${GATEWAY_USER:?}"
 : "${GATEWAY_SSH_PRIVATE_KEY_B64:?}"
+: "${GATEWAY_TLS_CERT_B64:?}"
+: "${GATEWAY_TLS_KEY_B64:?}"
 : "${GATEWAY_SERVER_NAME:?}"
 : "${OBSERVABILITY_USER:?}"
 : "${OBSERVABILITY_PASSWORD:?}"
@@ -26,8 +30,13 @@ mkdir -p "$LAB_DIR/releases"
 known_hosts="$LAB_DIR/known_hosts"
 one_key="$LAB_DIR/one.ssh"
 gateway_key="$LAB_DIR/gateway.ssh"
+gateway_tls_cert="$LAB_DIR/gateway.tls.crt"
+gateway_tls_key="$LAB_DIR/gateway.tls.key"
 zero_header="$LAB_DIR/zero.header"
+gateway_invite="$LAB_DIR/gateway.invite"
 invite="$LAB_DIR/one.invite"
+gateway_binary="$LAB_DIR/releases/xconnect-gateway"
+xray_binary="$LAB_DIR/releases/xray"
 probe_dir=''
 
 cleanup() {
@@ -36,8 +45,12 @@ cleanup() {
       "sudo test -s '$probe_dir/pid' && sudo kill \"\$(sudo cat '$probe_dir/pid')\" 2>/dev/null || true; sudo rm -rf '$probe_dir'" \
       >/dev/null 2>&1 || true
   fi
-  rm -f "$one_key" "$gateway_key" "$zero_header" "$invite" \
-    "$LAB_DIR/xconnect" "$LAB_DIR/releases/SHA256SUMS" \
+  rm -f "$one_key" "$gateway_key" "$gateway_tls_cert" "$gateway_tls_key" \
+    "$zero_header" "$gateway_invite" "$invite" "$LAB_DIR/xconnect" \
+    "$gateway_binary" "$xray_binary" "$LAB_DIR/releases/SHA256SUMS" \
+    "$LAB_DIR/releases/SHA256SUMS.selected" "$LAB_DIR/releases/gateway/SHA256SUMS" \
+    "$LAB_DIR/releases/gateway/SHA256SUMS.selected" "$LAB_DIR/releases/xray.zip" \
+    "$LAB_DIR/releases/xray.zip.dgst" \
     "$LAB_DIR/releases/xconnect-linux-amd64" "$LAB_DIR/releases/xconnect-linux-arm64"
 }
 trap cleanup EXIT
@@ -45,7 +58,21 @@ trap cleanup EXIT
 printf '%s' "$ONE_SSH_PRIVATE_KEY_B64" | base64 --decode >"$one_key"
 printf '%s' "$GATEWAY_SSH_PRIVATE_KEY_B64" | base64 --decode >"$gateway_key"
 printf 'X-Service-Token: %s\nContent-Type: application/json\n' "$ZERO_SERVICE_TOKEN" >"$zero_header"
-chmod 600 "$one_key" "$gateway_key" "$zero_header"
+printf '%s' "$GATEWAY_TLS_CERT_B64" | base64 --decode >"$gateway_tls_cert"
+printf '%s' "$GATEWAY_TLS_KEY_B64" | base64 --decode >"$gateway_tls_key"
+chmod 600 "$one_key" "$gateway_key" "$gateway_tls_cert" "$gateway_tls_key" "$zero_header"
+
+openssl x509 -in "$gateway_tls_cert" -noout >/dev/null
+openssl pkey -in "$gateway_tls_key" -noout >/dev/null
+openssl x509 -in "$gateway_tls_cert" -checkhost "$GATEWAY_SERVER_NAME" -noout >/dev/null
+openssl x509 -in "$gateway_tls_cert" -checkend 86400 -noout >/dev/null
+cert_pub_hash="$(openssl x509 -in "$gateway_tls_cert" -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum | awk '{print $1}')"
+key_pub_hash="$(openssl pkey -in "$gateway_tls_key" -pubout | openssl pkey -pubin -outform DER | sha256sum | awk '{print $1}')"
+[[ "$cert_pub_hash" == "$key_pub_hash" ]] || { echo 'Gateway TLS certificate and key do not match' >&2; exit 1; }
+if [[ -n "${GATEWAY_TLS_NOT_AFTER_EPOCH:-}" ]]; then
+  [[ "$GATEWAY_TLS_NOT_AFTER_EPOCH" =~ ^[0-9]+$ ]] || { echo 'Gateway TLS expiry metadata is invalid' >&2; exit 1; }
+  (( GATEWAY_TLS_NOT_AFTER_EPOCH > $(date +%s) + 86400 )) || { echo 'Gateway TLS certificate expires within 24 hours' >&2; exit 1; }
+fi
 
 ssh-keyscan -H "$ONE_HOST" "$GATEWAY_HOST" >"$known_hosts" 2>/dev/null
 test -s "$known_hosts" || { echo 'SSH host key discovery failed' >&2; exit 1; }
@@ -77,26 +104,143 @@ awk -v asset="$asset" '$2 == asset || $2 == "dist/" asset {sub("dist/", "", $2);
 (cd "$LAB_DIR/releases" && sha256sum -c SHA256SUMS.selected >/dev/null)
 install -m 755 "$LAB_DIR/releases/$asset" "$LAB_DIR/xconnect"
 
-echo 'Stage: issue a short-lived formal UAT invitation'
+echo 'Stage: install Gateway runtime and shared TLS certificate'
+gateway_arch="$(${gateway_ssh[@]} "$GATEWAY_USER@$GATEWAY_HOST" uname -m)"
+case "$gateway_arch" in
+  x86_64|amd64) gateway_asset='xconnect-gateway-linux-amd64'; xray_asset='Xray-linux-64.zip' ;;
+  aarch64|arm64) gateway_asset='xconnect-gateway-linux-arm64'; xray_asset='Xray-linux-arm64-v8a.zip' ;;
+  *) echo "Unsupported Gateway architecture: $gateway_arch" >&2; exit 1 ;;
+esac
+gateway_release_dir="$LAB_DIR/releases/gateway"
+mkdir -p "$gateway_release_dir"
+GH_TOKEN="$CLI_RELEASE_TOKEN" gh release download "$GATEWAY_RELEASE_TAG" \
+  --repo ai-workspace-xstream/XConnect-Gateway \
+  --pattern "$gateway_asset" --pattern SHA256SUMS \
+  --dir "$gateway_release_dir" --clobber >/dev/null
+awk -v asset="$gateway_asset" '$2 == asset || $2 == "dist/" asset {sub("dist/", "", $2); print}' \
+  "$gateway_release_dir/SHA256SUMS" > "$gateway_release_dir/SHA256SUMS.selected"
+[[ -s "$gateway_release_dir/SHA256SUMS.selected" ]] || { echo 'XConnect-Gateway release is missing its checksum' >&2; exit 1; }
+(cd "$gateway_release_dir" && sha256sum -c SHA256SUMS.selected >/dev/null) || { echo 'XConnect-Gateway release checksum verification failed' >&2; exit 1; }
+install -m 755 "$gateway_release_dir/$gateway_asset" "$gateway_binary"
+
+GH_TOKEN="${GITHUB_TOKEN:-}" gh release download "$XRAY_RELEASE_TAG" \
+  --repo XTLS/Xray-core \
+  --pattern "$xray_asset" --pattern "$xray_asset.dgst" \
+  --dir "$LAB_DIR/releases" --clobber >/dev/null
+xray_expected="$(awk '$1 == "SHA2-256=" {print $2; exit}' "$LAB_DIR/releases/$xray_asset.dgst")"
+xray_actual="$(sha256sum "$LAB_DIR/releases/$xray_asset" | awk '{print $1}')"
+[[ "$xray_expected" =~ ^[0-9a-f]{64}$ && "$xray_expected" == "$xray_actual" ]] || { echo 'Xray release checksum verification failed' >&2; exit 1; }
+unzip -p "$LAB_DIR/releases/$xray_asset" xray > "$xray_binary" || { echo 'Xray release archive is missing xray' >&2; exit 1; }
+chmod 755 "$xray_binary"
+
+scp "${gateway_ssh[@]}" "$gateway_binary" "$xray_binary" "$gateway_tls_cert" "$gateway_tls_key" \
+  "$GATEWAY_USER@$GATEWAY_HOST:/tmp/" >/dev/null
+ssh "${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" sudo bash -s -- "$ZERO_ACCOUNTS_API_URL" "$GATEWAY_RELEASE_TAG" <<'GATEWAY_RUNTIME_BOOTSTRAP'
+set -euo pipefail
+controller="$1"
+gateway_release="$2"
+install -d -m 700 /var/lib/xconnect-gateway /etc/xconnect-gateway
+install -m 755 /tmp/xconnect-gateway /usr/local/bin/xconnect-gateway
+install -m 755 /tmp/xray /usr/local/bin/xray
+install -m 644 /tmp/gateway.tls.crt /etc/xconnect-gateway/tls.crt
+install -m 600 /tmp/gateway.tls.key /etc/xconnect-gateway/tls.key
+rm -f /tmp/xconnect-gateway /tmp/xray /tmp/gateway.tls.crt /tmp/gateway.tls.key
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq ca-certificates curl jq wireguard-tools >/dev/null
+cat >/etc/systemd/system/xconnect-gateway-xray.service <<'UNIT'
+[Unit]
+Description=XConnect Gateway VLESS runtime
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/xray run -config /var/lib/xconnect-gateway/runtime/xray.json
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+[Install]
+WantedBy=multi-user.target
+UNIT
+cat >/etc/systemd/system/xconnect-gateway-sync.service <<'UNIT'
+[Unit]
+Description=Synchronize XConnect Gateway with XConnect Zero
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/xconnect-gateway up --state-dir /var/lib/xconnect-gateway --tls-cert /etc/xconnect-gateway/tls.crt --tls-key /etc/xconnect-gateway/tls.key
+UNIT
+cat >/etc/systemd/system/xconnect-gateway-sync.timer <<'UNIT'
+[Unit]
+Description=Periodic XConnect Gateway configuration reconciliation
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl daemon-reload
+systemctl enable xconnect-gateway-xray.service >/dev/null
+systemctl enable xconnect-gateway-sync.timer >/dev/null
+/usr/local/bin/xconnect-gateway diagnose >/dev/null
+if [[ ! -s /var/lib/xconnect-gateway/state.json ]]; then
+  /usr/local/bin/xconnect-gateway init --state-dir /var/lib/xconnect-gateway --controller "$controller" --gateway-id gw-uat-tw-xconnect >/var/lib/xconnect-gateway/init.log
+  chmod 600 /var/lib/xconnect-gateway/init.log
+fi
+printf '%s\n' "$gateway_release" >/etc/xconnect-gateway/release
+GATEWAY_RUNTIME_BOOTSTRAP
+
 gateway_public_key="$("${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" 'sudo jq -er .wireguard_public_key /var/lib/xconnect-gateway/state.json')"
-[[ "$gateway_public_key" =~ ^[A-Za-z0-9+/]{43}=$ ]]
-bootstrap_request="$LAB_DIR/bootstrap.json"
-bootstrap_response="$LAB_DIR/bootstrap-response.json"
-expires_at="$(python3 -c 'from datetime import datetime,timezone,timedelta; print((datetime.now(timezone.utc)+timedelta(minutes=15)).isoformat(timespec="seconds").replace("+00:00","Z"))')"
-jq -n \
-  --arg owner "$ZERO_OWNER_EMAIL" --arg controller "$ZERO_ACCOUNTS_API_URL" \
-  --arg network "$ZERO_NETWORK_ID" --arg gateway_id "gw-uat-tw-xconnect" \
-  --arg gateway_key "$gateway_public_key" --arg gateway_host "$GATEWAY_SERVER_NAME" \
-  --arg vless "$LAB_VLESS_ID" --arg device "$ONE_DEVICE_ID" --arg expires "$expires_at" \
-  '{owner_email:$owner,bootstrap:{controller_url:$controller,network:{id:$network,display_name:"XConnect UAT network",cidr:"10.77.0.0/24",gateway_id:$gateway_id,gateway_wireguard_public_key:$gateway_key,gateway_wireguard_address:"10.77.0.1/32",gateway_endpoint_host:$gateway_host,gateway_endpoint_port:51820,transport_server_name:$gateway_host,transport_port:443,transport_auth_id:$vless},invite:{device_id:$device,platform:"linux",role:"one",expires_at:$expires}}}' \
-  >"$bootstrap_request"
-status="$(curl --silent --show-error --output "$bootstrap_response" --write-out '%{http_code}' \
-  --config <(printf 'header = @%s\n' "$zero_header") \
-  --data-binary "@$bootstrap_request" "$ZERO_ACCOUNTS_API_URL/api/internal/overlay/networks/bootstrap" || true)"
-[[ "$status" == 201 ]] || { echo "Formal Zero invitation bootstrap failed: HTTP $status" >&2; exit 1; }
-jq -er '.join_uri' "$bootstrap_response" >"$invite"
-grep -Eq '^xconnect://join/' "$invite"
-chmod 600 "$invite"
+[[ "$gateway_public_key" =~ ^[A-Za-z0-9+/]{43}=$ ]] || { echo 'Gateway runtime did not generate a valid WireGuard public key' >&2; exit 1; }
+
+echo 'Stage: issue a short-lived formal UAT invitation'
+issue_invite() {
+  local role="$1" device="$2" destination="$3"
+  local request="$LAB_DIR/${role}-bootstrap.json"
+  local response="$LAB_DIR/${role}-bootstrap-response.json"
+  local expires_at
+  expires_at="$(python3 -c 'from datetime import datetime,timezone,timedelta; print((datetime.now(timezone.utc)+timedelta(minutes=15)).isoformat(timespec="seconds").replace("+00:00","Z"))')"
+  jq -n \
+    --arg owner "$ZERO_OWNER_EMAIL" --arg controller "$ZERO_ACCOUNTS_API_URL" \
+    --arg network "$ZERO_NETWORK_ID" --arg gateway_id "gw-uat-tw-xconnect" \
+    --arg gateway_key "$gateway_public_key" --arg gateway_host "$GATEWAY_SERVER_NAME" \
+    --arg vless "$LAB_VLESS_ID" --arg device "$device" --arg role "$role" --arg expires "$expires_at" \
+    '{owner_email:$owner,bootstrap:{controller_url:$controller,network:{id:$network,display_name:"XConnect UAT network",cidr:"10.77.0.0/24",gateway_id:$gateway_id,gateway_wireguard_public_key:$gateway_key,gateway_wireguard_address:"10.77.0.1/32",gateway_endpoint_host:$gateway_host,gateway_endpoint_port:51820,transport_server_name:$gateway_host,transport_port:443,transport_auth_id:$vless},invite:{device_id:$device,platform:"linux",role:$role,expires_at:$expires}}}' \
+    >"$request"
+  local status
+  status="$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+    --config <(printf 'header = @%s\n' "$zero_header") \
+    --data-binary "@$request" "$ZERO_ACCOUNTS_API_URL/api/internal/overlay/networks/bootstrap" || true)"
+  [[ "$status" == 201 ]] || { echo "Formal Zero $role invitation bootstrap failed: HTTP $status" >&2; exit 1; }
+  jq -e --arg network "$ZERO_NETWORK_ID" --arg device "$device" --arg expected_role "$role" \
+    '.network.id == $network and .invite.network_id == $network and .invite.device_id == $device and .invite.role == $expected_role and .invite.platform == "linux" and .invite.remaining_uses == 1' \
+    "$response" >/dev/null || { echo "Formal Zero $role invitation binding mismatch" >&2; exit 1; }
+  jq -er '.join_uri' "$response" >"$destination"
+  grep -Eq '^xconnect://join/' "$destination"
+  chmod 600 "$destination"
+}
+
+gateway_credential_present="$("${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" 'sudo jq -r ".credential.credential // empty" /var/lib/xconnect-gateway/state.json')"
+if [[ -z "$gateway_credential_present" ]]; then
+  issue_invite gateway gw-uat-tw-xconnect "$gateway_invite"
+  scp "${gateway_ssh[@]}" "$gateway_invite" "$GATEWAY_USER@$GATEWAY_HOST:/tmp/xconnect-gateway.invite" >/dev/null
+  ssh "${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" sudo bash -s -- <<'GATEWAY_ENROLL'
+set -euo pipefail
+install -m 600 /tmp/xconnect-gateway.invite /var/lib/xconnect-gateway/join-uri
+/usr/local/bin/xconnect-gateway join --state-dir /var/lib/xconnect-gateway --gateway-id gw-uat-tw-xconnect "$(cat /var/lib/xconnect-gateway/join-uri)"
+rm -f /tmp/xconnect-gateway.invite /var/lib/xconnect-gateway/join-uri
+GATEWAY_ENROLL
+fi
+"${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" \
+  "sudo jq -e --arg network '$ZERO_NETWORK_ID' '.network_id == \$network and (.credential.credential | length) > 0' /var/lib/xconnect-gateway/state.json >/dev/null"
+
+issue_invite one "$ONE_DEVICE_ID" "$invite"
 
 echo 'Stage: enroll and synchronize the existing Linux One'
 ANSIBLE_HOST_KEY_CHECKING=True \

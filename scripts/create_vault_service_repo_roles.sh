@@ -228,6 +228,12 @@ path "kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus" {
 path "kv/data/CICD/observability" {
   capabilities = ["read"]
 }
+path "kv/data/CICD/domains/svc.plus" {
+  capabilities = ["read"]
+}
+path "kv/metadata/CICD/domains/svc.plus" {
+  capabilities = ["list", "read"]
+}
 EOF
 }
 
