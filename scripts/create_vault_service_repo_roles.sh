@@ -183,10 +183,10 @@ path "kv/data/uat/xconnect-one" {
 path "kv/metadata/uat/xconnect-one" {
   capabilities = ["list", "read"]
 }
-path "kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus" {
+path "kv/data/uat/ulighthost-xconnect/tw-xconnect.onwalk.net" {
   capabilities = ["read"]
 }
-path "kv/metadata/prod/ulighthost-xconnect/tw-xconnect.svc.plus" {
+path "kv/metadata/uat/ulighthost-xconnect/tw-xconnect.onwalk.net" {
   capabilities = ["list", "read"]
 }
 EOF
@@ -222,17 +222,11 @@ path "kv/data/uat/xconnect-one" {
 path "kv/data/prod/ulighthost-xconnect/observability.svc.plus" {
   capabilities = ["read"]
 }
-path "kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus" {
+path "kv/data/uat/ulighthost-xconnect/tw-xconnect.onwalk.net" {
   capabilities = ["read"]
 }
 path "kv/data/CICD/observability" {
   capabilities = ["read"]
-}
-path "kv/data/CICD/domains/svc.plus" {
-  capabilities = ["read"]
-}
-path "kv/metadata/CICD/domains/svc.plus" {
-  capabilities = ["list", "read"]
 }
 EOF
 }
