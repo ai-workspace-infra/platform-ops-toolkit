@@ -136,7 +136,7 @@ chmod 755 "$xray_binary"
 
 "${gateway_scp[@]}" "$gateway_binary" "$xray_binary" "$gateway_tls_cert" "$gateway_tls_key" \
   "$GATEWAY_USER@$GATEWAY_HOST:/tmp/" >/dev/null
-ssh "${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" sudo bash -s -- "$ZERO_ACCOUNTS_API_URL" "$GATEWAY_RELEASE_TAG" <<'GATEWAY_RUNTIME_BOOTSTRAP'
+"${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" sudo bash -s -- "$ZERO_ACCOUNTS_API_URL" "$GATEWAY_RELEASE_TAG" <<'GATEWAY_RUNTIME_BOOTSTRAP'
 set -euo pipefail
 controller="$1"
 gateway_release="$2"
@@ -231,7 +231,7 @@ gateway_credential_present="$("${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" 
 if [[ -z "$gateway_credential_present" ]]; then
   issue_invite gateway gw-uat-tw-xconnect "$gateway_invite"
   "${gateway_scp[@]}" "$gateway_invite" "$GATEWAY_USER@$GATEWAY_HOST:/tmp/xconnect-gateway.invite" >/dev/null
-  ssh "${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" sudo bash -s -- <<'GATEWAY_ENROLL'
+  "${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" sudo bash -s -- <<'GATEWAY_ENROLL'
 set -euo pipefail
 install -m 600 /tmp/xconnect-gateway.invite /var/lib/xconnect-gateway/join-uri
 /usr/local/bin/xconnect-gateway join --state-dir /var/lib/xconnect-gateway --gateway-id gw-uat-tw-xconnect "$(cat /var/lib/xconnect-gateway/join-uri)"

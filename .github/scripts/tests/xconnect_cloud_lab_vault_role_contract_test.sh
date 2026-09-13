@@ -66,5 +66,9 @@ if grep -Fq 'scp "${gateway_ssh[@]}' "${existing_one_deploy}"; then
   echo 'existing-One deploy must not pass ssh argv to scp' >&2
   exit 1
 fi
+if grep -Fq 'ssh "${gateway_ssh[@]}' "${existing_one_deploy}"; then
+  echo 'existing-One deploy must not prefix the ssh argv array with another ssh' >&2
+  exit 1
+fi
 
 echo "XConnect UAT cloud-lab Vault role contract is pinned to the workflow on main."
