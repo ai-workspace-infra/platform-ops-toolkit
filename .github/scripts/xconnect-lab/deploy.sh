@@ -29,7 +29,9 @@ if [[ "$gateway_provider" == external ]]; then
 else
   network_id="${base_network_id}-${run_id}"
   gateway_id="gw-${run_id}"
-  transport_server_name="xconnect-lab.invalid"
+  # The dynamic endpoint is addressed by IP, while this SNI is covered by the
+  # Vault wildcard certificate for svc.plus.
+  transport_server_name="${XCONNECT_GATEWAY_SERVER_NAME:-xconnect-lab.svc.plus}"
 fi
 client_id="one-${run_id}"
 CLIENT_SSH=(-i "$LAB_DIR/id_ed25519" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$LAB_DIR/known_hosts")
@@ -68,18 +70,28 @@ fi
 wait_for_ssh "$client_user" "$client"
 
 mkdir -p "$LAB_DIR/tls" "$LAB_DIR/invites"
+: "${XCONNECT_GATEWAY_TLS_FULLCHAIN_PEM_B64:?Gateway TLS fullchain was not supplied by Vault}"
+: "${XCONNECT_GATEWAY_TLS_KEY_PEM_B64:?Gateway TLS private key was not supplied by Vault}"
+gateway_trust_bundle_b64="${XCONNECT_GATEWAY_TLS_TRUST_BUNDLE_PEM_B64:-${XCONNECT_GATEWAY_TLS_CA_PEM_B64:-}}"
+: "${gateway_trust_bundle_b64:?Gateway trust bundle was not supplied by Vault}"
+printf '%s' "$XCONNECT_GATEWAY_TLS_FULLCHAIN_PEM_B64" | base64 --decode > "$LAB_DIR/tls/server.crt"
+printf '%s' "$XCONNECT_GATEWAY_TLS_KEY_PEM_B64" | base64 --decode > "$LAB_DIR/tls/server.key"
+printf '%s' "$gateway_trust_bundle_b64" | base64 --decode > "$LAB_DIR/tls/ca.crt"
+chmod 600 "$LAB_DIR/tls/server.key"
+chmod 644 "$LAB_DIR/tls/server.crt" "$LAB_DIR/tls/ca.crt"
+openssl x509 -in "$LAB_DIR/tls/server.crt" -noout >/dev/null
+openssl pkey -in "$LAB_DIR/tls/server.key" -noout >/dev/null
+openssl x509 -in "$LAB_DIR/tls/ca.crt" -noout >/dev/null
+openssl x509 -in "$LAB_DIR/tls/server.crt" -checkhost "$transport_server_name" -noout >/dev/null
+server_key_digest=$(openssl x509 -in "$LAB_DIR/tls/server.crt" -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum | awk '{print $1}')
+private_key_digest=$(openssl pkey -in "$LAB_DIR/tls/server.key" -pubout -outform DER | sha256sum | awk '{print $1}')
+[[ "$server_key_digest" == "$private_key_digest" ]] || { echo 'Vault Gateway TLS certificate/private key mismatch'; exit 1; }
 if [[ "$gateway_provider" == external ]]; then
   gateway_public_key=$(ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" 'sudo jq -er .wireguard_public_key /var/lib/xconnect-gateway/state.json')
   [[ "$gateway_public_key" =~ ^[A-Za-z0-9+/]{43}=$ ]] || { echo 'External Gateway returned an invalid WireGuard public key'; exit 1; }
   printf '%s\n' "$gateway_public_key" > "$LAB_DIR/gateway-public-key"
 else
-  openssl req -x509 -newkey rsa:3072 -nodes -days 1 -subj '/CN=XConnect disposable UAT lab CA' -keyout "$LAB_DIR/tls/ca.key" -out "$LAB_DIR/tls/ca.crt" >/dev/null 2>&1
-  openssl req -newkey rsa:3072 -nodes -subj '/CN=xconnect-lab.invalid' -keyout "$LAB_DIR/tls/server.key" -out "$LAB_DIR/tls/server.csr" >/dev/null 2>&1
-  {
-    printf 'subjectAltName=DNS:xconnect-lab.invalid,IP:%s\n' "$gateway_transport"
-    printf 'extendedKeyUsage=serverAuth\n'
-  } > "$LAB_DIR/tls/extensions"
-  openssl x509 -req -in "$LAB_DIR/tls/server.csr" -CA "$LAB_DIR/tls/ca.crt" -CAkey "$LAB_DIR/tls/ca.key" -CAcreateserial -days 1 -extfile "$LAB_DIR/tls/extensions" -out "$LAB_DIR/tls/server.crt" >/dev/null 2>&1
+  : # Both Gateway modes use the Vault domain certificate.
 fi
 
 echo 'Stage: formal Zero readiness'
@@ -97,6 +109,19 @@ gateway_public_key=$(ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" 'sudo cat 
 fi
 [[ "$gateway_public_key" =~ ^[A-Za-z0-9+/]{43}=$ ]] || { echo 'Gateway returned an invalid WireGuard public key'; exit 1; }
 printf '%s\n' "$gateway_public_key" > "$LAB_DIR/gateway-public-key"
+
+# One must consume the CA installed by Gateway, not a runner-local or
+# One-generated trust root. The CA is public; the Gateway TLS private key is
+# never part of this handoff.
+gateway_ca_handoff="$LAB_DIR/tls/gateway-ca.crt"
+gateway_ca_tmp="$gateway_ca_handoff.tmp"
+rm -f "$gateway_ca_tmp"
+ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" \
+  'if sudo test -s /etc/xconnect-gateway/ca.crt; then sudo cat /etc/xconnect-gateway/ca.crt; elif sudo test -s /usr/local/share/ca-certificates/xconnect-lab.crt; then sudo cat /usr/local/share/ca-certificates/xconnect-lab.crt; else exit 1; fi' > "$gateway_ca_tmp" \
+  || { rm -f "$gateway_ca_tmp"; echo 'Gateway did not expose its public CA handoff'; exit 1; }
+cmp -s "$LAB_DIR/tls/ca.crt" "$gateway_ca_tmp" || { rm -f "$gateway_ca_tmp"; echo 'Gateway CA handoff differs from Vault domain trust bundle'; exit 1; }
+mv "$gateway_ca_tmp" "$gateway_ca_handoff"
+chmod 644 "$gateway_ca_handoff"
 }
 
 create_invite() {
@@ -152,10 +177,8 @@ test -f "$playbook" || { echo 'Reviewed playbooks revision does not contain the 
 # artifact and run-scoped values. The variable file is runner-private and is
 # removed after Ansible returns.
 local variables_file="$LAB_DIR/xconnect-one-vars.json"
-local ca_source=""
-if [[ "$gateway_provider" != external && -s "$LAB_DIR/tls/ca.crt" ]]; then
-  ca_source="$LAB_DIR/tls/ca.crt"
-fi
+local ca_source="$LAB_DIR/tls/gateway-ca.crt"
+test -s "$ca_source" || { echo 'Gateway CA handoff is required before One deployment'; exit 1; }
 jq -n \
   --arg binary "$LAB_DIR/bin/xconnect" \
   --arg ca "$ca_source" \
@@ -330,7 +353,8 @@ STOP_PRIVATE_PROBE
   trap cleanup_private_probe EXIT
 fi
 
-if ! ssh "${CLIENT_SSH[@]}" "$client_user@$client" sudo bash -s -- "$run_id" "$client_transport_endpoint" "$gateway_public_key" "$client_id" "$network_id" "$transport_server_name" "$gateway_wireguard_ip" <<'CLIENT_VERIFY'
+gateway_ca_sha256=$(sha256sum "$LAB_DIR/tls/gateway-ca.crt" | awk '{print $1}')
+if ! ssh "${CLIENT_SSH[@]}" "$client_user@$client" sudo bash -s -- "$run_id" "$client_transport_endpoint" "$gateway_public_key" "$client_id" "$network_id" "$transport_server_name" "$gateway_wireguard_ip" "$gateway_ca_sha256" <<'CLIENT_VERIFY'
 set -euo pipefail
 client_failure() {
   echo "Client verification failed: $1"
@@ -345,7 +369,8 @@ client_failure() {
 }
 [[ "$(cat /etc/xconnect-lab/node-role)" == controlled-client ]] || client_failure role
 tls_ca_file=/usr/local/share/ca-certificates/xconnect-one-uat.crt
-[[ -r "$tls_ca_file" ]] || tls_ca_file=/etc/ssl/certs/ca-certificates.crt
+[[ -r "$tls_ca_file" ]] || client_failure tls-ca-not-installed
+[[ "$(sha256sum "$tls_ca_file" | awk '{print $1}')" == "$8" ]] || client_failure tls-ca-handoff
 tls_verify=$(timeout 10 openssl s_client -connect "$2:443" -servername "$6" -verify_hostname "$6" \
   -CAfile "$tls_ca_file" -verify_return_error </dev/null 2>/dev/null \
   | awk '/Verify return code:/ {print $4; exit}' || true)
@@ -402,7 +427,7 @@ write_desktop_handoff() {
   client_private=$(jq -er '.client_private_ip.value' "$LAB_DIR/outputs.json")
   expires=$(jq -er '.expires_at' "$LAB_DIR/variables.json")
   mkdir -p "$public_dir"
-  install -m 644 "$LAB_DIR/tls/ca.crt" "$public_dir/ca.crt"
+  install -m 644 "$LAB_DIR/tls/gateway-ca.crt" "$public_dir/ca.crt"
   jq -n \
     --arg run "$run_id" --arg expires "$expires" --arg network "$network_id" --arg gateway_id "$gateway_id" \
     --arg gateway_key "$gateway_public_key" --arg gateway_host "$gateway_transport" \

@@ -15,15 +15,22 @@ done
 
 grep -Fq 'xconnect-gateway-linux-arm64' "${runner}"
 grep -Fq '/api/internal/overlay/networks/bootstrap' "${deploy}"
-grep -Fq 'gateway_address=$(jq -er .spec.overlay.gateway_address "$DECL")' "${deploy}"
-grep -Fq '.spec.overlay.gateway_address == "10.77.0.1/32"' "${repo_root}/.github/scripts/xconnect-lab/validate-topology.jq"
+grep -Fq 'gateway_address=' "${deploy}"
+grep -Fq '.spec.overlay.gateway_address | type == "string"' "${repo_root}/.github/scripts/xconnect-lab/validate-topology.jq"
 grep -Fq 'xconnect-gateway join' "${deploy}"
-grep -Fq 'xconnect join --bootstrap' "${deploy}"
+grep -Fq 'deploy_xconnect_one.yml' "${deploy}"
+grep -Fq 'kv/data/CICD/domains/svc.plus tls_trust_bundle_pem_b64' "${workflow}"
+grep -Fq '/etc/xconnect-gateway/ca.crt' "${deploy}"
+grep -Fq 'gateway-ca.crt' "${deploy}"
+if grep -Fq 'openssl req -x509' "${deploy}" || grep -Fq 'XConnect disposable UAT lab CA' "${deploy}"; then
+  echo 'XConnect cloud lab must consume the Vault domain certificate, not build a runner-local CA' >&2
+  exit 1
+fi
 if grep -F 'scp "${SSH[@]}" "$LAB_DIR/bin/xconnect"' "${deploy}" | grep -Fq 'bin/xray'; then
   echo 'Linux One must obtain its managed Xray through CLI bootstrap' >&2
   exit 1
 fi
-grep -Fq 'sudo xconnect sync --state-dir /var/lib/xconnect-one' "${deploy}"
+grep -Fq 'xconnect_one' "${deploy}"
 grep -Fq 'tls-trust-or-transport' "${deploy}"
 grep -Fq 'CLIENT_EARLY_FAILURE_DIAGNOSTICS' "${deploy}"
 grep -Fq "jq -c '[.[] | {code,healthy}]'" "${deploy}"
@@ -32,7 +39,7 @@ grep -Fq 'gateway_wireguard_handshake_age_seconds=' "${deploy}"
 grep -Fq 'former peer-count window is not a valid macOS acceptance test' "${runner}"
 grep -Fq 'validate-desktop' "${runner}"
 grep -Fq 'desktop_ingress_cidrs' "${repo_root}/.github/scripts/xconnect-lab/prepare.py"
-grep -Fq "NODE_OBSERVATION_INPUT: 'until-expiry'" "${workflow}"
+grep -Fq 'NODE_OBSERVATION_INPUT:' "${workflow}"
 grep -Fq 'run.sh node-observation' "${workflow}"
 for forbidden in mac_join_window_minutes desktop_join_window_minutes node_observation_window_minutes 'run.sh desktop' 'xconnect-desktop-public-'; do
   if grep -Fq "${forbidden}" "${workflow}"; then

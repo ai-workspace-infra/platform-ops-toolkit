@@ -15,6 +15,7 @@ install -d -m 700 /opt/xconnect-lab /var/lib/xconnect-gateway /etc/xconnect-gate
 install -m 755 /tmp/xconnect-gateway /tmp/xray /usr/local/bin/
 install -m 600 /tmp/server.key /etc/xconnect-gateway/tls.key
 install -m 644 /tmp/server.crt /etc/xconnect-gateway/tls.crt
+install -m 644 /tmp/ca.crt /etc/xconnect-gateway/ca.crt
 install -m 644 /tmp/ca.crt /usr/local/share/ca-certificates/xconnect-lab.crt
 update-ca-certificates >/dev/null 2>&1
 
