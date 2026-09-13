@@ -8,7 +8,7 @@ creates, updates, or destroys the persistent Gateway host.
 ## Ownership
 
 ```text
-Vault:   kv/uat/ulighthost-xconnect/tw-xconnect.onwalk.net
+Vault:   kv/prod/ulighthost-xconnect/tw-xconnect.svc.plus
          ├─ host / user / ssh_private_key_b64
          └─ endpoint metadata (sensitive values remain in Vault)
 
