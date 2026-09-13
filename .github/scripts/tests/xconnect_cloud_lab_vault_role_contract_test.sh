@@ -61,6 +61,11 @@ grep -Fq 'install -m 755 /tmp/xray /usr/local/bin/xray' "${existing_one_deploy}"
 grep -Fq 'xconnect-gateway init --state-dir /var/lib/xconnect-gateway' "${existing_one_deploy}"
 grep -Fq 'xconnect-gateway join --state-dir /var/lib/xconnect-gateway' "${existing_one_deploy}"
 grep -Fq 'xconnect-gateway up --state-dir /var/lib/xconnect-gateway' "${existing_one_deploy}"
+grep -Fq '.device_credential.credential' "${existing_one_deploy}"
+if grep -Fq '.credential.credential' "${existing_one_deploy}"; then
+  echo 'Gateway state checks must use the current device_credential field' >&2
+  exit 1
+fi
 grep -Fq 'gateway_scp=(scp -i "$gateway_key"' "${existing_one_deploy}"
 if grep -Fq 'scp "${gateway_ssh[@]}' "${existing_one_deploy}"; then
   echo 'existing-One deploy must not pass ssh argv to scp' >&2
