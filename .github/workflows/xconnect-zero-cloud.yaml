@@ -111,7 +111,10 @@ jobs:
       SSH_DEBUG_INGRESS_CIDRS: ${{ inputs.ssh_debug_ingress_cidrs || '35.79.83.48/32' }}
       GATEWAY_TRANSPORT_INGRESS_CIDRS: ${{ inputs.gateway_transport_ingress_cidrs || '35.79.83.48/32' }}
       GATEWAY_WIREGUARD_ADDRESS: ${{ inputs.gateway_wireguard_address }}
-      NODE_OBSERVATION_INPUT: 'until-expiry'
+      # Cleanup-only runs must not request an observation lease. Apply runs
+      # retain the reviewed one-hour observation window; cleanup resolves to
+      # zero before it reads or destroys the exact prior state.
+      NODE_OBSERVATION_INPUT: ${{ inputs.mode == 'apply' && 'until-expiry' || '0' }}
     steps:
       - uses: actions/checkout@v7
         with:
