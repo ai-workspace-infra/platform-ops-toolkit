@@ -70,6 +70,8 @@ fi
 grep -Fq 'gateway_scp=(scp -i "$gateway_key"' "${existing_one_deploy}"
 grep -Fq 'ONE_BECOME_PASSWORD' "${existing_one_deploy}"
 grep -Fq -- '--become-password-file "$one_become_password"' "${existing_one_deploy}"
+grep -Fq 'one_sudo()' "${existing_one_deploy}"
+grep -Fq 'sudo -S -p' "${existing_one_deploy}"
 if grep -Fq 'scp "${gateway_ssh[@]}' "${existing_one_deploy}"; then
   echo 'existing-One deploy must not pass ssh argv to scp' >&2
   exit 1
