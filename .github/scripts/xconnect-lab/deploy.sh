@@ -14,7 +14,11 @@ client_user=$(jq -er .client_ssh_user.value "$LAB_DIR/outputs.json")
 formal_zero=$(jq -er .zero_accounts_api_url.value "$LAB_DIR/outputs.json")
 formal_portal=$(jq -er .zero_portal_url.value "$LAB_DIR/outputs.json")
 base_network_id=$(jq -er .spec.overlay.network_id "$DECL")
-gateway_address=$(jq -er .spec.overlay.gateway_address "$DECL")
+overlay_cidr=$(jq -er .spec.overlay.cidr "$DECL")
+gateway_address="${GATEWAY_WIREGUARD_ADDRESS:-$(jq -er .spec.overlay.gateway_address "$DECL")}" 
+gateway_wireguard_ip="${gateway_address%/*}"
+client_address=$(jq -er .spec.overlay.device_address "$DECL")
+client_wireguard_ip="${client_address%/*}"
 run_id=$(<"$LAB_DIR/run-id")
 gateway_provider=$(jq -er .gateway_provider.value "$LAB_DIR/outputs.json")
 if [[ "$gateway_provider" == external ]]; then
@@ -75,7 +79,7 @@ curl --fail --silent --show-error --output /dev/null "${formal_portal%/panel/xco
 echo 'Stage: Gateway runtime bootstrap'
 if [[ "$gateway_provider" != external ]]; then
 scp "${GATEWAY_SSH[@]}" "$LAB_DIR/bin/xconnect-gateway" "$LAB_DIR/bin/xray" "$LAB_DIR/tls/server.key" "$LAB_DIR/tls/server.crt" "$LAB_DIR/tls/ca.crt" "$ROOT/.github/scripts/xconnect-lab/gateway.sh" "$gateway_user@$gateway:/tmp/" >/dev/null
-ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" "sudo bash /tmp/gateway.sh '$gateway_transport' '$run_id' '$formal_zero' '$formal_portal' '$network_id' '$gateway_id'"
+ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" "sudo bash /tmp/gateway.sh '$gateway_transport' '$run_id' '$formal_zero' '$formal_portal' '$network_id' '$gateway_id' '$gateway_address'"
 gateway_public_key=$(ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" 'sudo cat /opt/xconnect-lab/gateway.pub')
 fi
 [[ "$gateway_public_key" =~ ^[A-Za-z0-9+/]{43}=$ ]] || { echo 'Gateway returned an invalid WireGuard public key'; exit 1; }
@@ -91,9 +95,9 @@ create_invite() {
   jq -n \
     --arg owner "$ZERO_OWNER_EMAIL" --arg controller "$formal_zero" \
     --arg network "$network_id" --arg gateway_id "$gateway_id" --arg gateway_key "$gateway_public_key" \
-    --arg endpoint "$gateway_transport" --arg gateway_address "$gateway_address" --arg vless "$LAB_VLESS_ID" \
+    --arg endpoint "$gateway_transport" --arg gateway_address "$gateway_address" --arg cidr "$overlay_cidr" --arg vless "$LAB_VLESS_ID" \
     --arg role "$role" --arg device "$device_id" --arg expires "$expires" --arg server_name "$transport_server_name" \
-    '{owner_email:$owner,bootstrap:{controller_url:$controller,network:{id:$network,display_name:"XConnect UAT Gateway network",cidr:"10.77.0.0/24",gateway_id:$gateway_id,gateway_wireguard_public_key:$gateway_key,gateway_wireguard_address:$gateway_address,gateway_endpoint_host:$endpoint,gateway_endpoint_port:51820,transport_server_name:$server_name,transport_port:443,transport_auth_id:$vless},invite:{device_id:$device,platform:"linux",role:$role,expires_at:$expires}}}' > "$request"
+    '{owner_email:$owner,bootstrap:{controller_url:$controller,network:{id:$network,display_name:"XConnect UAT Gateway network",cidr:$cidr,gateway_id:$gateway_id,gateway_wireguard_public_key:$gateway_key,gateway_wireguard_address:$gateway_address,gateway_endpoint_host:$endpoint,gateway_endpoint_port:51820,transport_server_name:$server_name,transport_port:443,transport_auth_id:$vless},invite:{device_id:$device,platform:"linux",role:$role,expires_at:$expires}}}' > "$request"
   status=$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
     -H "X-Service-Token: $ZERO_SERVICE_TOKEN" -H 'Content-Type: application/json' \
     --data-binary "@$request" "$formal_zero/api/internal/overlay/networks/bootstrap" || true)
@@ -248,15 +252,16 @@ fi
 probe_pid_file=''
 if [[ "$gateway_provider" == external ]]; then
   probe_pid_file="/run/xconnect-one-${run_id}.pid"
-  ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$run_id" "$probe_pid_file" <<'START_PRIVATE_PROBE'
+  ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$run_id" "$probe_pid_file" "$gateway_wireguard_ip" <<'START_PRIVATE_PROBE'
 set -euo pipefail
 run_id="$1"
 pid_file="$2"
+gateway_wireguard_ip="$3"
 probe_dir="/run/xconnect-one-${run_id}"
 sudo rm -rf "$probe_dir"
 sudo install -d -m 755 "$probe_dir"
 printf '%s\n' "$run_id" | sudo tee "$probe_dir/index.html" >/dev/null
-sudo sh -c "nohup python3 -m http.server 8080 --bind 10.77.0.1 --directory '$probe_dir' >/run/xconnect-one-${run_id}.log 2>&1 & echo \$! > '$pid_file'"
+sudo sh -c "nohup python3 -m http.server 8080 --bind '$gateway_wireguard_ip' --directory '$probe_dir' >/run/xconnect-one-${run_id}.log 2>&1 & echo \$! > '$pid_file'"
 for attempt in {1..10}; do
   sudo ss -ltn | grep -Eq ':8080[[:space:]]' && exit 0
   sleep 1
@@ -280,7 +285,7 @@ STOP_PRIVATE_PROBE
   trap cleanup_private_probe EXIT
 fi
 
-if ! ssh "${CLIENT_SSH[@]}" "$client_user@$client" sudo bash -s -- "$run_id" "$gateway_transport" "$gateway_public_key" "$client_id" "$network_id" "$transport_server_name" <<'CLIENT_VERIFY'
+if ! ssh "${CLIENT_SSH[@]}" "$client_user@$client" sudo bash -s -- "$run_id" "$gateway_transport" "$gateway_public_key" "$client_id" "$network_id" "$transport_server_name" "$gateway_wireguard_ip" <<'CLIENT_VERIFY'
 set -euo pipefail
 client_failure() {
   echo "Client verification failed: $1"
@@ -300,7 +305,7 @@ tls_verify=$(timeout 10 openssl s_client -connect "$2:443" -servername "$6" \
 [[ "$tls_verify" == 0 ]] || client_failure tls-trust-or-transport
 connected=0
 for attempt in {1..30}; do
-  if ping -c 1 -W 2 10.77.0.1 >/dev/null 2>&1 && curl --fail --max-time 5 --noproxy '*' -s http://10.77.0.1:8080/ | grep -Fxq "$1"; then connected=1; break; fi
+  if ping -c 1 -W 2 "$7" >/dev/null 2>&1 && curl --fail --max-time 5 --noproxy '*' -s "http://$7:8080/" | grep -Fxq "$1"; then connected=1; break; fi
   sleep 2
 done
 [[ "$connected" == 1 ]] || client_failure private-ping-http
@@ -310,7 +315,7 @@ xconnect sync --state-dir /var/lib/xconnect-one >/dev/null || client_failure con
 xconnect status --state-dir /var/lib/xconnect-one | jq -e --arg device "$4" --arg network "$5" \
   '.joined == true and .device_id == $device and .network_id == $network and .generations.state > 0 and .runtime.applied == true and .runtime.core_id == "xray" and .credential.present == true and .credential.expired == false' \
   >/dev/null || client_failure signed-config-ack-status
-curl --fail --max-time 10 --noproxy '*' -s http://10.77.0.1:8080/ | grep -Fxq "$1" || client_failure post-sync-private-http
+curl --fail --max-time 10 --noproxy '*' -s "http://$7:8080/" | grep -Fxq "$1" || client_failure post-sync-private-http
 CLIENT_VERIFY
 then
   ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s <<'GATEWAY_FAILURE_DIAGNOSTICS'
@@ -324,13 +329,13 @@ GATEWAY_FAILURE_DIAGNOSTICS
   exit 1
 fi
 
-ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$client_public_key" "$gateway_id" "$network_id" "$formal_zero" <<'RELAY_VERIFY'
+ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$client_public_key" "$gateway_id" "$network_id" "$formal_zero" "$client_wireguard_ip" <<'RELAY_VERIFY'
 set -euo pipefail
 wg show xconzero0 latest-handshakes | awk -v peer="$1" -v now="$(date +%s)" '$1 == peer && $2 > 0 && now-$2 >= 0 && now-$2 < 180 {ok=1} END {exit !ok}'
 jq -e --arg gateway "$2" --arg network "$3" --arg controller "$4" \
   '.gateway_id == $gateway and .network_id == $network and .controller == $controller and .applied_generation > 0 and (.applied_config_id | length) > 0' \
   /var/lib/xconnect-gateway/state.json >/dev/null
-ip route get 10.77.0.2 | grep -Fq 'dev xconzero0'
+ip route get "$5" | grep -Fq 'dev xconzero0'
 RELAY_VERIFY
 
 echo 'PASS: formal UAT Accounts enrollment, released Gateway and Linux One, signed sync/ACK, external Xray/WireGuard, private ping/HTTP and exact-peer handshake on both sides.'
@@ -356,14 +361,14 @@ write_desktop_handoff() {
     --arg gateway_key "$gateway_public_key" --arg gateway_host "$gateway_transport" \
     --arg accounts "$formal_zero" --arg portal "$formal_portal" \
     --arg gateway_instance "$gateway_instance" --arg gateway_public "$gateway" --arg gateway_private "$gateway_private" \
-    --arg client_instance "$client_instance" --arg client_public "$client" --arg client_private "$client_private" \
+    --arg client_instance "$client_instance" --arg client_public "$client" --arg client_private "$client_private" --arg target_ip "$gateway_wireguard_ip" \
     '{run:$run,expires_at:$expires,network_id:$network,gateway_id:$gateway_id,gateway_public_key:$gateway_key,
       gateway_endpoint:{host:$gateway_host,port:443,server_name:"xconnect-lab.invalid"},
       accounts_url:$accounts,portal_url:$portal,
       instances:{gateway:{instance_id:$gateway_instance,public_ip:$gateway_public,private_ip:$gateway_private},
                  linux_one:{instance_id:$client_instance,public_ip:$client_public,private_ip:$client_private}},
       expected_device_ids:{darwin:("one-darwin-" + $run),windows:("one-windows-" + $run)},
-      verification:{target:"http://10.77.0.1:8080/",expected_marker:$run}}' > "$handoff"
+      verification:{target:("http://" + $target_ip + ":8080/"),expected_marker:$run}}' > "$handoff"
   chmod 644 "$handoff"
   python3 "$ROOT/.github/scripts/xconnect-lab/prepare.py" validate-handoff "$handoff"
   unexpected=$(find "$public_dir" -mindepth 1 -maxdepth 1 ! -name ca.crt ! -name desktop-handoff.json -print -quit)
