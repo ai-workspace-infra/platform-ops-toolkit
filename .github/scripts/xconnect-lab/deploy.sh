@@ -193,8 +193,11 @@ test -f "$playbook" || { echo 'Reviewed playbooks revision does not contain the 
 # artifact and run-scoped values. The variable file is runner-private and is
 # removed after Ansible returns.
 local variables_file="$LAB_DIR/xconnect-one-vars.json"
-local ca_source="$LAB_DIR/tls/gateway-ca.crt"
-test -s "$ca_source" || { echo 'Gateway CA handoff is required before One deployment'; exit 1; }
+local ca_source=""
+if [[ "$gateway_provider" != external ]]; then
+  ca_source="$LAB_DIR/tls/gateway-ca.crt"
+  test -s "$ca_source" || { echo 'Gateway CA handoff is required before One deployment'; exit 1; }
+fi
 jq -n \
   --arg binary "$LAB_DIR/bin/xconnect" \
   --arg ca "$ca_source" \
@@ -369,7 +372,10 @@ STOP_PRIVATE_PROBE
   trap cleanup_private_probe EXIT
 fi
 
-gateway_ca_sha256=$(sha256sum "$LAB_DIR/tls/gateway-ca.crt" | awk '{print $1}')
+gateway_ca_sha256=''
+if [[ "$gateway_provider" != external ]]; then
+  gateway_ca_sha256=$(sha256sum "$LAB_DIR/tls/gateway-ca.crt" | awk '{print $1}')
+fi
 if ! ssh "${CLIENT_SSH[@]}" "$client_user@$client" sudo bash -s -- "$run_id" "$client_transport_endpoint" "$gateway_public_key" "$client_id" "$network_id" "$transport_server_name" "$gateway_wireguard_ip" "$gateway_ca_sha256" <<'CLIENT_VERIFY'
 set -euo pipefail
 client_failure() {
@@ -384,9 +390,12 @@ client_failure() {
   exit 1
 }
 [[ "$(cat /etc/xconnect-lab/node-role)" == controlled-client ]] || client_failure role
-tls_ca_file=/usr/local/share/ca-certificates/xconnect-one-uat.crt
-[[ -r "$tls_ca_file" ]] || client_failure tls-ca-not-installed
-[[ "$(sha256sum "$tls_ca_file" | awk '{print $1}')" == "$8" ]] || client_failure tls-ca-handoff
+tls_ca_file=/etc/ssl/certs/ca-certificates.crt
+if [[ -n "$8" ]]; then
+  tls_ca_file=/usr/local/share/ca-certificates/xconnect-one-uat.crt
+  [[ -r "$tls_ca_file" ]] || client_failure tls-ca-not-installed
+  [[ "$(sha256sum "$tls_ca_file" | awk '{print $1}')" == "$8" ]] || client_failure tls-ca-handoff
+fi
 tls_verify=$(timeout 10 openssl s_client -connect "$2:443" -servername "$6" -verify_hostname "$6" \
   -CAfile "$tls_ca_file" -verify_return_error </dev/null 2>/dev/null \
   | awk '/Verify return code:/ {print $4; exit}' || true)
