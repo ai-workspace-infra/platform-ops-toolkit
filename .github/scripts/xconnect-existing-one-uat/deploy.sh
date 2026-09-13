@@ -56,7 +56,7 @@ gateway_ssh=(ssh -i "$gateway_key" "${SSH_COMMON[@]}")
 
 echo 'Stage: verify the fixed UAT One declaration'
 declaration="$GITHUB_WORKSPACE/gitops/vpn-overlay/uat/xconnect-one-nodes.yaml"
-grep -Fq 'gateway_ref: TW-XConnect.svc.plus' "$declaration"
+grep -Fq 'gateway_ref: tw-xconnect.svc.plus' "$declaration"
 grep -Fq 'fqdn: observability.svc.plus' "$declaration"
 grep -Fq 'lifecycle: persistent' "$declaration"
 
