@@ -56,7 +56,7 @@ on:
         description: TLS SNI name for the external Gateway
         type: string
         required: false
-        default: 'tw-xconnect.onwalk.net'
+        default: 'tw-xconnect.svc.plus'
       allow_release_overrides:
         description: Explicitly allow this run to use One/Gateway tags different from the GitOps declaration
         type: boolean
@@ -100,7 +100,7 @@ jobs:
       GATEWAY_PROVIDER: ${{ inputs.gateway_provider || 'external' }}
       EXTERNAL_GATEWAY_ID: ${{ inputs.external_gateway_id || 'gw-uat-tw-xconnect' }}
       EXTERNAL_NETWORK_ID: ${{ inputs.external_network_id || 'net_uat-tw-xconnect' }}
-      EXTERNAL_GATEWAY_SERVER_NAME: ${{ inputs.external_gateway_server_name || 'tw-xconnect.onwalk.net' }}
+      EXTERNAL_GATEWAY_SERVER_NAME: ${{ inputs.external_gateway_server_name || 'tw-xconnect.svc.plus' }}
       ALLOW_XCONNECT_RELEASE_OVERRIDES: ${{ inputs.allow_release_overrides || false }}
       CLEANUP_RUN: ${{ inputs.cleanup_run }}
       SSH_DEBUG_INGRESS_CIDRS: ${{ inputs.ssh_debug_ingress_cidrs || '35.79.83.48/32' }}
@@ -207,9 +207,9 @@ jobs:
             kv/data/uat/xconnect-one VLESS_ID | LAB_VLESS_ID ;
             kv/data/uat/xconnect-one ZERO_SERVICE_TOKEN | ZERO_SERVICE_TOKEN ;
             kv/data/uat/xconnect-one ZERO_OWNER_EMAIL | ZERO_OWNER_EMAIL ;
-            kv/data/prod/ulighthost-xconnect/tw-xconnect.onwalk.net host | EXTERNAL_GATEWAY_HOST ;
-            kv/data/prod/ulighthost-xconnect/tw-xconnect.onwalk.net user | EXTERNAL_GATEWAY_USER ;
-            kv/data/prod/ulighthost-xconnect/tw-xconnect.onwalk.net ssh_private_key_b64 | EXTERNAL_GATEWAY_SSH_PRIVATE_KEY_B64 ;
+            kv/data/uat/ulighthost-xconnect/tw-xconnect.onwalk.net host | EXTERNAL_GATEWAY_HOST ;
+            kv/data/uat/ulighthost-xconnect/tw-xconnect.onwalk.net user | EXTERNAL_GATEWAY_USER ;
+            kv/data/uat/ulighthost-xconnect/tw-xconnect.onwalk.net ssh_private_key_b64 | EXTERNAL_GATEWAY_SSH_PRIVATE_KEY_B64 ;
             kv/data/CICD/observability user | OBSERVABILITY_USER ;
             kv/data/CICD/observability password | OBSERVABILITY_PASSWORD
       - name: AWS short-lived OIDC credentials
