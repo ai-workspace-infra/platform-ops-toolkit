@@ -57,6 +57,11 @@ on:
         type: string
         required: false
         default: 'tw-xconnect.svc.plus'
+      gateway_wireguard_address:
+        description: Optional Gateway WireGuard IPv4 /32 override inside the GitOps overlay CIDR
+        type: string
+        required: false
+        default: ''
       allow_release_overrides:
         description: Explicitly allow this run to use One/Gateway tags different from the GitOps declaration
         type: boolean
@@ -105,6 +110,7 @@ jobs:
       CLEANUP_RUN: ${{ inputs.cleanup_run }}
       SSH_DEBUG_INGRESS_CIDRS: ${{ inputs.ssh_debug_ingress_cidrs || '35.79.83.48/32' }}
       GATEWAY_TRANSPORT_INGRESS_CIDRS: ${{ inputs.gateway_transport_ingress_cidrs || '35.79.83.48/32' }}
+      GATEWAY_WIREGUARD_ADDRESS: ${{ inputs.gateway_wireguard_address }}
       NODE_OBSERVATION_INPUT: 'until-expiry'
     steps:
       - uses: actions/checkout@v7

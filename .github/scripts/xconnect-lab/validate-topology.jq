@@ -47,7 +47,7 @@ lease_ok and
 .spec.vault.runtime_path == "kv/data/uat/xconnect-one" and
 .spec.vault.github_app_path == "kv/data/CICD/github-app/daily-snapshot" and
 .spec.overlay.transport == "vless-tls-xudp" and
-.spec.overlay.gateway_address == "10.77.0.1/32" and
+(.spec.overlay.gateway_address | type == "string") and
 .spec.overlay.device_address == "10.77.0.2/32" and
 .spec.overlay.public_wireguard_ingress == false and
 .spec.gateway_transport.enabled == true and

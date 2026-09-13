@@ -84,6 +84,18 @@ gateway_scp=(scp -i "$gateway_key" "${SSH_COMMON[@]}")
 
 echo 'Stage: verify the fixed UAT One declaration'
 declaration="$GITHUB_WORKSPACE/gitops/vpn-overlay/uat/xconnect-one-nodes.yaml"
+overlay_cidr="$(awk '$1 == "cidr:" {print $2; exit}' "$declaration")"
+gateway_address="${GATEWAY_WIREGUARD_ADDRESS:-$(awk '$1 == "gateway_wireguard_address:" {print $2; exit}' "$declaration")}"
+gateway_wireguard_ip="${gateway_address%/*}"
+[[ -n "$overlay_cidr" && -n "$gateway_address" ]] || { echo 'UAT declaration must provide overlay CIDR and Gateway WireGuard address' >&2; exit 1; }
+python3 - "$gateway_address" "$overlay_cidr" <<'PY'
+import ipaddress
+import sys
+gateway = ipaddress.ip_interface(sys.argv[1])
+network = ipaddress.ip_network(sys.argv[2], strict=False)
+if gateway.version != 4 or gateway.network.prefixlen != 32 or str(gateway) != sys.argv[1] or gateway.ip not in network:
+    raise SystemExit('Gateway WireGuard address must be a canonical IPv4 /32 inside the overlay CIDR')
+PY
 grep -Fq 'gateway_ref: tw-xconnect.svc.plus' "$declaration"
 grep -Fq 'fqdn: observability.svc.plus' "$declaration"
 grep -Fq 'lifecycle: persistent' "$declaration"
@@ -212,7 +224,8 @@ issue_invite() {
     --arg network "$ZERO_NETWORK_ID" --arg gateway_id "gw-uat-tw-xconnect" \
     --arg gateway_key "$gateway_public_key" --arg gateway_host "$GATEWAY_SERVER_NAME" \
     --arg vless "$LAB_VLESS_ID" --arg device "$device" --arg role "$role" --arg expires "$expires_at" \
-    '{owner_email:$owner,bootstrap:{controller_url:$controller,network:{id:$network,display_name:"XConnect UAT network",cidr:"10.77.0.0/24",gateway_id:$gateway_id,gateway_wireguard_public_key:$gateway_key,gateway_wireguard_address:"10.77.0.1/32",gateway_endpoint_host:$gateway_host,gateway_endpoint_port:51820,transport_server_name:$gateway_host,transport_port:443,transport_auth_id:$vless},invite:{device_id:$device,platform:"linux",role:$role,expires_at:$expires}}}' \
+    --arg cidr "$overlay_cidr" --arg gateway_address "$gateway_address" \
+    '{owner_email:$owner,bootstrap:{controller_url:$controller,network:{id:$network,display_name:"XConnect UAT network",cidr:$cidr,gateway_id:$gateway_id,gateway_wireguard_public_key:$gateway_key,gateway_wireguard_address:$gateway_address,gateway_endpoint_host:$gateway_host,gateway_endpoint_port:51820,transport_server_name:$gateway_host,transport_port:443,transport_auth_id:$vless},invite:{device_id:$device,platform:"linux",role:$role,expires_at:$expires}}}' \
     >"$request"
   local status
   status="$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
@@ -252,7 +265,7 @@ ANSIBLE_HOST_KEY_CHECKING=True \
   --user "$ONE_USER" \
   --private-key "$one_key" \
   --ssh-common-args="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known_hosts" \
-  --extra-vars "xconnect_one_hosts=all xconnect_one_enabled=true xconnect_one_environment=uat xconnect_one_state_dir=/var/lib/xconnect-one/uat xconnect_one_binary_source=$LAB_DIR/xconnect xconnect_one_device_id=$ONE_DEVICE_ID xconnect_one_device_name=observability-uat xconnect_one_invite_file_source=$invite xconnect_one_expected_overlay_cidr=10.77.0.0/24 xconnect_one_expected_wireguard_interface=xconone0 xconnect_one_expected_xray_loopback_port=18080 xconnect_one_sync_interval_seconds=300 xconnect_one_install_observability=true" \
+  --extra-vars "xconnect_one_hosts=all xconnect_one_enabled=true xconnect_one_environment=uat xconnect_one_state_dir=/var/lib/xconnect-one/uat xconnect_one_binary_source=$LAB_DIR/xconnect xconnect_one_device_id=$ONE_DEVICE_ID xconnect_one_device_name=observability-uat xconnect_one_invite_file_source=$invite xconnect_one_expected_overlay_cidr=$overlay_cidr xconnect_one_expected_wireguard_interface=xconone0 xconnect_one_expected_xray_loopback_port=18080 xconnect_one_sync_interval_seconds=300 xconnect_one_install_observability=true" \
   >/dev/null
 
 echo 'Stage: reconcile the stable Gateway peer set'
@@ -274,8 +287,8 @@ echo 'Stage: verify private ping and temporary private HTTP'
 probe_dir="$(${gateway_ssh[@]} "$GATEWAY_USER@$GATEWAY_HOST" 'sudo mktemp -d /run/xconnect-one-uat-http.XXXXXX')"
 probe_pid_file="$probe_dir/pid"
 "${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" \
-  "printf '%s\\n' xconnect-uat-private-http | sudo tee '$probe_dir/index.html' >/dev/null; sudo sh -c 'nohup python3 -m http.server 18081 --bind 10.77.0.1 --directory \"$probe_dir\" >/dev/null 2>&1 & echo \$! > \"$probe_pid_file\"'"
-"${one_ssh[@]}" "$ONE_USER@$ONE_HOST" 'ping -c 3 -W 3 10.77.0.1 >/dev/null'
+  "printf '%s\\n' xconnect-uat-private-http | sudo tee '$probe_dir/index.html' >/dev/null; sudo sh -c 'nohup python3 -m http.server 18081 --bind $gateway_wireguard_ip --directory \"$probe_dir\" >/dev/null 2>&1 & echo \$! > \"$probe_pid_file\"'"
+"${one_ssh[@]}" "$ONE_USER@$ONE_HOST" "ping -c 3 -W 3 $gateway_wireguard_ip >/dev/null"
 "${one_ssh[@]}" "$ONE_USER@$ONE_HOST" \
-  "curl --fail --silent --show-error --noproxy '*' --max-time 10 http://10.77.0.1:18081/ | grep -Fxq xconnect-uat-private-http"
+  "curl --fail --silent --show-error --noproxy '*' --max-time 10 http://$gateway_wireguard_ip:18081/ | grep -Fxq xconnect-uat-private-http"
 echo "PASS: $ONE_DEVICE_ID joined UAT through $GATEWAY_SERVER_NAME; signed sync, exact handshake, private ping and HTTP succeeded."

@@ -66,7 +66,7 @@ def declaration():
                       'infrastructure_path': 'kv/data/CICD/uat',
                       'runtime_path': 'kv/data/uat/xconnect-one',
                       'github_app_path': 'kv/data/CICD/github-app/daily-snapshot'},
-            'overlay': {'transport': 'vless-tls-xudp', 'gateway_address': '10.77.0.1/32',
+            'overlay': {'cidr': '10.77.0.0/24', 'transport': 'vless-tls-xudp', 'gateway_address': '10.77.0.1/32',
                         'device_address': '10.77.0.2/32', 'public_wireguard_ingress': False,
                         'private_checks': ['ping', 'http', 'wireguard-handshake', 'config-sync']},
             'gateway_transport': {'enabled': True, 'exposure': 'public-restricted',

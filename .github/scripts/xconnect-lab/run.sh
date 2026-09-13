@@ -108,6 +108,7 @@ case "${1:?command}" in
     fi
     python3 "$ROOT/.github/scripts/xconnect-lab/prepare.py" validate-desktop "$DECL" "${DESKTOP_JOIN_WINDOW_MINUTES:-0}" || die 'GitOps desktop validation does not authorize the requested join window'
     python3 "$ROOT/.github/scripts/xconnect-lab/prepare.py" validate-transport "$DECL" "${GATEWAY_TRANSPORT_INGRESS_CIDRS:-}" || die 'Gateway public transport ingress is not authorized or is not a canonical IPv4 /32 allowlist'
+    gateway_wireguard_address=$(python3 "$ROOT/.github/scripts/xconnect-lab/prepare.py" validate-overlay-gateway-address "$DECL" "${GATEWAY_WIREGUARD_ADDRESS:-}") || die 'Gateway WireGuard address is invalid or outside the declared overlay CIDR'
     jq -e --argjson cleanup "$([[ "$MODE" == cleanup ]] && echo true || echo false)" \
       -f "$ROOT/.github/scripts/xconnect-lab/validate-topology.jq" "$DECL" >/dev/null || die 'Missing or incompatible UAT lab topology'
     resolved_node=$(python3 "$ROOT/.github/scripts/xconnect-lab/prepare.py" resolve-node-observation "$DECL" "${NODE_OBSERVATION_INPUT:-auto}" "$MODE" "${DESKTOP_JOIN_WINDOW_MINUTES:-0}") || die 'Node observation window is incompatible with the reviewed topology'
@@ -125,7 +126,9 @@ case "${1:?command}" in
       echo "observability_query_path=$(jq -r .spec.observability.metrics_query_path "$DECL")"
       echo "observability_environment=$(jq -r .spec.observability.environment "$DECL")"
       echo "lab_controller_mode=$(jq -r .spec.zero.lab_controller.purpose "$DECL")"
+      echo "gateway_wireguard_address=$gateway_wireguard_address"
     } >> "$GITHUB_OUTPUT"
+    echo "GATEWAY_WIREGUARD_ADDRESS=$gateway_wireguard_address" >> "${GITHUB_ENV:-$LAB_DIR/github-env}"
     ;;
   download)
     mkdir -p "$LAB_DIR/bin"

@@ -48,6 +48,11 @@ on:
         type: string
         required: false
         default: 'tw-xconnect.svc.plus'
+      gateway_wireguard_address:
+        description: Optional Gateway WireGuard IPv4 /32 override inside the GitOps overlay CIDR
+        type: string
+        required: false
+        default: ''
       ssh_debug_ingress_cidrs:
         description: Optional operator SSH IPv4 /32 allowlist; not stored in GitOps
         type: string
@@ -82,6 +87,7 @@ jobs:
       ONE_VAULT_KEY: ${{ inputs.one_vault_key || 'observability.svc.plus' }}
       GATEWAY_VAULT_KEY: ${{ inputs.gateway_vault_key || 'tw-xconnect.svc.plus' }}
       GATEWAY_SERVER_NAME: tw-xconnect.svc.plus
+      GATEWAY_WIREGUARD_ADDRESS: ${{ inputs.gateway_wireguard_address }}
       SSH_DEBUG_INGRESS_CIDRS: ${{ inputs.ssh_debug_ingress_cidrs || '35.79.83.48/32' }}
     steps:
       - uses: actions/checkout@v4

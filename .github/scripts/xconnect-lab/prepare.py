@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 import subprocess
 import sys
+import urllib.parse
 import urllib.request
 import uuid
 
@@ -91,6 +92,30 @@ def validate_gateway_transport_ingress(spec, requested=''):
         if interface.version != 4 or interface.network.prefixlen != 32 or str(interface) != cidr:
             raise ValueError('Gateway transport ingress must be canonical IPv4 /32 values')
     return cidrs
+
+
+def validate_overlay_gateway_address(spec, requested=''):
+    """Resolve the Gateway WG /32 from dispatch or the GitOps declaration."""
+    overlay = spec.get('overlay')
+    if not isinstance(overlay, dict):
+        raise ValueError('overlay must be an object')
+    raw = str(requested or overlay.get('gateway_address', '')).strip()
+    try:
+        address = ipaddress.ip_interface(raw)
+        network = ipaddress.ip_network(str(overlay.get('cidr', '')), strict=False)
+    except ValueError as exc:
+        raise ValueError('gateway WireGuard address and overlay CIDR must be valid IP values') from exc
+    if address.version != 4 or address.network.prefixlen != 32 or str(address) != raw:
+        raise ValueError('gateway WireGuard address must be a canonical IPv4 /32')
+    if network.version != 4 or address.ip not in network:
+        raise ValueError('gateway WireGuard address must belong to the declared overlay CIDR')
+    try:
+        device = ipaddress.ip_interface(str(overlay.get('device_address', '')))
+    except ValueError as exc:
+        raise ValueError('device WireGuard address must be a valid IP interface') from exc
+    if address.ip == device.ip:
+        raise ValueError('gateway and device WireGuard addresses must be different')
+    return raw
 
 
 def validate_ssh_debug_access(spec, requested=None):
@@ -215,7 +240,15 @@ def validate_public_handoff(value):
     }:
         raise ValueError('public desktop handoff expected device IDs are not run-bound')
     _exact_keys(value['verification'], PUBLIC_VERIFICATION_KEYS, 'verification')
-    if value['verification'] != {'target': 'http://10.77.0.1:8080/', 'expected_marker': run}:
+    verification = value['verification']
+    target = urllib.parse.urlsplit(verification['target'])
+    try:
+        target_ip = ipaddress.ip_address(target.hostname or '')
+    except ValueError as exc:
+        raise ValueError('public desktop handoff verification target must use an IPv4 address') from exc
+    if (verification['expected_marker'] != run or target.scheme != 'http' or
+            target.path != '/' or target.port != 8080 or target_ip.version != 4 or
+            not target_ip.is_private):
         raise ValueError('public desktop handoff verification binding is invalid')
     forbidden = ('invite', 'token', 'vless', 'private', 'owneremail', 'owner_email')
     if any(any(word in str(key).lower() for word in forbidden) for key in value):
@@ -235,6 +268,12 @@ def main():
             raise ValueError('validate-transport requires a declaration and comma-separated ingress list')
         declaration = json.loads(Path(sys.argv[2]).read_text())
         validate_gateway_transport_ingress(declaration['spec'], sys.argv[3])
+        return
+    if len(sys.argv) >= 2 and sys.argv[1] == 'validate-overlay-gateway-address':
+        if len(sys.argv) != 4:
+            raise ValueError('validate-overlay-gateway-address requires a declaration and optional address')
+        declaration = json.loads(Path(sys.argv[2]).read_text())
+        print(validate_overlay_gateway_address(declaration['spec'], sys.argv[3]))
         return
     if len(sys.argv) >= 2 and sys.argv[1] == 'validate-windows':
         if len(sys.argv) != 4:
