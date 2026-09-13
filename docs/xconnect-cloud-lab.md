@@ -82,9 +82,14 @@ external relay record because the UAT lab connects through that production-owned
 host.
 
 The fixed-One UAT workflow additionally reads the shared certificate record
-`kv/data/CICD/domains/svc.plus` and injects only the fullchain and key into the
-Gateway's protected runtime paths. The cloud lab itself does not read or rotate
-that certificate because it treats the persistent Gateway as externally owned.
+`kv/data/CICD/domains/svc.plus`. For an AWS-owned disposable Gateway, the
+fullchain/key are installed into the Gateway's protected runtime paths and the
+public CA is read back from that node. For the externally managed persistent
+Gateway, the lab does not mutate the host or require an experiment-specific CA
+file; it uses the public `tls_trust_bundle_pem_b64` from this Vault record and
+verifies the live Gateway `443/TLS` endpoint with the configured SNI before
+passing the trust bundle to One. The lab itself does not read or rotate the
+certificate.
 
 The owner email must identify the account that will inspect the run in Portal.
 Owner isolation is not bypassed to make another user's nodes visible.
