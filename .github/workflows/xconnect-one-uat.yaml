@@ -34,7 +34,7 @@ on:
         required: false
         default: 'observability.svc.plus'
       gateway_vault_key:
-        description: Stable Gateway Vault record key under prod/ulighthost-xconnect
+        description: Stable Gateway Vault record key under uat/ulighthost-xconnect
         type: string
         required: false
         default: 'tw-xconnect.onwalk.net'
@@ -69,7 +69,7 @@ jobs:
       ONE_DEVICE_ID: observability-uat
       ONE_VAULT_KEY: ${{ inputs.one_vault_key || 'observability.svc.plus' }}
       GATEWAY_VAULT_KEY: ${{ inputs.gateway_vault_key || 'tw-xconnect.onwalk.net' }}
-      GATEWAY_SERVER_NAME: TW-XConnect.svc.plus
+      GATEWAY_SERVER_NAME: tw-xconnect.svc.plus
       SSH_DEBUG_INGRESS_CIDRS: ${{ inputs.ssh_debug_ingress_cidrs || '35.79.83.48/32' }}
     steps:
       - uses: actions/checkout@v4
@@ -134,7 +134,7 @@ jobs:
       - name: Verify fixed UAT One declaration
         run: |
           declaration=gitops/vpn-overlay/uat/xconnect-one-nodes.yaml
-          grep -Fq 'gateway_ref: TW-XConnect.svc.plus' "$declaration"
+          grep -Fq 'gateway_ref: tw-xconnect.svc.plus' "$declaration"
           grep -Fq 'fqdn: observability.svc.plus' "$declaration"
           grep -Fq 'lifecycle: persistent' "$declaration"
           grep -Fq 'deployment: enabled' "$declaration"
@@ -156,9 +156,9 @@ jobs:
             kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} host | ONE_HOST ;
             kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} user | ONE_USER ;
             kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} ssh_private_key_b64 | ONE_SSH_PRIVATE_KEY_B64 ;
-            kv/data/prod/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} host | GATEWAY_HOST ;
-            kv/data/prod/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} user | GATEWAY_USER ;
-            kv/data/prod/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} ssh_private_key_b64 | GATEWAY_SSH_PRIVATE_KEY_B64 ;
+            kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} host | GATEWAY_HOST ;
+            kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} user | GATEWAY_USER ;
+            kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} ssh_private_key_b64 | GATEWAY_SSH_PRIVATE_KEY_B64 ;
             kv/data/CICD/observability user | OBSERVABILITY_USER ;
             kv/data/CICD/observability password | OBSERVABILITY_PASSWORD
 
@@ -185,7 +185,7 @@ jobs:
           GATEWAY_HOST: ${{ steps.runtime.outputs.GATEWAY_HOST }}
           GATEWAY_USER: ${{ steps.runtime.outputs.GATEWAY_USER }}
           GATEWAY_SSH_PRIVATE_KEY_B64: ${{ steps.runtime.outputs.GATEWAY_SSH_PRIVATE_KEY_B64 }}
-          GATEWAY_SERVER_NAME: TW-XConnect.svc.plus
+          GATEWAY_SERVER_NAME: tw-xconnect.svc.plus
           OBSERVABILITY_USER: ${{ steps.runtime.outputs.OBSERVABILITY_USER }}
           OBSERVABILITY_PASSWORD: ${{ steps.runtime.outputs.OBSERVABILITY_PASSWORD }}
         run: bash .github/scripts/xconnect-existing-one-uat/deploy.sh
