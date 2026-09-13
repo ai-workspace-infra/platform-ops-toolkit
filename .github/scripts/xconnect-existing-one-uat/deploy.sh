@@ -276,7 +276,7 @@ if ! ANSIBLE_HOST_KEY_CHECKING=True \
     --private-key "$one_key" \
     --become-password-file "$one_become_password" \
     --ssh-common-args="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known_hosts" \
-    --extra-vars "xconnect_one_hosts=all xconnect_one_enabled=true xconnect_one_environment=uat xconnect_one_state_dir=/var/lib/xconnect-one/uat xconnect_one_binary_source=$LAB_DIR/xconnect xconnect_one_device_id=$ONE_DEVICE_ID xconnect_one_device_name=observability-uat xconnect_one_invite_file_source=$invite xconnect_one_expected_overlay_cidr=$overlay_cidr xconnect_one_expected_wireguard_interface=xconone0 xconnect_one_expected_xray_loopback_port=18080 xconnect_one_sync_interval_seconds=300 xconnect_one_install_observability=true" \
+    --extra-vars "xconnect_one_hosts=all xconnect_one_enabled=true xconnect_one_environment=uat xconnect_one_state_dir=/var/lib/xconnect-one/uat xconnect_one_binary_source=$LAB_DIR/xconnect xconnect_one_device_id=$ONE_DEVICE_ID xconnect_one_device_name=observability-uat xconnect_one_expected_network_id=$ZERO_NETWORK_ID xconnect_one_invite_file_source=$invite xconnect_one_expected_overlay_cidr=$overlay_cidr xconnect_one_expected_wireguard_interface=xconone0 xconnect_one_expected_xray_loopback_port=18080 xconnect_one_sync_interval_seconds=300 xconnect_one_install_observability=true" \
     >"$ansible_one_log" 2>&1; then
   echo 'XConnect One Ansible deployment failed; sanitized task summary:' >&2
   perl -pe 's{xconnect://join/\S+}{xconnect://join/[REDACTED]}g; s{(?i)(password|token|private[_-]?key|secret)(\s*[:=]\s*)\S+}{$1$2[REDACTED]}g' \

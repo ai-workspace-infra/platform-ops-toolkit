@@ -56,6 +56,7 @@ grep -Fq 'kv/data/CICD/domains/svc.plus tls_fullchain_pem_b64' "${existing_one_w
 grep -Fq 'kv/data/CICD/domains/svc.plus tls_key_pem_b64' "${existing_one_workflow}"
 grep -Fq 'GATEWAY_TLS_CERT_B64' "${existing_one_workflow}"
 grep -Fq 'GATEWAY_RELEASE_TAG' "${existing_one_workflow}"
+grep -Fq 'xconnect_one_expected_network_id=$ZERO_NETWORK_ID' "${existing_one_deploy}"
 grep -Fq 'apt-get install -y -qq ca-certificates curl jq wireguard-tools' "${existing_one_deploy}"
 grep -Fq 'install -m 755 /tmp/xconnect-gateway /usr/local/bin/xconnect-gateway' "${existing_one_deploy}"
 grep -Fq 'install -m 755 /tmp/xray /usr/local/bin/xray' "${existing_one_deploy}"
