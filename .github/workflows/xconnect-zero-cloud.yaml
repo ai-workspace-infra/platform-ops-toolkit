@@ -51,7 +51,7 @@ on:
         description: Stable Zero network identity for the external Gateway
         type: string
         required: false
-        default: 'net_uat-tw-xconnect'
+        default: 'net_uat'
       external_gateway_server_name:
         description: TLS SNI name for the external Gateway
         type: string
@@ -104,7 +104,7 @@ jobs:
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
       GATEWAY_PROVIDER: ${{ inputs.gateway_provider || 'external' }}
       EXTERNAL_GATEWAY_ID: ${{ inputs.external_gateway_id || 'gw-uat-tw-xconnect' }}
-      EXTERNAL_NETWORK_ID: ${{ inputs.external_network_id || 'net_uat-tw-xconnect' }}
+      EXTERNAL_NETWORK_ID: ${{ inputs.external_network_id || 'net_uat' }}
       EXTERNAL_GATEWAY_SERVER_NAME: ${{ inputs.external_gateway_server_name || 'tw-xconnect.svc.plus' }}
       ALLOW_XCONNECT_RELEASE_OVERRIDES: ${{ inputs.allow_release_overrides || false }}
       CLEANUP_RUN: ${{ inputs.cleanup_run }}
