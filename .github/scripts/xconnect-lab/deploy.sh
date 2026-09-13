@@ -7,6 +7,7 @@ LAB_DIR="${LAB_DIR:?}"
 DECL="$ROOT/gitops/vpn-overlay/uat/xconnect-lab.json"
 gateway=$(jq -er .gateway_ip.value "$LAB_DIR/outputs.json")
 gateway_transport=$(jq -er .gateway_transport_ip.value "$LAB_DIR/outputs.json")
+gateway_private=$(jq -er .gateway_private_ip.value "$LAB_DIR/outputs.json")
 gateway_user_default=$(jq -er .gateway_ssh_user.value "$LAB_DIR/outputs.json")
 gateway_user="${EXTERNAL_GATEWAY_USER:-$gateway_user_default}"
 client=$(jq -er .client_ip.value "$LAB_DIR/outputs.json")
@@ -40,6 +41,15 @@ else
   GATEWAY_SCP=(scp -i "$LAB_DIR/id_ed25519" -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$LAB_DIR/known_hosts")
 fi
 CLIENT_SCP=(scp -i "$LAB_DIR/id_ed25519" -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$LAB_DIR/known_hosts")
+
+# The disposable Linux One and Gateway share the UAT VPC. Keep the public
+# 443 endpoint for optional desktop handoff, but make the cloud client use the
+# Gateway private address so it does not hairpin through the Internet Gateway.
+# The transport remains VLESS/TLS over TCP 443; only the AWS path is private.
+client_transport_endpoint="$gateway_transport"
+if [[ "$gateway_provider" != external ]]; then
+  client_transport_endpoint="$gateway_private"
+fi
 
 wait_for_ssh() {
   local user="$1" host="$2" ready=false
@@ -98,7 +108,7 @@ create_invite() {
   jq -n \
     --arg owner "$ZERO_OWNER_EMAIL" --arg controller "$formal_zero" \
     --arg network "$network_id" --arg gateway_id "$gateway_id" --arg gateway_key "$gateway_public_key" \
-    --arg endpoint "$gateway_transport" --arg gateway_address "$gateway_address" --arg cidr "$overlay_cidr" --arg vless "$LAB_VLESS_ID" \
+    --arg endpoint "$client_transport_endpoint" --arg gateway_address "$gateway_address" --arg cidr "$overlay_cidr" --arg vless "$LAB_VLESS_ID" \
     --arg role "$role" --arg device "$device_id" --arg expires "$expires" --arg server_name "$transport_server_name" \
     '{owner_email:$owner,bootstrap:{controller_url:$controller,network:{id:$network,display_name:"XConnect UAT Gateway network",cidr:$cidr,gateway_id:$gateway_id,gateway_wireguard_public_key:$gateway_key,gateway_wireguard_address:$gateway_address,gateway_endpoint_host:$endpoint,gateway_endpoint_port:51820,transport_server_name:$server_name,transport_port:443,transport_auth_id:$vless},invite:{device_id:$device,platform:"linux",role:$role,expires_at:$expires}}}' > "$request"
   status=$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
@@ -314,7 +324,7 @@ STOP_PRIVATE_PROBE
   trap cleanup_private_probe EXIT
 fi
 
-if ! ssh "${CLIENT_SSH[@]}" "$client_user@$client" sudo bash -s -- "$run_id" "$gateway_transport" "$gateway_public_key" "$client_id" "$network_id" "$transport_server_name" "$gateway_wireguard_ip" <<'CLIENT_VERIFY'
+if ! ssh "${CLIENT_SSH[@]}" "$client_user@$client" sudo bash -s -- "$run_id" "$client_transport_endpoint" "$gateway_public_key" "$client_id" "$network_id" "$transport_server_name" "$gateway_wireguard_ip" <<'CLIENT_VERIFY'
 set -euo pipefail
 client_failure() {
   echo "Client verification failed: $1"
