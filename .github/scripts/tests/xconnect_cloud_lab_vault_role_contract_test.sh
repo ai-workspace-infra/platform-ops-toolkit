@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 roles="${repo_root}/scripts/create_vault_service_repo_roles.sh"
 workflow="${repo_root}/.github/workflows/xconnect-zero-cloud.yaml"
+existing_one_workflow="${repo_root}/.github/workflows/xconnect-one-uat.yaml"
 runner="${repo_root}/.github/scripts/xconnect-lab/run.sh"
 topology_policy="${repo_root}/.github/scripts/xconnect-lab/validate-topology.jq"
 gateway="${repo_root}/.github/scripts/xconnect-lab/gateway.sh"
@@ -18,6 +19,14 @@ grep -Fq '"token_policies": ["${XCONNECT_CLOUD_LAB_POLICY}"]' "${roles}"
 grep -Fq 'path "kv/data/uat/xconnect-one"' "${roles}"
 grep -Fq 'path "kv/data/prod/ulighthost-xconnect/TW-XConnect.onwalk.net"' "${roles}"
 grep -Fq 'path "kv/data/CICD/observability"' "${roles}"
+grep -Fq 'XCONNECT_EXISTING_ONE_ROLE="github-actions-platform-ops-toolkit-uat-xconnect-existing-one"' "${roles}"
+grep -Fq '"job_workflow_ref": "${WF_PREFIX}/xconnect-one-uat.yaml@refs/heads/main"' "${roles}"
+grep -Fq '"token_policies": ["${XCONNECT_EXISTING_ONE_POLICY}"]' "${roles}"
+grep -Fq 'path "kv/data/prod/ulighthost-xconnect/observability.svc.plus"' "${roles}"
+grep -Fq 'XConnect One Existing UAT' "${existing_one_workflow}"
+grep -Fq 'role: ${{ env.XCONNECT_VAULT_ROLE }}' "${existing_one_workflow}"
+grep -Fq 'kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }}' "${existing_one_workflow}"
+grep -Fq 'deploy.sh' "${existing_one_workflow}"
 
 if grep -Fq '"${WF_PREFIX}/xconnect-cloud-lab.yml@*"' "${roles}"; then
   echo "XConnect cloud lab must use its dedicated main-only role, not the general workflow allowlist" >&2
