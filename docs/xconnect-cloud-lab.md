@@ -86,11 +86,15 @@ The fixed-One UAT workflow additionally reads the shared certificate record
 fullchain/key are installed into the Gateway's protected runtime paths and the
 public CA is read back from that node. For the externally managed persistent
 Gateway, the lab does not mutate the host or require an experiment-specific CA
-file; it uses the public `tls_trust_bundle_pem_b64` from this Vault record and
-passes it to One. The runner does not probe the persistent Gateway's restricted
-`443/TLS` endpoint; the Linux One performs the authoritative live TLS/SNI check
-from the data-plane path before handshake and private connectivity assertions.
-The lab itself does not read or rotate the certificate.
+file. For the externally managed persistent Gateway, the Gateway already uses
+the public `svc.plus` certificate, so One uses the host's normal public CA
+store; the lab does not force an unrelated Vault trust bundle onto that node.
+For an AWS-owned disposable Gateway, One receives the Gateway-distributed CA
+handoff from the Vault-backed lab runtime. The runner does not probe the
+persistent Gateway's restricted `443/TLS` endpoint; the Linux One performs the
+authoritative live TLS/SNI check from the data-plane path before handshake and
+private connectivity assertions. The lab itself does not read or rotate the
+certificate.
 
 The owner email must identify the account that will inspect the run in Portal.
 Owner isolation is not bypassed to make another user's nodes visible.
