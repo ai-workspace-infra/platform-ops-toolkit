@@ -89,6 +89,12 @@ private_key_digest=$(openssl pkey -in "$LAB_DIR/tls/server.key" -pubout -outform
 if [[ "$gateway_provider" == external ]]; then
   gateway_public_key=$(ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" 'sudo jq -er .wireguard_public_key /var/lib/xconnect-gateway/state.json')
   [[ "$gateway_public_key" =~ ^[A-Za-z0-9+/]{43}=$ ]] || { echo 'External Gateway returned an invalid WireGuard public key'; exit 1; }
+  external_gateway_binding=$(ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" 'sudo jq -cer "{gateway_id,network_id}" /var/lib/xconnect-gateway/state.json')
+  expected_gateway_binding=$(jq -cn --arg gateway "$gateway_id" --arg network "$network_id" '{gateway_id:$gateway,network_id:$network}')
+  [[ "$external_gateway_binding" == "$expected_gateway_binding" ]] || {
+    echo 'External Gateway identity is not bound to the requested Zero network'
+    exit 1
+  }
   printf '%s\n' "$gateway_public_key" > "$LAB_DIR/gateway-public-key"
 else
   : # Both Gateway modes use the Vault domain certificate.
