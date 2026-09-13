@@ -36,7 +36,7 @@ Gateway、One 和未来的业务节点应拥有稳定的逻辑节点 ID 与内�
 
 | 角色 | 稳定标识 | 说明 |
 |---|---|---|
-| Gateway | `TW-XConnect.svc.plus` / `gw-uat-tw-xconnect` | 稳定 relay 入口 |
+| Gateway | `tw-xconnect.svc.plus` / `gw-uat-tw-xconnect` | 稳定 relay 入口 |
 | One | `observability.svc.plus` / `observability-uat` | 固定 UAT One |
 
 ### 4. 网络健康与业务健康分开观测
@@ -69,7 +69,7 @@ Gateway 是新增节点入网、配置同步和撤销生效的准入变更入口
 ```text
 Portal → BFF → Accounts（唯一正式配置源）
                          ↓ signed config / enrollment / policy
-          TW-XConnect.svc.plus（独立 Linux Gateway）
+          tw-xconnect.svc.plus（独立 Linux Gateway）
                          ↓ WireGuard over VLESS
           observability.svc.plus（独立 Linux One）
 ```
