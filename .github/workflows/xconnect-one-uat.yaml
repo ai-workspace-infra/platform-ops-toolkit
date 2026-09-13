@@ -12,7 +12,7 @@ on:
         description: Reviewed GitOps commit SHA
         type: string
         required: false
-        default: 'b7cc399f64d56f1b236b76f4fb2bbb37a8797d43'
+        default: 'cc49c984fa022b5eeb767d0dc1c83afadc0bc2f9'
       playbooks_ref:
         description: Reviewed Playbooks commit SHA
         type: string
@@ -34,10 +34,10 @@ on:
         required: false
         default: 'observability.svc.plus'
       gateway_vault_key:
-        description: Stable Gateway Vault record key under uat/ulighthost-xconnect
+        description: Stable Gateway Vault record key under prod/ulighthost-xconnect
         type: string
         required: false
-        default: 'tw-xconnect.onwalk.net'
+        default: 'tw-xconnect.svc.plus'
       ssh_debug_ingress_cidrs:
         description: Optional operator SSH IPv4 /32 allowlist; not stored in GitOps
         type: string
@@ -62,13 +62,13 @@ jobs:
     timeout-minutes: 30
     env:
       MODE: ${{ inputs.mode }}
-      GITOPS_REF: ${{ inputs.gitops_ref || 'b7cc399f64d56f1b236b76f4fb2bbb37a8797d43' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || 'cc49c984fa022b5eeb767d0dc1c83afadc0bc2f9' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'dfa5f4c397d79d40681aaa96939003f38b9f2266' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.12' }}
       ZERO_NETWORK_ID: ${{ inputs.network_id || 'net_uat' }}
       ONE_DEVICE_ID: observability-uat
       ONE_VAULT_KEY: ${{ inputs.one_vault_key || 'observability.svc.plus' }}
-      GATEWAY_VAULT_KEY: ${{ inputs.gateway_vault_key || 'tw-xconnect.onwalk.net' }}
+      GATEWAY_VAULT_KEY: ${{ inputs.gateway_vault_key || 'tw-xconnect.svc.plus' }}
       GATEWAY_SERVER_NAME: tw-xconnect.svc.plus
       SSH_DEBUG_INGRESS_CIDRS: ${{ inputs.ssh_debug_ingress_cidrs || '35.79.83.48/32' }}
     steps:
@@ -156,9 +156,9 @@ jobs:
             kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} host | ONE_HOST ;
             kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} user | ONE_USER ;
             kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} ssh_private_key_b64 | ONE_SSH_PRIVATE_KEY_B64 ;
-            kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} host | GATEWAY_HOST ;
-            kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} user | GATEWAY_USER ;
-            kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} ssh_private_key_b64 | GATEWAY_SSH_PRIVATE_KEY_B64 ;
+            kv/data/prod/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} host | GATEWAY_HOST ;
+            kv/data/prod/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} user | GATEWAY_USER ;
+            kv/data/prod/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} ssh_private_key_b64 | GATEWAY_SSH_PRIVATE_KEY_B64 ;
             kv/data/CICD/observability user | OBSERVABILITY_USER ;
             kv/data/CICD/observability password | OBSERVABILITY_PASSWORD
 
