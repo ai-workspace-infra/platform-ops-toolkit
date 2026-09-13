@@ -85,6 +85,12 @@ one_ssh=(ssh -i "$one_key" "${SSH_COMMON[@]}")
 gateway_ssh=(ssh -i "$gateway_key" "${SSH_COMMON[@]}")
 gateway_scp=(scp -i "$gateway_key" "${SSH_COMMON[@]}")
 
+one_sudo() {
+  local command="$1"
+  printf '%s\n' "$ONE_BECOME_PASSWORD" | \
+    "${one_ssh[@]}" "$ONE_USER@$ONE_HOST" "sudo -S -p '' $command"
+}
+
 echo 'Stage: verify the fixed UAT One declaration'
 declaration="$GITHUB_WORKSPACE/gitops/vpn-overlay/uat/xconnect-one-nodes.yaml"
 overlay_cidr="$(awk '$1 == "cidr:" {print $2; exit}' "$declaration")"
@@ -284,11 +290,11 @@ echo 'Stage: reconcile the stable Gateway peer set'
   >/dev/null
 
 echo 'Stage: verify signed sync, runtime state and exact peer handshake'
-status="$(${one_ssh[@]} "$ONE_USER@$ONE_HOST" 'sudo xconnect status --state-dir /var/lib/xconnect-one/uat')"
+status="$(one_sudo 'xconnect status --state-dir /var/lib/xconnect-one/uat')"
 jq -e --arg device "$ONE_DEVICE_ID" --arg network "$ZERO_NETWORK_ID" \
   '.joined == true and .device_id == $device and .network_id == $network and .runtime.applied == true and .credential.present == true and .credential.expired == false' \
   <<<"$status" >/dev/null
-one_public_key="$(${one_ssh[@]} "$ONE_USER@$ONE_HOST" 'sudo wg show xconone0 public-key')"
+one_public_key="$(one_sudo 'wg show xconone0 public-key')"
 handshake="$(${gateway_ssh[@]} "$GATEWAY_USER@$GATEWAY_HOST" 'sudo wg show xconzero0 latest-handshakes')"
 awk -v peer="$one_public_key" -v now="$(date +%s)" \
   '$1 == peer && $2 > 0 && now-$2 >= 0 && now-$2 < 180 {ok=1} END {exit !ok}' <<<"$handshake"
