@@ -27,7 +27,7 @@ on:
         description: Existing UAT Zero network identity
         type: string
         required: false
-        default: 'net_uat-tw-xconnect'
+        default: 'net_uat'
       one_vault_key:
         description: Existing One Vault record key under prod/ulighthost-xconnect
         type: string
@@ -65,7 +65,7 @@ jobs:
       GITOPS_REF: ${{ inputs.gitops_ref || 'b7cc399f64d56f1b236b76f4fb2bbb37a8797d43' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'dfa5f4c397d79d40681aaa96939003f38b9f2266' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.12' }}
-      ZERO_NETWORK_ID: ${{ inputs.network_id || 'net_uat-tw-xconnect' }}
+      ZERO_NETWORK_ID: ${{ inputs.network_id || 'net_uat' }}
       ONE_DEVICE_ID: observability-uat
       ONE_VAULT_KEY: ${{ inputs.one_vault_key || 'observability.svc.plus' }}
       GATEWAY_VAULT_KEY: ${{ inputs.gateway_vault_key || 'TW-XConnect.onwalk.net' }}
