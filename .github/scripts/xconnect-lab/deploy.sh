@@ -133,17 +133,38 @@ ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" "set -eu; sudo install -m 600 /
 
 enroll_one() {
 echo 'Stage: controlled-client formal enrollment and apply'
-if [[ "$gateway_provider" == external ]]; then
-  "${CLIENT_SCP[@]}" "$LAB_DIR/bin/xconnect" "$LAB_DIR/invites/one" "$client_user@$client:/tmp/" >/dev/null
-  ssh "${CLIENT_SSH[@]}" "$client_user@$client" "set -eu; sudo install -m 755 /tmp/xconnect /usr/local/bin/; sudo install -d -m 700 /var/lib/xconnect-one /etc/xconnect-lab; sudo install -m 600 /tmp/one /var/lib/xconnect-one/join-uri; printf '%s\n' controlled-client | sudo tee /etc/xconnect-lab/node-role >/dev/null; sudo sh -c 'xconnect join --bootstrap --state-dir /var/lib/xconnect-one --device-id \"$client_id\" --name uat-linux-one \"\$(cat /var/lib/xconnect-one/join-uri)\"'"
-else
-  "${CLIENT_SCP[@]}" "$LAB_DIR/bin/xconnect" "$LAB_DIR/tls/ca.crt" "$LAB_DIR/invites/one" "$client_user@$client:/tmp/" >/dev/null
-  ssh "${CLIENT_SSH[@]}" "$client_user@$client" "set -eu; sudo install -m 755 /tmp/xconnect /usr/local/bin/; sudo install -m 644 /tmp/ca.crt /usr/local/share/ca-certificates/xconnect-lab.crt; sudo update-ca-certificates >/dev/null 2>&1; sudo install -d -m 700 /var/lib/xconnect-one /etc/xconnect-lab; sudo install -m 600 /tmp/one /var/lib/xconnect-one/join-uri; printf '%s\n' controlled-client | sudo tee /etc/xconnect-lab/node-role >/dev/null; sudo sh -c 'xconnect join --bootstrap --state-dir /var/lib/xconnect-one --device-id \"$client_id\" --name uat-linux-one \"\$(cat /var/lib/xconnect-one/join-uri)\"'"
-fi
-# The signed-enrollment lifecycle intentionally does not allow a cached `up`.
-# Re-syncing verifies the current signed config, starts the owned runtime and
-# records the current-generation ACK before the data-plane checks.
-ssh "${CLIENT_SSH[@]}" "$client_user@$client" 'sudo xconnect sync --state-dir /var/lib/xconnect-one'
+local playbook="$ROOT/playbooks/deploy_xconnect_one.yml"
+test -f "$playbook" || { echo 'Reviewed playbooks revision does not contain the XConnect One entrypoint'; exit 1; }
+
+# The dynamic client is deliberately delivered through the canonical host role.
+# The role owns runtime bootstrap, short-lived invite staging, join, sync,
+# service timer and preflight; this workflow only supplies the reviewed
+# artifact and run-scoped values. The variable file is runner-private and is
+# removed after Ansible returns.
+local variables_file="$LAB_DIR/xconnect-one-vars.json"
+jq -n \
+  --arg binary "$LAB_DIR/bin/xconnect" \
+  --arg invite "$LAB_DIR/invites/one" \
+  --arg state_dir "/var/lib/xconnect-one" \
+  --arg device "$client_id" \
+  --arg network "$network_id" \
+  --arg cidr "$overlay_cidr" \
+  '{xconnect_one_hosts:"all",xconnect_one_enabled:true,xconnect_one_environment:"uat",
+    xconnect_one_state_dir:$state_dir,xconnect_one_binary_source:$binary,
+    xconnect_one_device_id:$device,xconnect_one_device_name:"uat-linux-one",
+    xconnect_one_expected_network_id:$network,xconnect_one_invite_file_source:$invite,
+    xconnect_one_expected_overlay_cidr:$cidr,xconnect_one_expected_wireguard_interface:"xconone0",
+    xconnect_one_expected_xray_loopback_port:18080,xconnect_one_sync_interval_seconds:300,
+    xconnect_one_install_observability:false}' > "$variables_file"
+
+local ansible_status=0
+ANSIBLE_HOST_KEY_CHECKING=True \
+  ansible-playbook -i "${client}," "$playbook" \
+    --user "$client_user" --private-key "$LAB_DIR/id_ed25519" \
+    --ssh-common-args="-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$LAB_DIR/known_hosts" \
+    --extra-vars "@$variables_file" || ansible_status=$?
+rm -f "$variables_file"
+(( ansible_status == 0 )) || exit "$ansible_status"
 
 # One enrollment advances the centralized generation. Reconcile the Gateway so
 # its WireGuard peer set contains the newly registered controlled client.

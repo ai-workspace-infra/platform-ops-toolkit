@@ -11,12 +11,17 @@ the sole formal control/configuration source. Portal retains its current layout.
    boundaries. The anonymous Portal check must reach `ssr-console` and the
    actual session-aware Zero BFF, not the generic API origin.
 2. Download and verify One, Gateway and external Xray release checksums.
-3. Reuse the UAT account/default VPC/subnet; create one `t4g.small` Spot
-   Gateway and one `t4g.micro` Spot Linux One, plus isolated security groups.
-4. Install the released Gateway runtime and generate its WireGuard identity.
-   Linux One receives only the released CLI; `join --bootstrap` prepares its
-   checksum-pinned managed Xray and verifies the WireGuard tools. Private keys
-   never leave their owning nodes.
+3. Reuse the UAT account/default VPC/subnet. With the default
+   `gateway_provider=external`, keep `tw-xconnect.svc.plus` as the stable
+   Gateway and create only one disposable `t4g.micro` Spot Linux One plus its
+   isolated security group. The explicit `aws-spot` profile creates the
+   additional `t4g.small` Spot Gateway as well.
+4. Install the released Gateway runtime when the run owns an AWS Gateway and
+   generate its WireGuard identity. Deploy the dynamic Linux One through the
+   reviewed `playbooks` `vhosts/xconnect_one` role; the role performs runtime
+   bootstrap, collision preflight, protected invite staging, join, sync and
+   its systemd reconciliation timer. Private keys never leave their owning
+   nodes.
 5. Use the protected formal Accounts bootstrap API to provision the run-scoped
    network and one-use, role/device-bound Gateway and Linux One invitations.
 6. Enroll the formal Gateway with its invitation; verify/apply signed relay
@@ -31,7 +36,9 @@ the sole formal control/configuration source. Portal retains its current layout.
    lease expires. macOS/Windows confirmation remains a separate manual
    operation and is not a workflow gate.
 10. After expiry, destroy only this run's dedicated Terraform state and verify it is
-   empty. Connectivity success and cleanup success are separate results.
+   empty. In the default external-Gateway profile this deletes the dynamic One
+   Spot and its security group, never the stable Gateway. Connectivity success
+   and cleanup success are separate results.
 
 The preparation of Gateway key material precedes invitation issuance, but
 the Gateway data-plane service is started only after formal enrollment.
@@ -44,6 +51,8 @@ Each deployment/verification phase is a separate GitHub Actions step.
 | `mode` | `dry-run`, `apply`, or recovery `cleanup` |
 | `iac_ref` | Full reviewed commit SHA containing `vpn-overlay/xconnect-lab` |
 | `gitops_ref` | Full reviewed commit SHA containing `vpn-overlay/uat/xconnect-lab.json` |
+| `playbooks_ref` | Full reviewed commit SHA containing `deploy_xconnect_one.yml` and `vhosts/xconnect_one` |
+| `gateway_provider` | `external` (default, stable `tw-xconnect.svc.plus`) or `aws-spot` (disposable Gateway + One) |
 | `cli_release_tag` | GitOps-pinned XConnect-One version; `xconnect-linux-arm64` and `SHA256SUMS` |
 | `gateway_release_tag` | GitOps-pinned XConnect-Gateway version; `xconnect-gateway-linux-arm64` and `SHA256SUMS` |
 | `xray_release_tag` | GitOps-pinned official Xray ARM64 archive and digest |
@@ -117,8 +126,8 @@ cloud nodes are ARM64 one-time Spot, with encrypted disposable disks. Public
 WireGuard UDP is closed. SSH is restricted to the runner /32.
 
 Dedicated state: `uat/xconnect-lab/xcl-RUN_ID-ATTEMPT/terraform.tfstate`.
-A nonsecret lease retains the run identity, refs, release pins and the reviewed
-60-minute expiry. The workflow keeps a successfully verified pair until that
+A nonsecret lease retains the run identity, provider profile, refs, release pins
+and the reviewed 60-minute expiry. The workflow keeps a successfully verified pair until that
 expiry, then runs the normal `always()` cleanup. Partial provisioning failures
 may clean up earlier. The job ceiling is 90
 minutes and a fresh AWS OIDC session is acquired before cleanup because the
