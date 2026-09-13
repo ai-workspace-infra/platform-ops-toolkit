@@ -163,7 +163,7 @@ jobs:
 
   health-check:
     needs: validate-and-plan
-    if: always() && (inputs.mode == 'health-check' || inputs.mode == 'apply' || inputs.mode == 'dry-run')
+    if: needs.validate-and-plan.result == 'success' && (inputs.mode == 'health-check' || inputs.mode == 'apply' || inputs.mode == 'dry-run')
     runs-on: ubuntu-latest
     steps:
       - name: Check Frontend Route Response
