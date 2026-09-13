@@ -37,6 +37,13 @@ class CleanupBoundary(unittest.TestCase):
             {'address': 'aws_instance.client', 'type': 'aws_instance', 'values': {'tags_all': {'LabRun': 'xcl-123-1'}}},
             {'address': 'aws_instance.gateway', 'type': 'aws_instance', 'values': {'tags_all': {'LabRun': 'xcl-123-1'}}}]})
 
+    def test_counted_gateway_resources_are_owned_cleanup_targets(self):
+        self.run_cleanup({'resources': [
+            {'address': 'aws_security_group.gateway[0]', 'type': 'aws_security_group', 'values': {'tags_all': {'LabRun': 'xcl-123-1'}}},
+            {'address': 'aws_instance.gateway[0]', 'type': 'aws_instance', 'values': {'tags_all': {'LabRun': 'xcl-123-1'}}},
+            {'address': 'aws_security_group.client', 'type': 'aws_security_group', 'values': {'tags_all': {'LabRun': 'xcl-123-1'}}},
+            {'address': 'aws_instance.client', 'type': 'aws_instance', 'values': {'tags_all': {'LabRun': 'xcl-123-1'}}}]})
+
     def test_reused_network_data_is_not_destroyable_state(self):
         self.run_cleanup({'resources': [
             {'address': 'data.aws_vpc.uat', 'mode': 'data', 'type': 'aws_vpc', 'values': {'id': 'vpc-uat'}},
