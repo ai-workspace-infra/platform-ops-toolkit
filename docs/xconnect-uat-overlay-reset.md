@@ -35,17 +35,34 @@ bash scripts/serverless_uat/reset_xconnect_overlay.sh \
   --confirm RESET-UAT-XCONNECT-OVERLAY
 ```
 
+Because the UAT compatibility tables are test-only, they can be removed in a
+separate maintenance window after confirming that the deployed UAT Accounts
+release no longer serves the legacy handlers:
+
+```bash
+bash scripts/serverless_uat/reset_xconnect_overlay.sh \
+  --confirm RESET-UAT-XCONNECT-OVERLAY \
+  --drop-transitional
+```
+
+`--drop-transitional` drops only `overlay_config_acks` and `overlay_nodes`,
+without `CASCADE`; any unexpected database dependency aborts the transaction.
+It never drops or truncates account, subscription, billing, invoice, or usage
+tables.
+
+This cleanup has been executed in UAT. Both compatibility tables are now
+absent. The deployed UAT binary must use the formal `/api/overlay/v1` paths;
+legacy compatibility routes are no longer a supported UAT contract.
+
 The reset is destructive for UAT overlay metadata and should be followed by a
 fresh network/bootstrap/invite flow. It is not a production reset procedure.
 
 ## Transition cleanup status
 
-UAT still contains the empty compatibility tables `overlay_nodes` and
-`overlay_config_acks`. The current Accounts compatibility handlers for the
-legacy `/api/overlay` and node heartbeat routes still reference them, so they
-are intentionally not dropped in this reset. After Portal/BFF and all callers
-move to `/api/overlay/v1`, remove those tables in a separately versioned
-Accounts migration after a zero-reference check. The new v1 tables are the
+The compatibility tables `overlay_nodes` and `overlay_config_acks` have been
+removed from UAT. They may be removed from PROD only after Portal/BFF and all
+callers move to `/api/overlay/v1`; the same operation must be a separately
+versioned production migration without `CASCADE`. The new v1 tables are the
 seven tables listed above.
 
 The current v1 schema fields are retained until that cutover. In particular,
@@ -58,8 +75,8 @@ hand from UAT or PROD while the deployed binary still selects them.
 
 | Object | Decision | Removal gate |
 | --- | --- | --- |
-| `overlay_nodes` | Transitional legacy gateway read/write model; keep empty for compatibility now | Remove legacy `/api/overlay` and heartbeat code, prove zero references in source and runtime logs, then drop in a versioned migration |
-| `overlay_config_acks` | Transitional ACK model; keep empty for compatibility now | Move all ACK writes/reads to `overlay_signed_config_acks`, verify the Portal/BFF and Gateway/One smoke test, then drop in the same or a later migration |
+| `overlay_nodes` | Transitional legacy gateway read/write model; UAT deletion allowed | Remove legacy `/api/overlay` and heartbeat code, prove zero references in source and runtime logs, then run `--drop-transitional` in UAT or a versioned PROD migration |
+| `overlay_config_acks` | Transitional ACK model; UAT deletion allowed | Move all ACK writes/reads to `overlay_signed_config_acks`, verify the Portal/BFF and Gateway/One smoke test, then run `--drop-transitional` in UAT or a versioned PROD migration |
 | `overlay_networks.policy_json` | Overly large policy payload in the metadata row | Add `policy_digest`/`policy_ref`, make the signer and Portal use the reference, backfill and verify, then drop the JSON column |
 | `overlay_networks.transport_auth_id` | Transport credential currently coupled to the network row | Replace with a Vault locator/reference; the signer resolves the runtime credential without persisting the secret in Accounts, then drop the raw field |
 | `overlay_devices.user_id` | Duplicate owner representation beside `user_uuid` | Normalize all queries and foreign-key checks to the tenant/account UUID, backfill verification, then drop only the duplicate text column |
