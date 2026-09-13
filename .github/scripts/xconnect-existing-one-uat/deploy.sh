@@ -57,7 +57,7 @@ gateway_ssh=(ssh -i "$gateway_key" "${SSH_COMMON[@]}")
 echo 'Stage: verify the fixed UAT One declaration'
 declaration="$GITHUB_WORKSPACE/gitops/vpn-overlay/uat/xconnect-one-nodes.yaml"
 overlay_cidr="$(awk '$1 == "cidr:" {print $2; exit}' "$declaration")"
-gateway_address="${GATEWAY_WIREGUARD_ADDRESS:-$(awk '$1 == "gateway_wireguard_address:" {print $2; exit}' "$declaration")}" 
+gateway_address="${GATEWAY_WIREGUARD_ADDRESS:-$(awk '$1 == "gateway_wireguard_address:" {print $2; exit}' "$declaration")}"
 gateway_wireguard_ip="${gateway_address%/*}"
 [[ -n "$overlay_cidr" && -n "$gateway_address" ]] || { echo 'UAT declaration must provide overlay CIDR and Gateway WireGuard address' >&2; exit 1; }
 python3 - "$gateway_address" "$overlay_cidr" <<'PY'
