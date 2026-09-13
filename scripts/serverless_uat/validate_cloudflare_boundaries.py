@@ -148,8 +148,11 @@ def main() -> int:
             raise SystemExit("website.hosts must belong to website.zone_name")
         if set(hosts) & set(console_aliases):
             raise SystemExit("website hosts must not be full Console aliases")
-        if website.get("platform_origin") != "https://svc.plus":
-            raise SystemExit("website.platform_origin must be https://svc.plus")
+        expected_platform_origin = (
+            "https://svc.plus" if environment == "prod" else f"https://console.{zone}"
+        )
+        if website.get("platform_origin") != expected_platform_origin:
+            raise SystemExit(f"website.platform_origin must be {expected_platform_origin}")
     required_router_fields = {"worker_name", "host", "pages_origin", "api_origin", "static_prefixes", "bindings"}
     missing_router_fields = required_router_fields - set(frontend_router)
     if missing_router_fields:
