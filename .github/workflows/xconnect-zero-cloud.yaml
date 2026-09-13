@@ -15,12 +15,12 @@ on:
         description: Advanced override - reviewed gitops commit SHA
         type: string
         required: false
-        default: '61923e1168797e35e01612c34857c778fd0f2a31'
+        default: '5b908e22ea541192e29946a630cf49123bd314f8'
       playbooks_ref:
         description: Advanced override - reviewed playbooks commit SHA
         type: string
         required: false
-        default: '83a123a13463f9e6d96fc45f1ef9c96ec6ac41bb'
+        default: '47154b7c19d752081ddf2229467f3b0b667fde47'
       cli_release_tag:
         description: Advanced override - XConnect-One GitHub Release tag
         type: string
@@ -97,8 +97,8 @@ jobs:
     env:
       MODE: ${{ inputs.mode }}
       IAC_REF: ${{ inputs.iac_ref || '9dd120ee027ea999b41d15b80ead20878c1ff468' }}
-      GITOPS_REF: ${{ inputs.gitops_ref || '61923e1168797e35e01612c34857c778fd0f2a31' }}
-      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '83a123a13463f9e6d96fc45f1ef9c96ec6ac41bb' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || '5b908e22ea541192e29946a630cf49123bd314f8' }}
+      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '47154b7c19d752081ddf2229467f3b0b667fde47' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.11' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.5' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
