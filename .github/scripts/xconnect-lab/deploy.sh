@@ -110,17 +110,38 @@ fi
 [[ "$gateway_public_key" =~ ^[A-Za-z0-9+/]{43}=$ ]] || { echo 'Gateway returned an invalid WireGuard public key'; exit 1; }
 printf '%s\n' "$gateway_public_key" > "$LAB_DIR/gateway-public-key"
 
-# One must consume the CA installed by Gateway, not a runner-local or
-# One-generated trust root. The CA is public; the Gateway TLS private key is
-# never part of this handoff.
+# One must consume the Gateway trust root, not a runner-local or One-generated
+# trust root. For an AWS-owned Gateway, obtain the public CA from the node that
+# just installed it. The external persistent Gateway is managed outside this
+# lab and must not be changed just to expose an experiment-specific file; in
+# that mode the same public trust bundle is sourced from Vault and the live
+# Gateway TLS endpoint is verified before it is handed to One.
 gateway_ca_handoff="$LAB_DIR/tls/gateway-ca.crt"
 gateway_ca_tmp="$gateway_ca_handoff.tmp"
-rm -f "$gateway_ca_tmp"
-ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" \
-  'if sudo test -s /etc/xconnect-gateway/ca.crt; then sudo cat /etc/xconnect-gateway/ca.crt; elif sudo test -s /usr/local/share/ca-certificates/xconnect-lab.crt; then sudo cat /usr/local/share/ca-certificates/xconnect-lab.crt; else exit 1; fi' > "$gateway_ca_tmp" \
-  || { rm -f "$gateway_ca_tmp"; echo 'Gateway did not expose its public CA handoff'; exit 1; }
-cmp -s "$LAB_DIR/tls/ca.crt" "$gateway_ca_tmp" || { rm -f "$gateway_ca_tmp"; echo 'Gateway CA handoff differs from Vault domain trust bundle'; exit 1; }
-mv "$gateway_ca_tmp" "$gateway_ca_handoff"
+if [[ "$gateway_provider" == external ]]; then
+  # The external Gateway is an independently managed production-owned host.
+  # Do not require an implementation-specific CA file on it or mutate its
+  # filesystem. The trust bundle is public material already read from the
+  # Vault domain record; prove that the live endpoint accepts it and the
+  # requested SNI before using it for the Linux One.
+  external_tls_verify=$(timeout 15 openssl s_client \
+    -connect "${gateway}:443" -servername "$transport_server_name" \
+    -verify_hostname "$transport_server_name" -CAfile "$LAB_DIR/tls/ca.crt" \
+    -verify_return_error </dev/null 2>/dev/null \
+    | awk '/Verify return code:/ {print $4; exit}' || true)
+  [[ "$external_tls_verify" == 0 ]] || {
+    echo 'External Gateway TLS endpoint is not trusted by the Vault domain trust bundle'
+    exit 1
+  }
+  install -m 644 "$LAB_DIR/tls/ca.crt" "$gateway_ca_handoff"
+else
+  rm -f "$gateway_ca_tmp"
+  ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" \
+    'if sudo test -s /etc/xconnect-gateway/ca.crt; then sudo cat /etc/xconnect-gateway/ca.crt; elif sudo test -s /usr/local/share/ca-certificates/xconnect-lab.crt; then sudo cat /usr/local/share/ca-certificates/xconnect-lab.crt; else exit 1; fi' > "$gateway_ca_tmp" \
+    || { rm -f "$gateway_ca_tmp"; echo 'Gateway did not expose its public CA handoff'; exit 1; }
+  cmp -s "$LAB_DIR/tls/ca.crt" "$gateway_ca_tmp" || { rm -f "$gateway_ca_tmp"; echo 'Gateway CA handoff differs from Vault domain trust bundle'; exit 1; }
+  mv "$gateway_ca_tmp" "$gateway_ca_handoff"
+fi
 chmod 644 "$gateway_ca_handoff"
 }
 
