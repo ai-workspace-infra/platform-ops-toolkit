@@ -31,6 +31,7 @@ docs/
 - [业务域交付清单](domains/DELIVERY-MANIFEST.md)
 - [业务域目录说明](domains/README.md)
 - [多环境交付与发布规范](standards/multi-environment-delivery-and-release-standard.md)
+- [公开主页与应用商店审核规范](standards/public-website-review-and-homepage-standard.md)
 - [Daily Snapshot 手册](daily-snapshot-manual.md)
 - [实例规格调整](resize-instance.md)
 - [Stripe 套餐目录初始化 TL;DR](howto/stripe-billing-catalog-tldr.md)
