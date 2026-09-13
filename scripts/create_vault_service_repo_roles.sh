@@ -41,6 +41,8 @@ PLAYBOOKS_REPO="ai-workspace-infra/playbooks"
 TOKEN_TTL="1h"
 XCONNECT_CLOUD_LAB_ROLE="github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab"
 XCONNECT_CLOUD_LAB_POLICY="github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab"
+XCONNECT_EXISTING_ONE_ROLE="github-actions-platform-ops-toolkit-uat-xconnect-existing-one"
+XCONNECT_EXISTING_ONE_POLICY="github-actions-platform-ops-toolkit-uat-xconnect-existing-one"
 TLS_ROTATION_ROLE="github-actions-platform-ops-toolkit-tls-rotation"
 
 # -----------------------------------------------------------------------------
@@ -207,19 +209,17 @@ path "kv/metadata/CICD/domains/*" {
 EOF
 }
 
-# The disposable XConnect cloud lab gets only the exact paths consumed by its
-# workflow. Do not reuse the broad UAT policy here: the lab needs the UAT
-# Terraform backend plus its short-lived runtime inputs, but it must not gain
-# access to unrelated UAT secrets.
-emit_xconnect_cloud_lab_policy() {
+# The existing-One workflow never uses Terraform; it only reads the exact
+# runtime records needed to enroll the fixed UAT host and observe it.
+emit_xconnect_existing_one_policy() {
   cat <<'EOF'
 path "kv/data/CICD/github-app/daily-snapshot" {
   capabilities = ["read"]
 }
-path "kv/data/CICD/uat" {
+path "kv/data/uat/xconnect-one" {
   capabilities = ["read"]
 }
-path "kv/data/uat/xconnect-one" {
+path "kv/data/prod/ulighthost-xconnect/observability.svc.plus" {
   capabilities = ["read"]
 }
 path "kv/data/prod/ulighthost-xconnect/TW-XConnect.onwalk.net" {
@@ -240,8 +240,8 @@ echo "  Writing policy ${XCONNECT_CLOUD_LAB_POLICY}..."
 emit_xconnect_cloud_lab_policy | vault policy write "${XCONNECT_CLOUD_LAB_POLICY}" -
 echo "  Writing policy ${TLS_ROTATION_ROLE}..."
 emit_tls_rotation_policy | vault policy write "${TLS_ROTATION_ROLE}" -
-echo "  Writing policy ${XCONNECT_CLOUD_LAB_POLICY}..."
-emit_xconnect_cloud_lab_policy | vault policy write "${XCONNECT_CLOUD_LAB_POLICY}" -
+echo "  Writing policy ${XCONNECT_EXISTING_ONE_POLICY}..."
+emit_xconnect_existing_one_policy | vault policy write "${XCONNECT_EXISTING_ONE_POLICY}" -
 
 # -----------------------------------------------------------------------------
 # Platform-Ops & Playbooks Roles
@@ -286,6 +286,27 @@ write_xconnect_cloud_lab_role() {
     "ref": "refs/heads/main"
   },
   "token_policies": ["${XCONNECT_CLOUD_LAB_POLICY}"],
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": "${TOKEN_TTL}",
+  "token_max_ttl": "${TOKEN_TTL}"
+}
+EOF
+}
+
+write_xconnect_existing_one_role() {
+  vault write "auth/jwt/role/${XCONNECT_EXISTING_ONE_ROLE}" - <<EOF
+{
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": ["vault"],
+  "bound_claims_type": "glob",
+  "bound_claims": {
+    "repository": "${REPO}",
+    "job_workflow_ref": "${WF_PREFIX}/xconnect-one-uat.yaml@refs/heads/main",
+    "ref": "refs/heads/main"
+  },
+  "token_policies": ["${XCONNECT_EXISTING_ONE_POLICY}"],
   "token_no_default_policy": true,
   "token_type": "batch",
   "token_ttl": "${TOKEN_TTL}",
@@ -410,6 +431,8 @@ echo "  Creating SIT role..."
 write_role sit github-actions-platform-ops-toolkit-sit '["refs/pull/*/merge", "refs/heads/*"]'
 echo "  Creating dedicated XConnect cloud-lab UAT role..."
 write_xconnect_cloud_lab_role
+echo "  Creating dedicated existing-One UAT role..."
+write_xconnect_existing_one_role
 echo "  Creating DEV role..."
 write_role dev github-actions-platform-ops-toolkit-dev '["refs/heads/main", "refs/heads/dev/*", "refs/heads/feature/*", "refs/pull/*/merge"]'
 echo "  Creating UAT role..."

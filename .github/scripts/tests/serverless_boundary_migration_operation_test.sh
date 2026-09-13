@@ -10,11 +10,12 @@ if grep -Fq 'REQUESTED_OPERATION' "${validator}" "${workflow}"; then
   exit 1
 fi
 
-# `supabase` is a prerequisite for application deployment and combined
-# deployment+migration. This catches a silently skipped preflight in the run
-# graph without coupling a standalone migration to an application deploy.
-if ! grep -Fq "contains(fromJSON('[\"deploy\",\"deploy+migrate\"]'), inputs.operation)" "${workflow}"; then
-  echo "Supabase job must run for deploy and deploy+migrate" >&2
+# `supabase` is a prerequisite for application deployment, upgrade, and
+# combined deployment+migration. This catches a silently skipped preflight in
+# the run graph without coupling a standalone migration to an application
+# deploy.
+if ! grep -Fq "contains(fromJSON('[\"deploy\",\"upgrade\",\"deploy+migrate\"]'), inputs.operation)" "${workflow}"; then
+  echo "Supabase job must run for deploy, upgrade, and deploy+migrate" >&2
   exit 1
 fi
 
