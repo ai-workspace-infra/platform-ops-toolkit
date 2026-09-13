@@ -14,5 +14,9 @@ grep -Fq 'Deploy Observability Agent for non-IaC Agent Proxy' <<<"${non_iac_bloc
 grep -Fq 'deploy_observability_agent.yml' <<<"${non_iac_block}"
 grep -Fq 'VECTOR_BILLING_INGEST_ENABLED: '\''true'\''' <<<"${non_iac_block}"
 grep -Fq 'VECTOR_SNAPSHOT_URL: http://127.0.0.1:8686' <<<"${non_iac_block}"
+# The non-IaC observability step interpolates OBSERVABILITY_ENDPOINT. Without a
+# job-level definition it expands to an empty string and Vector writes to a
+# relative URL, which leaves ph-xconnect.svc.plus with no metrics at all.
+grep -Fq "OBSERVABILITY_ENDPOINT: \${{ github.event.inputs.observability_endpoint || 'https://observability.svc.plus' }}" <<<"${non_iac_block}"
 
 echo "platform_ops_monitor_agent_matrix_contract_test: PASS"

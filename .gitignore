@@ -10,3 +10,7 @@ merge_actions.py
 # Python bytecode
 __pycache__/
 *.py[cod]
+
+# Local worktrees & OS files
+.worktrees/
+.DS_Store

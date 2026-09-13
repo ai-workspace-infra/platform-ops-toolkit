@@ -4,6 +4,7 @@ set -euo pipefail
 # -----------------------------------------------------------------------------
 # UAT Cloud Run 批量部署脚本
 # 默认副本数 min-instances=0, max-instances=2
+# 例外：UAT accounts 常驻 1 个实例，避免冷启动期间登录接口返回 503
 # -----------------------------------------------------------------------------
 
 GCP_PROJECT="${GCP_PROJECT_ID:-ai-workspace-uat-project}"
@@ -72,7 +73,11 @@ for svc in "${SERVICES[@]}"; do
         "XWORKMATE_BRIDGE_SERVER_URL=${XWORKMATE_BRIDGE_SERVER_URL:?XWORKMATE_BRIDGE_SERVER_URL is required}"
         "SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}"
         "SMTP_PORT=${SMTP_PORT:-587}"
-        "SMTP_FROM=${SMTP_FROM:-XWorkmate <no-reply@xworktech.com>}"
+        # The display name carries the whole impression here. Gmail rewrites the
+        # address to the authenticating account when the alias is not a verified
+        # send-as, so a recipient currently sees a person's mailbox; a name that
+        # reads as a system keeps the mail from looking like someone wrote it.
+        "SMTP_FROM=${SMTP_FROM:-svc.plus Notifications <no-reply@xworktech.com>}"
         "STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}"
         "STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}"
         "STRIPE_XCONNECT_PAY_URL=${STRIPE_XCONNECT_PAY_URL:-}"
@@ -143,8 +148,21 @@ for svc in "${SERVICES[@]}"; do
     fi
   fi
 
-  echo "==> [Cloud Run] Deploying ${SERVICE_NAME} (min=0, max=2)..."
-  
+  # accounts serves the console's /api/auth/* calls. Scaled to zero it is shut
+  # down once idle, and the next sign-in pays a ~35s cold start: every auth
+  # request landing in that window is answered 503, which the console surfaces
+  # as "登录失败 (503 / authentication_failed)". Keep one instance warm on that
+  # path. Every other service, and every other environment, still scales to
+  # zero unless CLOUD_RUN_MIN_INSTANCES overrides it -- this script also
+  # deploys prod, where the idle cost is not wanted by default.
+  if [[ "${svc}" == "accounts" && "${DEPLOY_ENV}" == "uat" ]]; then
+    min_instances="${CLOUD_RUN_MIN_INSTANCES:-1}"
+  else
+    min_instances="${CLOUD_RUN_MIN_INSTANCES:-0}"
+  fi
+
+  echo "==> [Cloud Run] Deploying ${SERVICE_NAME} (min=${min_instances}, max=2)..."
+
   # Deploy and inject the service-specific runtime contract.
   gcloud run deploy "${SERVICE_NAME}" \
     --project="${GCP_PROJECT}" \
@@ -152,7 +170,7 @@ for svc in "${SERVICES[@]}"; do
     --image="${IMAGE_URI}" \
     --platform=managed \
     --allow-unauthenticated \
-    --min-instances=0 \
+    --min-instances="${min_instances}" \
     --max-instances=2 \
     --cpu=1 \
     --memory=512Mi \

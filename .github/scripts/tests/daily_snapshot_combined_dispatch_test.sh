@@ -13,9 +13,16 @@ printf '%s\n' "$*" >> "${GH_LOG}"
 if [[ "$1" == "api" ]]; then
   if [[ " $* " == *"/contents/vpn-overlay/uat/xconnect-lab.json"* ]]; then
     printf '%s\n' '{"spec":{"artifacts":{"one":{"release_tag":"v0.1.7"},"gateway":{"release_tag":"v0.1.3"},"xray":{"release_tag":"v26.3.27"}}}}'
-  elif [[ " $* " == *"/commits/"* ]]; then
+  elif [[ " $* " == *"/commits/"* || " $* " == *"/git/ref/tags/"* ]]; then
     printf '%s\n' '0123456789012345678901234567890123456789'
   fi
+  exit 0
+fi
+if [[ "$1" == "run" && "$2" == "view" ]]; then
+  printf '%s\n' "${RELEASE_TAG:-uat-daily-build-2026.08.21-r5}"
+  exit 0
+fi
+if [[ "$1" == "run" && "$2" == "watch" ]]; then
   exit 0
 fi
 if [[ "$1 $2" == "workflow run" ]]; then
@@ -51,7 +58,8 @@ lab_line="$(grep -n '^workflow run xconnect-zero-cloud.yaml ' "${workdir}/gh.log
   exit 1
 }
 
-grep -Fq -- '-f operation=deploy' "${workdir}/gh.log"
+grep -Fq -- '-f operation=deploy+migrate' "${workdir}/gh.log"
+grep -Fq -- '-f accounts_source_backend=supabase' "${workdir}/gh.log"
 grep -Fq -- '-f target_domains=web-saas' "${workdir}/gh.log"
 grep -Fq -- '-f vault_env_path=uat' "${workdir}/gh.log"
 grep -Fq -- '-f tag_ref=uat-daily-build-2026.08.21-r5' "${workdir}/gh.log"
@@ -84,4 +92,40 @@ bash "${dispatcher}"
 grep -Fq -- '-f cli_release_tag=v0.1.9' "${workdir}/gh-override.log"
 grep -Fq -- '-f gateway_release_tag=v0.1.4' "${workdir}/gh-override.log"
 grep -Fq -- '-f allow_release_overrides=true' "${workdir}/gh-override.log"
+
+# Test UAT dispatch with ENABLE_MIGRATION=false (dispatches operation=deploy)
+GH_LOG="${workdir}/gh-uat-no-migration.log" \
+PATH="${workdir}:${PATH}" \
+GH_TOKEN=test-token \
+SNAPSHOT_TAG=uat-daily-build-2026.08.21-r5 \
+SKIP_STRIPE_CATALOG=true \
+ENABLE_MIGRATION=false \
+UAT_SERVERLESS_WAIT_TIMEOUT_SECONDS=30 \
+UAT_SERVERLESS_WAIT_INTERVAL_SECONDS=1 \
+bash "${dispatcher}"
+
+grep -Fq -- 'workflow run serverless-orchestrator.yml --repo ai-workspace-infra/platform-ops-toolkit --ref main -f operation=deploy' "${workdir}/gh-uat-no-migration.log"
+
+# Test PROD dispatch with default migration (dispatches operation=upgrade)
+prod_dispatcher="${repo_root}/.github/scripts/snapshots/dispatch-prod-combined.sh"
+GH_LOG="${workdir}/gh-prod-default.log" \
+PATH="${workdir}:${PATH}" \
+GH_TOKEN=test-token \
+RELEASE_TAG=v2026.08.21 \
+SKIP_STRIPE_CATALOG=true \
+bash "${prod_dispatcher}"
+
+grep -Fq -- 'workflow run serverless-orchestrator.yml --repo ai-workspace-infra/platform-ops-toolkit --ref v2026.08.21 -f operation=upgrade' "${workdir}/gh-prod-default.log"
+
+# Test PROD dispatch with ENABLE_MIGRATION=true (dispatches operation=deploy+migrate)
+GH_LOG="${workdir}/gh-prod-migration.log" \
+PATH="${workdir}:${PATH}" \
+GH_TOKEN=test-token \
+RELEASE_TAG=v2026.08.21 \
+ENABLE_MIGRATION=true \
+SKIP_STRIPE_CATALOG=true \
+bash "${prod_dispatcher}"
+
+grep -Fq -- 'workflow run serverless-orchestrator.yml --repo ai-workspace-infra/platform-ops-toolkit --ref v2026.08.21 -f operation=deploy+migrate' "${workdir}/gh-prod-migration.log"
+
 echo "daily_snapshot_combined_dispatch_test: PASS"

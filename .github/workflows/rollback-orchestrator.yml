@@ -1,0 +1,133 @@
+name: Rollback Orchestrator
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_release_tag:
+        description: "Target immutable Release Tag to roll back to (e.g. v2026.08.28-r3 or uat-daily-build-2026.08.21-r5)"
+        required: true
+        type: string
+      vault_env_path:
+        description: "Target environment (uat, prod, sit)"
+        required: true
+        default: "uat"
+        type: choice
+        options:
+          - uat
+          - prod
+          - sit
+      rollback_mode:
+        description: "soft = traffic/compute cutover only (zero downtime); hard = restore database checkpoint + cutover"
+        required: true
+        default: "soft"
+        type: choice
+        options:
+          - soft
+          - hard
+      database_target:
+        description: "Database target to restore (only applicable when rollback_mode=hard)"
+        required: false
+        default: "supabase"
+        type: choice
+        options:
+          - supabase
+          - vps
+          - all
+      confirm_destructive_rollback:
+        description: "Explicit confirmation required for hard database rollback (must be true)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: rollback-orchestrator-${{ inputs.vault_env_path || 'uat' }}
+  cancel-in-progress: false
+
+jobs:
+  preflight_validate:
+    name: Validate Rollback Preflight
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate inputs and safety gate
+        run: |
+          set -euo pipefail
+          target_tag="${{ inputs.target_release_tag }}"
+          mode="${{ inputs.rollback_mode }}"
+          confirm="${{ inputs.confirm_destructive_rollback }}"
+          env_path="${{ inputs.vault_env_path }}"
+
+          echo "Validating rollback request for tag '${target_tag}' in env '${env_path}' (mode=${mode})..."
+
+          if [[ ! "${target_tag}" =~ ^(uat-)?(daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?|v[0-9]+\.[0-9]+\.[0-9]+(-r[1-9][0-9]*)?|v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?)$ ]]; then
+            echo "::error::Target release tag '${target_tag}' is not a valid immutable release or snapshot tag format." >&2
+            exit 1
+          fi
+
+          if [[ "${mode}" == "hard" && "${confirm}" != "true" ]]; then
+            echo "::error::Hard database rollback requires explicit confirmation (confirm_destructive_rollback=true)." >&2
+            exit 1
+          fi
+
+          echo "Rollback request validated successfully."
+
+  restore_database:
+    name: Restore Database Checkpoint (${{ inputs.database_target }})
+    needs: preflight_validate
+    if: ${{ inputs.rollback_mode == 'hard' }}
+    runs-on: ubuntu-latest
+    environment: ${{ (inputs.vault_env_path || 'uat') == 'prod' && 'production' || '' }}
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Authenticate to Vault with GitHub OIDC
+        id: vault_auth
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/supabase DATABASE_SESSION_POOLER_URL | TARGET_DSN ;
+
+      - name: Restore Supabase Database Checkpoint
+        if: ${{ contains(fromJSON('["supabase","all"]'), inputs.database_target) }}
+        run: ./.github/scripts/database/restore_release_checkpoint.sh
+        env:
+          TARGET_RELEASE_TAG: ${{ inputs.target_release_tag }}
+          DATABASE_BACKEND: supabase
+          DATABASE_ENV: ${{ inputs.vault_env_path || 'uat' }}
+          TARGET_DSN: ${{ steps.vault_auth.outputs.TARGET_DSN }}
+          CONFIRM_RESTORE: "true"
+
+  rollback_compute:
+    name: Roll Back Compute & Traffic
+    needs: [preflight_validate, restore_database]
+    if: ${{ always() && needs.preflight_validate.result == 'success' && (needs.restore_database.result == 'success' || needs.restore_database.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    environment: ${{ (inputs.vault_env_path || 'uat') == 'prod' && 'production' || '' }}
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Dispatch serverless compute rollback
+        uses: actions/workflow-dispatch@v4
+        with:
+          workflow: serverless-orchestrator.yml
+          repo: ai-workspace-infra/platform-ops-toolkit
+          ref: main
+          inputs: >-
+            {
+              "operation": "deploy",
+              "vault_env_path": "${{ inputs.vault_env_path || 'uat' }}",
+              "tag_ref": "${{ inputs.target_release_tag }}",
+              "target_domains": "web-saas",
+              "deploy_cloud_run": "true",
+              "deploy_cloudflare": "true",
+              "skip_stripe_catalog": "true"
+            }

@@ -153,6 +153,7 @@ EOF
 path "kv/data/${env}/*" {
   capabilities = ["create", "read", "update", "list"]
 }
+
 path "kv/metadata/${env}/*" {
   capabilities = ["list", "read"]
 }
@@ -167,6 +168,28 @@ path "kv/metadata/${env}/*" {
 }
 EOF
   fi
+}
+
+# The cloud-lab workflow is UAT-scoped, but its external relay is a shared
+# production-owned host. Grant only the one relay record it needs instead of
+# attaching the broad UAT policy (which also permits writes to all UAT paths).
+emit_xconnect_cloud_lab_policy() {
+  emit_common_read_paths
+  emit_base_credential_paths uat
+  cat <<'EOF'
+path "kv/data/uat/xconnect-one" {
+  capabilities = ["read"]
+}
+path "kv/metadata/uat/xconnect-one" {
+  capabilities = ["list", "read"]
+}
+path "kv/data/prod/ulighthost-xconnect/TW-XConnect.onwalk.net" {
+  capabilities = ["read"]
+}
+path "kv/metadata/prod/ulighthost-xconnect/TW-XConnect.onwalk.net" {
+  capabilities = ["list", "read"]
+}
+EOF
 }
 
 emit_tls_rotation_policy() {
@@ -186,30 +209,8 @@ path "kv/metadata/CICD/domains/*" {
 EOF
 }
 
-# The disposable XConnect cloud lab gets only the exact paths consumed by its
-# workflow. Do not reuse the broad UAT policy here: the lab needs the UAT
-# Terraform backend plus its short-lived runtime inputs, but it must not gain
-# access to unrelated UAT secrets.
-emit_xconnect_cloud_lab_policy() {
-  cat <<'EOF'
-path "kv/data/CICD/github-app/daily-snapshot" {
-  capabilities = ["read"]
-}
-path "kv/data/CICD/uat" {
-  capabilities = ["read"]
-}
-path "kv/data/uat/xconnect-one" {
-  capabilities = ["read"]
-}
-path "kv/data/prod/ulighthost-xconnect/TW-XConnect.onwalk.net" {
-  capabilities = ["read"]
-}
-path "kv/data/CICD/observability" {
-  capabilities = ["read"]
-}
-EOF
-}
-
+# The existing-One workflow never uses Terraform; it only reads the exact
+# runtime records needed to enroll the fixed UAT host and observe it.
 emit_xconnect_existing_one_policy() {
   cat <<'EOF'
 path "kv/data/CICD/github-app/daily-snapshot" {
@@ -235,10 +236,10 @@ for env in dev sit uat prod; do
   echo "  Writing policy github-actions-platform-ops-toolkit-${env}..."
   emit_env_policy "${env}" | vault policy write "github-actions-platform-ops-toolkit-${env}" -
 done
-echo "  Writing policy ${TLS_ROTATION_ROLE}..."
-emit_tls_rotation_policy | vault policy write "${TLS_ROTATION_ROLE}" -
 echo "  Writing policy ${XCONNECT_CLOUD_LAB_POLICY}..."
 emit_xconnect_cloud_lab_policy | vault policy write "${XCONNECT_CLOUD_LAB_POLICY}" -
+echo "  Writing policy ${TLS_ROTATION_ROLE}..."
+emit_tls_rotation_policy | vault policy write "${TLS_ROTATION_ROLE}" -
 echo "  Writing policy ${XCONNECT_EXISTING_ONE_POLICY}..."
 emit_xconnect_existing_one_policy | vault policy write "${XCONNECT_EXISTING_ONE_POLICY}" -
 

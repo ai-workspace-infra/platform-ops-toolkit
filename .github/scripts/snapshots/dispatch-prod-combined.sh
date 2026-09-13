@@ -10,6 +10,8 @@ gh_token="${GH_TOKEN:?GH_TOKEN must be set}"
 release_tag="${RELEASE_TAG:?RELEASE_TAG must be set}"
 skip_stripe_catalog="${SKIP_STRIPE_CATALOG:-false}"
 repo="${TARGET_REPOSITORY:-ai-workspace-infra/platform-ops-toolkit}"
+enable_migration="${ENABLE_MIGRATION:-false}"
+prod_serverless_operation="${PROD_SERVERLESS_OPERATION:-}"
 
 [[ "${release_tag}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[1-9][0-9]*)?$ ]] || {
   echo "::error::RELEASE_TAG must be a formal immutable v* release tag." >&2
@@ -55,14 +57,20 @@ dispatch_and_assert_ref() {
   printf '%s\n' "${dispatch_url}"
 }
 
-# A production daily snapshot publishes the immutable application artifacts.
-# Database migration is a separate, explicitly approved operation: the
-# migration workflow requires a dedicated source SSH key that is intentionally
-# provisioned only when the production source contract is ready. Keeping it
-# out of the routine release prevents a missing migration secret from blocking
-# an otherwise healthy production deployment.
+# A production daily snapshot publishes immutable application artifacts using 'upgrade'
+# instead of data migration. Data migration in PROD must be explicitly defined and is
+# never triggered by default.
+serverless_op="${prod_serverless_operation}"
+if [[ -z "${serverless_op}" ]]; then
+  if [[ "${enable_migration}" == "true" ]]; then
+    serverless_op="deploy+migrate"
+  else
+    serverless_op="upgrade"
+  fi
+fi
+
 serverless_url="$(dispatch_and_assert_ref serverless-orchestrator.yml \
-  -f operation=deploy -f target_domains=web-saas -f vault_env_path=prod \
+  -f "operation=${serverless_op}" -f target_domains=web-saas -f vault_env_path=prod \
   -f "tag_ref=${release_tag}" -f deploy_cloudflare=true -f deploy_cloud_run=true \
   -f dns_mode=prod-cutover -f supabase_target_existing_strategy=reject \
   -f supabase_target_confirm_replace=false -f skip_stripe_catalog="${skip_stripe_catalog}" | tail -n 1)"

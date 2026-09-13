@@ -1699,6 +1699,11 @@ jobs:
       ANSIBLE_PIPELINING: "True"
       ANSIBLE_SSH_ARGS: "-o ControlMaster=auto -o ControlPersist=60s -o StrictHostKeyChecking=no"
       VAULT_ENV_PATH: ${{ needs.provision.outputs.vault_env_path }}
+      # The observability agent step below renders Vector's remote-write and
+      # log sinks from this value. An undefined variable expands to an empty
+      # string and silently ships the node's metrics nowhere, so keep the
+      # same default the IaC monitor job uses.
+      OBSERVABILITY_ENDPOINT: ${{ github.event.inputs.observability_endpoint || 'https://observability.svc.plus' }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7

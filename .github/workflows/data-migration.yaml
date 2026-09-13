@@ -48,6 +48,11 @@ on:
         required: false
         default: "ssh"
         type: string
+      accounts_source_backend:
+        description: "accounts source backend: vps = PROD PostgreSQL on VPS; supabase = PROD Supabase Cloud"
+        required: false
+        default: "supabase"
+        type: string
       accounts_target_backend:
         description: "accounts target backend: vps keeps the existing self-hosted flow; supabase is the one-way database target"
         required: false
@@ -87,6 +92,11 @@ on:
         description: "Vault KV v2 path containing the source SSH key"
         required: false
         default: ""
+        type: string
+      supabase_source_dsn_key:
+        description: "Vault key containing the PROD Supabase source PostgreSQL DSN (used when accounts_source_backend=supabase)"
+        required: false
+        default: "MIGRATION_SOURCE_DSN"
         type: string
       supabase_source_tunnel_host:
         description: "PROD PostgreSQL SSH host used to run pg_dump inside the source container"
@@ -211,6 +221,12 @@ on:
         default: "ssh"
         type: choice
         options: [ssh, direct]
+      accounts_source_backend:
+        description: "accounts 源后端：supabase = PROD Supabase Cloud（单向同步）；vps = PROD 自建 PostgreSQL"
+        required: false
+        default: "supabase"
+        type: choice
+        options: [supabase, vps]
       accounts_target_backend:
         description: "accounts 目标后端：vps 保留现有自建 PostgreSQL；supabase 执行单向元数据+业务数据迁移"
         required: false
@@ -289,11 +305,6 @@ on:
         required: false
         default: "-uat"
         type: string
-      site_target_domain_base:
-        description: "site scope: 目标基础域名 (如 onwalk.net)"
-        required: false
-        default: "onwalk.net"
-        type: string
 
 permissions:
   contents: read
@@ -318,6 +329,7 @@ jobs:
         ref: ${{ inputs.toolkit_ref || 'main' }}
     - name: Validate target/backend combination
       env:
+        ACCOUNTS_SOURCE_BACKEND: ${{ inputs.accounts_source_backend || 'supabase' }}
         ACCOUNTS_TARGET_BACKEND: ${{ inputs.accounts_target_backend || 'vps' }}
         ACCOUNTS_MIGRATION_MODE: ${{ inputs.accounts_migration_mode || 'data' }}
         SUPABASE_PROJECT_REF: ${{ inputs.supabase_project_ref }}
@@ -526,6 +538,8 @@ jobs:
       SUPABASE_METADATA_DRY_RUN: ${{ inputs.supabase_metadata_dry_run && 'true' || 'false' }}
       SUPABASE_VAULT_PATH: ${{ inputs.supabase_vault_path || format('kv/data/{0}/serverless/supabase', inputs.vault_env_path || 'sit') }}
       SUPABASE_SOURCE_VAULT_PATH: ${{ inputs.supabase_source_vault_path || format('kv/data/{0}/accounts-migration', inputs.vault_env_path || 'sit') }}
+      SUPABASE_SOURCE_BACKEND: ${{ inputs.accounts_source_backend || 'supabase' }}
+      SUPABASE_SOURCE_DSN_KEY: ${{ inputs.supabase_source_dsn_key || 'MIGRATION_SOURCE_DSN' }}
       SUPABASE_TARGET_DSN_KEY: ${{ inputs.supabase_target_dsn_key || 'DATABASE_SESSION_POOLER_URL' }}
       SUPABASE_TARGET_CONNECTION_MODE: ${{ inputs.supabase_target_connection_mode || 'session_pooler' }}
       SUPABASE_SOURCE_TUNNEL_HOST: ${{ inputs.supabase_source_tunnel_host }}
@@ -551,8 +565,21 @@ jobs:
     - name: Build migratectl
       run: .github/scripts/data-migration/data-migration_accounts_build-migratectl.sh
 
-    - name: Load Supabase target DSN and source SSH key from Vault
-      id: vault
+    - name: Load Supabase target credentials from Vault
+      id: vault_target
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        role: ${{ env.VAULT_ROLE }}
+        method: jwt
+        jwtGithubAudience: vault
+        secrets: |
+          ${{ env.SUPABASE_VAULT_PATH }} ${{ env.SUPABASE_TARGET_DSN_KEY }} | SUPABASE_TARGET_DSN ;
+          ${{ env.SUPABASE_VAULT_PATH }} PROJECT_REF | SUPABASE_VAULT_PROJECT_REF ;
+
+    - name: Load VPS source SSH key from Vault
+      id: vault_source_vps
+      if: ${{ (inputs.accounts_source_backend || 'supabase') == 'vps' }}
       uses: hashicorp/vault-action@v4
       with:
         url: ${{ env.VAULT_ADDR }}
@@ -561,18 +588,31 @@ jobs:
         jwtGithubAudience: vault
         secrets: |
           ${{ env.SUPABASE_SOURCE_VAULT_PATH }} MIGRATION_SOURCE_SSH_PRIVATE_KEY_B64 | MIGRATION_SOURCE_SSH_PRIVATE_KEY_B64 ;
-          ${{ env.SUPABASE_VAULT_PATH }} ${{ env.SUPABASE_TARGET_DSN_KEY }} | SUPABASE_TARGET_DSN ;
-          ${{ env.SUPABASE_VAULT_PATH }} PROJECT_REF | SUPABASE_VAULT_PROJECT_REF ;
 
     - name: Configure source SSH
+      if: ${{ (inputs.accounts_source_backend || 'supabase') == 'vps' }}
       uses: ./.github/actions/setup-deployment-runner
       with:
-        ssh_key_b64: ${{ steps.vault.outputs.MIGRATION_SOURCE_SSH_PRIVATE_KEY_B64 }}
+        ssh_key_b64: ${{ steps.vault_source_vps.outputs.MIGRATION_SOURCE_SSH_PRIVATE_KEY_B64 }}
+
+    - name: Load Supabase source DSN from Vault
+      id: vault_source_supabase
+      if: ${{ (inputs.accounts_source_backend || 'supabase') == 'supabase' }}
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        role: ${{ env.VAULT_ROLE }}
+        method: jwt
+        jwtGithubAudience: vault
+        secrets: |
+          ${{ env.SUPABASE_SOURCE_VAULT_PATH }} ${{ env.SUPABASE_SOURCE_DSN_KEY }} | SUPABASE_SOURCE_DSN ;
 
     - name: Run Accounts merge migration
       env:
-        SUPABASE_TARGET_DSN: ${{ steps.vault.outputs.SUPABASE_TARGET_DSN }}
-        SUPABASE_VAULT_PROJECT_REF: ${{ steps.vault.outputs.SUPABASE_VAULT_PROJECT_REF }}
+        SUPABASE_TARGET_DSN: ${{ steps.vault_target.outputs.SUPABASE_TARGET_DSN }}
+        SUPABASE_VAULT_PROJECT_REF: ${{ steps.vault_target.outputs.SUPABASE_VAULT_PROJECT_REF }}
+        SUPABASE_SOURCE_BACKEND: ${{ env.SUPABASE_SOURCE_BACKEND }}
+        SUPABASE_SOURCE_DSN: ${{ steps.vault_source_supabase.outputs.SUPABASE_SOURCE_DSN }}
         MIGRATECTL_BIN: ${{ github.workspace }}/bin/migratectl
         SUPABASE_MIGRATION_MODE: ${{ inputs.accounts_migration_mode || 'data' }}
         SUPABASE_METADATA_DRY_RUN: ${{ inputs.supabase_metadata_dry_run && 'true' || 'false' }}
