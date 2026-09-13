@@ -20,7 +20,7 @@ on:
         description: Advanced override - reviewed playbooks commit SHA
         type: string
         required: false
-        default: 'ead4a2c61473de8c634fc88c4d938270f9ce7247'
+        default: '83a123a13463f9e6d96fc45f1ef9c96ec6ac41bb'
       cli_release_tag:
         description: Advanced override - XConnect-One GitHub Release tag
         type: string
@@ -216,6 +216,10 @@ jobs:
             kv/data/uat/xconnect-one VLESS_ID | LAB_VLESS_ID ;
             kv/data/uat/xconnect-one ZERO_SERVICE_TOKEN | ZERO_SERVICE_TOKEN ;
             kv/data/uat/xconnect-one ZERO_OWNER_EMAIL | ZERO_OWNER_EMAIL ;
+            kv/data/CICD/domains/svc.plus tls_fullchain_pem_b64 | XCONNECT_GATEWAY_TLS_FULLCHAIN_PEM_B64 ;
+            kv/data/CICD/domains/svc.plus tls_key_pem_b64 | XCONNECT_GATEWAY_TLS_KEY_PEM_B64 ;
+            kv/data/CICD/domains/svc.plus tls_trust_bundle_pem_b64 | XCONNECT_GATEWAY_TLS_TRUST_BUNDLE_PEM_B64 ;
+            kv/data/CICD/domains/svc.plus tls_ca_pem_b64 | XCONNECT_GATEWAY_TLS_CA_PEM_B64 ;
             kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus host | EXTERNAL_GATEWAY_HOST ;
             kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus user | EXTERNAL_GATEWAY_USER ;
             kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus ssh_private_key_b64 | EXTERNAL_GATEWAY_SSH_PRIVATE_KEY_B64 ;
