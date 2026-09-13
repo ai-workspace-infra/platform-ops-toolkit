@@ -152,8 +152,13 @@ test -f "$playbook" || { echo 'Reviewed playbooks revision does not contain the 
 # artifact and run-scoped values. The variable file is runner-private and is
 # removed after Ansible returns.
 local variables_file="$LAB_DIR/xconnect-one-vars.json"
+local ca_source=""
+if [[ "$gateway_provider" != external && -s "$LAB_DIR/tls/ca.crt" ]]; then
+  ca_source="$LAB_DIR/tls/ca.crt"
+fi
 jq -n \
   --arg binary "$LAB_DIR/bin/xconnect" \
+  --arg ca "$ca_source" \
   --arg invite "$LAB_DIR/invites/one" \
   --arg state_dir "/var/lib/xconnect-one" \
   --arg device "$client_id" \
@@ -161,6 +166,7 @@ jq -n \
   --arg cidr "$overlay_cidr" \
   '{xconnect_one_hosts:"all",xconnect_one_enabled:true,xconnect_one_environment:"uat",
     xconnect_one_state_dir:$state_dir,xconnect_one_binary_source:$binary,
+    xconnect_one_ca_certificate_source:$ca,
     xconnect_one_device_id:$device,xconnect_one_device_name:"uat-linux-one",
     xconnect_one_expected_network_id:$network,xconnect_one_invite_file_source:$invite,
     xconnect_one_expected_overlay_cidr:$cidr,xconnect_one_expected_wireguard_interface:"xconone0",
@@ -338,8 +344,10 @@ client_failure() {
   exit 1
 }
 [[ "$(cat /etc/xconnect-lab/node-role)" == controlled-client ]] || client_failure role
-tls_verify=$(timeout 10 openssl s_client -connect "$2:443" -servername "$6" \
-  -CAfile /etc/ssl/certs/ca-certificates.crt </dev/null 2>/dev/null \
+tls_ca_file=/usr/local/share/ca-certificates/xconnect-one-uat.crt
+[[ -r "$tls_ca_file" ]] || tls_ca_file=/etc/ssl/certs/ca-certificates.crt
+tls_verify=$(timeout 10 openssl s_client -connect "$2:443" -servername "$6" -verify_hostname "$6" \
+  -CAfile "$tls_ca_file" -verify_return_error </dev/null 2>/dev/null \
   | awk '/Verify return code:/ {print $4; exit}' || true)
 [[ "$tls_verify" == 0 ]] || client_failure tls-trust-or-transport
 connected=0
