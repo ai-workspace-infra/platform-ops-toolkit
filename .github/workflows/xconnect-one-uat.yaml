@@ -176,6 +176,7 @@ jobs:
             kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} host | ONE_HOST ;
             kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} user | ONE_USER ;
             kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} ssh_private_key_b64 | ONE_SSH_PRIVATE_KEY_B64 ;
+            kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} sudo_password | ONE_BECOME_PASSWORD ;
             kv/data/prod/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} host | GATEWAY_HOST ;
             kv/data/prod/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} user | GATEWAY_USER ;
             kv/data/prod/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} ssh_private_key_b64 | GATEWAY_SSH_PRIVATE_KEY_B64 ;
@@ -207,6 +208,7 @@ jobs:
           ONE_HOST: ${{ steps.runtime.outputs.ONE_HOST }}
           ONE_USER: ${{ steps.runtime.outputs.ONE_USER }}
           ONE_SSH_PRIVATE_KEY_B64: ${{ steps.runtime.outputs.ONE_SSH_PRIVATE_KEY_B64 }}
+          ONE_BECOME_PASSWORD: ${{ steps.runtime.outputs.ONE_BECOME_PASSWORD }}
           GATEWAY_HOST: ${{ steps.runtime.outputs.GATEWAY_HOST }}
           GATEWAY_USER: ${{ steps.runtime.outputs.GATEWAY_USER }}
           GATEWAY_SSH_PRIVATE_KEY_B64: ${{ steps.runtime.outputs.GATEWAY_SSH_PRIVATE_KEY_B64 }}
