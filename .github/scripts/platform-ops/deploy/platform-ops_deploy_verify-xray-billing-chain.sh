@@ -75,14 +75,22 @@ for snapshot_store in /var/lib/xray-exporter/xhttp-snapshots.json /var/lib/xray-
   }
 done
 
-vector_code=$(curl --silent --show-error --max-time 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:8686/)
-case "${vector_code}" in
-  2??|3??|4??) ;;
-  *)
-    echo "xray-billing-chain: Vector snapshot listener is unavailable (HTTP ${vector_code})" >&2
-    exit 1
-    ;;
-esac
+ # systemd can report Vector active before its HTTP listener has finished
+ # binding (observed on slower regional nodes). Wait briefly for readiness so
+ # the verification checks the service contract rather than startup timing.
+ vector_deadline=$(( $(date +%s) + 60 ))
+ vector_code=000
+ while :; do
+   vector_code=$(curl --silent --show-error --max-time 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:8686/ || true)
+   case "${vector_code}" in
+     2??|3??|4??) break ;;
+   esac
+   if [ "$(date +%s)" -ge "${vector_deadline}" ]; then
+     echo "xray-billing-chain: Vector snapshot listener is unavailable (HTTP ${vector_code})" >&2
+     exit 1
+   fi
+   sleep 2
+ done
 
 billing_body=$(mktemp)
 trap 'rm -f "${billing_body}"' EXIT
