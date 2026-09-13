@@ -13,9 +13,25 @@ readonly OVERLAY_TABLES=(
   overlay_invites
   overlay_networks
 )
+readonly TRANSITIONAL_TABLES=(overlay_config_acks overlay_nodes)
 
-if [[ "${1:-}" != '--confirm' || "${2:-}" != "$CONFIRMATION" || "${3:-}" != '' ]]; then
-  echo "Usage: $0 --confirm $CONFIRMATION" >&2
+drop_transitional=0
+confirmed=0
+check_only=0
+if [[ "${1:-}" == '--check-only' && "$#" -eq 1 ]]; then
+  check_only=1
+  shift
+fi
+if [[ "${1:-}" == '--confirm' && "${2:-}" == "$CONFIRMATION" ]]; then
+  confirmed=1
+  shift 2
+  if [[ "${1:-}" == '--drop-transitional' ]]; then
+    drop_transitional=1
+    shift
+  fi
+fi
+if (( ! confirmed && ! check_only )) || [[ "$#" -ne 0 ]]; then
+  echo "Usage: $0 --check-only | --confirm $CONFIRMATION [--drop-transitional]" >&2
   exit 2
 fi
 
@@ -52,6 +68,22 @@ for table in "${OVERLAY_TABLES[@]}"; do
   printf '  %s=%s\n' "$table" "$count"
 done
 
+printf '%s\n' 'Transitional compatibility table state:'
+for table in "${TRANSITIONAL_TABLES[@]}"; do
+  exists="$(psql -X -v ON_ERROR_STOP=1 -Atqc "SELECT to_regclass('public.${table}') IS NOT NULL")"
+  if [[ "$exists" == t ]]; then
+    count="$(psql -X -v ON_ERROR_STOP=1 -Atqc "SELECT count(*) FROM public.${table}")"
+    printf '  %s=%s\n' "$table" "$count"
+  else
+    printf '  %s=ABSENT\n' "$table"
+  fi
+done
+
+if (( check_only )); then
+  printf '%s\n' 'UAT XConnect overlay check completed; no data changed.'
+  exit 0
+fi
+
 psql -X -v ON_ERROR_STOP=1 <<'SQL'
 BEGIN;
 SET LOCAL lock_timeout = '15s';
@@ -83,6 +115,26 @@ for table in "${OVERLAY_TABLES[@]}"; do
   printf '  %s=%s\n' "$table" "$count"
   [[ "$count" == 0 ]] || { echo "Overlay reset verification failed: $table is not empty" >&2; exit 1; }
 done
+
+if (( drop_transitional )); then
+  psql -X -v ON_ERROR_STOP=1 <<'SQL'
+BEGIN;
+SET LOCAL lock_timeout = '15s';
+-- These tables are empty compatibility artifacts in UAT. Drop them without
+-- CASCADE so a hidden dependency fails the transaction instead of removing
+-- unrelated objects. The current deployed legacy handlers will need to be
+-- removed or disabled before this option is used.
+LOCK TABLE public.overlay_config_acks, public.overlay_nodes
+IN ACCESS EXCLUSIVE MODE;
+DROP TABLE public.overlay_config_acks, public.overlay_nodes;
+COMMIT;
+SQL
+  for table in "${TRANSITIONAL_TABLES[@]}"; do
+    exists="$(psql -X -v ON_ERROR_STOP=1 -Atqc "SELECT to_regclass('public.${table}') IS NOT NULL")"
+    [[ "$exists" == f ]] || { echo "Transitional table was not dropped: $table" >&2; exit 1; }
+    printf '  dropped=%s\n' "$table"
+  done
+fi
 
 printf '%s\n' 'UAT XConnect overlay reset completed; users, business tables, Vault records, and node-local WireGuard keys were not changed.'
 unset PGPASSWORD
