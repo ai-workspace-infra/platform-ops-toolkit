@@ -17,7 +17,7 @@ on:
         description: Reviewed Playbooks commit SHA
         type: string
         required: false
-        default: 'dfa5f4c397d79d40681aaa96939003f38b9f2266'
+        default: 'e3af025a3776c860bfbbd4ff25a76cdc29e6f0da'
       cli_release_tag:
         description: XConnect-One GitHub Release tag
         type: string
@@ -78,7 +78,7 @@ jobs:
     env:
       MODE: ${{ inputs.mode }}
       GITOPS_REF: ${{ inputs.gitops_ref || 'cc49c984fa022b5eeb767d0dc1c83afadc0bc2f9' }}
-      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'dfa5f4c397d79d40681aaa96939003f38b9f2266' }}
+      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'e3af025a3776c860bfbbd4ff25a76cdc29e6f0da' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.12' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.5' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
