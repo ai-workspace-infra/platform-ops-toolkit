@@ -34,9 +34,12 @@ client_id="one-${run_id}"
 CLIENT_SSH=(-i "$LAB_DIR/id_ed25519" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$LAB_DIR/known_hosts")
 if [[ "$gateway_provider" == external ]]; then
   GATEWAY_SSH=(-i "${EXTERNAL_GATEWAY_SSH_KEY:?EXTERNAL_GATEWAY_SSH_KEY is required for an external Gateway}" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$LAB_DIR/known_hosts")
+  GATEWAY_SCP=(scp -i "${EXTERNAL_GATEWAY_SSH_KEY:?EXTERNAL_GATEWAY_SSH_KEY is required for an external Gateway}" -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$LAB_DIR/known_hosts")
 else
   GATEWAY_SSH=("${CLIENT_SSH[@]}")
+  GATEWAY_SCP=(scp -i "$LAB_DIR/id_ed25519" -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$LAB_DIR/known_hosts")
 fi
+CLIENT_SCP=(scp -i "$LAB_DIR/id_ed25519" -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$LAB_DIR/known_hosts")
 
 wait_for_ssh() {
   local user="$1" host="$2" ready=false
@@ -78,7 +81,7 @@ curl --fail --silent --show-error --output /dev/null "${formal_portal%/panel/xco
 
 echo 'Stage: Gateway runtime bootstrap'
 if [[ "$gateway_provider" != external ]]; then
-scp "${GATEWAY_SSH[@]}" "$LAB_DIR/bin/xconnect-gateway" "$LAB_DIR/bin/xray" "$LAB_DIR/tls/server.key" "$LAB_DIR/tls/server.crt" "$LAB_DIR/tls/ca.crt" "$ROOT/.github/scripts/xconnect-lab/gateway.sh" "$gateway_user@$gateway:/tmp/" >/dev/null
+"${GATEWAY_SCP[@]}" "$LAB_DIR/bin/xconnect-gateway" "$LAB_DIR/bin/xray" "$LAB_DIR/tls/server.key" "$LAB_DIR/tls/server.crt" "$LAB_DIR/tls/ca.crt" "$ROOT/.github/scripts/xconnect-lab/gateway.sh" "$gateway_user@$gateway:/tmp/" >/dev/null
 ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" "sudo bash /tmp/gateway.sh '$gateway_transport' '$run_id' '$formal_zero' '$formal_portal' '$network_id' '$gateway_id' '$gateway_address'"
 gateway_public_key=$(ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" 'sudo cat /opt/xconnect-lab/gateway.pub')
 fi
@@ -124,17 +127,17 @@ if [[ "$gateway_provider" == external ]]; then
   return
 fi
 echo 'Stage: formal Gateway enrollment and apply'
-scp "${GATEWAY_SSH[@]}" "$LAB_DIR/invites/gateway" "$gateway_user@$gateway:/tmp/gateway-invite" >/dev/null
+"${GATEWAY_SCP[@]}" "$LAB_DIR/invites/gateway" "$gateway_user@$gateway:/tmp/gateway-invite" >/dev/null
 ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" "set -eu; sudo install -m 600 /tmp/gateway-invite /opt/xconnect-lab/gateway-invite; sudo sh -c 'xconnect-gateway join --state-dir /var/lib/xconnect-gateway --gateway-id \"$gateway_id\" \"\$(cat /opt/xconnect-lab/gateway-invite)\"'; sudo xconnect-gateway up --state-dir /var/lib/xconnect-gateway --tls-cert /etc/xconnect-gateway/tls.crt --tls-key /etc/xconnect-gateway/tls.key"
 }
 
 enroll_one() {
 echo 'Stage: controlled-client formal enrollment and apply'
 if [[ "$gateway_provider" == external ]]; then
-  scp "${CLIENT_SSH[@]}" "$LAB_DIR/bin/xconnect" "$LAB_DIR/invites/one" "$client_user@$client:/tmp/" >/dev/null
+  "${CLIENT_SCP[@]}" "$LAB_DIR/bin/xconnect" "$LAB_DIR/invites/one" "$client_user@$client:/tmp/" >/dev/null
   ssh "${CLIENT_SSH[@]}" "$client_user@$client" "set -eu; sudo install -m 755 /tmp/xconnect /usr/local/bin/; sudo install -d -m 700 /var/lib/xconnect-one /etc/xconnect-lab; sudo install -m 600 /tmp/one /var/lib/xconnect-one/join-uri; printf '%s\n' controlled-client | sudo tee /etc/xconnect-lab/node-role >/dev/null; sudo sh -c 'xconnect join --bootstrap --state-dir /var/lib/xconnect-one --device-id \"$client_id\" --name uat-linux-one \"\$(cat /var/lib/xconnect-one/join-uri)\"'"
 else
-  scp "${CLIENT_SSH[@]}" "$LAB_DIR/bin/xconnect" "$LAB_DIR/tls/ca.crt" "$LAB_DIR/invites/one" "$client_user@$client:/tmp/" >/dev/null
+  "${CLIENT_SCP[@]}" "$LAB_DIR/bin/xconnect" "$LAB_DIR/tls/ca.crt" "$LAB_DIR/invites/one" "$client_user@$client:/tmp/" >/dev/null
   ssh "${CLIENT_SSH[@]}" "$client_user@$client" "set -eu; sudo install -m 755 /tmp/xconnect /usr/local/bin/; sudo install -m 644 /tmp/ca.crt /usr/local/share/ca-certificates/xconnect-lab.crt; sudo update-ca-certificates >/dev/null 2>&1; sudo install -d -m 700 /var/lib/xconnect-one /etc/xconnect-lab; sudo install -m 600 /tmp/one /var/lib/xconnect-one/join-uri; printf '%s\n' controlled-client | sudo tee /etc/xconnect-lab/node-role >/dev/null; sudo sh -c 'xconnect join --bootstrap --state-dir /var/lib/xconnect-one --device-id \"$client_id\" --name uat-linux-one \"\$(cat /var/lib/xconnect-one/join-uri)\"'"
 fi
 # The signed-enrollment lifecycle intentionally does not allow a cached `up`.
