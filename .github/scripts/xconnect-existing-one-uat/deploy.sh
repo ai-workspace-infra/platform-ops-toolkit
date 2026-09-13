@@ -17,6 +17,7 @@ umask 077
 : "${ONE_HOST:?}"
 : "${ONE_USER:?}"
 : "${ONE_SSH_PRIVATE_KEY_B64:?}"
+: "${ONE_BECOME_PASSWORD:?}"
 : "${GATEWAY_HOST:?}"
 : "${GATEWAY_USER:?}"
 : "${GATEWAY_SSH_PRIVATE_KEY_B64:?}"
@@ -29,6 +30,7 @@ umask 077
 mkdir -p "$LAB_DIR/releases"
 known_hosts="$LAB_DIR/known_hosts"
 one_key="$LAB_DIR/one.ssh"
+one_become_password="$LAB_DIR/one.become-password"
 gateway_key="$LAB_DIR/gateway.ssh"
 gateway_tls_cert="$LAB_DIR/gateway.tls.crt"
 gateway_tls_key="$LAB_DIR/gateway.tls.key"
@@ -45,7 +47,7 @@ cleanup() {
       "sudo test -s '$probe_dir/pid' && sudo kill \"\$(sudo cat '$probe_dir/pid')\" 2>/dev/null || true; sudo rm -rf '$probe_dir'" \
       >/dev/null 2>&1 || true
   fi
-  rm -f "$one_key" "$gateway_key" "$gateway_tls_cert" "$gateway_tls_key" \
+  rm -f "$one_key" "$one_become_password" "$gateway_key" "$gateway_tls_cert" "$gateway_tls_key" \
     "$zero_header" "$gateway_invite" "$invite" "$LAB_DIR/xconnect" \
     "$gateway_binary" "$xray_binary" "$LAB_DIR/releases/SHA256SUMS" \
     "$LAB_DIR/releases/SHA256SUMS.selected" "$LAB_DIR/releases/gateway/SHA256SUMS" \
@@ -56,11 +58,12 @@ cleanup() {
 trap cleanup EXIT
 
 printf '%s' "$ONE_SSH_PRIVATE_KEY_B64" | base64 --decode >"$one_key"
+printf '%s\n' "$ONE_BECOME_PASSWORD" >"$one_become_password"
 printf '%s' "$GATEWAY_SSH_PRIVATE_KEY_B64" | base64 --decode >"$gateway_key"
 printf 'X-Service-Token: %s\nContent-Type: application/json\n' "$ZERO_SERVICE_TOKEN" >"$zero_header"
 printf '%s' "$GATEWAY_TLS_CERT_B64" | base64 --decode >"$gateway_tls_cert"
 printf '%s' "$GATEWAY_TLS_KEY_B64" | base64 --decode >"$gateway_tls_key"
-chmod 600 "$one_key" "$gateway_key" "$gateway_tls_cert" "$gateway_tls_key" "$zero_header"
+chmod 600 "$one_key" "$one_become_password" "$gateway_key" "$gateway_tls_cert" "$gateway_tls_key" "$zero_header"
 
 openssl x509 -in "$gateway_tls_cert" -noout >/dev/null
 openssl pkey -in "$gateway_tls_key" -noout >/dev/null
@@ -265,6 +268,7 @@ if ! ANSIBLE_HOST_KEY_CHECKING=True \
     ansible-playbook -i "$ONE_HOST," "$GITHUB_WORKSPACE/playbooks/deploy_xconnect_one.yml" \
     --user "$ONE_USER" \
     --private-key "$one_key" \
+    --become-password-file "$one_become_password" \
     --ssh-common-args="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known_hosts" \
     --extra-vars "xconnect_one_hosts=all xconnect_one_enabled=true xconnect_one_environment=uat xconnect_one_state_dir=/var/lib/xconnect-one/uat xconnect_one_binary_source=$LAB_DIR/xconnect xconnect_one_device_id=$ONE_DEVICE_ID xconnect_one_device_name=observability-uat xconnect_one_invite_file_source=$invite xconnect_one_expected_overlay_cidr=$overlay_cidr xconnect_one_expected_wireguard_interface=xconone0 xconnect_one_expected_xray_loopback_port=18080 xconnect_one_sync_interval_seconds=300 xconnect_one_install_observability=true" \
     >"$ansible_one_log" 2>&1; then

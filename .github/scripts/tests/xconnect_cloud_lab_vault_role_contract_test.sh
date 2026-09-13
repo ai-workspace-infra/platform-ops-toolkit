@@ -51,6 +51,7 @@ grep -Fq 'gitops/vpn-overlay/uat/xconnect-lab.json' "${runner}"
 grep -Fq 'xconnect-gateway init' "${gateway}"
 grep -Fq 'name: XConnect One Existing UAT' "${existing_one_workflow}"
 grep -Fq 'kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }}' "${existing_one_workflow}"
+grep -Fq 'kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} sudo_password | ONE_BECOME_PASSWORD' "${existing_one_workflow}"
 grep -Fq 'kv/data/CICD/domains/svc.plus tls_fullchain_pem_b64' "${existing_one_workflow}"
 grep -Fq 'kv/data/CICD/domains/svc.plus tls_key_pem_b64' "${existing_one_workflow}"
 grep -Fq 'GATEWAY_TLS_CERT_B64' "${existing_one_workflow}"
@@ -67,6 +68,8 @@ if grep -Fq '.credential.credential' "${existing_one_deploy}"; then
   exit 1
 fi
 grep -Fq 'gateway_scp=(scp -i "$gateway_key"' "${existing_one_deploy}"
+grep -Fq 'ONE_BECOME_PASSWORD' "${existing_one_deploy}"
+grep -Fq -- '--become-password-file "$one_become_password"' "${existing_one_deploy}"
 if grep -Fq 'scp "${gateway_ssh[@]}' "${existing_one_deploy}"; then
   echo 'existing-One deploy must not pass ssh argv to scp' >&2
   exit 1
