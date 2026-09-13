@@ -26,7 +26,7 @@ PUBLIC_INSTANCE_KEYS = {'instance_id', 'public_ip', 'private_ip'}
 PUBLIC_EXPECTED_DEVICE_KEYS = {'darwin', 'windows'}
 PUBLIC_VERIFICATION_KEYS = {'target', 'expected_marker'}
 FORMAL_ACCOUNTS_URL = 'https://accounts-uat.onwalk.net'
-FORMAL_PORTAL_URL = 'https://console-cloudflare-uat.onwalk.net/panel/xconnect-zero'
+FORMAL_PORTAL_URL = 'https://console-serverless-uat.onwalk.net/panel/xconnect-zero'
 
 
 def save(path, value):

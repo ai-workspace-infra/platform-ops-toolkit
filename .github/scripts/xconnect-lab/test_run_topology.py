@@ -21,8 +21,9 @@ def declaration():
             'ttl_minutes': 60,
             'node_observation': {'mode': 'until-expiry', 'release_on_failure': True},
             'zero': {
+                'control_plane_ref': 'vpn-overlay/uat/xconnect-zero.json',
                 'accounts_api_url': 'https://accounts-uat.onwalk.net',
-                'portal_url': 'https://console-cloudflare-uat.onwalk.net/panel/xconnect-zero',
+                'portal_url': 'https://console-serverless-uat.onwalk.net/panel/xconnect-zero',
                 'source_of_truth': 'formal-accounts-api-and-portal',
                 'lab_controller': {'enabled': False, 'is_formal_config_source': False},
             },
@@ -88,16 +89,47 @@ def declaration():
 
 
 class ShellTopologyContract(unittest.TestCase):
+    def formal_zero_declaration(self):
+        return {
+            'apiVersion': 'gitops.svc.plus/v1alpha1',
+            'kind': 'XConnectZeroControlPlane',
+            'metadata': {'name': 'xconnect-zero', 'environment': 'uat'},
+            'spec': {
+                'source_of_truth': 'accounts-api-and-portal',
+                'accounts_api_url': 'https://accounts-uat.onwalk.net',
+                'portal_url': 'https://console-serverless-uat.onwalk.net/panel/xconnect-zero',
+                'resources': ['networks', 'gateways', 'devices', 'invitations', 'policies', 'signed-config', 'acks'],
+                'tenant_isolation': 'account-scoped',
+                'vault': {
+                    'address': 'https://vault.svc.plus',
+                    'auth_method': 'github-actions-jwt',
+                    'runtime_secret_path': 'kv/data/uat/xconnect-one',
+                    'gateway_tls_path': 'kv/data/CICD/domains/svc.plus',
+                    'observability_path': 'kv/data/CICD/observability',
+                    'sensitive_fields': ['VLESS_ID', 'ZERO_OWNER_EMAIL', 'ZERO_SERVICE_TOKEN',
+                                        'tls_ca_pem_b64', 'tls_fullchain_pem_b64', 'tls_key_pem_b64',
+                                        'tls_trust_bundle_pem_b64'],
+                },
+                'boundary': {
+                    'gitops_contains': ['endpoints', 'network-and-transport-policy', 'paths', 'versions'],
+                    'vault_contains': ['certificates', 'credentials', 'private-keys', 'service-tokens'],
+                    'zero_carries_vpn_data': False,
+                    'gateway_and_one_data_plane': 'wireguard-over-vless',
+                },
+            },
+        }
+
     def preflight(self, value, mode='apply', window='auto', desktop='0', refs=None):
         with tempfile.TemporaryDirectory(prefix='xconnect-preflight-test-') as tmp:
             root = Path(tmp)
             scripts = root / '.github/scripts/xconnect-lab'
             scripts.mkdir(parents=True)
-            for name in ('prepare.py', 'validate-topology.jq'):
+            for name in ('prepare.py', 'validate-topology.jq', 'validate-zero.jq'):
                 shutil.copyfile(SCRIPTS / name, scripts / name)
             target = root / 'gitops/vpn-overlay/uat/xconnect-lab.json'
             target.parent.mkdir(parents=True)
             target.write_text(json.dumps(value))
+            (target.parent / 'xconnect-zero.json').write_text(json.dumps(self.formal_zero_declaration()))
             env = {'PATH': os.environ['PATH'], 'GITHUB_WORKSPACE': str(root),
                    'LAB_DIR': str(root / 'lab'), 'GITHUB_OUTPUT': str(root / 'output'),
                    'GITHUB_ENV': str(root / 'env'), 'MODE': mode,

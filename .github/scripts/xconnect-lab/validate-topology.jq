@@ -18,7 +18,7 @@ def lease_ok:
 .spec.compute_policy == "all-cloud-compute-is-aws-spot-by-default" and
 lease_ok and
 .spec.zero.accounts_api_url == "https://accounts-uat.onwalk.net" and
-.spec.zero.portal_url == "https://console-cloudflare-uat.onwalk.net/panel/xconnect-zero" and
+.spec.zero.portal_url == "https://console-serverless-uat.onwalk.net/panel/xconnect-zero" and
 .spec.zero.source_of_truth == "formal-accounts-api-and-portal" and
 .spec.zero.lab_controller.is_formal_config_source == false and
 .spec.nodes.gateway.product == "XConnect One Gateway" and
