@@ -97,7 +97,7 @@ done
 5. 使用无 Cookie、无登录状态的浏览器再检查一次主页、Privacy 和 Support；
 6. 将 UAT workflow 运行链接、路由版本、Cloudflare Custom Domain 状态和探针结果保存到发布证据中。
 
-生产环境的验证必须额外检查 `xworktech.com`，不能用 UAT 的 `console.onwalk.net` 结果替代。当前审核快照（2026-09-13）：UAT 的 `console.onwalk.net` 主页、法律和支持路径返回 `200`，但 `sitemap.xml` 仍返回 `404`；PROD 的 `xworktech.com` 法律路径仍会跳转到 `svc.plus`，且 `sitemap.xml` 也返回 `404`。因此两个环境都未完成本规范，PROD 保持冻结，直到 Frontend Router 提供品牌域名 sitemap、生产版本发布并通过本节验收。
+生产环境的验证必须额外检查 `xworktech.com`，不能用 UAT 的结果替代。当前审核快照（2026-09-13）：UAT 快照 `daily-build-2026.09.13-r8` 的 `onwalk.net` 与 `console.onwalk.net` 主页、法律和支持路径，以及 robots/sitemap 均返回 `200` 且无跳转；对应发布记录为 [Daily Main Snapshot 34743118398](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/34743118398) 和 [Serverless Orchestrator 34743298874](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/34743298874)。PROD 的 `xworktech.com` 法律路径仍会跳转到 `svc.plus`，且 sitemap 仍返回 `404`，因此 PROD 保持冻结，直到以已验证的 UAT 制品完成生产发布并通过本节验收。
 
 ## 6. 变更检查清单
 
