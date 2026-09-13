@@ -372,7 +372,7 @@ STOP_PRIVATE_PROBE
   trap cleanup_private_probe EXIT
 fi
 
-gateway_ca_sha256=''
+gateway_ca_sha256='system-public-ca'
 if [[ "$gateway_provider" != external ]]; then
   gateway_ca_sha256=$(sha256sum "$LAB_DIR/tls/gateway-ca.crt" | awk '{print $1}')
 fi
@@ -391,7 +391,7 @@ client_failure() {
 }
 [[ "$(cat /etc/xconnect-lab/node-role)" == controlled-client ]] || client_failure role
 tls_ca_file=/etc/ssl/certs/ca-certificates.crt
-if [[ -n "$8" ]]; then
+if [[ "$8" != system-public-ca ]]; then
   tls_ca_file=/usr/local/share/ca-certificates/xconnect-one-uat.crt
   [[ -r "$tls_ca_file" ]] || client_failure tls-ca-not-installed
   [[ "$(sha256sum "$tls_ca_file" | awk '{print $1}')" == "$8" ]] || client_failure tls-ca-handoff

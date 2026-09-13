@@ -22,6 +22,7 @@ grep -Fq 'deploy_xconnect_one.yml' "${deploy}"
 grep -Fq 'kv/data/CICD/domains/svc.plus tls_trust_bundle_pem_b64' "${workflow}"
 grep -Fq '/etc/xconnect-gateway/ca.crt' "${deploy}"
 grep -Fq 'gateway-ca.crt' "${deploy}"
+grep -Fq 'system-public-ca' "${deploy}"
 if grep -Fq 'openssl req -x509' "${deploy}" || grep -Fq 'XConnect disposable UAT lab CA' "${deploy}"; then
   echo 'XConnect cloud lab must consume the Vault domain certificate, not build a runner-local CA' >&2
   exit 1
