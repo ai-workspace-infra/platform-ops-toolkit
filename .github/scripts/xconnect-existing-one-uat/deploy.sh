@@ -209,7 +209,7 @@ WantedBy=timers.target
 UNIT
 systemctl daemon-reload
 systemctl enable xconnect-gateway-xray.service >/dev/null
-systemctl enable xconnect-gateway-sync.timer >/dev/null
+systemctl enable --now xconnect-gateway-sync.timer >/dev/null
 /usr/local/bin/xconnect-gateway diagnose >/dev/null
 if [[ ! -s /var/lib/xconnect-gateway/state.json ]]; then
   /usr/local/bin/xconnect-gateway init --state-dir /var/lib/xconnect-gateway --controller "$controller" --gateway-id gw-uat-tw-xconnect >/var/lib/xconnect-gateway/init.log
