@@ -22,6 +22,10 @@ client_address=$(jq -er .spec.overlay.device_address "$DECL")
 client_wireguard_ip="${client_address%/*}"
 run_id=$(<"$LAB_DIR/run-id")
 gateway_provider=$(jq -er .gateway_provider.value "$LAB_DIR/outputs.json")
+transport_profile=$(jq -er .spec.overlay.transport_profile "$DECL")
+xhttp_path=$(jq -er .path <<<"$transport_profile")
+xhttp_mode=$(jq -er .mode <<<"$transport_profile")
+xhttp_host=$(jq -er .host <<<"$transport_profile")
 if [[ "$gateway_provider" == external ]]; then
   network_id="${EXTERNAL_NETWORK_ID:?EXTERNAL_NETWORK_ID is required for an external Gateway}"
   gateway_id="${EXTERNAL_GATEWAY_ID:?EXTERNAL_GATEWAY_ID is required for an external Gateway}"
@@ -337,6 +341,9 @@ if ip link show xconzero0 >/dev/null 2>&1; then echo 'gateway_wireguard_interfac
 GATEWAY_EARLY_FAILURE_DIAGNOSTICS
   exit 1
 fi
+ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- \
+  gateway /var/lib/xconnect-gateway/runtime/xray.json - "$transport_server_name" "$xhttp_path" "$xhttp_mode" "$xhttp_host" \
+  < "$ROOT/.github/scripts/xconnect-lab/verify-xhttp-runtime.sh"
 
 # The persistent external Gateway is not a lab-owned application host. For
 # the private HTTP assertion only, expose a run-scoped marker on its existing
@@ -431,6 +438,10 @@ echo "gateway_wireguard_handshake_age_seconds=$handshake_age"
 GATEWAY_FAILURE_DIAGNOSTICS
   exit 1
 fi
+
+ssh "${CLIENT_SSH[@]}" "$client_user@$client" sudo bash -s -- \
+  one /var/lib/xconnect-one "$client_transport_endpoint" "$transport_server_name" "$xhttp_path" "$xhttp_mode" "$xhttp_host" \
+  < "$ROOT/.github/scripts/xconnect-lab/verify-xhttp-runtime.sh"
 
 ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$client_public_key" "$gateway_id" "$network_id" "$formal_zero" "$client_wireguard_ip" <<'RELAY_VERIFY'
 set -euo pipefail
