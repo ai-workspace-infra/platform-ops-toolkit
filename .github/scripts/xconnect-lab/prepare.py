@@ -45,7 +45,7 @@ def validate_desktop_validation(spec, window):
         raise ValueError('desktop_validation.enabled must be true for a desktop join window')
     if desktop.get('max_join_window_minutes') != 20:
         raise ValueError('desktop_validation.max_join_window_minutes must be 20')
-    if desktop.get('transport') != 'vless-tls-xudp' or desktop.get('public_wireguard_ingress') is not False:
+    if desktop.get('transport') != 'vless-xhttp' or desktop.get('public_wireguard_ingress') is not False:
         raise ValueError('desktop_validation transport or WireGuard ingress policy is incompatible')
     cidrs = desktop.get('ingress_cidrs')
     if not isinstance(cidrs, list) or not 1 <= len(cidrs) <= 2:
@@ -74,8 +74,11 @@ def validate_gateway_transport_ingress(spec, requested=''):
     transport = spec.get('gateway_transport')
     if not isinstance(transport, dict) or transport.get('enabled') is not True:
         raise ValueError('gateway_transport.enabled must be true')
-    if transport.get('port') != 443 or transport.get('transport') != 'vless-tls-xudp':
-        raise ValueError('Gateway public transport must be VLESS/TLS on TCP 443')
+    if transport.get('port') != 443 or transport.get('transport') != 'vless-xhttp':
+        raise ValueError('Gateway public transport must be VLESS/XHTTP on TCP 443')
+    profile = transport.get('profile') or {}
+    if profile != {'kind': 'vless-xhttp', 'path': '/xconnect', 'mode': 'auto', 'host': 'tw-xconnect.svc.plus'}:
+        raise ValueError('Gateway public transport must use the reviewed XHTTP profile')
     if transport.get('public_wireguard_ingress') is not False:
         raise ValueError('Gateway public transport must not expose WireGuard UDP')
     raw = str(requested or '').strip()

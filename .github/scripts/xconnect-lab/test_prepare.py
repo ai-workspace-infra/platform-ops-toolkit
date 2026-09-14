@@ -70,7 +70,8 @@ class DesktopContract(unittest.TestCase):
             'ingress_cidrs': ['198.51.100.10/32'] if cidrs is None else cidrs,
             'platforms': ['darwin', 'windows'] if platforms is None else platforms,
             'max_join_window_minutes': 20,
-            'transport': 'vless-tls-xudp',
+            'transport': 'vless-xhttp',
+            'profile': {'kind': 'vless-xhttp', 'path': '/xconnect', 'mode': 'auto', 'host': 'tw-xconnect.svc.plus'},
             'public_wireguard_ingress': False,
         }}
 
@@ -150,7 +151,8 @@ class GatewayTransportContract(unittest.TestCase):
         value = {'gateway_transport': {
             'enabled': True,
             'port': 443,
-            'transport': 'vless-tls-xudp',
+            'transport': 'vless-xhttp',
+            'profile': {'kind': 'vless-xhttp', 'path': '/xconnect', 'mode': 'auto', 'host': 'tw-xconnect.svc.plus'},
             'ingress_cidrs': [],
             'public_wireguard_ingress': False,
         }}
@@ -172,7 +174,7 @@ class GatewayTransportContract(unittest.TestCase):
 
     def test_public_transport_policy_is_fail_closed(self):
         for updates in ({'enabled': False}, {'port': 1443},
-                        {'transport': 'vless-xhttp'}, {'public_wireguard_ingress': True}):
+                        {'transport': 'vless-tls-xudp'}, {'public_wireguard_ingress': True}):
             with self.subTest(updates=updates), self.assertRaises(ValueError):
                 prepare.validate_gateway_transport_ingress(self.spec(**updates), '35.79.83.48/32')
 

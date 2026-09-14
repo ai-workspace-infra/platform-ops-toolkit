@@ -46,14 +46,16 @@ lease_ok and
 .spec.vault.infrastructure_path == "kv/data/CICD/uat" and
 .spec.vault.runtime_path == "kv/data/uat/xconnect-one" and
 .spec.vault.github_app_path == "kv/data/CICD/github-app/daily-snapshot" and
-.spec.overlay.transport == "vless-tls-xudp" and
+.spec.overlay.transport == "vless-xhttp" and
+.spec.overlay.transport_profile == {kind:"vless-xhttp", port:443, path:"/xconnect", mode:"auto", host:"tw-xconnect.svc.plus"} and
 (.spec.overlay.gateway_address | type == "string") and
 .spec.overlay.device_address == "10.77.0.2/32" and
 .spec.overlay.public_wireguard_ingress == false and
 .spec.gateway_transport.enabled == true and
 .spec.gateway_transport.exposure == "public-restricted" and
-.spec.gateway_transport.transport == "vless-tls-xudp" and
+.spec.gateway_transport.transport == "vless-xhttp" and
 .spec.gateway_transport.port == 443 and
+.spec.gateway_transport.profile == {kind:"vless-xhttp", path:"/xconnect", mode:"auto", host:"tw-xconnect.svc.plus"} and
 .spec.gateway_transport.ingress_cidrs == [] and
 .spec.gateway_transport.public_wireguard_ingress == false and
 .spec.gateway_transport.allowlist_source == "workflow-dispatch-runtime-only" and

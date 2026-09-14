@@ -34,6 +34,13 @@ if grep -F 'scp "${SSH[@]}" "$LAB_DIR/bin/xconnect"' "${deploy}" | grep -Fq 'bin
   exit 1
 fi
 grep -Fq 'xconnect_one' "${deploy}"
+grep -Fq 'transport_kind:"vless-xhttp"' "${deploy}"
+grep -Fq 'transport_path:"/xconnect"' "${deploy}"
+grep -Fq 'xconnect_one_expected_xray_loopback_port:51830' "${deploy}"
+if grep -Fq '127\\.0\\.0\\.1:18080' "${deploy}"; then
+  echo "XConnect One verification must use the fixed 127.0.0.1:51830 transport loopback" >&2
+  exit 1
+fi
 grep -Fq 'tls-trust-or-transport' "${deploy}"
 grep -Fq 'CLIENT_EARLY_FAILURE_DIAGNOSTICS' "${deploy}"
 grep -Fq "jq -c '[.[] | {code,healthy}]'" "${deploy}"
@@ -67,6 +74,12 @@ grep -Fq 'terraform-diagnostics.py' "${runner}"
 grep -Fq 'terraform-${command}.log' "${runner}"
 grep -Fq 'unset-current-credentials: true' "${workflow}"
 grep -Fq 'steps.prepare.outcome == '\''success'\''' "${workflow}"
+grep -Fq "if: inputs.mode == 'cleanup' && steps.prepare.outcome == 'success'" "${workflow}"
+grep -Fq "if: inputs.mode == 'cleanup'" "${workflow}"
+if grep -Fq 'Always destroy only this lab state' "${workflow}"; then
+  echo 'Apply runs must retain the one-hour lab lease; cleanup must be explicit.' >&2
+  exit 1
+fi
 for stage in setup bootstrap gateway one verify; do
   grep -Fq "run.sh ${stage}" "${workflow}"
 done

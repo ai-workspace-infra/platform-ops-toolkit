@@ -47,7 +47,7 @@ CLIENT_SCP=(scp -i "$LAB_DIR/id_ed25519" -o ConnectTimeout=10 -o StrictHostKeyCh
 # The disposable Linux One and Gateway share the UAT VPC. Keep the public
 # 443 endpoint for optional desktop handoff, but make the cloud client use the
 # Gateway private address so it does not hairpin through the Internet Gateway.
-# The transport remains VLESS/TLS over TCP 443; only the AWS path is private.
+# The transport remains VLESS/XHTTP over TCP 443; only the AWS path is private.
 client_transport_endpoint="$gateway_transport"
 if [[ "$gateway_provider" != external ]]; then
   client_transport_endpoint="$gateway_private"
@@ -157,7 +157,7 @@ create_invite() {
     --arg network "$network_id" --arg gateway_id "$gateway_id" --arg gateway_key "$gateway_public_key" \
     --arg endpoint "$client_transport_endpoint" --arg gateway_address "$gateway_address" --arg cidr "$overlay_cidr" --arg vless "$LAB_VLESS_ID" \
     --arg role "$role" --arg device "$device_id" --arg expires "$expires" --arg server_name "$transport_server_name" \
-    '{owner_email:$owner,bootstrap:{controller_url:$controller,network:{id:$network,display_name:"XConnect UAT Gateway network",cidr:$cidr,gateway_id:$gateway_id,gateway_wireguard_public_key:$gateway_key,gateway_wireguard_address:$gateway_address,gateway_endpoint_host:$endpoint,gateway_endpoint_port:51820,transport_server_name:$server_name,transport_port:443,transport_auth_id:$vless},invite:{device_id:$device,platform:"linux",role:$role,expires_at:$expires}}}' > "$request"
+    '{owner_email:$owner,bootstrap:{controller_url:$controller,network:{id:$network,display_name:"XConnect UAT Gateway network",cidr:$cidr,gateway_id:$gateway_id,gateway_wireguard_public_key:$gateway_key,gateway_wireguard_address:$gateway_address,gateway_endpoint_host:$endpoint,gateway_endpoint_port:51820,transport_server_name:$server_name,transport_port:443,transport_auth_id:$vless,transport_kind:"vless-xhttp",transport_path:"/xconnect",transport_mode:"auto",transport_host:$server_name},invite:{device_id:$device,platform:"linux",role:$role,expires_at:$expires}}}' > "$request"
   status=$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
     -H "X-Service-Token: $ZERO_SERVICE_TOKEN" -H 'Content-Type: application/json' \
     --data-binary "@$request" "$formal_zero/api/internal/overlay/networks/bootstrap" || true)
@@ -218,7 +218,7 @@ jq -n \
     xconnect_one_device_id:$device,xconnect_one_device_name:"uat-linux-one",
     xconnect_one_expected_network_id:$network,xconnect_one_invite_file_source:$invite,
     xconnect_one_expected_overlay_cidr:$cidr,xconnect_one_expected_wireguard_interface:"xconone0",
-    xconnect_one_expected_xray_loopback_port:18080,xconnect_one_sync_interval_seconds:300,
+    xconnect_one_expected_xray_loopback_port:51830,xconnect_one_sync_interval_seconds:300,
     xconnect_one_install_observability:false}' > "$variables_file"
 
 local ansible_status=0
@@ -305,7 +305,7 @@ if ! client_public_key=$(ssh "${CLIENT_SSH[@]}" "$client_user@$client" 'sudo wg 
 set -euo pipefail
 if ip link show xconone0 >/dev/null 2>&1; then echo 'wireguard_interface=active'; else echo 'wireguard_interface=inactive'; fi
 if pgrep -x xray >/dev/null; then echo 'xray_process=active'; else echo 'xray_process=inactive'; fi
-if ss -lun | grep -Eq '127\.0\.0\.1:18080[[:space:]]'; then echo 'xray_loopback_udp=active'; else echo 'xray_loopback_udp=inactive'; fi
+if ss -lun | grep -Eq '127\.0\.0\.1:51830[[:space:]]'; then echo 'xray_loopback_udp=active'; else echo 'xray_loopback_udp=inactive'; fi
 sudo xconnect status --state-dir /var/lib/xconnect-one 2>/dev/null | jq -c '{joined,device_id,network_id,generations,runtime,credential: {present: .credential.present, expired: .credential.expired}}' || true
 sudo xconnect diagnose --state-dir /var/lib/xconnect-one 2>/dev/null | jq -c '[.[] | {code,healthy}]' || true
 CLIENT_EARLY_FAILURE_DIAGNOSTICS
@@ -389,7 +389,7 @@ client_failure() {
   xconnect diagnose --state-dir /var/lib/xconnect-one 2>/dev/null \
     | jq -c '[.[] | {code,healthy}]' || true
   if pgrep -x xray >/dev/null; then echo 'xray_process=active'; else echo 'xray_process=inactive'; fi
-  if ss -lun | grep -Eq '127\.0\.0\.1:18080[[:space:]]'; then echo 'xray_loopback_udp=active'; else echo 'xray_loopback_udp=inactive'; fi
+  if ss -lun | grep -Eq '127\.0\.0\.1:51830[[:space:]]'; then echo 'xray_loopback_udp=active'; else echo 'xray_loopback_udp=inactive'; fi
   if ip link show xconone0 >/dev/null 2>&1; then echo 'wireguard_interface=active'; else echo 'wireguard_interface=inactive'; fi
   handshake_age=$(wg show xconone0 latest-handshakes 2>/dev/null | awk -v now="$(date +%s)" '$2 > 0 {age=now-$2} END {print age=="" ? "none" : age}')
   echo "wireguard_handshake_age_seconds=$handshake_age"
