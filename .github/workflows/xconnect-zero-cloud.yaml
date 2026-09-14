@@ -30,7 +30,7 @@ on:
         description: Advanced override - XConnect-Gateway GitHub Release tag
         type: string
         required: false
-        default: 'v0.1.6'
+        default: 'v0.1.7'
       xray_release_tag:
         description: Advanced override - XTLS/Xray-core Release tag
         type: string
@@ -131,10 +131,10 @@ jobs:
     env:
       MODE: ${{ inputs.mode }}
       IAC_REF: ${{ inputs.iac_ref || '9dd120ee027ea999b41d15b80ead20878c1ff468' }}
-      GITOPS_REF: ${{ inputs.gitops_ref || '5fc1e59e257e00ded07183fe1db5531e876dbb33' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || '2d2bc72027b257a27a345a3db27d00283f35c03c' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '0f319649a8634523fe7e2d18ae2a22639ef2a97d' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.13' }}
-      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.6' }}
+      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.7' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
       GATEWAY_PROVIDER: ${{ inputs.gateway_provider || 'external' }}
       EXTERNAL_GATEWAY_ID: ${{ inputs.external_gateway_id || 'gw-uat-tw-xconnect' }}
@@ -337,10 +337,10 @@ jobs:
     env:
       MODE: cleanup
       IAC_REF: ${{ inputs.iac_ref || '9dd120ee027ea999b41d15b80ead20878c1ff468' }}
-      GITOPS_REF: ${{ inputs.gitops_ref || '5fc1e59e257e00ded07183fe1db5531e876dbb33' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || '2d2bc72027b257a27a345a3db27d00283f35c03c' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '0f319649a8634523fe7e2d18ae2a22639ef2a97d' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.13' }}
-      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.6' }}
+      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.7' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
       GATEWAY_PROVIDER: ${{ inputs.gateway_provider || 'external' }}
       EXTERNAL_GATEWAY_ID: ${{ inputs.external_gateway_id || 'gw-uat-tw-xconnect' }}
