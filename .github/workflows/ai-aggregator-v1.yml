@@ -199,6 +199,9 @@ jobs:
           AI_AGGREGATOR_SSH_PUBLIC_KEY: ${{ vars.AI_AGGREGATOR_SSH_PUBLIC_KEY }}
         run: |
           terraform -chdir="${{ steps.contract.outputs.workdir }}" fmt -recursive
+          # UAT is an ephemeral Spot test environment. Keep Terraform state on
+          # the runner so no state bucket contract is required for this flow.
+          rm -f "${{ steps.contract.outputs.workdir }}/backend.tf"
           terraform -chdir="${{ steps.contract.outputs.workdir }}" init -backend=false
           terraform -chdir="${{ steps.contract.outputs.workdir }}" validate
           terraform -chdir="${{ steps.contract.outputs.workdir }}" apply -auto-approve
