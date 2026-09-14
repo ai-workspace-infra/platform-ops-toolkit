@@ -163,7 +163,7 @@ jobs:
           role-to-assume: ${{ vars.AWS_IAC_ROLE_ARN }}
           aws-region: ap-northeast-1
       - name: Login to Vault with GitHub OIDC
-        if: ${{ github.event_name == 'push' || inputs.operation != 'provision' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
         id: vault_login
         env:
           VAULT_ADDR: https://vault.svc.plus
@@ -206,7 +206,7 @@ jobs:
             --resources "${{ steps.contract.outputs.resources }}" \
             --workdir "${{ steps.contract.outputs.workdir }}"
       - name: Deploy non-secret system configuration
-        if: ${{ github.event_name == 'push' || inputs.operation == 'stage' || inputs.operation == 'activate' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
         working-directory: playbooks
         env:
           VAULT_ADDR: https://vault.svc.plus
@@ -217,7 +217,7 @@ jobs:
             -e ai_aggregator_operation=stage \
             -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/uat/selfhost/ai-aggregator.yaml
       - name: Verify UAT endpoints
-        if: ${{ github.event_name == 'push' || inputs.operation == 'stage' || inputs.operation == 'activate' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
         run: ./scripts/verify_ai_aggregator_endpoints.sh
       - name: Destroy UAT Spot resources
         if: ${{ always() && steps.contract.outputs.workdir != '' }}
