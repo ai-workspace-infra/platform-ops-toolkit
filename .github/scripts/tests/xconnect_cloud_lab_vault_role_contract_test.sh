@@ -39,7 +39,9 @@ if grep -Fq '"${WF_PREFIX}/xconnect-cloud-lab.yml@*"' "${roles}"; then
 fi
 
 grep -Fq "XCONNECT_VAULT_ROLE: ${role}" "${workflow}"
-[[ $(grep -Fc 'role: ${{ env.XCONNECT_VAULT_ROLE }}' "${workflow}") -eq 1 ]]
+# apply and explicit cleanup are separate jobs; each must authenticate with the
+# same workflow-scoped role instead of passing a Vault token across jobs.
+[[ $(grep -Fc 'role: ${{ env.XCONNECT_VAULT_ROLE }}' "${workflow}") -eq 2 ]]
 if grep -Eq '^  schedule:' "${workflow}"; then
   echo "XConnect cloud lab must be released from an immutable UAT snapshot, not a schedule" >&2
   exit 1

@@ -104,6 +104,9 @@ jobs:
     - name: Verify XConnect cloud-lab Vault role contract
       run: bash .github/scripts/tests/xconnect_cloud_lab_vault_role_contract_test.sh
 
+    - name: Verify XConnect cloud-lab jobs matrix contract
+      run: bash .github/scripts/tests/xconnect_cloud_lab_jobs_matrix_contract_test.sh
+
     - name: XConnect deployed control-plane boundary guard
       run: python3 -m unittest discover -s .github/scripts/xconnect-lab -p 'test_*.py'
 

@@ -90,8 +90,40 @@ concurrency:
   group: xconnect-cloud-lab
   cancel-in-progress: false
 jobs:
-  lab:
+  preflight:
+    name: Preflight / ${{ matrix.suite }}
     if: github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - contracts
+          - runtime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Validate workflow and Vault contracts
+        if: matrix.suite == 'contracts'
+        run: |
+          bash .github/scripts/tests/xconnect_formal_uat_lab_contract_test.sh
+          bash .github/scripts/tests/xconnect_cloud_lab_vault_role_contract_test.sh
+          bash .github/scripts/tests/xconnect_gateway_dns_contract_test.sh
+      - name: Validate runtime scripts and workflow inputs
+        if: matrix.suite == 'runtime'
+        run: |
+          python3 -m unittest discover -s .github/scripts/xconnect-lab -p 'test_*.py'
+          bash .github/scripts/tests/workflow_dispatch_input_limit_test.sh
+          bash -n .github/scripts/xconnect-lab/run.sh
+          bash -n .github/scripts/xconnect-lab/deploy.sh
+          bash -n .github/scripts/xconnect-lab/gateway.sh
+
+  apply:
+    name: UAT lab / ${{ inputs.mode }}
+    needs: preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.mode != 'cleanup'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -111,9 +143,8 @@ jobs:
       SSH_DEBUG_INGRESS_CIDRS: ${{ inputs.ssh_debug_ingress_cidrs || '35.79.83.48/32' }}
       GATEWAY_TRANSPORT_INGRESS_CIDRS: ${{ inputs.gateway_transport_ingress_cidrs || '35.79.83.48/32' }}
       GATEWAY_WIREGUARD_ADDRESS: ${{ inputs.gateway_wireguard_address }}
-      # Cleanup-only runs must not request an observation lease. Apply runs
-      # retain the reviewed one-hour observation window; cleanup resolves to
-      # zero before it reads or destroys the exact prior state.
+      # Apply runs retain the reviewed one-hour observation window. Cleanup is
+      # isolated in its own job and uses NODE_OBSERVATION_INPUT=0.
       NODE_OBSERVATION_INPUT: ${{ inputs.mode == 'apply' && 'until-expiry' || '0' }}
     steps:
       - uses: actions/checkout@v7
@@ -294,6 +325,109 @@ jobs:
       - name: Keep verified Gateway/Linux One Spot until lease expiry
         if: inputs.mode == 'apply'
         run: bash .github/scripts/xconnect-lab/run.sh node-observation
+
+  cleanup:
+    name: UAT lab / explicit cleanup
+    needs: preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'cleanup'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      MODE: cleanup
+      IAC_REF: ${{ inputs.iac_ref || '9dd120ee027ea999b41d15b80ead20878c1ff468' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || '5fc1e59e257e00ded07183fe1db5531e876dbb33' }}
+      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '0f319649a8634523fe7e2d18ae2a22639ef2a97d' }}
+      CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.13' }}
+      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.6' }}
+      XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
+      GATEWAY_PROVIDER: ${{ inputs.gateway_provider || 'external' }}
+      EXTERNAL_GATEWAY_ID: ${{ inputs.external_gateway_id || 'gw-uat-tw-xconnect' }}
+      EXTERNAL_NETWORK_ID: ${{ inputs.external_network_id || 'net_uat' }}
+      EXTERNAL_GATEWAY_SERVER_NAME: ${{ inputs.external_gateway_server_name || 'tw-xconnect.svc.plus' }}
+      ALLOW_XCONNECT_RELEASE_OVERRIDES: ${{ inputs.allow_release_overrides || false }}
+      CLEANUP_RUN: ${{ inputs.cleanup_run }}
+      SSH_DEBUG_INGRESS_CIDRS: ${{ inputs.ssh_debug_ingress_cidrs || '35.79.83.48/32' }}
+      GATEWAY_TRANSPORT_INGRESS_CIDRS: ${{ inputs.gateway_transport_ingress_cidrs || '35.79.83.48/32' }}
+      GATEWAY_WIREGUARD_ADDRESS: ${{ inputs.gateway_wireguard_address }}
+      NODE_OBSERVATION_INPUT: '0'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Validate cleanup identity and immutable references
+        run: |
+          echo "LAB_DIR=$RUNNER_TEMP/xconnect-lab" >> "$GITHUB_ENV"
+          LAB_DIR="$RUNNER_TEMP/xconnect-lab" bash .github/scripts/xconnect-lab/run.sh validate
+      - name: Authenticate CI to Vault via GitHub JWT
+        id: bootstrap
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: ${{ env.XCONNECT_VAULT_ROLE }}
+          jwtGithubAudience: vault
+          exportEnv: false
+          secrets: |
+            kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
+      - name: Infra repository access
+        id: infra-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: Iv23liNwStpQIiXajhpb
+          private-key: ${{ steps.bootstrap.outputs.APP_PRIVATE_KEY }}
+          owner: ai-workspace-infra
+          repositories: iac_modules,gitops,playbooks
+      - uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: ${{ env.IAC_REF }}
+          token: ${{ steps.infra-token.outputs.token }}
+          path: iac_modules
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ env.GITOPS_REF }}
+          token: ${{ steps.infra-token.outputs.token }}
+          path: gitops
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ env.PLAYBOOKS_REF }}
+          token: ${{ steps.infra-token.outputs.token }}
+          path: playbooks
+          persist-credentials: false
+      - name: Resolve the UAT declaration
+        id: topology
+        run: bash .github/scripts/xconnect-lab/run.sh topology
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.5
+          terraform_wrapper: false
+      - name: Infrastructure credentials from UAT Vault role
+        id: state-credentials
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ steps.topology.outputs.vault_address }}
+          method: jwt
+          role: ${{ steps.topology.outputs.vault_role }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD/uat TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
+            kv/data/CICD/uat TF_STATE_BUCKET | TF_STATE_BUCKET ;
+            kv/data/CICD/uat TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+            kv/data/CICD/uat TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+            kv/data/CICD/uat TF_STATE_REGION | TF_STATE_REGION
+      - name: AWS short-lived OIDC credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ steps.topology.outputs.aws_role }}
+          aws-region: ${{ steps.topology.outputs.aws_region }}
+          audience: sts.amazonaws.com
+      - name: Re-open isolated state for explicit cleanup
+        id: prepare
+        run: bash .github/scripts/xconnect-lab/run.sh prepare
       - name: Refresh short-lived AWS OIDC credentials before explicit cleanup
         if: inputs.mode == 'cleanup' && steps.prepare.outcome == 'success'
         uses: aws-actions/configure-aws-credentials@v4
