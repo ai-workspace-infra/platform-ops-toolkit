@@ -15,7 +15,7 @@ on:
         description: Advanced override - reviewed gitops commit SHA
         type: string
         required: false
-        default: '2d2bc72027b257a27a345a3db27d00283f35c03c'
+        default: 'b7d52fa0c0183e47d0bf342b487a1511c4cb453c'
       playbooks_ref:
         description: Advanced override - reviewed playbooks commit SHA
         type: string
@@ -131,7 +131,7 @@ jobs:
     env:
       MODE: ${{ inputs.mode }}
       IAC_REF: ${{ inputs.iac_ref || '9dd120ee027ea999b41d15b80ead20878c1ff468' }}
-      GITOPS_REF: ${{ inputs.gitops_ref || '2d2bc72027b257a27a345a3db27d00283f35c03c' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || 'b7d52fa0c0183e47d0bf342b487a1511c4cb453c' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '0f319649a8634523fe7e2d18ae2a22639ef2a97d' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.13' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.8' }}
@@ -337,7 +337,7 @@ jobs:
     env:
       MODE: cleanup
       IAC_REF: ${{ inputs.iac_ref || '9dd120ee027ea999b41d15b80ead20878c1ff468' }}
-      GITOPS_REF: ${{ inputs.gitops_ref || '2d2bc72027b257a27a345a3db27d00283f35c03c' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || 'b7d52fa0c0183e47d0bf342b487a1511c4cb453c' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '0f319649a8634523fe7e2d18ae2a22639ef2a97d' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.13' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.8' }}
