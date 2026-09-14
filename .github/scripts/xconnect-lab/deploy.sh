@@ -99,6 +99,16 @@ if [[ "$gateway_provider" == external ]]; then
     echo 'External Gateway identity is not bound to the requested Zero network'
     exit 1
   }
+  # A Gateway is a relay, not only a WireGuard endpoint. Keep forwarding
+  # enabled on the stable host so traffic between authorized overlay peers
+  # and private services can traverse the Gateway without opening UDP 51820.
+  ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s <<'ENABLE_GATEWAY_FORWARDING'
+set -euo pipefail
+install -d -m 755 /etc/sysctl.d
+printf '%s\n' 'net.ipv4.ip_forward = 1' > /etc/sysctl.d/99-xconnect-gateway-forwarding.conf
+sysctl -q -p /etc/sysctl.d/99-xconnect-gateway-forwarding.conf
+[[ "$(sysctl -n net.ipv4.ip_forward)" == 1 ]]
+ENABLE_GATEWAY_FORWARDING
   printf '%s\n' "$gateway_public_key" > "$LAB_DIR/gateway-public-key"
 else
   : # Both Gateway modes use the Vault domain certificate.
@@ -328,6 +338,7 @@ fi
 systemctl is-active --quiet xconnect-gateway-xray.service
 wg show xconzero0 >/dev/null
 ss -ltn | grep -Eq ':443[[:space:]]'
+sysctl -n net.ipv4.ip_forward | grep -Fxq 1
 xconnect-gateway status --state-dir /var/lib/xconnect-gateway
 GATEWAY_VERIFY
 then
@@ -363,9 +374,10 @@ sudo install -d -m 755 "$probe_dir"
 printf '%s\n' "$run_id" | sudo tee "$probe_dir/index.html" >/dev/null
 sudo sh -c "nohup python3 -m http.server 8080 --bind '$gateway_wireguard_ip' --directory '$probe_dir' >/run/xconnect-one-${run_id}.log 2>&1 & echo \$! > '$pid_file'"
 for attempt in {1..10}; do
-  sudo ss -ltn | grep -Eq ':8080[[:space:]]' && exit 0
+  sudo ss -H -ltn4 | awk -v endpoint="$gateway_wireguard_ip:8080" '$4 == endpoint {found=1} END {exit !found}' && exit 0
   sleep 1
 done
+sudo cat "/run/xconnect-one-${run_id}.log" >&2 || true
 echo 'private HTTP probe did not start' >&2
 exit 1
 START_PRIVATE_PROBE
@@ -415,10 +427,19 @@ tls_verify=$(timeout 10 openssl s_client -connect "$2:443" -servername "$6" -ver
 [[ "$tls_verify" == 0 ]] || client_failure tls-trust-or-transport
 connected=0
 for attempt in {1..30}; do
-  if ping -c 1 -W 2 "$7" >/dev/null 2>&1 && curl --fail --max-time 5 --noproxy '*' -s "http://$7:8080/" | grep -Fxq "$1"; then connected=1; break; fi
+  ping_ok=0
+  http_ok=0
+  ping -c 1 -W 2 "$7" >/dev/null 2>&1 && ping_ok=1
+  curl --fail --max-time 5 --noproxy '*' -s "http://$7:8080/" | grep -Fxq "$1" && http_ok=1
+  if [[ "$ping_ok" == 1 && "$http_ok" == 1 ]]; then connected=1; break; fi
   sleep 2
 done
-[[ "$connected" == 1 ]] || client_failure private-ping-http
+if [[ "$connected" != 1 ]]; then
+  echo "private_ping=$ping_ok private_http=$http_ok"
+  ip route get "$7" || true
+  ip -s link show dev xconone0 || true
+  client_failure private-ping-http
+fi
 pgrep -x xray >/dev/null || client_failure xray-process
 wg show xconone0 latest-handshakes | awk -v peer="$3" -v now="$(date +%s)" '$1 == peer && $2 > 0 && now-$2 >= 0 && now-$2 < 180 {ok=1} END {exit !ok}' || client_failure wireguard-handshake
 xconnect sync --state-dir /var/lib/xconnect-one >/dev/null || client_failure config-sync
