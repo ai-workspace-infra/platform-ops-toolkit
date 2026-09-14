@@ -111,6 +111,7 @@ jobs:
           bash .github/scripts/tests/xconnect_formal_uat_lab_contract_test.sh
           bash .github/scripts/tests/xconnect_cloud_lab_vault_role_contract_test.sh
           bash .github/scripts/tests/xconnect_gateway_dns_contract_test.sh
+          bash .github/scripts/tests/xconnect_xhttp_runtime_contract_test.sh
       - name: Validate runtime scripts and workflow inputs
         if: matrix.suite == 'runtime'
         run: |
@@ -119,6 +120,7 @@ jobs:
           bash -n .github/scripts/xconnect-lab/run.sh
           bash -n .github/scripts/xconnect-lab/deploy.sh
           bash -n .github/scripts/xconnect-lab/gateway.sh
+          bash -n .github/scripts/xconnect-lab/verify-xhttp-runtime.sh
 
   apply:
     name: UAT lab / ${{ inputs.mode }}
