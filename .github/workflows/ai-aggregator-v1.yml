@@ -168,8 +168,6 @@ jobs:
         env:
           VAULT_ADDR: https://vault.svc.plus
           VAULT_JWT_ROLE: ${{ vars.VAULT_JWT_ROLE }}
-          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
-          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
         run: |
           set -euo pipefail
           test -n "$VAULT_JWT_ROLE"
@@ -184,6 +182,11 @@ jobs:
           echo "::add-mask::$vault_token"
           echo "token=$vault_token" >> "$GITHUB_OUTPUT"
       - name: Render AWS UAT resources
+        env:
+          TARGET_DOMAIN_BASE: onwalk.net
+          AI_AGGREGATOR_SSH_CIDR: ${{ vars.AI_AGGREGATOR_SSH_CIDR }}
+          AI_AGGREGATOR_SOURCE_CIDR: ${{ vars.AI_AGGREGATOR_SOURCE_CIDR }}
+          AI_AGGREGATOR_SSH_PUBLIC_KEY: ${{ vars.AI_AGGREGATOR_SSH_PUBLIC_KEY }}
         run: |
           python3 iac_modules/terraform-hcl-standard/aws-cloud/scripts/generate.py render \
             --resources "${{ steps.contract.outputs.resources }}" \
