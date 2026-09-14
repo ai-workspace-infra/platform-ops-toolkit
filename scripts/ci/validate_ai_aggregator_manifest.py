@@ -155,13 +155,15 @@ def main() -> None:
 
     enabled = bool(spec.get("enabled"))
     cidrs = entrypoint.get("source_cidrs", [])
-    if enabled:
-        if not cidrs:
-            fail("enabled deployment requires an IP allowlist")
+    if enabled and cidrs:
         for cidr in cidrs:
             network = ipaddress.ip_network(cidr, strict=False)
             if network.prefixlen not in {32, 128}:
                 fail("v1 only accepts fixed /32 or /128 source addresses")
+    # enabled is a non-secret GitOps declaration. An empty allowlist keeps the
+    # service intentionally unreachable while artifacts and Vault material are
+    # being prepared; stage/activate enforce the allowlist separately.
+    if enabled and cidrs:
         for name in ("new_api", "cliproxyapi"):
             artifact = spec.get("artifacts", {}).get(name, {})
             if not artifact.get("revision"):
