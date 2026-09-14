@@ -77,7 +77,7 @@ on:
         required: false
         default: '35.79.83.48/32'
       gateway_transport_ingress_cidrs:
-        description: Temporary controlled-node IPv4 /32 allowlist for the public Gateway VLESS/TLS TCP 443 entrypoint; not stored in GitOps
+        description: Temporary controlled-node IPv4 /32 allowlist for the public Gateway VLESS/XHTTP TCP 443 entrypoint; not stored in GitOps
         type: string
         required: false
         default: '35.79.83.48/32'
@@ -225,6 +225,23 @@ jobs:
             kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus ssh_private_key_b64 | EXTERNAL_GATEWAY_SSH_PRIVATE_KEY_B64 ;
             kv/data/CICD/observability user | OBSERVABILITY_USER ;
             kv/data/CICD/observability password | OBSERVABILITY_PASSWORD
+      - name: Stable Gateway DNS credentials from UAT Vault
+        if: inputs.mode == 'apply' && inputs.gateway_provider == 'external'
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ steps.topology.outputs.vault_address }}
+          method: jwt
+          role: ${{ steps.topology.outputs.vault_role }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/uat/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
+            kv/data/uat/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN
+      - name: Reconcile stable Gateway DNS in Cloudflare
+        if: inputs.mode == 'apply' && inputs.gateway_provider == 'external'
+        env:
+          XCONNECT_GATEWAY_DNS_NAME: ${{ env.EXTERNAL_GATEWAY_SERVER_NAME }}
+          XCONNECT_GATEWAY_DNS_TARGET: ${{ env.EXTERNAL_GATEWAY_HOST }}
+        run: bash .github/scripts/xconnect-lab/reconcile-gateway-dns.sh
       - name: AWS short-lived OIDC credentials
         if: inputs.mode != 'dry-run'
         uses: aws-actions/configure-aws-credentials@v4
@@ -277,14 +294,14 @@ jobs:
       - name: Keep verified Gateway/Linux One Spot until lease expiry
         if: inputs.mode == 'apply'
         run: bash .github/scripts/xconnect-lab/run.sh node-observation
-      - name: Refresh short-lived AWS OIDC credentials before cleanup
-        if: always() && inputs.mode != 'dry-run' && steps.prepare.outcome == 'success'
+      - name: Refresh short-lived AWS OIDC credentials before explicit cleanup
+        if: inputs.mode == 'cleanup' && steps.prepare.outcome == 'success'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ steps.topology.outputs.aws_role }}
           aws-region: ${{ steps.topology.outputs.aws_region }}
           audience: sts.amazonaws.com
           unset-current-credentials: true
-      - name: Always destroy only this lab state
-        if: always() && inputs.mode != 'dry-run'
+      - name: Destroy only the explicitly selected lab state
+        if: inputs.mode == 'cleanup'
         run: bash .github/scripts/xconnect-lab/run.sh cleanup
