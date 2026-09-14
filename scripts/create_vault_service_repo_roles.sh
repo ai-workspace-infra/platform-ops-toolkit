@@ -189,6 +189,12 @@ path "kv/data/uat/xconnect-one" {
 path "kv/metadata/uat/xconnect-one" {
   capabilities = ["list", "read"]
 }
+path "kv/data/uat/serverless/cloudflare" {
+  capabilities = ["read"]
+}
+path "kv/metadata/uat/serverless/cloudflare" {
+  capabilities = ["list", "read"]
+}
 path "kv/data/uat/ulighthost-xconnect/tw-xconnect.onwalk.net" {
   capabilities = ["read"]
 }
