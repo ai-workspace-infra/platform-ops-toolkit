@@ -236,7 +236,7 @@ rm -f "$variables_file"
 
 # One enrollment advances the centralized generation. Reconcile the Gateway so
 # its WireGuard peer set contains the newly registered controlled client.
-ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" 'sudo xconnect-gateway up --state-dir /var/lib/xconnect-gateway --tls-cert /etc/xconnect-gateway/tls.crt --tls-key /etc/xconnect-gateway/tls.key'
+ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" 'sudo xconnect-gateway up --state-dir /var/lib/xconnect-gateway --tls-cert /etc/xconnect-gateway/tls.crt --tls-key /etc/xconnect-gateway/tls.key; sudo systemctl enable xconnect-gateway-xray.service >/dev/null; sudo systemctl enable --now xconnect-gateway-sync.timer >/dev/null'
 if [[ "$gateway_provider" != external ]]; then
   # The private HTTP probe binds to the Gateway WireGuard address, so start it
   # only after xconnect-gateway has created the interface and applied peers.
