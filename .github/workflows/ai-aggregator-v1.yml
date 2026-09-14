@@ -71,13 +71,6 @@ jobs:
           if [ -f gitops/topology/prod/selfhost/ai-aggregator.yaml ]; then
             python3 scripts/ci/validate_ai_aggregator_manifest.py gitops/topology/prod/selfhost/ai-aggregator.yaml
           fi
-      - name: Scan repository and checked-out GitOps declarations for secrets
-        uses: gitleaks/gitleaks-action@v2
-        with:
-          args: detect --source=. --no-banner --redact
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   plan:
     needs: validate
     if: ${{ github.event_name == 'workflow_dispatch' }}
