@@ -15,7 +15,7 @@ on:
         description: Advanced override - reviewed gitops commit SHA
         type: string
         required: false
-        default: '5fc1e59e257e00ded07183fe1db5531e876dbb33'
+        default: '2d2bc72027b257a27a345a3db27d00283f35c03c'
       playbooks_ref:
         description: Advanced override - reviewed playbooks commit SHA
         type: string
