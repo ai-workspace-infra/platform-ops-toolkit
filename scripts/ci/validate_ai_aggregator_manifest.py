@@ -96,6 +96,8 @@ def main() -> None:
             fail(f"client profile {client_id} must use HTTPS")
         if not profile.get("model_alias"):
             fail(f"client profile {client_id} must declare a model alias")
+        if not str(profile.get("token_secret_ref", "")).startswith("vault://"):
+            fail(f"client profile {client_id} must reference its token in Vault")
     if client_profiles["claude-code"].get("chain") != "new-api-cpa":
         fail("Claude Code must use the New API -> CPA chain")
     if client_profiles["android-studio"].get("chain") != "litellm-direct":

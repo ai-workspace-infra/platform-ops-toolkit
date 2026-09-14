@@ -71,6 +71,12 @@ jobs:
           if [ -f gitops/topology/prod/selfhost/ai-aggregator.yaml ]; then
             python3 scripts/ci/validate_ai_aggregator_manifest.py gitops/topology/prod/selfhost/ai-aggregator.yaml
           fi
+      - name: Scan repository and checked-out GitOps declarations for secrets
+        uses: gitleaks/gitleaks-action@v2
+        with:
+          args: detect --source=. --no-banner --redact
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   plan:
     needs: validate
     if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -109,6 +115,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.environment == 'uat' &&
       contains(fromJSON('["provision","stage","activate"]'), inputs.operation)) }}
     runs-on: ubuntu-latest
+    environment: uat
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
@@ -168,6 +175,8 @@ jobs:
         env:
           VAULT_ADDR: https://vault.svc.plus
           VAULT_JWT_ROLE: ${{ vars.VAULT_JWT_ROLE }}
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
+          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
         run: |
           set -euo pipefail
           test -n "$VAULT_JWT_ROLE"
