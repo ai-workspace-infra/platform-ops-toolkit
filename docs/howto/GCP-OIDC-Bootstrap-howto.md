@@ -44,7 +44,8 @@ export VAULT_TOKEN='<管理员token>'
 
 不要把 `VAULT_TOKEN` 或 `GCP_ACCESS_TOKEN` 提交到 Git 或发送到聊天中。
 
-账号标识使用 GitOps 声明中的 `spec.gcp_account_id`。当前账号为 `xworktech`，因此
+账号标识使用 GitOps 声明中的 `spec.gcp_account_id`，支持可读账号名或邮箱样式（例如
+`platform@xworktech.com`），但禁止 `/` 等路径分隔符。当前账号为 `xworktech`，因此
 UAT/PROD 的输入路径分别为：
 
 ```text
@@ -127,4 +128,5 @@ workflow 会验证目标项目、创建的 WIF provider、deploy Service Account
 `GCP_ACCESS_TOKEN` 只是 bootstrap 输入，不是长期凭据。apply 完成后应删除或立即轮换
 KV 中对应账号路径的 token；Terraform state、GitOps YAML 和文档中都不得出现 token 或
 private key。新增 GCP 账号时，新增对应的 `gcp_account_id`、KV 路径、Vault role/policy
-和 Terraform state 前缀，不能复用已有账号路径。
+和 Terraform state 前缀，不能复用已有账号路径。邮箱样式账号会原样保留在 Vault/GCS
+隔离路径中，便于人工识别。

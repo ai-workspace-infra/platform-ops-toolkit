@@ -37,7 +37,7 @@ checks = {
   "metadata.environment" => metadata["environment"] == environment,
   "metadata.provider" => metadata["provider"] == "gcp",
   "spec.project_id" => spec["project_id"] == expected_project,
-  "spec.gcp_account_id" => account_id.match?(/\A[a-z][a-z0-9-]{1,30}[a-z0-9]\z/),
+  "spec.gcp_account_id" => account_id.match?(/\A[A-Za-z0-9][A-Za-z0-9._%+@-]{0,126}[A-Za-z0-9]\z/),
   "spec.organization_id" => spec["organization_id"].to_s == ENV.fetch("EXPECTED_ORGANIZATION_ID"),
   "spec.provider_url" => spec["provider_url"] == "https://token.actions.githubusercontent.com",
   "spec.audience" => spec["audience"].to_s.start_with?(expected_audience_prefix),
