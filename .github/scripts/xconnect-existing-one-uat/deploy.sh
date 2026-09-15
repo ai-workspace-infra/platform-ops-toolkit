@@ -170,6 +170,10 @@ rm -f /tmp/xconnect-gateway /tmp/xray /tmp/gateway.tls.crt /tmp/gateway.tls.key
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq ca-certificates curl jq wireguard-tools >/dev/null
+install -d -m 755 /etc/sysctl.d
+printf '%s\n' 'net.ipv4.ip_forward = 1' > /etc/sysctl.d/99-xconnect-gateway-forwarding.conf
+sysctl -q -p /etc/sysctl.d/99-xconnect-gateway-forwarding.conf
+[[ "$(sysctl -n net.ipv4.ip_forward)" == 1 ]]
 cat >/etc/systemd/system/xconnect-gateway-xray.service <<'UNIT'
 [Unit]
 Description=XConnect Gateway VLESS runtime
