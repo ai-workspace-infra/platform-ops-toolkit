@@ -63,7 +63,8 @@ read -r -d '' ALLOWED_WORKFLOWS <<EOF || true
     "${WF_PREFIX}/k6-performance-test.yaml@*",
     "${WF_PREFIX}/uat-serverless-orchestrator.yml@*",
     "${WF_PREFIX}/serverless-orchestrator.yml@*",
-    "${WF_PREFIX}/hybrid-orchestrator.yml@*"
+    "${WF_PREFIX}/hybrid-orchestrator.yml@*",
+    "${WF_PREFIX}/gcp-oidc-bootstrap.yml@*"
 EOF
 
 PLAYBOOKS_WF_PREFIX="${PLAYBOOKS_REPO}/.github/workflows"
@@ -426,6 +427,45 @@ write_aws_oidc_bootstrap_role() {
   "token_ttl": "20m",
   "token_max_ttl": "20m"
 }
+
+write_gcp_oidc_bootstrap_policy() {
+  local env="$1"
+  vault policy write "github-actions-platform-ops-toolkit-${env}-gcp-bootstrap" - <<EOF
+path "kv/data/CICD/${env}/gcp-bootstrap" {
+  capabilities = ["read"]
+}
+path "kv/metadata/CICD/${env}/gcp-bootstrap" {
+  capabilities = ["read"]
+}
+path "kv/data/${env}/platform/oidc" {
+  capabilities = ["create", "read", "update"]
+}
+path "kv/metadata/${env}/platform/oidc" {
+  capabilities = ["read"]
+}
+EOF
+}
+
+write_gcp_oidc_bootstrap_role() {
+  local env="$1"
+  vault write "auth/jwt/role/github-actions-platform-ops-toolkit-${env}-gcp-bootstrap" - <<EOF
+{
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": ["vault"],
+  "bound_claims_type": "glob",
+  "bound_claims": {
+    "repository": "${REPO}",
+    "job_workflow_ref": "${WF_PREFIX}/gcp-oidc-bootstrap.yml@*",
+    "ref": "refs/heads/main",
+    "environment": "${env}"
+  },
+  "token_policies": ["github-actions-platform-ops-toolkit-${env}-gcp-bootstrap"],
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": "20m",
+  "token_max_ttl": "20m"
+}
 EOF
 }
 
@@ -473,6 +513,11 @@ write_tls_rotation_role
 echo "  Creating dedicated AWS OIDC bootstrap role..."
 write_aws_oidc_bootstrap_policy
 write_aws_oidc_bootstrap_role
+echo "  Creating UAT and PROD GCP OIDC bootstrap roles..."
+for env in uat prod; do
+  write_gcp_oidc_bootstrap_policy "${env}"
+  write_gcp_oidc_bootstrap_role "${env}"
+done
 
 echo "  Creating Playbooks SIT role..."
 write_playbooks_role sit github-actions-platform-ops-toolkit-sit '["refs/pull/*/merge", "refs/heads/*"]'
