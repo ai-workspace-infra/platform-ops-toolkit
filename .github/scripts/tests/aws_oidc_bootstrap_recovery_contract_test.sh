@@ -115,16 +115,32 @@ for required in \
   }
 done
 
+vault_policy="${repo_root}/scripts/vault/policies/github-actions-platform-ops-toolkit-prod-aws-bootstrap.hcl"
+vault_role="${repo_root}/scripts/vault/roles/github-actions-platform-ops-toolkit-prod-aws-bootstrap.json"
+test -f "${vault_policy}" || {
+  echo "AWS bootstrap policy declaration is missing: ${vault_policy}" >&2
+  exit 1
+}
+test -f "${vault_role}" || {
+  echo "AWS bootstrap role declaration is missing: ${vault_role}" >&2
+  exit 1
+}
+
 for required in \
-  'write_aws_oidc_bootstrap_policy' \
-  'write_aws_oidc_bootstrap_role' \
   'kv/data/CICD/prod/aws-bootstrap' \
-  'kv/data/CICD/prod/iac_state' \
+  'kv/data/CICD/prod/iac_state'; do
+  grep -Fq -- "${required}" "${vault_policy}" || {
+    echo "Vault bootstrap policy declaration is missing contract: ${required}" >&2
+    exit 1
+  }
+done
+
+for required in \
   'aws-oidc-bootstrap.yml@*' \
   '"ref": "refs/heads/main"' \
   '"token_ttl": "20m"'; do
-  grep -Fq -- "${required}" "${vault_roles}" || {
-    echo "Vault bootstrap role provisioning is missing contract: ${required}" >&2
+  grep -Fq -- "${required}" "${vault_role}" || {
+    echo "Vault bootstrap role declaration is missing contract: ${required}" >&2
     exit 1
   }
 done
