@@ -51,6 +51,8 @@ chmod +x scripts/create_vault_service_repo_roles.sh
 
 For the detailed JWT auth, Role/Policy, workflow claim, KV isolation, and troubleshooting instructions, see [Vault Authentication and Policy Isolation](docs/vault/vault_authentication_and_policy_isolation.md). This README only provides the onboarding path and operation entry points.
 
+For the minimum GCP bootstrap auth fields and environment-scoped KV paths, see [GCP OIDC Bootstrap Vault KV](docs/howto/gcp-oidc-bootstrap-vault-kv.md).
+
 Verify the result:
 
 ```bash
