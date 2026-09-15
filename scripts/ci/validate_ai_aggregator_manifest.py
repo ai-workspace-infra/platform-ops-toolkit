@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ipaddress
+import re
 import sys
 from pathlib import Path
 
@@ -14,6 +15,17 @@ def fail(message: str) -> None:
     raise SystemExit(f"manifest validation failed: {message}")
 
 
+def iter_strings(value):
+    if isinstance(value, dict):
+        for child in value.values():
+            yield from iter_strings(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from iter_strings(child)
+    elif isinstance(value, str):
+        yield value
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("usage: validate_ai_aggregator_manifest.py <manifest>")
@@ -21,12 +33,26 @@ def main() -> None:
     data = yaml.safe_load(path.read_text())
     if data.get("kind") != "PersonalAIAggregator":
         fail("kind must be PersonalAIAggregator")
-    
+
     meta = data.get("metadata", {})
     env = meta.get("environment")
     spec = data.get("spec", {})
     entrypoint = spec.get("entrypoint", {})
-    
+
+    forbidden_fragments = (
+        "/accounts/",
+        "/instances/",
+        "/clients/",
+        "/cpa/",
+        "/database/postgresql",
+        "#api_client_token",
+        "#oauth_bundle",
+        "#channel_token",
+    )
+    for value in iter_strings(data):
+        if value.startswith("vault://") and any(fragment in value for fragment in forbidden_fragments):
+            fail(f"deprecated Vault reference is forbidden: {value.split('#', 1)[0]}")
+
     if entrypoint.get("component") != "caddy":
         fail("Caddy must be the public entrypoint")
     
@@ -43,7 +69,19 @@ def main() -> None:
         if entrypoint.get("direct_api_domain") != "direct.ai.svc.plus":
             fail("PROD direct_api_domain must be direct.ai.svc.plus")
 
-    if not str(entrypoint.get("admin_basic_auth_ref", "")).startswith("vault://"):
+    expected_env_prefix = f"vault://kv/{env}/ai-aggregator/"
+    allowed_vault_ref = re.compile(
+        rf"^{re.escape(expected_env_prefix)}"
+        r"(?:database/(?:new-api|litellm)|gateway/(?:caddy|new-api|litellm)|"
+        r"litellm/providers/(?:openai|anthropic|xai))#"
+    )
+    for value in iter_strings(data):
+        if value.startswith("vault://") and not allowed_vault_ref.match(value):
+            fail(f"Vault reference is outside the v1 contract: {value.split('#', 1)[0]}")
+
+    if not str(entrypoint.get("admin_basic_auth_ref", "")).startswith(
+        f"{expected_env_prefix}gateway/caddy#"
+    ):
         fail("Caddy admin Basic Auth material must be referenced from Vault")
 
     infrastructure = spec.get("infrastructure", {})
@@ -67,8 +105,18 @@ def main() -> None:
     if not contract.get("repository") or not contract.get("path") or contract.get("ref") != "main":
         fail("infrastructure.resource_contract must pin repository, path, and ref")
 
-    if spec.get("new_api", {}).get("bind_address") not in {"127.0.0.1", "::1"}:
+    new_api = spec.get("new_api", {})
+    if new_api.get("bind_address") not in {"127.0.0.1", "::1"}:
         fail("New API must bind to loopback")
+    if new_api.get("persistence", {}).get("secret_ref") != (
+        f"{expected_env_prefix}database/new-api#dsn"
+    ):
+        fail("New API must use the canonical database/new-api#dsn Vault reference")
+    for field in ("session_secret_ref", "crypto_secret_ref", "jwt_private_key_ref", "jwt_issuer_ref"):
+        if not str(new_api.get(field, "")).startswith(f"{expected_env_prefix}gateway/new-api#"):
+            fail(f"New API {field} must use gateway/new-api in Vault")
+    if new_api.get("jwt_audience") != "ai-aggregator-cpa":
+        fail("New API JWT audience must be ai-aggregator-cpa")
 
     litellm = spec.get("litellm", {})
     if litellm.get("bind_address") not in {"127.0.0.1", "::1"}:
@@ -77,13 +125,22 @@ def main() -> None:
         fail("LiteLLM must declare a distinct integer port")
     if litellm.get("persistence", {}).get("driver") != "postgresql":
         fail("LiteLLM persistence must use PostgreSQL")
-    if not str(litellm.get("persistence", {}).get("secret_ref", "")).startswith("vault://"):
-        fail("LiteLLM PostgreSQL DSN must be referenced from Vault")
-    if not str(litellm.get("master_key_ref", "")).startswith("vault://"):
+    if litellm.get("persistence", {}).get("secret_ref") != (
+        f"{expected_env_prefix}database/litellm#dsn"
+    ):
+        fail("LiteLLM must use the canonical database/litellm#dsn Vault reference")
+    if not str(litellm.get("master_key_ref", "")).startswith(f"{expected_env_prefix}gateway/litellm#"):
         fail("LiteLLM master key must be referenced from Vault")
     provider_refs = litellm.get("provider_secret_refs", {})
     if set(provider_refs) != {"openai", "anthropic", "xai"} or not all(
-        str(value).startswith("vault://") for value in provider_refs.values()
+        isinstance(value, dict)
+        and str(value.get("endpoint", "")).startswith(
+            f"{expected_env_prefix}litellm/providers/"
+        )
+        and str(value.get("api_key", "")).startswith(
+            f"{expected_env_prefix}litellm/providers/"
+        )
+        for value in provider_refs.values()
     ):
         fail("v1 LiteLLM must declare Vault references for OpenAI, Anthropic, and xAI")
 
@@ -96,6 +153,8 @@ def main() -> None:
             fail(f"client profile {client_id} must use HTTPS")
         if not profile.get("model_alias"):
             fail(f"client profile {client_id} must declare a model alias")
+        if profile.get("token_source") != "database":
+            fail(f"client profile {client_id} tokens must be database-managed")
     if client_profiles["claude-code"].get("chain") != "new-api-cpa":
         fail("Claude Code must use the New API -> CPA chain")
     if client_profiles["android-studio"].get("chain") != "litellm-direct":
@@ -115,7 +174,7 @@ def main() -> None:
 
     node_records = spec.get("nodes", [])
     nodes = {node["id"] for node in node_records}
-    if spec.get("new_api", {}).get("node") not in nodes:
+    if new_api.get("node") not in nodes:
         fail("New API node is not declared")
     if any(not node.get("resource_ref") for node in node_records):
         fail("every infrastructure node must declare a resource_ref")
@@ -129,12 +188,27 @@ def main() -> None:
     for instance in instances:
         if instance.get("node") not in nodes:
             fail(f"CPA instance {instance.get('id')} refers to an unknown node")
-        if instance.get("bind_address") not in {"127.0.0.1", "::1"}:
-            fail(f"CPA instance {instance.get('id')} must bind to loopback")
-        if not str(instance.get("auth_secret_ref", "")).startswith("vault://"):
-            fail(f"CPA instance {instance.get('id')} lacks a Vault reference")
-        if not str(instance.get("channel_token_ref", "")).startswith("vault://"):
-            fail(f"CPA instance {instance.get('id')} lacks a channel token Vault reference")
+        if instance.get("bind_address") not in {"127.0.0.1", "::1", "private_ip"}:
+            fail(f"CPA instance {instance.get('id')} must bind to loopback or CMDB private_ip")
+        if instance.get("bind_address") == "private_ip" and instance.get("transport") not in {
+            "private-network-required",
+            None,
+        }:
+            fail(f"CPA instance {instance.get('id')} private_ip binding requires private transport")
+        expected_auth_dir = f"/var/lib/ai-aggregator/cpa/{instance.get('id')}/auth"
+        if instance.get("local_auth_dir") != expected_auth_dir:
+            fail(f"CPA instance {instance.get('id')} must use its local encrypted auth directory")
+        jwt = instance.get("jwt", {})
+        if jwt.get("issuer") != "ai-aggregator":
+            fail(f"CPA instance {instance.get('id')} must use the declared JWT issuer")
+        if jwt.get("audience") != f"cpa:{instance.get('id')}":
+            fail(f"CPA instance {instance.get('id')} must use an instance-specific JWT audience")
+        if jwt.get("public_key_file") != (
+            f"/etc/ai-aggregator/cpa/{instance.get('id')}/jwt-public.pem"
+        ):
+            fail(f"CPA instance {instance.get('id')} must declare the standard JWT public key path")
+        if jwt.get("ttl_seconds") != 300:
+            fail(f"CPA instance {instance.get('id')} must use a 300 second JWT TTL")
         if not str(instance.get("network_endpoint", "")).startswith("cmdb://"):
             fail(f"CPA instance {instance.get('id')} must use a CMDB private endpoint")
         if "@" not in str(instance.get("account_email", "")):

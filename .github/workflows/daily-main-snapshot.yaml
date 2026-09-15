@@ -201,6 +201,22 @@ jobs:
           SNAPSHOT_STATUS_FILE: ${{ runner.temp }}/daily-snapshot-status/${{ matrix.organization }}.jsonl
         run: ${{ github.workspace }}/.github/scripts/snapshots/tag-daily-main-snapshot.sh
 
+      - name: Trigger XConnect multi-platform release
+        if: ${{ success() && matrix.organization == 'ai-workspace-xstream' }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_REF: ${{ needs.resolve-snapshot-tag.outputs.snapshot_tag }}
+          RELEASE_TAG: ${{ needs.resolve-snapshot-tag.outputs.snapshot_tag }}
+          DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
+        run: |
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/ai-workspace-xstream/xconnect-app/dispatches" \
+            -f event_type=xconnect-release \
+            -f "client_payload[release_ref]=${RELEASE_REF}" \
+            -f "client_payload[release_tag]=${RELEASE_TAG}" \
+            -f "client_payload[deploy_env]=${DEPLOY_ENV}"
+
       - name: Upload snapshot status
         if: always()
         uses: actions/upload-artifact@v7

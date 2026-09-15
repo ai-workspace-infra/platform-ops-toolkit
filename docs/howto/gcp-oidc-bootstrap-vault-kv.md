@@ -33,6 +33,25 @@ kv/data/CICD/prod/gcp-bootstrap/<gcp_account_id>
 Identity Pool/Provider，以及更新目标项目和 Service Account IAM policy。权限授予在
 GCP IAM 中完成，不把 role 列表或 token 写入 Git。
 
+Terraform state 不使用 GCS backend。所有环境统一使用现有的 S3-compatible state
+backend；workflow 从根路径 `CICD` 读取以下字段：
+
+```text
+kv/CICD
+```
+
+```text
+TF_STATE_ENDPOINT
+TF_STATE_BUCKET
+TF_STATE_ACCESS_KEY
+TF_STATE_SECRET_KEY
+TF_STATE_REGION
+```
+
+HTTP API 路径为 `kv/data/CICD`。state object key 仍由 GitOps 声明按环境和账号固定，
+例如 `platform-ops-toolkit/uat/xworktech/gcp-oidc-bootstrap/terraform.tfstate`，避免
+不同环境共用 state。
+
 bootstrap workflow 不需要、也禁止读取以下字段：
 
 ```text
@@ -77,11 +96,13 @@ github-actions-platform-ops-toolkit-prod-gcp-bootstrap-<gcp_account_id>
 
 UAT role 只能：
 
+- 读取共享 Terraform state 连接信息 `kv/data/CICD`；
 - 读取 `kv/data/CICD/uat/gcp-bootstrap/<gcp_account_id>`；
 - 读取并更新 `kv/data/uat/platform/oidc/<gcp_account_id>`。
 
 PROD role 只能：
 
+- 读取共享 Terraform state 连接信息 `kv/data/CICD`；
 - 读取 `kv/data/CICD/prod/gcp-bootstrap/<gcp_account_id>`；
 - 读取并更新 `kv/data/prod/platform/oidc/<gcp_account_id>`。
 
@@ -95,7 +116,8 @@ environment = <uat|prod>
 ```
 
 PROD GitHub Environment 必须启用审批保护。UAT role 不得读取 PROD 路径，PROD role 不得
-读取 UAT 路径。
+读取 UAT 路径。GCP bootstrap role 是长期声明对象，role 编排脚本不得删除它；更新时只
+覆盖同名 role/policy。
 
 ## 写入与轮换流程
 

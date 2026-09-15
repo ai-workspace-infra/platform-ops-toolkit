@@ -1,0 +1,34 @@
+{
+  "role_name": "github-actions-playbooks-uat",
+  "description": "Playbooks UAT consumer; approved playbook workflows and uat refs only.",
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": [
+    "vault"
+  ],
+  "bound_claims_type": "glob",
+  "bound_claims": {
+    "repository": "ai-workspace-infra/playbooks",
+    "job_workflow_ref": [
+      "ai-workspace-infra/playbooks/.github/workflows/web-saas-domain-cd.yaml@*",
+      "ai-workspace-infra/playbooks/.github/workflows/ai-workspace-domain-cd.yaml@*",
+      "ai-workspace-infra/playbooks/.github/workflows/agent-proxy-domain-cd.yaml@*",
+      "ai-workspace-infra/playbooks/.github/workflows/open-platform-domain-cd.yaml@*",
+      "ai-workspace-infra/playbooks/.github/workflows/domain-cd.yaml@*"
+    ],
+    "ref": [
+      "refs/heads/main",
+      "refs/heads/release/*",
+      "refs/heads/bugfix/*",
+      "refs/heads/daily-build-*",
+      "refs/tags/daily-build-*"
+    ]
+  },
+  "token_policies": [
+    "github-actions-platform-ops-toolkit-uat"
+  ],
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": "1h",
+  "token_max_ttl": "1h"
+}

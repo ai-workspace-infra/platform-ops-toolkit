@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: 3460abeec22fe8743a53fc932505147db2c183da
+          ref: 1226c82
           path: iac_modules
 
       - name: Resolve and validate GitOps GCP OIDC declaration
@@ -72,7 +72,12 @@ jobs:
           outputToken: true
           secrets: |
             kv/data/CICD/${{ inputs.environment }}/gcp-bootstrap/${{ steps.config.outputs.account_id }} GCP_ACCESS_TOKEN | GCP_ACCESS_TOKEN ;
-            kv/data/CICD/${{ inputs.environment }}/gcp-bootstrap/${{ steps.config.outputs.account_id }} GCP_PROJECT_ID | GCP_PROJECT_ID
+            kv/data/CICD/${{ inputs.environment }}/gcp-bootstrap/${{ steps.config.outputs.account_id }} GCP_PROJECT_ID | GCP_PROJECT_ID ;
+            kv/data/CICD TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
+            kv/data/CICD TF_STATE_BUCKET | TF_STATE_BUCKET ;
+            kv/data/CICD TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+            kv/data/CICD TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+            kv/data/CICD TF_STATE_REGION | TF_STATE_REGION
 
       - name: Verify bootstrap project matches GitOps
         env:
@@ -109,10 +114,23 @@ jobs:
         env:
           TF_VAR_access_token: ${{ steps.vault.outputs.GCP_ACCESS_TOKEN }}
           TF_VAR_project_id: ${{ steps.config.outputs.project_id }}
+          TF_STATE_ENDPOINT: ${{ steps.vault.outputs.TF_STATE_ENDPOINT }}
+          TF_STATE_BUCKET: ${{ steps.vault.outputs.TF_STATE_BUCKET }}
+          TF_STATE_ACCESS_KEY: ${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}
+          TF_STATE_SECRET_KEY: ${{ steps.vault.outputs.TF_STATE_SECRET_KEY }}
+          TF_STATE_REGION: ${{ steps.vault.outputs.TF_STATE_REGION }}
         run: |
           terraform -chdir=iac_modules/terraform-hcl-standard/gcp-cloud/bootstrap/identity init -input=false -reconfigure \
-            -backend-config="bucket=${{ steps.config.outputs.state_bucket }}" \
-            -backend-config="prefix=${{ steps.config.outputs.state_key }}"
+            -backend-config="endpoint=${TF_STATE_ENDPOINT}" \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=${{ steps.config.outputs.state_key }}" \
+            -backend-config="access_key=${TF_STATE_ACCESS_KEY}" \
+            -backend-config="secret_key=${TF_STATE_SECRET_KEY}" \
+            -backend-config="region=${TF_STATE_REGION}" \
+            -backend-config="skip_credentials_validation=true" \
+            -backend-config="skip_metadata_api_check=true" \
+            -backend-config="skip_region_validation=true" \
+            -backend-config="use_path_style=true"
           terraform -chdir=iac_modules/terraform-hcl-standard/gcp-cloud/bootstrap/identity fmt -check
           terraform -chdir=iac_modules/terraform-hcl-standard/gcp-cloud/bootstrap/identity validate -no-color
 

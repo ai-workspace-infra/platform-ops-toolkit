@@ -1,0 +1,28 @@
+{
+  "role_name": "github-actions-postgresql-uat",
+  "description": "postgresql UAT business CI; shared CICD credential read access only.",
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": [
+    "vault"
+  ],
+  "bound_claims_type": "glob",
+  "bound_claims": {
+    "repository": "ai-workspace-services/postgresql.svc.plus",
+    "job_workflow_ref": "ai-workspace-services/postgresql.svc.plus/.github/workflows/*pipeline.ym*@*",
+    "ref": [
+      "refs/heads/main",
+      "refs/heads/release/*",
+      "refs/heads/daily-build-*",
+      "refs/tags/uat-*",
+      "refs/tags/daily-build-*"
+    ]
+  },
+  "token_policies": [
+    "github-actions-postgresql"
+  ],
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": "1h",
+  "token_max_ttl": "1h"
+}
