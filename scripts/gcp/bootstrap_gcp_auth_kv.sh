@@ -12,8 +12,8 @@ case "${environment}" in
   prod) expected_project="xworktech-open-platform-prod" ;;
   *) echo "GCP_ENVIRONMENT must be uat or prod" >&2; exit 1 ;;
 esac
-[[ "${account_id}" =~ ^[a-z][a-z0-9-]{1,30}[a-z0-9]$ ]] || {
-  echo "GCP_ACCOUNT_ID must be a lowercase stable account slug" >&2
+[[ "${account_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._%+@-]{0,126}[A-Za-z0-9]$ ]] || {
+  echo "GCP_ACCOUNT_ID must be a stable name or email-like identifier without '/'" >&2
   exit 1
 }
 test "${project_id}" = "${expected_project}" || {

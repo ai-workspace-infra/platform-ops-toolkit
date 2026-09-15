@@ -6,7 +6,8 @@ mount `kv`；因此 CLI 使用逻辑路径时省略 `data/`，HTTP API 和 polic
 
 ## Bootstrap 输入
 
-每个环境和 GCP 账号使用独立路径；`<gcp_account_id>` 是 GitOps 声明中的稳定小写账号标识：
+每个环境和 GCP 账号使用独立路径；`<gcp_account_id>` 是 GitOps 声明中的稳定、可读账号
+标识，可使用邮箱样式（例如 `platform@xworktech.com`），但禁止 `/` 等路径分隔符：
 
 ```text
 kv/CICD/uat/gcp-bootstrap/<gcp_account_id>
