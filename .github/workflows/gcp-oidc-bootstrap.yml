@@ -67,12 +67,12 @@ jobs:
         with:
           url: https://vault.svc.plus
           method: jwt
-          role: github-actions-platform-ops-toolkit-${{ inputs.environment }}-gcp-bootstrap
+          role: github-actions-platform-ops-toolkit-${{ inputs.environment }}-gcp-bootstrap-${{ steps.config.outputs.account_id }}
           jwtGithubAudience: vault
           outputToken: true
           secrets: |
-            kv/data/CICD/${{ inputs.environment }}/gcp-bootstrap GCP_ACCESS_TOKEN | GCP_ACCESS_TOKEN ;
-            kv/data/CICD/${{ inputs.environment }}/gcp-bootstrap GCP_PROJECT_ID | GCP_PROJECT_ID
+            kv/data/CICD/${{ inputs.environment }}/gcp-bootstrap/${{ steps.config.outputs.account_id }} GCP_ACCESS_TOKEN | GCP_ACCESS_TOKEN ;
+            kv/data/CICD/${{ inputs.environment }}/gcp-bootstrap/${{ steps.config.outputs.account_id }} GCP_PROJECT_ID | GCP_PROJECT_ID
 
       - name: Verify bootstrap project matches GitOps
         env:
@@ -173,6 +173,7 @@ jobs:
           VAULT_ADDR: https://vault.svc.plus
           VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
           ENVIRONMENT: ${{ inputs.environment }}
+          ACCOUNT_ID: ${{ steps.config.outputs.account_id }}
           PROJECT_ID: ${{ steps.config.outputs.project_id }}
           PROVIDER: ${{ steps.terraform_outputs.outputs.provider_resource_name }}
           SERVICE_ACCOUNT: ${{ steps.terraform_outputs.outputs.service_account_email }}
@@ -181,4 +182,4 @@ jobs:
             '{data:{gcp_workload_identity_provider:$provider,deploy_service_account:$account,project_id:$project}}')"
           curl --fail --silent --show-error --request POST \
             --header "X-Vault-Token: ${VAULT_TOKEN}" --header 'Content-Type: application/json' \
-            --data "${payload}" "${VAULT_ADDR}/v1/kv/data/${ENVIRONMENT}/platform/oidc"
+          --data "${payload}" "${VAULT_ADDR}/v1/kv/data/${ENVIRONMENT}/platform/oidc/${ACCOUNT_ID}"
