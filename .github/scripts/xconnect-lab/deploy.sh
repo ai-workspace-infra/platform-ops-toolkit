@@ -166,10 +166,12 @@ create_invite() {
   local request="$LAB_DIR/invites/${role}-request.json"
   local expires
   expires=$(python3 -c 'from datetime import datetime,timezone,timedelta; print((datetime.now(timezone.utc)+timedelta(minutes=45)).isoformat(timespec="seconds").replace("+00:00","Z"))')
+  local endpoint="$client_transport_endpoint"
+  if [[ "$gateway_provider" == external ]]; then endpoint="$transport_server_name"; fi
   jq -n \
     --arg owner "$ZERO_OWNER_EMAIL" --arg controller "$formal_zero" \
     --arg network "$network_id" --arg gateway_id "$gateway_id" --arg gateway_key "$gateway_public_key" \
-    --arg endpoint "$client_transport_endpoint" --arg gateway_address "$gateway_address" --arg cidr "$overlay_cidr" --arg vless "$LAB_VLESS_ID" \
+    --arg endpoint "$endpoint" --arg gateway_address "$gateway_address" --arg cidr "$overlay_cidr" --arg vless "$LAB_VLESS_ID" \
     --arg role "$role" --arg device "$device_id" --arg expires "$expires" --arg server_name "$transport_server_name" \
     '{owner_email:$owner,bootstrap:{controller_url:$controller,network:{id:$network,display_name:"XConnect UAT Gateway network",cidr:$cidr,gateway_id:$gateway_id,gateway_wireguard_public_key:$gateway_key,gateway_wireguard_address:$gateway_address,gateway_endpoint_host:$endpoint,gateway_endpoint_port:51820,transport_server_name:$server_name,transport_port:443,transport_auth_id:$vless,transport_kind:"vless-xhttp",transport_path:"/xconnect",transport_mode:"auto",transport_host:$server_name},invite:{device_id:$device,platform:"linux",role:$role,expires_at:$expires}}}' > "$request"
   status=$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
@@ -193,7 +195,8 @@ reconcile_stable_gateway_owner() {
   local response="$LAB_DIR/stable-gateway-reconcile-response.json"
   jq -n \
     --arg owner "$ZERO_OWNER_EMAIL" \
-    '{environment:"uat",network_id:"net_uat",gateway_id:"gw-uat-tw-xconnect",gateway_endpoint_host:"tw-xconnect.svc.plus",owner_email:$owner}' \
+    --arg current_host "${EXTERNAL_GATEWAY_HOST:-}" \
+    '{environment:"uat",network_id:"net_uat",gateway_id:"gw-uat-tw-xconnect",gateway_endpoint_host:"tw-xconnect.svc.plus",current_gateway_endpoint_host:$current_host,owner_email:$owner}' \
     > "$request"
   local status
   status=$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
