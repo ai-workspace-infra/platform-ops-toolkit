@@ -1,0 +1,41 @@
+{
+  "role_name": "github-actions-platform-ops-toolkit-prod",
+  "description": "Platform toolkit PROD; version tags and release branches only.",
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": [
+    "vault"
+  ],
+  "bound_claims_type": "glob",
+  "bound_claims": {
+    "repository": "ai-workspace-infra/platform-ops-toolkit",
+    "job_workflow_ref": [
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-orchestrator.yml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/daily-main-snapshot.yaml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/resize-instance.yaml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/deploy-action-runner-iac.yaml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-account-matrix.yaml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-resources-matrix.yaml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-landingzone-baseline.yaml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/cron-rotate-domain-tls-certs.yaml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/configure-email-dns.yaml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/data-migration.yaml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/k6-performance-test.yaml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/uat-serverless-orchestrator.yml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-orchestrator.yml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/hybrid-orchestrator.yml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/gcp-oidc-bootstrap.yml@*"
+    ],
+    "ref": [
+      "refs/tags/v*",
+      "refs/heads/release/v*"
+    ]
+  },
+  "token_policies": [
+    "github-actions-platform-ops-toolkit-prod"
+  ],
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": "1h",
+  "token_max_ttl": "1h"
+}

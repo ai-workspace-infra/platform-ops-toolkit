@@ -1,0 +1,28 @@
+{
+  "role_name": "github-actions-artifacts-uat",
+  "description": "Artifacts UAT consumer; workflow-bound artifact credential access.",
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": [
+    "vault"
+  ],
+  "bound_claims_type": "glob",
+  "bound_claims": {
+    "repository": "ai-workspace-infra/artifacts",
+    "job_workflow_ref": "ai-workspace-infra/artifacts/.github/workflows/*@*",
+    "ref": [
+      "refs/heads/main",
+      "refs/heads/feature/*",
+      "refs/heads/daily-build-*",
+      "refs/tags/uat-*",
+      "refs/tags/daily-build-*"
+    ]
+  },
+  "token_policies": [
+    "github-actions-artifacts"
+  ],
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": "1h",
+  "token_max_ttl": "1h"
+}
