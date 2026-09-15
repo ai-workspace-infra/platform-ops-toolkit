@@ -27,6 +27,7 @@ project_by_environment = {
   "prod" => "xworktech-open-platform-prod"
 }
 expected_project = project_by_environment.fetch(environment)
+account_id = spec["gcp_account_id"].to_s
 expected_audience_prefix = "https://iam.googleapis.com/"
 required_subject = "repo:#{ENV.fetch("EXPECTED_REPOSITORY")}:environment:#{environment}"
 
@@ -36,6 +37,7 @@ checks = {
   "metadata.environment" => metadata["environment"] == environment,
   "metadata.provider" => metadata["provider"] == "gcp",
   "spec.project_id" => spec["project_id"] == expected_project,
+  "spec.gcp_account_id" => account_id.match?(/\A[a-z][a-z0-9-]{1,30}[a-z0-9]\z/),
   "spec.organization_id" => spec["organization_id"].to_s == ENV.fetch("EXPECTED_ORGANIZATION_ID"),
   "spec.provider_url" => spec["provider_url"] == "https://token.actions.githubusercontent.com",
   "spec.audience" => spec["audience"].to_s.start_with?(expected_audience_prefix),
@@ -45,13 +47,14 @@ checks = {
   "spec.repository" => spec["repository"] == ENV.fetch("EXPECTED_REPOSITORY"),
   "spec.subjects" => spec["subjects"].is_a?(Array) && spec["subjects"].include?(required_subject),
   "spec.state.bucket" => spec.dig("state", "bucket").to_s.match?(/\A[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\z/),
-  "spec.state.key" => spec.dig("state", "key") == "platform-ops-toolkit/#{environment}/gcp-oidc-bootstrap/terraform.tfstate"
+  "spec.state.key" => spec.dig("state", "key") == "platform-ops-toolkit/#{environment}/#{account_id}/gcp-oidc-bootstrap/terraform.tfstate"
 }
 failed = checks.select { |_name, passed| !passed }.keys
 abort "GCP OIDC declaration failed validation: #{failed.join(", ")}" unless failed.empty?
 
 values = {
   "environment" => environment,
+  "account_id" => account_id,
   "project_id" => spec.fetch("project_id"),
   "repository" => spec.fetch("repository"),
   "pool_id" => spec.fetch("pool_id"),

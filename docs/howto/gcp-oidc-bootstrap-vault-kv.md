@@ -6,18 +6,18 @@ mount `kv`；因此 CLI 使用逻辑路径时省略 `data/`，HTTP API 和 polic
 
 ## Bootstrap 输入
 
-每个环境使用独立路径：
+每个环境和 GCP 账号使用独立路径；`<gcp_account_id>` 是 GitOps 声明中的稳定小写账号标识：
 
 ```text
-kv/CICD/uat/gcp-bootstrap
-kv/CICD/prod/gcp-bootstrap
+kv/CICD/uat/gcp-bootstrap/<gcp_account_id>
+kv/CICD/prod/gcp-bootstrap/<gcp_account_id>
 ```
 
 对应的 HTTP/API 路径为：
 
 ```text
-kv/data/CICD/uat/gcp-bootstrap
-kv/data/CICD/prod/gcp-bootstrap
+kv/data/CICD/uat/gcp-bootstrap/<gcp_account_id>
+kv/data/CICD/prod/gcp-bootstrap/<gcp_account_id>
 ```
 
 最小字段如下：
@@ -50,8 +50,8 @@ GOOGLE_APPLICATION_CREDENTIALS
 apply 成功后，workflow 使用 Vault bootstrap role 将非密钥运行时身份写入环境专属路径：
 
 ```text
-kv/uat/platform/oidc
-kv/prod/platform/oidc
+kv/uat/platform/oidc/<gcp_account_id>
+kv/prod/platform/oidc/<gcp_account_id>
 ```
 
 字段合约：
@@ -70,19 +70,19 @@ kv/prod/platform/oidc
 对应 Vault policy/role：
 
 ```text
-github-actions-platform-ops-toolkit-uat-gcp-bootstrap
-github-actions-platform-ops-toolkit-prod-gcp-bootstrap
+github-actions-platform-ops-toolkit-uat-gcp-bootstrap-<gcp_account_id>
+github-actions-platform-ops-toolkit-prod-gcp-bootstrap-<gcp_account_id>
 ```
 
 UAT role 只能：
 
-- 读取 `kv/data/CICD/uat/gcp-bootstrap`；
-- 读取并更新 `kv/data/uat/platform/oidc`。
+- 读取 `kv/data/CICD/uat/gcp-bootstrap/<gcp_account_id>`；
+- 读取并更新 `kv/data/uat/platform/oidc/<gcp_account_id>`。
 
 PROD role 只能：
 
-- 读取 `kv/data/CICD/prod/gcp-bootstrap`；
-- 读取并更新 `kv/data/prod/platform/oidc`。
+- 读取 `kv/data/CICD/prod/gcp-bootstrap/<gcp_account_id>`；
+- 读取并更新 `kv/data/prod/platform/oidc/<gcp_account_id>`。
 
 两个 role 都绑定到：
 
@@ -100,10 +100,10 @@ PROD GitHub Environment 必须启用审批保护。UAT role 不得读取 PROD �
 
 ```text
 Vault JWT login
-  -> read kv/CICD/<env>/gcp-bootstrap
+  -> read kv/CICD/<env>/gcp-bootstrap/<gcp_account_id>
   -> Terraform plan/apply with short-lived GCP_ACCESS_TOKEN
   -> read Terraform outputs
-  -> write kv/<env>/platform/oidc
+  -> write kv/<env>/platform/oidc/<gcp_account_id>
 ```
 
 `GCP_ACCESS_TOKEN` 由外部受控的短期 token 签发流程提供；本 workflow 不负责创建长期

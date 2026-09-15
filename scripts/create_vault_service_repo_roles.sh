@@ -44,6 +44,9 @@ XCONNECT_CLOUD_LAB_POLICY="github-actions-platform-ops-toolkit-uat-xconnect-clou
 XCONNECT_EXISTING_ONE_ROLE="github-actions-platform-ops-toolkit-uat-xconnect-existing-one"
 XCONNECT_EXISTING_ONE_POLICY="github-actions-platform-ops-toolkit-uat-xconnect-existing-one"
 TLS_ROTATION_ROLE="github-actions-platform-ops-toolkit-tls-rotation"
+# Keep this allowlist explicit: adding a GCP account requires an audited policy
+# and role for each environment/account pair.
+GCP_BOOTSTRAP_ACCOUNTS=(xworktech)
 
 # -----------------------------------------------------------------------------
 # Workflow Allowlists for Platform-Ops & Playbooks
@@ -429,26 +432,26 @@ write_aws_oidc_bootstrap_role() {
 }
 
 write_gcp_oidc_bootstrap_policy() {
-  local env="$1"
-  vault policy write "github-actions-platform-ops-toolkit-${env}-gcp-bootstrap" - <<EOF
-path "kv/data/CICD/${env}/gcp-bootstrap" {
+  local env="$1" account="$2"
+  vault policy write "github-actions-platform-ops-toolkit-${env}-gcp-bootstrap-${account}" - <<EOF
+path "kv/data/CICD/${env}/gcp-bootstrap/${account}" {
   capabilities = ["read"]
 }
-path "kv/metadata/CICD/${env}/gcp-bootstrap" {
+path "kv/metadata/CICD/${env}/gcp-bootstrap/${account}" {
   capabilities = ["read"]
 }
-path "kv/data/${env}/platform/oidc" {
+path "kv/data/${env}/platform/oidc/${account}" {
   capabilities = ["create", "read", "update"]
 }
-path "kv/metadata/${env}/platform/oidc" {
+path "kv/metadata/${env}/platform/oidc/${account}" {
   capabilities = ["read"]
 }
 EOF
 }
 
 write_gcp_oidc_bootstrap_role() {
-  local env="$1"
-  vault write "auth/jwt/role/github-actions-platform-ops-toolkit-${env}-gcp-bootstrap" - <<EOF
+  local env="$1" account="$2"
+  vault write "auth/jwt/role/github-actions-platform-ops-toolkit-${env}-gcp-bootstrap-${account}" - <<EOF
 {
   "role_type": "jwt",
   "user_claim": "sub",
@@ -460,7 +463,7 @@ write_gcp_oidc_bootstrap_role() {
     "ref": "refs/heads/main",
     "environment": "${env}"
   },
-  "token_policies": ["github-actions-platform-ops-toolkit-${env}-gcp-bootstrap"],
+  "token_policies": ["github-actions-platform-ops-toolkit-${env}-gcp-bootstrap-${account}"],
   "token_no_default_policy": true,
   "token_type": "batch",
   "token_ttl": "20m",
@@ -515,8 +518,10 @@ write_aws_oidc_bootstrap_policy
 write_aws_oidc_bootstrap_role
 echo "  Creating UAT and PROD GCP OIDC bootstrap roles..."
 for env in uat prod; do
-  write_gcp_oidc_bootstrap_policy "${env}"
-  write_gcp_oidc_bootstrap_role "${env}"
+  for account in "${GCP_BOOTSTRAP_ACCOUNTS[@]}"; do
+    write_gcp_oidc_bootstrap_policy "${env}" "${account}"
+    write_gcp_oidc_bootstrap_role "${env}" "${account}"
+  done
 done
 
 echo "  Creating Playbooks SIT role..."
