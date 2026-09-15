@@ -22,12 +22,12 @@ on:
         description: XConnect-One GitHub Release tag
         type: string
         required: false
-        default: 'v0.1.12'
+        default: 'v0.1.14'
       gateway_release_tag:
         description: XConnect-Gateway GitHub Release tag
         type: string
         required: false
-        default: 'v0.1.5'
+        default: 'v0.1.8'
       xray_release_tag:
         description: XTLS/Xray-core GitHub Release tag
         type: string
@@ -77,10 +77,10 @@ jobs:
     timeout-minutes: 30
     env:
       MODE: ${{ inputs.mode }}
-      GITOPS_REF: ${{ inputs.gitops_ref || 'cc49c984fa022b5eeb767d0dc1c83afadc0bc2f9' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || 'acbc88faf6072c14dc55c14c2cd601d3693e065e' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'e3af025a3776c860bfbbd4ff25a76cdc29e6f0da' }}
-      CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.12' }}
-      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.5' }}
+      CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
+      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.8' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
       ZERO_NETWORK_ID: ${{ inputs.network_id || 'net_uat' }}
       ONE_DEVICE_ID: observability-uat
@@ -198,7 +198,7 @@ jobs:
           LAB_DIR: ${{ runner.temp }}/xconnect-existing-one
           GITHUB_WORKSPACE: ${{ github.workspace }}
           CLI_RELEASE_TOKEN: ${{ steps.artifact-token.outputs.token }}
-          GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.5' }}
+          GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.8' }}
           XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
           ZERO_ACCOUNTS_API_URL: https://accounts-uat.onwalk.net
           LAB_VLESS_ID: ${{ steps.runtime.outputs.LAB_VLESS_ID }}

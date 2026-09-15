@@ -131,7 +131,7 @@ jobs:
     env:
       MODE: ${{ inputs.mode }}
       IAC_REF: ${{ inputs.iac_ref || '9dd120ee027ea999b41d15b80ead20878c1ff468' }}
-      GITOPS_REF: ${{ inputs.gitops_ref || 'b7d52fa0c0183e47d0bf342b487a1511c4cb453c' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || 'acbc88faf6072c14dc55c14c2cd601d3693e065e' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '0f319649a8634523fe7e2d18ae2a22639ef2a97d' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.8' }}
@@ -337,7 +337,7 @@ jobs:
     env:
       MODE: cleanup
       IAC_REF: ${{ inputs.iac_ref || '9dd120ee027ea999b41d15b80ead20878c1ff468' }}
-      GITOPS_REF: ${{ inputs.gitops_ref || 'b7d52fa0c0183e47d0bf342b487a1511c4cb453c' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || 'acbc88faf6072c14dc55c14c2cd601d3693e065e' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '0f319649a8634523fe7e2d18ae2a22639ef2a97d' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.8' }}
