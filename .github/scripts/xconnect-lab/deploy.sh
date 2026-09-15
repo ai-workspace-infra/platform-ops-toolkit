@@ -195,8 +195,7 @@ reconcile_stable_gateway_owner() {
   local response="$LAB_DIR/stable-gateway-reconcile-response.json"
   jq -n \
     --arg owner "$ZERO_OWNER_EMAIL" \
-    --arg current_host "${EXTERNAL_GATEWAY_HOST:-}" \
-    '{environment:"uat",network_id:"net_uat",gateway_id:"gw-uat-tw-xconnect",gateway_endpoint_host:"tw-xconnect.svc.plus",current_gateway_endpoint_host:$current_host,owner_email:$owner}' \
+    '{environment:"uat",network_id:"net_uat",gateway_id:"gw-uat-tw-xconnect",gateway_endpoint_host:"tw-xconnect.svc.plus",owner_email:$owner}' \
     > "$request"
   local status
   status=$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
