@@ -18,7 +18,10 @@ grep -Fq '/api/internal/overlay/networks/bootstrap' "${deploy}"
 grep -Fq '/api/internal/overlay/gateways/reconcile-stable-owner' "${deploy}"
 grep -Fq 'Stable UAT Gateway ownership reconciliation passed' "${deploy}"
 grep -Fq 'environment:"uat",network_id:"net_uat",gateway_id:"gw-uat-tw-xconnect"' "${deploy}"
-grep -Fq 'current_gateway_endpoint_host' "${deploy}"
+if grep -Fq 'current_gateway_endpoint_host' "${deploy}"; then
+  echo 'historical Gateway endpoint input must not be sent by the lab' >&2
+  exit 1
+fi
 grep -Fq 'gateway_address=' "${deploy}"
 grep -Fq '.spec.overlay.gateway_address | type == "string"' "${repo_root}/.github/scripts/xconnect-lab/validate-topology.jq"
 grep -Fq 'xconnect-gateway join' "${deploy}"
