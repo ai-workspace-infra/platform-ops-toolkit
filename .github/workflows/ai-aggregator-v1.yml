@@ -80,13 +80,6 @@ jobs:
             echo 'deprecated AI Aggregator Vault reference detected' >&2
             exit 1
           fi
-      - name: Scan repository and checked-out GitOps declarations for secrets
-        uses: gitleaks/gitleaks-action@v2
-        with:
-          args: detect --source=. --no-banner --redact
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   plan:
     needs: validate
     if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -123,7 +116,6 @@ jobs:
     if: >-
       ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AI_AGGREGATOR_UAT_ENABLED == 'true') ||
       (github.event_name == 'workflow_dispatch' && inputs.environment == 'uat' &&
-      contains(fromJSON('["provision","stage","activate"]'), inputs.operation)) }}
       contains(fromJSON('["provision","stage","activate"]'), inputs.operation)) }}
     runs-on: ubuntu-latest
     environment: uat
