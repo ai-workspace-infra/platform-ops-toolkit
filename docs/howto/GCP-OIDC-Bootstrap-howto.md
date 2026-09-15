@@ -4,6 +4,40 @@
 KV v2 保存后执行 Terraform bootstrap 验证。路径按环境和 GCP 账号标识隔离，避免
 同一环境下多个 GCP 账号互相覆盖。
 
+## 0. Bootstrap 前置检查
+
+先确认本机同时具备 Vault 写入会话和 GCP ADC。检查命令不会打印任何 secret：
+
+```bash
+if vault token lookup >/dev/null 2>&1; then
+  echo "VAULT_SESSION=available"
+else
+  echo "VAULT_SESSION=unavailable"
+fi
+
+if gcloud auth application-default print-access-token >/dev/null 2>&1; then
+  echo "GCP_ADC_TOKEN=available"
+else
+  echo "GCP_ADC_TOKEN=unavailable"
+fi
+```
+
+如果 Vault 会话不可用，先在本机完成管理员登录；管理员 token 只保留在本地环境：
+
+```bash
+export VAULT_ADDR=https://vault.svc.plus
+vault login
+export VAULT_TOKEN='<管理员token>'
+```
+
+如果 GCP ADC 不可用，先执行：
+
+```bash
+gcloud auth application-default login
+```
+
+不能用空 token 或占位符初始化 KV；否则 Terraform bootstrap 会在读取阶段失败。
+
 ## 1. 获取 GCP Project ID
 
 项目 ID 已确定：
@@ -85,6 +119,18 @@ bash scripts/gcp/bootstrap_gcp_auth_kv.sh
 
 KV v2 的 CLI 逻辑路径是 `kv/CICD/...`；HTTP API 和 Vault policy 路径包含 `/data/`。
 详见 [Vault KV v2 官方文档](https://developer.hashicorp.com/vault/docs/secrets/kv/kv-v2)。
+
+对应的 PROD HTTP endpoint 为：
+
+```text
+${VAULT_ADDR}/v1/kv/data/CICD/prod/gcp-bootstrap/<gcp_account_id>
+```
+
+当前账号标识为 `xworktech`，所以实际路径为：
+
+```text
+${VAULT_ADDR}/v1/kv/data/CICD/prod/gcp-bootstrap/xworktech
+```
 
 ## 4. 不暴露 secret 的验证
 
