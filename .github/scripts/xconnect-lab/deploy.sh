@@ -183,9 +183,46 @@ create_invite() {
   chmod 600 "$destination"
 }
 
+reconcile_stable_gateway_owner() {
+  [[ "$gateway_provider" == external ]] || return 0
+  [[ "$network_id" == "net_uat" && "$gateway_id" == "gw-uat-tw-xconnect" && "$transport_server_name" == "tw-xconnect.svc.plus" ]] || {
+    echo 'External Gateway does not match the fixed UAT reconciliation identity' >&2
+    exit 1
+  }
+  local request="$LAB_DIR/stable-gateway-reconcile-request.json"
+  local response="$LAB_DIR/stable-gateway-reconcile-response.json"
+  jq -n \
+    --arg owner "$ZERO_OWNER_EMAIL" \
+    '{environment:"uat",network_id:"net_uat",gateway_id:"gw-uat-tw-xconnect",gateway_endpoint_host:"tw-xconnect.svc.plus",owner_email:$owner}' \
+    > "$request"
+  local status
+  status=$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+    -H "X-Service-Token: $ZERO_SERVICE_TOKEN" -H 'Content-Type: application/json' \
+    --data-binary "@$request" "$formal_zero/api/internal/overlay/gateways/reconcile-stable-owner" || true)
+  case "$status" in
+    200)
+      jq -e '(.environment == "uat" and .network_id == "net_uat" and .gateway_id == "gw-uat-tw-xconnect" and .gateway_endpoint_host == "tw-xconnect.svc.plus" and (.owner_reconciled | type) == "boolean")' "$response" >/dev/null \
+        || { echo 'Stable Gateway reconciliation returned an invalid response'; exit 1; }
+      echo 'Stable UAT Gateway ownership reconciliation passed'
+      ;;
+    404)
+      # First-time UAT bootstrap has no network to reconcile yet. The normal
+      # bootstrap below creates it under the current ZERO_OWNER_EMAIL.
+      jq -e '.error == "not_found"' "$response" >/dev/null \
+        || { echo 'Stable Gateway reconciliation returned an unexpected 404'; exit 1; }
+      echo 'Stable UAT Gateway network is absent; bootstrap will create it for the current owner'
+      ;;
+    *)
+      echo "Stable UAT Gateway ownership reconciliation failed: HTTP $status" >&2
+      exit 1
+      ;;
+  esac
+}
+
 bootstrap_accounts() {
 gateway_public_key=$(<"$LAB_DIR/gateway-public-key")
 echo 'Stage: real Accounts network and device-bound invitations'
+reconcile_stable_gateway_owner
 if [[ "$gateway_provider" != external ]]; then
   create_invite gateway "$gateway_id" "$LAB_DIR/invites/gateway"
 fi
