@@ -1,0 +1,29 @@
+{
+  "role_name": "github-actions-platform-ops-toolkit-prod-gcp-oidc-xworktech",
+  "description": "Dedicated PROD GCP runtime OIDC role for xworktech; release refs only and reads the bootstrapped WIF identity record.",
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": [
+    "vault"
+  ],
+  "bound_claims_type": "glob",
+  "bound_claims": {
+    "repository": "ai-workspace-infra/platform-ops-toolkit",
+    "job_workflow_ref": [
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-landingzone-baseline.yaml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-account-matrix.yaml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-resources-matrix.yaml@*"
+    ],
+    "ref": [
+      "refs/heads/release/v*",
+      "refs/tags/v*"
+    ]
+  },
+  "token_policies": [
+    "github-actions-platform-ops-toolkit-prod-gcp-oidc-xworktech"
+  ],
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": "20m",
+  "token_max_ttl": "20m"
+}

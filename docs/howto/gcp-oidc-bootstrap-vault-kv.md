@@ -80,10 +80,21 @@ kv/prod/platform/oidc/<gcp_account_id>
 | --- | --- | --- |
 | `gcp_workload_identity_provider` | Terraform output `workload_identity_provider` | `google-github-actions/auth` 的 provider resource name |
 | `deploy_service_account` | Terraform output `service_account_email` | GitHub Actions 使用的环境专属 deploy Service Account |
+| `gcp_oidc_audience` | GitOps 声明中的 audience | Google STS 交换 GitHub OIDC token 时使用的 audience |
 | `project_id` | GitOps 声明 | 运行时项目选择与审计 |
 
 这些值不是凭据，但仍按环境隔离，禁止写入 `kv/shared`。workflow 不能把 Vault response
 或 token 打印到日志。
+
+运行时 GCP IAC workflow 使用只读 JWT role：
+
+```text
+github-actions-platform-ops-toolkit-uat-gcp-oidc-<gcp_account_id>
+github-actions-platform-ops-toolkit-prod-gcp-oidc-<gcp_account_id>
+```
+
+该 role 只读取对应环境的 `platform/oidc/<gcp_account_id>`，不读取 bootstrap
+access token；Google 认证由 `google-github-actions/auth@v2` 通过 Google STS/WIF 完成。
 
 ## Policy 与 Role 边界
 

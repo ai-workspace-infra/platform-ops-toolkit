@@ -1,0 +1,50 @@
+name: Configure GCP OIDC credentials
+description: Login to Vault with GitHub JWT and exchange GitHub OIDC through Google STS/WIF.
+
+inputs:
+  environment:
+    description: Target deployment environment.
+    required: true
+  account_id:
+    description: Stable GCP account identifier used in the Vault role and path.
+    required: true
+  vault_addr:
+    description: Vault address.
+    required: false
+    default: https://vault.svc.plus
+
+outputs:
+  project_id:
+    description: GCP project ID from the environment-scoped OIDC record.
+    value: ${{ steps.vault.outputs.GCP_PROJECT_ID }}
+  provider:
+    description: GCP Workload Identity Provider resource name.
+    value: ${{ steps.vault.outputs.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+  service_account:
+    description: GCP deploy Service Account email.
+    value: ${{ steps.vault.outputs.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+runs:
+  using: composite
+  steps:
+    - name: Login to Vault with GitHub OIDC JWT
+      id: vault
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ inputs.vault_addr }}
+        method: jwt
+        role: github-actions-platform-ops-toolkit-${{ inputs.environment }}-gcp-oidc-${{ inputs.account_id }}
+        jwtGithubAudience: vault
+        exportToken: false
+        secrets: |
+          kv/data/${{ inputs.environment }}/platform/oidc/${{ inputs.account_id }} gcp_workload_identity_provider | GCP_WORKLOAD_IDENTITY_PROVIDER ;
+          kv/data/${{ inputs.environment }}/platform/oidc/${{ inputs.account_id }} deploy_service_account | GCP_SERVICE_ACCOUNT_EMAIL ;
+          kv/data/${{ inputs.environment }}/platform/oidc/${{ inputs.account_id }} gcp_oidc_audience | GCP_OIDC_AUDIENCE ;
+          kv/data/${{ inputs.environment }}/platform/oidc/${{ inputs.account_id }} project_id | GCP_PROJECT_ID
+
+    - name: Exchange GitHub OIDC token through Google STS
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: ${{ steps.vault.outputs.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+        service_account: ${{ steps.vault.outputs.GCP_SERVICE_ACCOUNT_EMAIL }}
+        audience: ${{ steps.vault.outputs.GCP_OIDC_AUDIENCE }}

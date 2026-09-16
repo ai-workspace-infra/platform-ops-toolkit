@@ -374,3 +374,35 @@ bootstrap apply 成功后，立即删除或覆盖一次性 token，并保留 Vau
 -> 环境专属 Service Account，不使用长期 Service Account key。只有在明确的
 break-glass 场景下，才允许使用受限、可审计、设置过期时间的临时凭据；完成操作后
 必须立即禁用/删除对应凭据，并重新运行 OIDC smoke test。
+
+### 6.9 Bootstrap 后切换到 GCP OIDC JWT Role
+
+Bootstrap apply 成功后，后续 GCP IAC workflow 不再读取
+`CICD/<environment>/gcp-bootstrap/<gcp_account_id>` 中的
+`GCP_ACCESS_TOKEN`。它们使用以下环境和账号输入读取运行时身份：
+
+    Vault JWT role: github-actions-platform-ops-toolkit-<environment>-gcp-oidc-<gcp_account_id>
+    Vault KV path:  <environment>/platform/oidc/<gcp_account_id>
+
+运行时 KV 只包含非密钥身份信息：
+
+    gcp_workload_identity_provider
+    gcp_oidc_audience
+    deploy_service_account
+    project_id
+
+认证链路为：
+
+    GitHub Actions OIDC JWT
+      -> Vault JWT auth role（20 分钟 batch token，只读运行时路径）
+      -> Google STS/WIF
+      -> 环境专属 deploy Service Account
+
+这与 AWS `AssumeRoleWithWebIdentity` 的职责对应：Vault JWT role 负责短期读取授权，
+Google STS/WIF 负责把 GitHub OIDC 身份交换为 GCP 短期凭据。LandingZone、Account 和
+Resources workflow 的 `cloud_provider`、`vault_env_path`、`gcp_account_id` 都是输入
+参数；只有选择 `gcp-cloud` 时才启用该链路，AWS 路径保持原有配置。
+
+运行时 role 只允许声明的 workflow 和环境 ref：UAT 使用 `main`/`uat-*`，PROD 使用
+`release/v*`/`v*`。WIF provider 同时使用 GitOps 的 `subjects` 生成 subject 条件，
+禁止其他 repository、环境或分支复用该 Service Account。
