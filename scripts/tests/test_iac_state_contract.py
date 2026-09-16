@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+REGISTRY = ROOT / "config" / "iac_provider_registry.json"
 RESOLVER = ROOT / "scripts" / "iac" / "resolve_iac_contract.py"
 WRITER = ROOT / "scripts" / "iac" / "write_external_inventory.py"
 
@@ -20,6 +21,25 @@ class IacStateContractTest(unittest.TestCase):
             text=True,
         )
         return json.loads(output)
+
+    def test_registry_covers_all_supported_provisioners(self):
+        registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+        self.assertEqual(
+            set(registry),
+            {"aws-cloud", "gcp-cloud", "azure-cloud", "vultr-vps", "akamai-cloud", "ucloud", "ulighthost"},
+        )
+        for provider, contract in registry.items():
+            resolved = self.resolve(provider)
+            self.assertEqual(resolved["provisioner"], contract["provisioner"])
+            if contract["provisioner"] == "terraform":
+                self.assertEqual(resolved["terraform_tree"], contract["terraform_tree"])
+                self.assertRegex(
+                    resolved["state_key"],
+                    r"^terraform/uat/svc\.plus/[^/]+/primary/web/terraform\.tfstate$",
+                )
+            else:
+                self.assertIsNone(resolved["state_key"])
+                self.assertIsNone(resolved["terraform_tree"])
 
     def test_terraform_state_key_has_all_five_boundaries(self):
         contract = self.resolve("akamai-cloud")
@@ -60,6 +80,7 @@ class IacStateContractTest(unittest.TestCase):
         self.assertIn("CICD/${{ inputs.vault_env_path }}/iac_state", akamai)
         self.assertIn("resolve_iac_contract.py", akamai)
         self.assertIn("steps.contract.outputs.state_key", akamai)
+        self.assertIn("use_lockfile = true", akamai)
         self.assertNotIn("hashicorp/setup-terraform", external)
         self.assertNotIn("terraform -chdir", external)
 
