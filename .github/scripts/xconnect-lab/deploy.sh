@@ -440,7 +440,12 @@ setsid nohup python3 -m http.server 8080 --bind "$gateway_wireguard_ip" --direct
   </dev/null >"/run/xconnect-one-${run_id}.log" 2>&1 &
 printf '%s\n' "$!" > "$pid_file"
 for attempt in {1..10}; do
-  ss -H -ltn4 | awk -v endpoint="$gateway_wireguard_ip:8080" '$4 == endpoint {found=1} END {exit !found}' && exit 0
+  # Keep the expected first poll non-fatal: python may not have bound the
+  # WireGuard address yet.  An `&& exit` list under `set -e` caused the
+  # remote script to abort before it could perform the remaining retries.
+  if ss -H -ltn4 | awk -v endpoint="$gateway_wireguard_ip:8080" '$4 == endpoint {found=1} END {exit !found}'; then
+    exit 0
+  fi
   sleep 1
 done
 cat "/run/xconnect-one-${run_id}.log" >&2 || true
