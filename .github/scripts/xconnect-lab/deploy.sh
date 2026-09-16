@@ -402,12 +402,32 @@ ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- \
 probe_pid_file=''
 if [[ "$gateway_provider" == external ]]; then
   probe_pid_file="/run/xconnect-one-${run_id}.pid"
-  ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$run_id" "$probe_pid_file" "$gateway_wireguard_ip" <<'START_PRIVATE_PROBE'
+  if ! ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$run_id" "$probe_pid_file" "$gateway_wireguard_ip" <<'START_PRIVATE_PROBE'
 set -euo pipefail
 run_id="$1"
 pid_file="$2"
 gateway_wireguard_ip="$3"
 probe_dir="/run/xconnect-one-${run_id}"
+
+# The One enrollment can advance the Gateway's signed generation immediately
+# before this verification step. Wait for the refreshed runtime to restore the
+# configured WireGuard address instead of racing a bind on a transiently
+# absent address.
+address_ready=0
+for attempt in {1..20}; do
+  if ip -4 -o addr show dev xconzero0 2>/dev/null | awk -v expected="${gateway_wireguard_ip}/32" '$4 == expected {found=1} END {exit !found}'; then
+    address_ready=1
+    break
+  fi
+  sleep 1
+done
+if [[ "$address_ready" != 1 ]]; then
+  echo 'Gateway WireGuard address is not ready for the private HTTP probe' >&2
+  ip -4 -o addr show dev xconzero0 2>/dev/null || true
+  systemctl is-active xconnect-gateway-xray.service || true
+  exit 1
+fi
+
 sudo rm -rf "$probe_dir"
 sudo install -d -m 755 "$probe_dir"
 printf '%s\n' "$run_id" | sudo tee "$probe_dir/index.html" >/dev/null
@@ -420,6 +440,16 @@ sudo cat "/run/xconnect-one-${run_id}.log" >&2 || true
 echo 'private HTTP probe did not start' >&2
 exit 1
 START_PRIVATE_PROBE
+  then
+    echo 'Gateway private HTTP probe setup failed; collecting non-sensitive runtime state.' >&2
+    ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s <<'GATEWAY_PRIVATE_PROBE_DIAGNOSTICS' || true
+set -euo pipefail
+ip -4 -o addr show dev xconzero0 2>/dev/null || true
+ss -H -ltn4 | awk '$4 ~ /:8080$/ {print $4}' || true
+systemctl is-active xconnect-gateway-xray.service || true
+GATEWAY_PRIVATE_PROBE_DIAGNOSTICS
+    exit 1
+  fi
   cleanup_private_probe() {
     ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$run_id" "$probe_pid_file" <<'STOP_PRIVATE_PROBE' || true
 set -euo pipefail
