@@ -53,7 +53,7 @@ fi
 grep -Fq -- '-f "$ROOT/.github/scripts/xconnect-lab/validate-topology.jq"' "${runner}"
 grep -Fq ".spec.vault.role == \"${role}\"" "${topology_policy}"
 
-grep -Fq 'kv/data/CICD/uat TF_STATE_ENDPOINT' "${workflow}"
+grep -Fq 'kv/data/CICD/uat/iac_state TF_STATE_ENDPOINT' "${workflow}"
 grep -Fq 'kv/data/uat/xconnect-one ZERO_SERVICE_TOKEN' "${workflow}"
 grep -Fq 'kv/data/uat/xconnect-one ZERO_OWNER_EMAIL' "${workflow}"
 grep -Fq 'gitops/vpn-overlay/uat/xconnect-lab.json' "${runner}"
