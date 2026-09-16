@@ -37,13 +37,13 @@ for required in \
   'iam.serviceAccounts.create' \
   'iam.serviceAccounts.setIamPolicy' \
   'serviceusage.services.enable' \
-  'kv/data/CICD TF_STATE_ENDPOINT | TF_STATE_ENDPOINT' \
-  'kv/data/CICD TF_STATE_BUCKET | TF_STATE_BUCKET' \
-  'kv/data/CICD TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY' \
-  'kv/data/CICD TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY' \
-  'kv/data/CICD TF_STATE_REGION | TF_STATE_REGION' \
+  'kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT' \
+  'kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET' \
+  'kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY' \
+  'kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY' \
+  'kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_REGION | TF_STATE_REGION' \
   'backend-config="endpoint=${TF_STATE_ENDPOINT}"' \
-  'backend-config="key=${{ steps.config.outputs.state_key }}"' \
+  'backend-config="key=terraform/${{ inputs.environment }}/${{ steps.config.outputs.project_id }}/gcp-cloud/${{ steps.config.outputs.account_id }}/gcp-oidc-bootstrap/terraform.tfstate"' \
   'backend-config="use_path_style=true"' \
   'identity plan' \
   'identity apply' \
@@ -71,7 +71,7 @@ for required in \
   'uses: ./.github/actions/configure-gcp-oidc' \
   'scripts/generate.py render' \
   'envs/${DEPLOY_ENV}' \
-  'backend-config="key=platform-ops-toolkit/${{ env.DEPLOY_ENV }}/${{ env.GCP_ACCOUNT_ID }}/gcp-platform/terraform.tfstate"' \
+  'backend-config="key=terraform/${{ env.DEPLOY_ENV }}/${{ steps.config.outputs.project_id }}/gcp-cloud/${{ env.GCP_ACCOUNT_ID }}/platform/terraform.tfstate"' \
   'Terraform apply' \
   'Terraform destroy'; do
   grep -Fq -- "${required}" "${gcp_iac_workflow}" || {
@@ -80,7 +80,7 @@ for required in \
   }
 done
 
-grep -Fq 'kv/data/CICD TF_STATE_ENDPOINT | TF_STATE_ENDPOINT' "${runtime_action}" || {
+grep -Fq 'kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT' "${runtime_action}" || {
   echo "GCP runtime OIDC action must load the shared state contract" >&2
   exit 1
 }
@@ -188,7 +188,7 @@ for required in \
   'xworktech-open-platform-uat' \
   'xworktech-open-platform-prod' \
   'spec.subjects' \
-  'platform-ops-toolkit/#{environment}/#{account_id}/gcp-oidc-bootstrap/terraform.tfstate'; do
+  'terraform/#{environment}/#{expected_project}/gcp-cloud/#{account_id}/gcp-oidc-bootstrap/terraform.tfstate'; do
   grep -Fq -- "${required}" "${resolver}" || {
     echo "GCP OIDC resolver missing validation: ${required}" >&2
     exit 1

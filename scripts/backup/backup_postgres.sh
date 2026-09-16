@@ -20,6 +20,8 @@ VAULT_ADDR="${VAULT_ADDR:-https://vault.svc.plus}"
 VAULT_TOKEN="${VAULT_TOKEN:-}"
 VAULT_ROLE="${VAULT_ROLE:-}"
 VAULT_JWT="${VAULT_JWT:-}"
+VAULT_IAC_STATE_PATH="${VAULT_IAC_STATE_PATH:-kv/data/CICD/${VAULT_ENV_PATH:-prod}/iac_state}"
+export VAULT_IAC_STATE_PATH
 
 # Validation
 if [ -z "$ENCRYPTION_PASS" ]; then
@@ -64,14 +66,15 @@ if not token:
     print('Error: Vault token/JWT not provided.', file=sys.stderr)
     sys.exit(1)
 
-# Fetch kv/CICD
-req = urllib.request.Request(f'{vault_addr}/v1/kv/data/CICD', headers={'X-Vault-Token': token})
+# Fetch the environment-scoped Terraform state contract.
+state_path = os.environ.get('VAULT_IAC_STATE_PATH', 'kv/data/CICD/prod/iac_state')
+req = urllib.request.Request(f"{vault_addr}/v1/{state_path}", headers={'X-Vault-Token': token})
 try:
     with urllib.request.urlopen(req) as resp:
         data = json.loads(resp.read().decode())['data']['data']
         print(json.dumps(data))
 except Exception as e:
-    print(f'Failed to read Vault kv/CICD: {e}', file=sys.stderr)
+    print(f'Failed to read Vault {state_path}: {e}', file=sys.stderr)
     sys.exit(1)
 ")
     

@@ -1,0 +1,137 @@
+name: External Provider Inventory State
+
+on:
+  workflow_dispatch:
+    inputs:
+      cloud_provider:
+        type: choice
+        required: true
+        options: [ucloud, ulighthost]
+      vault_env_path:
+        type: choice
+        required: true
+        default: uat
+        options: [sit, uat, prod]
+      project:
+        type: string
+        required: true
+        default: svc.plus
+      account:
+        type: string
+        required: true
+        default: primary
+      workspace:
+        type: string
+        required: true
+      resource_manifest:
+        type: string
+        required: true
+      gitops_repo_name:
+        type: string
+        required: false
+        default: ai-workspace-infra/gitops
+      gitops_repo_ref:
+        type: string
+        required: false
+        default: main
+  workflow_call:
+    inputs:
+      cloud_provider:
+        type: string
+        required: true
+      vault_env_path:
+        type: string
+        required: true
+      project:
+        type: string
+        required: true
+      account:
+        type: string
+        required: true
+      workspace:
+        type: string
+        required: true
+      resource_manifest:
+        type: string
+        required: true
+      gitops_repo_name:
+        type: string
+        required: false
+        default: ai-workspace-infra/gitops
+      gitops_repo_ref:
+        type: string
+        required: false
+        default: main
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.vault_env_path }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve provider and canonical object keys
+        id: contract
+        run: |
+          python3 scripts/iac/resolve_iac_contract.py \
+            --environment "${{ inputs.vault_env_path }}" --project "${{ inputs.project }}" \
+            --provider "${{ inputs.cloud_provider }}" --account "${{ inputs.account }}" \
+            --workspace "${{ inputs.workspace }}" --github-output
+
+      - name: Assert an existing-resource provider
+        run: test "${{ steps.contract.outputs.provisioner }}" = existing
+
+      - name: Checkout GitOps declarations
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.gitops_repo_name }}
+          ref: ${{ inputs.gitops_repo_ref }}
+          path: gitops
+
+      - name: Load environment state parameters from Vault
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path }}
+          jwtGithubAudience: vault
+          exportToken: false
+          secrets: |
+            kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
+            kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
+            kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+            kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+            kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_REGION | TF_STATE_REGION
+
+      - name: Validate declaration and build external inventory
+        env:
+          MANIFEST: ${{ inputs.resource_manifest }}
+        run: |
+          set -euo pipefail
+          [[ "${MANIFEST}" != /* && "${MANIFEST}" != *..* ]] || { echo "invalid resource manifest path" >&2; exit 1; }
+          test -f "gitops/${MANIFEST}"
+          python3 scripts/iac/write_external_inventory.py \
+            --manifest "gitops/${MANIFEST}" --provider "${{ inputs.cloud_provider }}" \
+            --environment "${{ inputs.vault_env_path }}" --project "${{ inputs.project }}" \
+            --account "${{ inputs.account }}" --workspace "${{ inputs.workspace }}" \
+            --inventory-output "${RUNNER_TEMP}/inventory.json" --run-output "${RUNNER_TEMP}/run.json"
+
+      - name: Write inventory and run record to S3-compatible state service
+        env:
+          AWS_ACCESS_KEY_ID: ${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ steps.vault.outputs.TF_STATE_SECRET_KEY }}
+          AWS_DEFAULT_REGION: ${{ steps.vault.outputs.TF_STATE_REGION }}
+          TF_STATE_ENDPOINT: ${{ steps.vault.outputs.TF_STATE_ENDPOINT }}
+          TF_STATE_BUCKET: ${{ steps.vault.outputs.TF_STATE_BUCKET }}
+          INVENTORY_KEY: ${{ steps.contract.outputs.inventory_key }}
+          RUN_KEY: ${{ steps.contract.outputs.run_key }}
+        run: |
+          set -euo pipefail
+          aws --endpoint-url "${TF_STATE_ENDPOINT}" s3api put-object --bucket "${TF_STATE_BUCKET}" --key "${INVENTORY_KEY}" --body "${RUNNER_TEMP}/inventory.json" >/dev/null
+          aws --endpoint-url "${TF_STATE_ENDPOINT}" s3api put-object --bucket "${TF_STATE_BUCKET}" --key "${RUN_KEY}" --body "${RUNNER_TEMP}/run.json" >/dev/null

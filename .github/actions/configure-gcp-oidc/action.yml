@@ -56,11 +56,11 @@ runs:
           kv/data/${{ inputs.environment }}/platform/oidc/${{ inputs.account_id }} deploy_service_account | GCP_SERVICE_ACCOUNT_EMAIL ;
           kv/data/${{ inputs.environment }}/platform/oidc/${{ inputs.account_id }} gcp_oidc_audience | GCP_OIDC_AUDIENCE ;
           kv/data/${{ inputs.environment }}/platform/oidc/${{ inputs.account_id }} project_id | GCP_PROJECT_ID ;
-          kv/data/CICD TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
-          kv/data/CICD TF_STATE_BUCKET | TF_STATE_BUCKET ;
-          kv/data/CICD TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
-          kv/data/CICD TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
-          kv/data/CICD TF_STATE_REGION | TF_STATE_REGION
+          kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
+          kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
+          kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+          kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+          kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_REGION | TF_STATE_REGION
 
     - name: Exchange GitHub OIDC token through Google STS
       uses: google-github-actions/auth@v2

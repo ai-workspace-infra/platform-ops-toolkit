@@ -73,7 +73,7 @@ main-ref workflow. Do not widen that trust to run a branch.
 | Vault KV v2 API path | Fields used by this workflow |
 |---|---|
 | `kv/data/CICD/github-app/daily-snapshot` | `app_private_key` |
-| `kv/data/CICD/uat` | `TF_STATE_ENDPOINT`, `TF_STATE_BUCKET`, `TF_STATE_ACCESS_KEY`, `TF_STATE_SECRET_KEY`, `TF_STATE_REGION` |
+| `kv/data/CICD/uat/iac_state` | `TF_STATE_ENDPOINT`, `TF_STATE_BUCKET`, `TF_STATE_ACCESS_KEY`, `TF_STATE_SECRET_KEY`, `TF_STATE_REGION` |
 | `kv/data/uat/xconnect-one` | `VLESS_ID`, `ZERO_SERVICE_TOKEN`, `ZERO_OWNER_EMAIL` |
 | `kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus` | `host`, `user`, `ssh_private_key_b64` (read-only exception for the production-owned stable Gateway used by UAT) |
 

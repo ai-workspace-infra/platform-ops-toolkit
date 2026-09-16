@@ -32,6 +32,11 @@ on:
         type: choice
         required: true
         options: [aws-cloud, gcp-cloud, azure-cloud, vultr-vps]
+      state_account:
+        description: "Canonical state account segment"
+        type: string
+        required: false
+        default: default
       components_json:
         description: '账号层级组件选择 (JSON数组格式，如 ["vpc","role"])'
         type: string
@@ -73,6 +78,10 @@ on:
       cloud_provider:
         type: string
         required: true
+      state_account:
+        type: string
+        required: false
+        default: default
       components_json:
         type: string
         required: false
@@ -111,6 +120,7 @@ env:
   CONFIG_DIR: gitops/${{ inputs.project || github.event.inputs.project || 'svc.plus' }}/${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' && 'uat' || ((startsWith(github.ref, 'refs/heads/release/v') || startsWith(github.ref, 'refs/tags/v')) && 'prod' || 'sit')) || inputs.vault_env_path || github.event.inputs.vault_env_path || 'sit' }}/${{ inputs.cloud_provider || github.event.inputs.cloud_provider || 'aws-cloud' }}
   GITOPS_REPO_ROOT: gitops
   GCP_ACCOUNT_ID: ${{ inputs.gcp_account_id || github.event.inputs.gcp_account_id || 'xworktech' }}
+  STATE_ACCOUNT: ${{ inputs.state_account || github.event.inputs.state_account || 'default' }}
 
 jobs:
   terraform:
@@ -141,14 +151,12 @@ jobs:
         method: jwt
         role: github-actions-platform-ops-toolkit-${{ env.DEPLOY_ENV }}
         jwtGithubAudience: vault
-        ignoreNotFound: true
-        exportToken: true
         secrets: |
-          kv/data/CICD TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
-          kv/data/CICD TF_STATE_BUCKET | TF_STATE_BUCKET ;
-          kv/data/CICD TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
-          kv/data/CICD TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
-          kv/data/CICD TF_STATE_REGION | TF_STATE_REGION
+          kv/data/CICD/${{ env.DEPLOY_ENV }}/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
+          kv/data/CICD/${{ env.DEPLOY_ENV }}/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
+          kv/data/CICD/${{ env.DEPLOY_ENV }}/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+          kv/data/CICD/${{ env.DEPLOY_ENV }}/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+          kv/data/CICD/${{ env.DEPLOY_ENV }}/iac_state TF_STATE_REGION | TF_STATE_REGION
 
     - name: Setup IaC Environment
       uses: ./.github/actions/setup-iac-env

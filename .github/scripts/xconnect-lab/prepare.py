@@ -304,7 +304,7 @@ def main():
     if action == 'backend':
         save(folder / 'backend.json', {
             'bucket': os.environ['TF_STATE_BUCKET'],
-            'key': f'uat/xconnect-lab/{run}/terraform.tfstate',
+            'key': 'terraform/uat/svc.plus/aws-cloud/primary/xconnect-lab/terraform.tfstate',
             'region': os.environ['TF_STATE_REGION'],
             'endpoints': {'s3': os.environ['TF_STATE_ENDPOINT']},
             'access_key': os.environ['TF_STATE_ACCESS_KEY'],
@@ -312,7 +312,7 @@ def main():
             'token': '',
             'skip_credentials_validation': True, 'skip_region_validation': True,
             'skip_requesting_account_id': True, 'skip_metadata_api_check': True,
-            'use_path_style': True})
+            'use_path_style': True, 'use_lockfile': True})
         return
     zero = spec['zero']
     values = {'run_id': run, 'gateway_provider': gateway_provider,

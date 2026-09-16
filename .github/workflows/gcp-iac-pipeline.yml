@@ -195,7 +195,7 @@ jobs:
           TF_CLI_ARGS_init: >-
             -backend-config="endpoint=${{ steps.gcp_auth.outputs.state_endpoint }}"
             -backend-config="bucket=${{ steps.gcp_auth.outputs.state_bucket }}"
-            -backend-config="key=platform-ops-toolkit/${{ env.DEPLOY_ENV }}/${{ env.GCP_ACCOUNT_ID }}/gcp-platform/terraform.tfstate"
+            -backend-config="key=terraform/${{ env.DEPLOY_ENV }}/${{ steps.config.outputs.project_id }}/gcp-cloud/${{ env.GCP_ACCOUNT_ID }}/platform/terraform.tfstate"
             -backend-config="access_key=${{ steps.gcp_auth.outputs.state_access_key }}"
             -backend-config="secret_key=${{ steps.gcp_auth.outputs.state_secret_key }}"
             -backend-config="region=${{ steps.gcp_auth.outputs.state_region }}"
@@ -203,6 +203,7 @@ jobs:
             -backend-config="skip_metadata_api_check=true"
             -backend-config="skip_region_validation=true"
             -backend-config="use_path_style=true"
+            -backend-config="use_lockfile=true"
         run: terraform -chdir="envs/${DEPLOY_ENV}" init -input=false -reconfigure
 
       - name: Terraform format and validate
