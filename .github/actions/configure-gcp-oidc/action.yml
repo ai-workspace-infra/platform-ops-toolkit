@@ -23,6 +23,21 @@ outputs:
   service_account:
     description: GCP deploy Service Account email.
     value: ${{ steps.vault.outputs.GCP_SERVICE_ACCOUNT_EMAIL }}
+  state_endpoint:
+    description: Shared S3-compatible Terraform state endpoint.
+    value: ${{ steps.vault.outputs.TF_STATE_ENDPOINT }}
+  state_bucket:
+    description: Shared Terraform state bucket.
+    value: ${{ steps.vault.outputs.TF_STATE_BUCKET }}
+  state_access_key:
+    description: Short-lived Terraform state access key.
+    value: ${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}
+  state_secret_key:
+    description: Short-lived Terraform state secret key.
+    value: ${{ steps.vault.outputs.TF_STATE_SECRET_KEY }}
+  state_region:
+    description: Terraform state backend region.
+    value: ${{ steps.vault.outputs.TF_STATE_REGION }}
 
 runs:
   using: composite
@@ -40,7 +55,12 @@ runs:
           kv/data/${{ inputs.environment }}/platform/oidc/${{ inputs.account_id }} gcp_workload_identity_provider | GCP_WORKLOAD_IDENTITY_PROVIDER ;
           kv/data/${{ inputs.environment }}/platform/oidc/${{ inputs.account_id }} deploy_service_account | GCP_SERVICE_ACCOUNT_EMAIL ;
           kv/data/${{ inputs.environment }}/platform/oidc/${{ inputs.account_id }} gcp_oidc_audience | GCP_OIDC_AUDIENCE ;
-          kv/data/${{ inputs.environment }}/platform/oidc/${{ inputs.account_id }} project_id | GCP_PROJECT_ID
+          kv/data/${{ inputs.environment }}/platform/oidc/${{ inputs.account_id }} project_id | GCP_PROJECT_ID ;
+          kv/data/CICD TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
+          kv/data/CICD TF_STATE_BUCKET | TF_STATE_BUCKET ;
+          kv/data/CICD TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+          kv/data/CICD TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+          kv/data/CICD TF_STATE_REGION | TF_STATE_REGION
 
     - name: Exchange GitHub OIDC token through Google STS
       uses: google-github-actions/auth@v2

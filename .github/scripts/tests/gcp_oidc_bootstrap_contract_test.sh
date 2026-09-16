@@ -9,6 +9,7 @@ landingzone_workflow="${repo_root}/.github/workflows/iac-pipeline-multi-cloud-la
 account_workflow="${repo_root}/.github/workflows/iac-pipeline-multi-cloud-account-matrix.yaml"
 resources_workflow="${repo_root}/.github/workflows/iac-pipeline-multi-cloud-resources-matrix.yaml"
 master_workflow="${repo_root}/.github/workflows/iac-pipeline-multi-cloud-master.yaml"
+gcp_iac_workflow="${repo_root}/.github/workflows/gcp-iac-pipeline.yml"
 vault_roles="${repo_root}/scripts/create_vault_service_repo_roles.sh"
 vault_role_dir="${repo_root}/scripts/vault/roles"
 vault_policy_dir="${repo_root}/scripts/vault/policies"
@@ -16,6 +17,7 @@ kv_helper="${repo_root}/scripts/gcp/bootstrap_gcp_auth_kv.sh"
 
 test -x "${resolver}" || { echo "GCP OIDC resolver must be executable" >&2; exit 1; }
 test -x "${kv_helper}" || { echo "GCP Vault KV helper must be executable" >&2; exit 1; }
+test -f "${gcp_iac_workflow}" || { echo "GCP IAC workflow must exist" >&2; exit 1; }
 
 for required in \
   'environment:' \
@@ -58,6 +60,43 @@ for required in \
     exit 1
   }
 done
+
+for required in \
+  'options: [plan, apply, destroy]' \
+  'options: [uat, prod]' \
+  'gcp_account_id:' \
+  'gcp_resource_manifest:' \
+  'iac_ref:' \
+  'environment:' \
+  'uses: ./.github/actions/configure-gcp-oidc' \
+  'scripts/generate.py render' \
+  'envs/${DEPLOY_ENV}' \
+  'backend-config="key=platform-ops-toolkit/${{ env.DEPLOY_ENV }}/${{ env.GCP_ACCOUNT_ID }}/gcp-platform/terraform.tfstate"' \
+  'Terraform apply' \
+  'Terraform destroy'; do
+  grep -Fq -- "${required}" "${gcp_iac_workflow}" || {
+    echo "GCP IAC workflow missing parameterized runtime contract: ${required}" >&2
+    exit 1
+  }
+done
+
+grep -Fq 'kv/data/CICD TF_STATE_ENDPOINT | TF_STATE_ENDPOINT' "${runtime_action}" || {
+  echo "GCP runtime OIDC action must load the shared state contract" >&2
+  exit 1
+}
+grep -Fq 'state_endpoint:' "${runtime_action}" || {
+  echo "GCP runtime OIDC action must expose state backend outputs" >&2
+  exit 1
+}
+
+grep -Fq "if: \${{ inputs.cloud_provider == 'gcp-cloud' }}" "${master_workflow}" || {
+  echo "Multi-cloud master must route gcp-cloud to the GCP IAC workflow" >&2
+  exit 1
+}
+grep -Fq 'uses: ./.github/workflows/gcp-iac-pipeline.yml' "${master_workflow}" || {
+  echo "Multi-cloud master missing GCP IAC workflow route" >&2
+  exit 1
+}
 
 for required in \
   'method: jwt' \

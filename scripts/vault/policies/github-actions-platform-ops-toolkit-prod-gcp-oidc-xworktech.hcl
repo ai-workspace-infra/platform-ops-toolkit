@@ -1,3 +1,7 @@
+path "kv/data/CICD" {
+  capabilities = ["read"]
+}
+
 path "kv/data/prod/platform/oidc/xworktech" {
   capabilities = ["read"]
 }
