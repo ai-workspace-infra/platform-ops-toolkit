@@ -92,19 +92,35 @@ export VAULT_ADDR=https://vault.svc.plus
 
 在 GitHub Actions 手动运行 `Akamai Cloud IaC`，先选择 `plan`：
 
-1. `vault_env_path=uat`、`project=svc.plus`、`account_alias=primary`、
+1. `vault_env_path=uat`、`project=svc.plus`、`account=<真实 Akamai 账户名或 ID>`、
    `workspace=ai-workspace`。
 2. 确认 Vault role 绑定 repository、`job_workflow_ref`、ref 和 environment。
 3. 确认 workflow 成功调用 `/v4/profile`，日志只出现校验成功，不出现 token。
 4. 确认初始化使用：
 
    ```text
-   terraform/uat/svc.plus/akamai-cloud/primary/ai-workspace/terraform.tfstate
+   terraform/uat/svc.plus/akamai-cloud/<account>/ai-workspace/terraform.tfstate
    ```
 
 5. 确认 plan artifact、日志和 GitHub Actions summary 不含 `LINODE_TOKEN` 或
    `TF_STATE_SECRET_KEY`。
 6. UAT plan 验收无漂移后，再按 GitHub Environment 审批执行 `apply`。
+
+首次配置 Akamai 账户时，先以 Vault 管理员身份执行：
+
+```bash
+export VAULT_ADDR=https://vault.svc.plus
+export VAULT_TOKEN='hvs.***'
+export AKAMAI_ACCOUNT_UAT='<concrete-uat-account>'
+export AKAMAI_ACCOUNT_PROD='<concrete-prod-account>'
+bash scripts/vault/bootstrap_akamai_oidc_roles.sh --apply --env all
+export LINODE_TOKEN='...'
+bash scripts/vault/bootstrap_akamai_cloud_kv.sh --apply --env all
+```
+
+`LINODE_TOKEN` 只写入 `kv/CICD/<env>/akamai-cloud/<account>`；S3-compatible
+state 参数另行写入 `kv/CICD/<env>/iac_state`。`primary`、`default` 和 `main`
+不会被脚本接受。
 
 ## S3-compatible lockfile 并发验证
 
@@ -155,4 +171,3 @@ terraform plan
 
 Terraform plan 预期为 `0 to add, 0 to change, 0 to destroy`。只有连续验证稳定后，
 才清理旧 backend 配置或旧 state 对象。
-

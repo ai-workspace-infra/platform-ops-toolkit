@@ -19,7 +19,6 @@ on:
       account:
         type: string
         required: true
-        default: primary
       workspace:
         type: string
         required: true

@@ -39,10 +39,9 @@ on:
         required: true
         options: [aws-cloud, gcp-cloud, azure-cloud, vultr-vps, akamai-cloud, ucloud, ulighthost]
       state_account:
-        description: "Canonical state account segment"
+        description: "Concrete cloud account name or ID; aliases such as primary/default are not allowed"
         type: string
-        required: false
-        default: primary
+        required: true
       workspace:
         description: "Terraform/external inventory workspace"
         type: string
@@ -124,7 +123,7 @@ jobs:
       project: ${{ inputs.project || 'svc.plus' }}
       vault_env_path: ${{ inputs.vault_env_path || 'sit' }}
       cloud_provider: ${{ inputs.cloud_provider }}
-      state_account: ${{ inputs.state_account || 'primary' }}
+      state_account: ${{ inputs.state_account }}
       gitops_repo_name: ${{ inputs.gitops_repo_name || 'https://github.com/cloud-neutral-workshop/gitops.git' }}
       gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
       gcp_account_id: ${{ inputs.gcp_account_id || 'xworktech' }}
@@ -159,7 +158,7 @@ jobs:
       project: ${{ inputs.project || 'svc.plus' }}
       vault_env_path: ${{ inputs.vault_env_path || 'sit' }}
       cloud_provider: ${{ inputs.cloud_provider }}
-      state_account: ${{ inputs.state_account || 'primary' }}
+      state_account: ${{ inputs.state_account }}
       components_json: ${{ needs.prepare-matrix.outputs.account_components }}
       gitops_repo_name: ${{ inputs.gitops_repo_name || 'https://github.com/cloud-neutral-workshop/gitops.git' }}
       gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
@@ -180,7 +179,7 @@ jobs:
       project: ${{ inputs.project || 'svc.plus' }}
       vault_env_path: ${{ inputs.vault_env_path || 'sit' }}
       cloud_provider: ${{ inputs.cloud_provider }}
-      state_account: ${{ inputs.state_account || 'primary' }}
+      state_account: ${{ inputs.state_account }}
       components_json: ${{ needs.prepare-matrix.outputs.resources_components }}
       gitops_repo_name: ${{ inputs.gitops_repo_name || 'https://github.com/cloud-neutral-workshop/gitops.git' }}
       gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
@@ -197,7 +196,7 @@ jobs:
       deploy_action: ${{ inputs.deploy_action || 'plan' }}
       vault_env_path: ${{ inputs.vault_env_path || 'uat' }}
       project: ${{ inputs.project || 'svc.plus' }}
-      account_alias: ${{ inputs.state_account || 'primary' }}
+      account: ${{ inputs.state_account }}
       workspace: ${{ inputs.workspace || 'platform' }}
       resource_manifest: ${{ inputs.resource_manifest || '' }}
       gitops_repo_name: ${{ inputs.gitops_repo_name || 'ai-workspace-infra/gitops' }}
@@ -212,7 +211,7 @@ jobs:
       cloud_provider: ${{ inputs.cloud_provider }}
       vault_env_path: ${{ inputs.vault_env_path || 'uat' }}
       project: ${{ inputs.project || 'svc.plus' }}
-      account: ${{ inputs.state_account || 'primary' }}
+      account: ${{ inputs.state_account }}
       workspace: ${{ inputs.workspace || 'platform' }}
       resource_manifest: ${{ inputs.resource_manifest }}
       gitops_repo_name: ${{ inputs.gitops_repo_name || 'ai-workspace-infra/gitops' }}

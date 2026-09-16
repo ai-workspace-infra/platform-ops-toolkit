@@ -1,6 +1,6 @@
 {
-  "role_name": "github-actions-platform-ops-toolkit-prod-akamai-oidc-bootstrap-primary",
-  "description": "Akamai Cloud/Linode production IaC role: only the protected release workflow may read the primary provider token and production S3-compatible state parameters.",
+  "role_name": "github-actions-platform-ops-toolkit-prod-akamai-oidc-bootstrap-__ACCOUNT__",
+  "description": "Akamai Cloud/Linode PROD IaC role for the concrete account __ACCOUNT__.",
   "role_type": "jwt",
   "user_claim": "sub",
   "bound_audiences": ["vault"],
@@ -11,7 +11,7 @@
     "ref": ["refs/tags/v*", "refs/heads/release/v*"],
     "environment": "prod"
   },
-  "token_policies": ["github-actions-platform-ops-toolkit-prod-akamai-oidc-bootstrap-primary"],
+  "token_policies": ["github-actions-platform-ops-toolkit-prod-akamai-oidc-bootstrap-__ACCOUNT__"],
   "token_no_default_policy": true,
   "token_type": "batch",
   "token_ttl": "20m",

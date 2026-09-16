@@ -17,10 +17,9 @@ on:
         type: string
         required: true
         default: svc.plus
-      account_alias:
+      account:
         type: string
         required: true
-        default: primary
       workspace:
         type: string
         required: true
@@ -54,7 +53,7 @@ on:
       project:
         type: string
         required: true
-      account_alias:
+      account:
         type: string
         required: true
       workspace:
@@ -82,7 +81,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: akamai-cloud-${{ inputs.vault_env_path }}-${{ inputs.project }}-${{ inputs.account_alias }}-${{ inputs.workspace }}
+  group: akamai-cloud-${{ inputs.vault_env_path }}-${{ inputs.project }}-${{ inputs.account }}-${{ inputs.workspace }}
   cancel-in-progress: false
 
 jobs:
@@ -94,7 +93,7 @@ jobs:
       DEPLOY_ACTION: ${{ inputs.deploy_action || 'plan' }}
       DEPLOY_ENV: ${{ inputs.vault_env_path }}
       PROJECT: ${{ inputs.project }}
-      ACCOUNT: ${{ inputs.account_alias }}
+      ACCOUNT: ${{ inputs.account }}
       WORKSPACE: ${{ inputs.workspace }}
       GITOPS_REPO: ${{ inputs.gitops_repo_name }}
       GITOPS_REF: ${{ inputs.gitops_repo_ref }}
@@ -125,13 +124,19 @@ jobs:
             --provider akamai-cloud --account "${ACCOUNT}" --workspace "${WORKSPACE}" \
             --github-output
 
-      - name: Validate Akamai account alias
+      - name: Validate Akamai account name
         run: |
           set -euo pipefail
           [[ "${ACCOUNT}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
-            echo 'account_alias must contain only letters, numbers, dot, underscore, or hyphen' >&2
+            echo 'account must contain only letters, numbers, dot, underscore, or hyphen' >&2
             exit 1
           }
+          case "${ACCOUNT}" in
+            primary|default|main)
+              echo 'account must be a concrete account name or ID, not an alias' >&2
+              exit 1
+              ;;
+          esac
 
       - name: Load Akamai Cloud and state credentials from Vault
         id: vault
@@ -139,11 +144,11 @@ jobs:
         with:
           url: https://vault.svc.plus
           method: jwt
-          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path }}-akamai-oidc-bootstrap-${{ inputs.account_alias }}
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path }}-akamai-oidc-bootstrap-${{ inputs.account }}
           jwtGithubAudience: vault
           exportToken: false
           secrets: |
-            kv/data/CICD/${{ inputs.vault_env_path }}/akamai-cloud/${{ inputs.account_alias }} LINODE_TOKEN | LINODE_TOKEN ;
+            kv/data/CICD/${{ inputs.vault_env_path }}/akamai-cloud/${{ inputs.account }} LINODE_TOKEN | LINODE_TOKEN ;
             kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
             kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
             kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;

@@ -51,3 +51,23 @@ export VAULT_ADDR=https://vault.svc.plus
 export VAULT_TOKEN='hvs.***'
 bash scripts/create_vault_service_repo_roles.sh
 ```
+
+## Akamai Cloud/Linode account-specific role
+
+The Akamai Cloud/Linode workflow uses the concrete account name or ID in both
+the Vault path and the JWT role name. `primary`, `default`, and `main` are not
+valid account values. Render and publish only the requested Akamai roles with:
+
+```bash
+export VAULT_ADDR=https://vault.svc.plus
+export VAULT_TOKEN='hvs.***'
+export AKAMAI_ACCOUNT_UAT='actual-uat-account'
+export AKAMAI_ACCOUNT_PROD='actual-prod-account'
+bash scripts/vault/bootstrap_akamai_oidc_roles.sh --apply --env all
+```
+
+The script uses the repository and workflow claim bindings, creates read-only
+policies for the account's `LINODE_TOKEN` record and environment state record,
+and does not write any secret value. Run
+`bootstrap_akamai_cloud_kv.sh --apply --env all` separately to write the
+`LINODE_TOKEN` value.
