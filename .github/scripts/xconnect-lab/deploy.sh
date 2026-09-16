@@ -402,7 +402,8 @@ ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- \
 probe_pid_file=''
 if [[ "$gateway_provider" == external ]]; then
   probe_pid_file="/run/xconnect-one-${run_id}.pid"
-  if ! ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$run_id" "$probe_pid_file" "$gateway_wireguard_ip" <<'START_PRIVATE_PROBE'
+  private_probe_status=0
+  ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$run_id" "$probe_pid_file" "$gateway_wireguard_ip" <<'START_PRIVATE_PROBE' || private_probe_status=$?
 set -euo pipefail
 run_id="$1"
 pid_file="$2"
@@ -428,20 +429,26 @@ if [[ "$address_ready" != 1 ]]; then
   exit 1
 fi
 
-sudo rm -rf "$probe_dir"
-sudo install -d -m 755 "$probe_dir"
-printf '%s\n' "$run_id" | sudo tee "$probe_dir/index.html" >/dev/null
-sudo sh -c "nohup python3 -m http.server 8080 --bind '$gateway_wireguard_ip' --directory '$probe_dir' >/run/xconnect-one-${run_id}.log 2>&1 & echo \$! > '$pid_file'"
+rm -rf "$probe_dir"
+install -d -m 755 "$probe_dir"
+printf '%s\n' "$run_id" > "$probe_dir/index.html"
+
+# The shell is executing over SSH.  Explicitly detach every standard stream so
+# the background HTTP probe cannot retain the SSH stdin pipe and block the
+# verification command from returning.
+setsid nohup python3 -m http.server 8080 --bind "$gateway_wireguard_ip" --directory "$probe_dir" \
+  </dev/null >"/run/xconnect-one-${run_id}.log" 2>&1 &
+printf '%s\n' "$!" > "$pid_file"
 for attempt in {1..10}; do
-  sudo ss -H -ltn4 | awk -v endpoint="$gateway_wireguard_ip:8080" '$4 == endpoint {found=1} END {exit !found}' && exit 0
+  ss -H -ltn4 | awk -v endpoint="$gateway_wireguard_ip:8080" '$4 == endpoint {found=1} END {exit !found}' && exit 0
   sleep 1
 done
-sudo cat "/run/xconnect-one-${run_id}.log" >&2 || true
+cat "/run/xconnect-one-${run_id}.log" >&2 || true
 echo 'private HTTP probe did not start' >&2
 exit 1
 START_PRIVATE_PROBE
-  then
-    echo 'Gateway private HTTP probe setup failed; collecting non-sensitive runtime state.' >&2
+  if [[ "$private_probe_status" != 0 ]]; then
+    echo "Gateway private HTTP probe setup failed (ssh_exit=${private_probe_status}); collecting non-sensitive runtime state." >&2
     ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s <<'GATEWAY_PRIVATE_PROBE_DIAGNOSTICS' || true
 set -euo pipefail
 ip -4 -o addr show dev xconzero0 2>/dev/null || true
@@ -456,11 +463,11 @@ set -euo pipefail
 run_id="$1"
 pid_file="$2"
 if [[ -s "$pid_file" ]]; then
-  pid=$(sudo cat "$pid_file" || true)
-  [[ "$pid" =~ ^[0-9]+$ ]] && sudo kill "$pid" 2>/dev/null || true
+  pid=$(cat "$pid_file" || true)
+  [[ "$pid" =~ ^[0-9]+$ ]] && kill "$pid" 2>/dev/null || true
 fi
-sudo rm -f "$pid_file" "/run/xconnect-one-${run_id}.log"
-sudo rm -rf "/run/xconnect-one-${run_id}"
+rm -f "$pid_file" "/run/xconnect-one-${run_id}.log"
+rm -rf "/run/xconnect-one-${run_id}"
 STOP_PRIVATE_PROBE
   }
   trap cleanup_private_probe EXIT
