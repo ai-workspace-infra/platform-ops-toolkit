@@ -13,6 +13,31 @@ spec.loader.exec_module(prepare)
 
 
 class CleanupBoundary(unittest.TestCase):
+    def test_backend_is_scoped_to_exact_lab_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            declaration = folder / 'declaration.json'
+            declaration.write_text(json.dumps({'spec': {'gateway_provider': 'external'}}))
+            environment = {
+                'TF_VAR_run_id': 'xcl-123-1',
+                'TF_STATE_BUCKET': 'state-bucket',
+                'TF_STATE_REGION': 'ap-northeast-1',
+                'TF_STATE_ENDPOINT': 'https://state.example',
+                'TF_STATE_ACCESS_KEY': 'access',
+                'TF_STATE_SECRET_KEY': 'secret',
+            }
+            with patch.dict(os.environ, environment, clear=False), patch('sys.argv',
+                    ['prepare', 'backend', directory, str(declaration)]):
+                prepare.main()
+            backend = json.loads((folder / 'backend.json').read_text())
+            self.assertEqual(
+                backend['key'],
+                'terraform/uat/svc.plus/aws-cloud/primary/xconnect-lab/xcl-123-1/terraform.tfstate')
+
+    def test_backend_refuses_non_lab_run_identifier(self):
+        with self.assertRaises(ValueError):
+            prepare.lab_state_key('../shared-state')
+
     def run_cleanup(self, root):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)

@@ -27,11 +27,19 @@ PUBLIC_EXPECTED_DEVICE_KEYS = {'darwin', 'windows'}
 PUBLIC_VERIFICATION_KEYS = {'target', 'expected_marker'}
 FORMAL_ACCOUNTS_URL = 'https://accounts-uat.onwalk.net'
 FORMAL_PORTAL_URL = 'https://console-serverless-uat.onwalk.net/panel/xconnect-zero'
+LAB_STATE_PREFIX = 'terraform/uat/svc.plus/aws-cloud/primary/xconnect-lab'
 
 
 def save(path, value):
     path.write_text(json.dumps(value))
     path.chmod(0o600)
+
+
+def lab_state_key(run):
+    """Return the isolated Terraform state key for one disposable lab run."""
+    if not re.fullmatch(r'xcl-[0-9]+-[0-9]+', run):
+        raise ValueError('run_id must be an exact xcl-GITHUB_RUN_ID-GITHUB_RUN_ATTEMPT value')
+    return f'{LAB_STATE_PREFIX}/{run}/terraform.tfstate'
 
 
 def validate_desktop_validation(spec, window):
@@ -304,7 +312,10 @@ def main():
     if action == 'backend':
         save(folder / 'backend.json', {
             'bucket': os.environ['TF_STATE_BUCKET'],
-            'key': 'terraform/uat/svc.plus/aws-cloud/primary/xconnect-lab/terraform.tfstate',
+            # A live Spot run keeps its own state until its explicit cleanup.
+            # Sharing this key made a later run replace the prior run's SG
+            # while its ENI remained attached, which AWS correctly rejects.
+            'key': lab_state_key(run),
             'region': os.environ['TF_STATE_REGION'],
             'endpoints': {'s3': os.environ['TF_STATE_ENDPOINT']},
             'access_key': os.environ['TF_STATE_ACCESS_KEY'],
