@@ -345,3 +345,32 @@ serviceAccount: 邮箱），再执行：
 
 不要把上述管理员 principal 写入 Vault bootstrap KV；Vault 只保存短期
 GCP_ACCESS_TOKEN 和 GCP_PROJECT_ID。权限补全后，再按 6.3 和 6.4 重新执行 UAT plan/apply。
+
+### 6.8 不要用 credentials.json 代替 bootstrap token
+
+不建议把临时最高权限的 `credentials.json` 写入
+`CICD/uat/gcp-bootstrap/xworktech` 或其他 KV 路径。该文件通常包含 GCP Service
+Account 私钥；Vault KV v2 保存的是版本化静态数据，不会因为 Vault 登录 token 的
+TTL 到期而自动删除数据。即使 `GCP_ACCESS_TOKEN` 已过期，KV 中的旧字符串仍可能存在；
+Service Account 私钥也不会因为 KV TTL 到期而在 GCP 中自动撤销。
+
+bootstrap KV 只保留以下最小字段：
+
+    GCP_ACCESS_TOKEN=<短期 OAuth access token，建议 TTL 不超过 1 小时>
+    GCP_PROJECT_ID=xworktech-open-platform-uat
+
+如果必须通过 HTTP API 写入，发送的只是上述字段，不是 JSON 私钥文件：
+
+    {"data":{"GCP_ACCESS_TOKEN":"<short-lived-oauth-token>","GCP_PROJECT_ID":"xworktech-open-platform-uat"}}
+
+bootstrap apply 成功后，立即删除或覆盖一次性 token，并保留 Vault 审计记录：
+
+    vault kv patch -mount=kv CICD/uat/gcp-bootstrap/xworktech GCP_ACCESS_TOKEN="REVOKED"
+
+然后由管理员在 GCP 侧确认该 token 已失效；不要把 access token、私钥或完整
+`credentials.json` 输出到 shell history、GitHub Actions 日志或 Git 仓库。
+
+正常的 Terraform 和部署流水线应使用 GitHub OIDC -> Workload Identity Federation
+-> 环境专属 Service Account，不使用长期 Service Account key。只有在明确的
+break-glass 场景下，才允许使用受限、可审计、设置过期时间的临时凭据；完成操作后
+必须立即禁用/删除对应凭据，并重新运行 OIDC smoke test。
