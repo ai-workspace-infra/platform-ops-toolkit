@@ -57,6 +57,16 @@ if [[ "$gateway_provider" != external ]]; then
   client_transport_endpoint="$gateway_private"
 fi
 
+# A managed external Gateway is addressed through its stable DNS name.  The
+# signed One config deliberately keeps that name as the VLESS/XHTTP remote
+# address so TLS SNI, certificate validation, and the configured XHTTP host
+# remain one coherent contract.  Its resolved IP is only a transport detail,
+# never a signed-config identity.
+client_xhttp_contract_endpoint="$client_transport_endpoint"
+if [[ "$gateway_provider" == external ]]; then
+  client_xhttp_contract_endpoint="$transport_server_name"
+fi
+
 wait_for_ssh() {
   local user="$1" host="$2" ready=false
   for attempt in {1..60}; do
@@ -551,7 +561,7 @@ echo 'linux_one_data_plane=valid'
 
 echo 'Verify: Linux One XHTTP runtime contract'
 if ! ssh "${CLIENT_SSH[@]}" "$client_user@$client" sudo bash -s -- \
-  one /var/lib/xconnect-one "$client_transport_endpoint" "$transport_server_name" "$xhttp_path" "$xhttp_mode" "$xhttp_host" \
+  one /var/lib/xconnect-one "$client_xhttp_contract_endpoint" "$transport_server_name" "$xhttp_path" "$xhttp_mode" "$xhttp_host" \
   < "$ROOT/.github/scripts/xconnect-lab/verify-xhttp-runtime.sh"; then
   echo 'Linux One XHTTP runtime contract verification failed.' >&2
   exit 1
