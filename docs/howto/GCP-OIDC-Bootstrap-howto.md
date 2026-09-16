@@ -69,12 +69,22 @@ Service Account JSON private key。
 
 ## 3. 写入 Vault KV v2
 
-先使用具备写权限的 Vault 管理员会话：
+先使用具备写权限的 Vault 管理员会话。脚本支持显式 `VAULT_TOKEN`，也支持直接复用
+`vault login` 保存的 CLI 会话；二选一即可：
 
 ```bash
 export VAULT_ADDR=https://vault.svc.plus
 export VAULT_TOKEN='<管理员token>'
 ```
+
+也可以不导出 `VAULT_TOKEN`，改为：
+
+```bash
+export VAULT_ADDR=https://vault.svc.plus
+vault login
+```
+
+此时脚本会使用 Vault CLI 会话读写 KV，不要求把管理员 token 放进环境变量。
 
 不要把 `VAULT_TOKEN` 或 `GCP_ACCESS_TOKEN` 提交到 Git 或发送到聊天中。
 
