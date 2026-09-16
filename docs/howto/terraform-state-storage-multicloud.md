@@ -42,9 +42,9 @@ terraform/<environment>/<project>/<cloud>/<account>/<workspace>/terraform.tfstat
 
 ```text
 terraform/uat/xworktech/gcp-cloud/xworktech/gcp-oidc-bootstrap/terraform.tfstate
-terraform/prod/platform-ops-toolkit/aws-cloud/primary/bootstrap-identity/terraform.tfstate
-terraform/uat/platform-ops-toolkit/azure-cloud/primary/bootstrap-identity/terraform.tfstate
-terraform/uat/svc.plus/akamai-cloud/primary/ai-workspace/terraform.tfstate
+terraform/prod/platform-ops-toolkit/aws-cloud/<aws-account>/bootstrap-identity/terraform.tfstate
+terraform/uat/platform-ops-toolkit/azure-cloud/<azure-account>/bootstrap-identity/terraform.tfstate
+terraform/uat/svc.plus/akamai-cloud/<akamai-account>/ai-workspace/terraform.tfstate
 ```
 
 其中：
