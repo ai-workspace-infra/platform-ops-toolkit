@@ -27,6 +27,18 @@ kv/uat/platform/oidc/<gcp_account_id>
 kv/prod/platform/oidc/<gcp_account_id>
 ```
 
+After GCP bootstrap, runtime IaC workflows authenticate with dedicated,
+read-only Vault JWT roles:
+
+```text
+github-actions-platform-ops-toolkit-uat-gcp-oidc-<gcp_account_id>
+github-actions-platform-ops-toolkit-prod-gcp-oidc-<gcp_account_id>
+```
+
+These roles can read only the matching environment's WIF provider, audience,
+project, and deploy Service Account record. They never read the bootstrap
+access token and never change AWS roles or policies.
+
 Review role and policy changes as security-sensitive changes. Do not store
 access tokens, private keys, or other secret values in this directory.
 

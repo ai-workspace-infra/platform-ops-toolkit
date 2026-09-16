@@ -44,6 +44,10 @@ on:
         description: "GitOps repo ref (branch/tag/sha) to use"
         type: string
         default: main
+      gcp_account_id:
+        description: "GCP account identifier used for Vault JWT/WIF authentication"
+        type: string
+        default: xworktech
   workflow_call:
     inputs:
       deploy_action:
@@ -73,6 +77,10 @@ on:
         type: string
         required: false
         default: main
+      gcp_account_id:
+        type: string
+        required: false
+        default: xworktech
 
 permissions:
   id-token: write
@@ -86,6 +94,7 @@ env:
   BASE_DIR: iac_modules/terraform-hcl-standard/${{ inputs.cloud_provider || github.event.inputs.cloud_provider || 'aws-cloud' }}/component/
   CONFIG_DIR: gitops/${{ inputs.project || github.event.inputs.project || 'svc.plus' }}/${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' && 'uat' || ((startsWith(github.ref, 'refs/heads/release/v') || startsWith(github.ref, 'refs/tags/v')) && 'prod' || 'sit')) || inputs.vault_env_path || github.event.inputs.vault_env_path || 'sit' }}/${{ inputs.cloud_provider || github.event.inputs.cloud_provider || 'aws-cloud' }}
   GITOPS_REPO_ROOT: gitops
+  GCP_ACCOUNT_ID: ${{ inputs.gcp_account_id || github.event.inputs.gcp_account_id || 'xworktech' }}
 
 jobs:
   terraform:
@@ -130,6 +139,13 @@ jobs:
         gitops_repo_name: ${{ inputs.gitops_repo_name || github.event.inputs.gitops_repo_name || 'https://github.com/cloud-neutral-workshop/gitops.git' }}
         gitops_repo_ref: ${{ inputs.gitops_repo_ref || github.event.inputs.gitops_repo_ref || 'main' }}
         gitops_target_path: ${{ env.GITOPS_REPO_ROOT }}
+
+    - name: Configure GCP credentials through Vault JWT and Google WIF
+      if: env.CLOUD_PROVIDER == 'gcp-cloud'
+      uses: ./.github/actions/configure-gcp-oidc
+      with:
+        environment: ${{ env.DEPLOY_ENV }}
+        account_id: ${{ env.GCP_ACCOUNT_ID }}
 
     - name: Load AWS config
       if: ${{ env.CLOUD_PROVIDER == 'aws-cloud' }}

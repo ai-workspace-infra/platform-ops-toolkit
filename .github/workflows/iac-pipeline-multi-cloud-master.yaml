@@ -54,6 +54,18 @@ on:
         description: "GitOps repo ref (branch/tag/sha) to use"
         type: string
         default: main
+      gcp_account_id:
+        description: "GCP account identifier used for the Vault JWT role"
+        type: string
+        default: xworktech
+      aws_region:
+        description: "AWS region used only when cloud_provider=aws-cloud"
+        type: string
+        default: ap-northeast-1
+      aws_role_arn:
+        description: "AWS OIDC role used only when cloud_provider=aws-cloud"
+        type: string
+        default: ''
 
 permissions:
   id-token: write
@@ -91,6 +103,9 @@ jobs:
       cloud_provider: ${{ inputs.cloud_provider }}
       gitops_repo_name: ${{ inputs.gitops_repo_name || 'https://github.com/cloud-neutral-workshop/gitops.git' }}
       gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
+      gcp_account_id: ${{ inputs.gcp_account_id || 'xworktech' }}
+      aws_region: ${{ inputs.aws_region || 'ap-northeast-1' }}
+      aws_role_arn: ${{ inputs.aws_role_arn || '' }}
 
   account:
     needs: [landingzone, prepare-matrix]
@@ -108,6 +123,7 @@ jobs:
       components_json: ${{ needs.prepare-matrix.outputs.account_components }}
       gitops_repo_name: ${{ inputs.gitops_repo_name || 'https://github.com/cloud-neutral-workshop/gitops.git' }}
       gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
+      gcp_account_id: ${{ inputs.gcp_account_id || 'xworktech' }}
     secrets: inherit
 
   resources:
@@ -126,4 +142,7 @@ jobs:
       components_json: ${{ needs.prepare-matrix.outputs.resources_components }}
       gitops_repo_name: ${{ inputs.gitops_repo_name || 'https://github.com/cloud-neutral-workshop/gitops.git' }}
       gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
+      gcp_account_id: ${{ inputs.gcp_account_id || 'xworktech' }}
+      aws_region: ${{ inputs.aws_region || 'ap-northeast-1' }}
+      aws_role_arn: ${{ inputs.aws_role_arn || '' }}
     secrets: inherit

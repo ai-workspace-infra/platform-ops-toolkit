@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: faa155477e1a3f8234ec4b8ad0f4c4602931870c
+          ref: 4811944efccbb2974d45ebdc53de7cf23b4846e6
           path: iac_modules
 
       - name: Resolve and validate GitOps GCP OIDC declaration
@@ -125,6 +125,7 @@ jobs:
           PROVIDER_ID: ${{ steps.config.outputs.provider_id }}
           AUDIENCE: ${{ steps.config.outputs.audience }}
           SERVICE_ACCOUNT_ID: ${{ steps.config.outputs.service_account_id }}
+          SUBJECTS_JSON: ${{ steps.config.outputs.subjects_json }}
         run: |
           ruby -rjson -e 'puts JSON.pretty_generate({
             project_id: ENV.fetch("PROJECT_ID"),
@@ -134,7 +135,8 @@ jobs:
             pool_id: ENV.fetch("POOL_ID"),
             provider_id: ENV.fetch("PROVIDER_ID"),
             audience: ENV.fetch("AUDIENCE"),
-            deploy_service_account_id: ENV.fetch("SERVICE_ACCOUNT_ID")
+            deploy_service_account_id: ENV.fetch("SERVICE_ACCOUNT_ID"),
+            allowed_subjects: JSON.parse(ENV.fetch("SUBJECTS_JSON"))
           })' > "${TFVARS_FILE}"
 
       - name: Set up Terraform
@@ -225,9 +227,10 @@ jobs:
           PROJECT_ID: ${{ steps.config.outputs.project_id }}
           PROVIDER: ${{ steps.terraform_outputs.outputs.provider_resource_name }}
           SERVICE_ACCOUNT: ${{ steps.terraform_outputs.outputs.service_account_email }}
+          AUDIENCE: ${{ steps.config.outputs.audience }}
         run: |
-          payload="$(jq -n --arg provider "${PROVIDER}" --arg account "${SERVICE_ACCOUNT}" --arg project "${PROJECT_ID}" \
-            '{data:{gcp_workload_identity_provider:$provider,deploy_service_account:$account,project_id:$project}}')"
+          payload="$(jq -n --arg provider "${PROVIDER}" --arg account "${SERVICE_ACCOUNT}" --arg project "${PROJECT_ID}" --arg audience "${AUDIENCE}" \
+            '{data:{gcp_workload_identity_provider:$provider,deploy_service_account:$account,gcp_oidc_audience:$audience,project_id:$project}}')"
           curl --fail --silent --show-error --request POST \
             --header "X-Vault-Token: ${VAULT_TOKEN}" --header 'Content-Type: application/json' \
           --data "${payload}" "${VAULT_ADDR}/v1/kv/data/${ENVIRONMENT}/platform/oidc/${ACCOUNT_ID}"

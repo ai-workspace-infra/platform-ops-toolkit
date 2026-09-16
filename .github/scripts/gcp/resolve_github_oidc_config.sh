@@ -61,6 +61,7 @@ values = {
   "provider_id" => spec.fetch("provider_id"),
   "audience" => spec.fetch("audience"),
   "service_account_id" => spec.fetch("service_account_id"),
+  "subjects_json" => JSON.generate(spec.fetch("subjects")),
   "state_bucket" => spec.dig("state", "bucket"),
   "state_key" => spec.dig("state", "key")
 }
