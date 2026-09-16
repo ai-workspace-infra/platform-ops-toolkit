@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: fb540d546f626e08f8fd1698e1bb46a808043ed6
+          ref: faa155477e1a3f8234ec4b8ad0f4c4602931870c
           path: iac_modules
 
       - name: Resolve and validate GitOps GCP OIDC declaration
@@ -84,6 +84,36 @@ jobs:
           VAULT_PROJECT_ID: ${{ steps.vault.outputs.GCP_PROJECT_ID }}
           DECLARED_PROJECT_ID: ${{ steps.config.outputs.project_id }}
         run: test "${VAULT_PROJECT_ID}" = "${DECLARED_PROJECT_ID}"
+
+      - name: Verify GCP bootstrap permissions
+        env:
+          ACCESS_TOKEN: ${{ steps.vault.outputs.GCP_ACCESS_TOKEN }}
+          PROJECT_ID: ${{ steps.config.outputs.project_id }}
+        run: |
+          required_permissions='[
+            "iam.workloadIdentityPools.create",
+            "iam.workloadIdentityPoolProviders.create",
+            "iam.serviceAccounts.create",
+            "iam.serviceAccounts.setIamPolicy",
+            "resourcemanager.projects.setIamPolicy",
+            "serviceusage.services.enable"
+          ]'
+          request_body="$(jq -nc --argjson permissions "${required_permissions}" '{permissions:$permissions}')"
+          response="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer ${ACCESS_TOKEN}" \
+            --header 'Content-Type: application/json' \
+            --request POST \
+            --data "${request_body}" \
+            "https://cloudresourcemanager.googleapis.com/v1/projects/${PROJECT_ID}:testIamPermissions")"
+          missing="$(jq -r --argjson required "${required_permissions}" \
+            '(.permissions // []) as $granted | ($required - $granted)[]' <<<"${response}")"
+          if [[ -n "${missing}" ]]; then
+            echo "::error::GCP bootstrap principal is missing required permissions in ${PROJECT_ID}:"
+            printf ' - %s\n' ${missing}
+            echo 'Grant the roles listed in the GCP OIDC bootstrap how-to using an existing project administrator, then retry UAT.'
+            exit 1
+          fi
+          echo "GCP bootstrap permissions: OK (${PROJECT_ID})"
 
       - name: Write Terraform input file
         env:
