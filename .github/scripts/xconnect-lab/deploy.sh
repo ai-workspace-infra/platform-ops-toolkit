@@ -391,9 +391,14 @@ if ip link show xconzero0 >/dev/null 2>&1; then echo 'gateway_wireguard_interfac
 GATEWAY_EARLY_FAILURE_DIAGNOSTICS
   exit 1
 fi
-ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- \
+echo 'Verify: Gateway XHTTP runtime contract'
+if ! ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- \
   gateway /var/lib/xconnect-gateway/runtime/xray.json - "$transport_server_name" "$xhttp_path" "$xhttp_mode" "$xhttp_host" \
-  < "$ROOT/.github/scripts/xconnect-lab/verify-xhttp-runtime.sh"
+  < "$ROOT/.github/scripts/xconnect-lab/verify-xhttp-runtime.sh"; then
+  echo 'Gateway XHTTP runtime contract verification failed.' >&2
+  exit 1
+fi
+echo 'gateway_xhttp_runtime=valid'
 
 # The persistent external Gateway is not a lab-owned application host. For
 # the private HTTP assertion only, expose a run-scoped marker on its existing
@@ -462,6 +467,7 @@ systemctl is-active xconnect-gateway-xray.service || true
 GATEWAY_PRIVATE_PROBE_DIAGNOSTICS
     exit 1
   fi
+  echo 'gateway_private_http_probe=ready'
   cleanup_private_probe() {
     ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$run_id" "$probe_pid_file" <<'STOP_PRIVATE_PROBE' || true
 set -euo pipefail
@@ -482,6 +488,7 @@ gateway_ca_sha256='system-public-ca'
 if [[ "$gateway_provider" != external ]]; then
   gateway_ca_sha256=$(sha256sum "$LAB_DIR/tls/gateway-ca.crt" | awk '{print $1}')
 fi
+echo 'Verify: Linux One signed config, private reachability and ACK'
 if ! ssh "${CLIENT_SSH[@]}" "$client_user@$client" sudo bash -s -- "$run_id" "$client_transport_endpoint" "$gateway_public_key" "$client_id" "$network_id" "$transport_server_name" "$gateway_wireguard_ip" "$gateway_ca_sha256" <<'CLIENT_VERIFY'
 set -euo pipefail
 client_failure() {
@@ -540,12 +547,19 @@ echo "gateway_wireguard_handshake_age_seconds=$handshake_age"
 GATEWAY_FAILURE_DIAGNOSTICS
   exit 1
 fi
+echo 'linux_one_data_plane=valid'
 
-ssh "${CLIENT_SSH[@]}" "$client_user@$client" sudo bash -s -- \
+echo 'Verify: Linux One XHTTP runtime contract'
+if ! ssh "${CLIENT_SSH[@]}" "$client_user@$client" sudo bash -s -- \
   one /var/lib/xconnect-one "$client_transport_endpoint" "$transport_server_name" "$xhttp_path" "$xhttp_mode" "$xhttp_host" \
-  < "$ROOT/.github/scripts/xconnect-lab/verify-xhttp-runtime.sh"
+  < "$ROOT/.github/scripts/xconnect-lab/verify-xhttp-runtime.sh"; then
+  echo 'Linux One XHTTP runtime contract verification failed.' >&2
+  exit 1
+fi
+echo 'linux_one_xhttp_runtime=valid'
 
-ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$client_public_key" "$gateway_id" "$network_id" "$formal_zero" "$client_wireguard_ip" <<'RELAY_VERIFY'
+echo 'Verify: Gateway exact peer, signed state and route'
+if ! ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$client_public_key" "$gateway_id" "$network_id" "$formal_zero" "$client_wireguard_ip" <<'RELAY_VERIFY'
 set -euo pipefail
 wg show xconzero0 latest-handshakes | awk -v peer="$1" -v now="$(date +%s)" '$1 == peer && $2 > 0 && now-$2 >= 0 && now-$2 < 180 {ok=1} END {exit !ok}'
 jq -e --arg gateway "$2" --arg network "$3" --arg controller "$4" \
@@ -553,6 +567,17 @@ jq -e --arg gateway "$2" --arg network "$3" --arg controller "$4" \
   /var/lib/xconnect-gateway/state.json >/dev/null
 ip route get "$5" | grep -Fq 'dev xconzero0'
 RELAY_VERIFY
+then
+  echo 'Gateway exact peer, signed state or route verification failed.' >&2
+  ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$client_public_key" <<'RELAY_FAILURE_DIAGNOSTICS' || true
+set -euo pipefail
+wg show xconzero0 latest-handshakes || true
+ip -4 route show dev xconzero0 || true
+test -f /var/lib/xconnect-gateway/state.json && jq -c '{gateway_id,network_id,controller,applied_generation,applied_config_id}' /var/lib/xconnect-gateway/state.json || true
+RELAY_FAILURE_DIAGNOSTICS
+  exit 1
+fi
+echo 'gateway_exact_peer=valid'
 
 echo 'PASS: formal UAT Accounts enrollment, released Gateway and Linux One, signed sync/ACK, external Xray/WireGuard, private ping/HTTP and exact-peer handshake on both sides.'
 echo 'Not covered by Linux PASS: authenticated Portal data, macOS/Windows private HTTP, or policy enforcement/revocation.'
