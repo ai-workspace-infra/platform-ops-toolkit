@@ -19,6 +19,10 @@ S3_SECRET_KEY = os.environ.get("S3_SECRET_KEY", "")
 S3_ENDPOINT = os.environ.get("S3_ENDPOINT", "")
 S3_REGION = os.environ.get("S3_REGION", "")
 S3_PREFIX = os.environ.get("S3_PREFIX", "vault-backups")
+VAULT_IAC_STATE_PATH = os.environ.get(
+    "VAULT_IAC_STATE_PATH",
+    f"CICD/{os.environ.get('VAULT_ENV_PATH', 'prod')}/iac_state",
+)
 
 # Fallback token locations
 if not VAULT_TOKEN:
@@ -107,10 +111,10 @@ def main():
     # 1. Fetch S3 config from Vault if not defined in Env
     global S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY, S3_ENDPOINT, S3_REGION
     if not S3_BUCKET or not S3_ACCESS_KEY or not S3_SECRET_KEY:
-        print("[INFO] Fetching S3 configurations dynamically from Vault kv/CICD...")
-        s3_secrets = get_secret("kv", 2, "CICD")
+        print(f"[INFO] Fetching S3 configurations dynamically from Vault {VAULT_IAC_STATE_PATH}...")
+        s3_secrets = get_secret("kv", 2, VAULT_IAC_STATE_PATH.removeprefix("kv/"))
         if not s3_secrets:
-            print("[FATAL] Could not retrieve S3 config from Vault kv/CICD.", file=sys.stderr)
+            print(f"[FATAL] Could not retrieve S3 config from Vault {VAULT_IAC_STATE_PATH}.", file=sys.stderr)
             sys.exit(1)
         S3_BUCKET = s3_secrets.get("TF_STATE_BUCKET", S3_BUCKET)
         S3_ACCESS_KEY = s3_secrets.get("TF_STATE_ACCESS_KEY", S3_ACCESS_KEY)

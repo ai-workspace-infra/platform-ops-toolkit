@@ -8,7 +8,7 @@ state_api() {
     AWS_SESSION_TOKEN='' AWS_REGION="$TF_STATE_REGION" \
     aws --endpoint-url "$TF_STATE_ENDPOINT" s3api "$@" > "$LAB_DIR/state-api.log" 2>&1
 }
-prefix=uat/xconnect-lab/_leases
+prefix=runs/uat/svc.plus/aws-cloud/primary/xconnect-lab
 case "${1:?}" in
   create)
     run="$(<"$LAB_DIR/run-id")"
@@ -29,7 +29,7 @@ case "${1:?}" in
     state_api list-objects-v2 --bucket "$TF_STATE_BUCKET" --prefix "$prefix/"
     jq -r '.Contents[]?.Key' "$LAB_DIR/state-api.log" > "$LAB_DIR/keys"
     while IFS= read -r key; do
-      [[ "$key" =~ ^uat/xconnect-lab/_leases/xcl-[0-9]+-[0-9]+\.json$ ]] || exit 1
+      [[ "$key" =~ ^runs/uat/svc\.plus/aws-cloud/primary/xconnect-lab/xcl-[0-9]+-[0-9]+\.json$ ]] || exit 1
       state_api get-object --bucket "$TF_STATE_BUCKET" --key "$key" "$LAB_DIR/lease.json"
       jq -e --arg key "$key" '.run | test("^xcl-[0-9]+-[0-9]+$")' "$LAB_DIR/lease.json" >/dev/null
       run="$(jq -r .run "$LAB_DIR/lease.json")"

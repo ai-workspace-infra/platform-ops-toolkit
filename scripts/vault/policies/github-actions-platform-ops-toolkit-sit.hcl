@@ -34,6 +34,12 @@ path "kv/data/CICD/sit" {
 path "kv/metadata/CICD/sit" {
   capabilities = ["list", "read"]
 }
+path "kv/data/CICD/sit/iac_state" {
+  capabilities = ["read"]
+}
+path "kv/metadata/CICD/sit/iac_state" {
+  capabilities = ["read"]
+}
 path "kv/data/sit/*" {
   capabilities = ["create", "read", "update", "delete", "list"]
 }

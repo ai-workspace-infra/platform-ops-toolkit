@@ -6,15 +6,15 @@ S3-compatible Terraform state 服务。Terraform backend 不按云厂商切换�
 
 GCP、AWS、Azure bootstrap role 都是长期保留的云控制面身份。它们负责各自云的
 bootstrap 和后续 Landing Zone 权限，不负责创建或删除 state 服务。state 服务只配置
-一套，连接信息统一从 Vault `CICD` 记录读取。
+一套，连接信息按环境从 Vault `CICD/<env>/iac_state` 记录读取。
 
 ## Vault 合约
 
-Vault 使用 KV v2 mount `kv`，state 连接信息存放在根记录：
+Vault 使用 KV v2 mount `kv`，state 连接信息按环境存放：
 
 ```text
-CLI:  vault kv get -mount=kv CICD
-API:  /v1/kv/data/CICD
+CLI:  vault kv get -mount=kv CICD/<env>/iac_state
+API:  /v1/kv/data/CICD/<env>/iac_state
 ```
 
 最小字段：
@@ -35,23 +35,24 @@ Git、GitHub Variables 或 Terraform 配置文件。
 所有 state object key 使用以下格式：
 
 ```text
-<environment>/<project-or-account>/<cloud>/<workspace>/terraform.tfstate
+terraform/<environment>/<project>/<cloud>/<account>/<workspace>/terraform.tfstate
 ```
 
 示例：
 
 ```text
-uat/xworktech/gcp/gcp-oidc-bootstrap/terraform.tfstate
-prod/xworktech/gcp/gcp-oidc-bootstrap/terraform.tfstate
-prod/platform-ops-toolkit/aws/bootstrap-identity/terraform.tfstate
-uat/platform-ops-toolkit/azure/bootstrap-identity/terraform.tfstate
+terraform/uat/xworktech/gcp-cloud/xworktech/gcp-oidc-bootstrap/terraform.tfstate
+terraform/prod/platform-ops-toolkit/aws-cloud/primary/bootstrap-identity/terraform.tfstate
+terraform/uat/platform-ops-toolkit/azure-cloud/primary/bootstrap-identity/terraform.tfstate
+terraform/uat/svc.plus/akamai-cloud/primary/ai-workspace/terraform.tfstate
 ```
 
 其中：
 
 - `environment`：`dev`、`sit`、`uat`、`prod`；
-- `project-or-account`：云账号、项目或订阅的稳定可读标识；
-- `cloud`：固定为 `gcp`、`aws` 或 `azure`；
+- `project`：GitOps 项目或基础域名；
+- `cloud`：固定 provider ID，例如 `gcp-cloud`、`aws-cloud`、`akamai-cloud`；
+- `account`：云账号、项目或订阅的稳定可读标识；
 - `workspace`：具体 Terraform 管理边界，不使用共享 workspace。
 
 Bootstrap role 的保留规则：
@@ -63,7 +64,7 @@ Bootstrap role 的保留规则：
 - 角色权限可以更新，旧 role 只有在完成替代、迁移和审计后才能由独立清理变更删除；
 - `create_vault_service_repo_roles.sh` 只清理明确列入 deprecated allowlist 的旧 role。
 
-同一 environment、项目/账号、cloud、workspace 只能有一个 canonical key。迁移旧 state
+同一 environment、project、cloud、account、workspace 只能有一个 canonical key。迁移旧 state
 时必须先登记旧 key 和新 key，不能直接覆盖未知对象。
 
 ## Workflow 约定
@@ -72,7 +73,7 @@ Bootstrap role 的保留规则：
 
 ```text
 Vault JWT login
-  -> read kv/data/CICD
+  -> read kv/data/CICD/<env>/iac_state
   -> validate all TF_STATE_* fields
   -> terraform init with S3 backend
   -> terraform plan/apply
@@ -91,6 +92,7 @@ skip_credentials_validation=true
 skip_metadata_api_check=true
 skip_region_validation=true
 use_path_style=true
+use_lockfile=true
 ```
 
 GCP bootstrap 的短期 `GCP_ACCESS_TOKEN` 只用于 GCP provider；AWS/Azure bootstrap 的
@@ -111,4 +113,17 @@ Vault role 按环境限制读取范围；state 服务侧同时按 bucket/prefix 
 ## 当前 GCP bootstrap
 
 GCP OIDC bootstrap 使用 GitOps 声明中的环境/账号 state key，但 bucket 和连接信息统一从
-`kv/data/CICD` 读取。对应 workflow 不再使用 `backend "gcs"`。
+`kv/data/CICD/<env>/iac_state` 读取。对应 workflow 不再使用 `backend "gcs"`。
+
+## External providers
+
+`ucloud`、`ulighthost` 等没有 Terraform provider 的平台不创建 `tfstate`。它们只在
+同一个 bucket 写入以下对象：
+
+```text
+inventory/<environment>/<project>/<cloud>/<account>/<workspace>.json
+runs/<environment>/<project>/<cloud>/<account>/<workspace>/<run-id>.json
+```
+
+GitOps 声明必须含有 `management_mode: existing`、`provisioner: ansible` 与
+`lifecycle: external`；external adapter 不允许运行 Terraform 或创建、销毁资源。

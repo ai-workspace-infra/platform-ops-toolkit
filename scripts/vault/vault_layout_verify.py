@@ -4,7 +4,7 @@
 把 docs/vault/kv_tier_model.md 里那张分层表变成可执行断言:
 
   ① 公共服务   kv/data/CICD, openclaw, action-runner   三环境共读, 只读不可改
-  ② 基础凭据   kv/data/CICD/<env>                      仅本环境可读, 只读
+  ② 基础凭据   kv/data/CICD/<env> + /iac_state          仅本环境可读, 只读
   ③ 环境业务   kv/data/<env>/*                         仅本环境可读写 (prod 无 delete)
 
 只调用 `vault policy read`, 不做任何写操作, 也不读取任何密钥值。
@@ -109,6 +109,21 @@ def main():
             leaked = other_path in p
             check(not leaked, f"② 读不到 {other} 的基础凭据",
                   f"策略中出现了 {other_path}: {sorted(p.get(other_path, set()))}" if leaked else "")
+
+        # Terraform state credentials have their own contract and must remain
+        # isolated by environment just like provider credentials.
+        own_state = f"kv/data/CICD/{env}/iac_state"
+        state_caps = p.get(own_state, set())
+        check("read" in state_caps, f"② 可读本环境 Terraform state 凭据 {own_state}")
+        check(not (state_caps & WRITE_CAPS), f"② {own_state} 只读不可改",
+              f"发现写权限: {sorted(state_caps & WRITE_CAPS)}" if state_caps & WRITE_CAPS else "")
+        for other in ENVS:
+            if other == env:
+                continue
+            other_state = f"kv/data/CICD/{other}/iac_state"
+            leaked = other_state in p
+            check(not leaked, f"② 读不到 {other} 的 Terraform state 凭据",
+                  f"策略中出现了 {other_state}: {sorted(p.get(other_state, set()))}" if leaked else "")
 
         # 通配符不能把子路径一并放行 (kv/data/CICD/* 会击穿②的隔离)
         wildcard = "kv/data/CICD/*"

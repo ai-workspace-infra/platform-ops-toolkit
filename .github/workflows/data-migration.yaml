@@ -632,6 +632,7 @@ jobs:
       ANSIBLE_SSH_ARGS: "-o IdentityFile=~/.ssh/id_deploy -o StrictHostKeyChecking=no"
       VAULT_ROLE: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'sit' }}
       VAULT_KV_BASE: kv/data/CICD/${{ inputs.vault_env_path || 'sit' }}
+      VAULT_KV_IAC_STATE: kv/data/CICD/${{ inputs.vault_env_path || 'sit' }}/iac_state
     steps:
     - name: Download CMDB
       uses: actions/download-artifact@v8
@@ -668,11 +669,11 @@ jobs:
         ignoreNotFound: true
         secrets: |
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
-          ${{ env.VAULT_KV_BASE }} TF_STATE_BUCKET     | MIGRATION_S3_BUCKET ;
-          ${{ env.VAULT_KV_BASE }} TF_STATE_ACCESS_KEY | MIGRATION_S3_ACCESS_KEY ;
-          ${{ env.VAULT_KV_BASE }} TF_STATE_SECRET_KEY | MIGRATION_S3_SECRET_KEY ;
-          ${{ env.VAULT_KV_BASE }} TF_STATE_REGION     | MIGRATION_S3_REGION ;
-          ${{ env.VAULT_KV_BASE }} TF_STATE_ENDPOINT   | MIGRATION_S3_ENDPOINT ;
+          ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_BUCKET     | MIGRATION_S3_BUCKET ;
+          ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_ACCESS_KEY | MIGRATION_S3_ACCESS_KEY ;
+          ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_SECRET_KEY | MIGRATION_S3_SECRET_KEY ;
+          ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_REGION     | MIGRATION_S3_REGION ;
+          ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_ENDPOINT   | MIGRATION_S3_ENDPOINT ;
 
     - name: Configure migration SSH
       uses: ./.github/actions/setup-deployment-runner

@@ -50,7 +50,7 @@ echo "[INFO] 备份完成！"
 
 项目下新版备份脚本位于 [backup_postgres.sh](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/scripts/backup/backup_postgres.sh)。该脚本会执行以下流程：
 1. 运行 Python 辅助脚本，以 JWT 认证或 Token 方式登录 Vault (`https://vault.svc.plus`)。
-2. 从 Vault 秘密路径 `kv/CICD` 中动态拉取 S3 对象存储凭证（`TF_STATE_BUCKET`, `TF_STATE_ACCESS_KEY`, `TF_STATE_SECRET_KEY`, `TF_STATE_ENDPOINT`, `TF_STATE_REGION`）。
+2. 从 Vault 秘密路径 `kv/CICD/<env>/iac_state` 中动态拉取 S3 对象存储凭证（`TF_STATE_BUCKET`, `TF_STATE_ACCESS_KEY`, `TF_STATE_SECRET_KEY`, `TF_STATE_ENDPOINT`, `TF_STATE_REGION`）。
 3. 使用 `pg_dump` 对 `postgresql-svc-plus` 里的每一个数据库做逻辑备份。
 4. 使用 `openssl` 对导出的备份包执行高强度的对称加密（AES-256-CBC，PBKDF2 派生密钥）。
 5. 调用 `aws s3 cp` 命令将加密后的冷备文件上传到指定的 S3 桶。

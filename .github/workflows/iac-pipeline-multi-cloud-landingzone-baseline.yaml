@@ -39,6 +39,11 @@ on:
         type: choice
         required: true
         options: [aws-cloud, gcp-cloud, azure-cloud, vultr-vps]
+      state_account:
+        description: "Canonical state account segment"
+        type: string
+        required: false
+        default: default
       gitops_repo_name:
         description: "GitOps repository (URL or owner/repo)"
         type: string
@@ -88,6 +93,10 @@ on:
       cloud_provider:
         type: string
         required: true
+      state_account:
+        type: string
+        required: false
+        default: default
       gitops_repo_name:
         type: string
         required: false
@@ -128,6 +137,7 @@ env:
   AWS_REGION: ${{ inputs.aws_region || github.event.inputs.aws_region || 'ap-northeast-1' }}
   AWS_ROLE_ARN: ${{ inputs.aws_role_arn || github.event.inputs.aws_role_arn || vars.AWS_IAC_ROLE_ARN }}
   GCP_ACCOUNT_ID: ${{ inputs.gcp_account_id || github.event.inputs.gcp_account_id || 'xworktech' }}
+  STATE_ACCOUNT: ${{ inputs.state_account || github.event.inputs.state_account || 'default' }}
   GITOPS_REPO_ROOT: gitops
   TF_WORKDIR: iac_modules/terraform-hcl-standard/${{ inputs.cloud_provider || github.event.inputs.cloud_provider || 'aws-cloud' }}/component/landingzone
   CONFIG_DIR: gitops/${{ inputs.project || github.event.inputs.project || 'svc.plus' }}/${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' && 'uat' || ((startsWith(github.ref, 'refs/heads/release/v') || startsWith(github.ref, 'refs/tags/v')) && 'prod' || 'sit')) || inputs.vault_env_path || github.event.inputs.vault_env_path || 'sit' }}/${{ inputs.cloud_provider || github.event.inputs.cloud_provider || 'aws-cloud' }}
@@ -156,14 +166,12 @@ jobs:
         method: jwt
         role: github-actions-platform-ops-toolkit-${{ env.DEPLOY_ENV }}
         jwtGithubAudience: vault
-        ignoreNotFound: true
-        exportToken: true
         secrets: |
-          kv/data/CICD TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
-          kv/data/CICD TF_STATE_BUCKET | TF_STATE_BUCKET ;
-          kv/data/CICD TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
-          kv/data/CICD TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
-          kv/data/CICD TF_STATE_REGION | TF_STATE_REGION
+          kv/data/CICD/${{ env.DEPLOY_ENV }}/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
+          kv/data/CICD/${{ env.DEPLOY_ENV }}/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
+          kv/data/CICD/${{ env.DEPLOY_ENV }}/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+          kv/data/CICD/${{ env.DEPLOY_ENV }}/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+          kv/data/CICD/${{ env.DEPLOY_ENV }}/iac_state TF_STATE_REGION | TF_STATE_REGION
 
     - name: Setup IaC Environment
       uses: ./.github/actions/setup-iac-env
@@ -186,7 +194,7 @@ jobs:
         TF_CLI_ARGS_init: >-
           -backend-config="endpoint=${{ steps.vault.outputs.TF_STATE_ENDPOINT }}"
           -backend-config="bucket=${{ steps.vault.outputs.TF_STATE_BUCKET }}"
-          -backend-config="key=${{ env.PROJECT }}/${{ env.DEPLOY_ENV }}/${{ env.CLOUD_PROVIDER }}/landingzone/terraform.tfstate"
+          -backend-config="key=terraform/${{ env.DEPLOY_ENV }}/${{ env.PROJECT }}/${{ env.CLOUD_PROVIDER }}/${{ env.STATE_ACCOUNT }}/landingzone/terraform.tfstate"
           -backend-config="access_key=${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}"
           -backend-config="secret_key=${{ steps.vault.outputs.TF_STATE_SECRET_KEY }}"
           -backend-config="region=${{ steps.vault.outputs.TF_STATE_REGION }}"
@@ -194,6 +202,7 @@ jobs:
           -backend-config="skip_metadata_api_check=true"
           -backend-config="skip_region_validation=true"
           -backend-config="use_path_style=true"
+          -backend-config="use_lockfile=true"
       uses: ./.github/actions/terraform-command
       with:
         command: init

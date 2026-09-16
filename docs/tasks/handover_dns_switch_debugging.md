@@ -135,7 +135,7 @@ gh workflow run platform-ops.yaml --repo ai-workspace-infra/platform-ops-toolkit
 - web-saas 业务密钥 + stunnel 证书:`kv/data/WEB_SAAS`
 - Cloudflare(DNS 切换):`kv/data/CICD` 根路径,键 `CLOUDFLARE_API_TOKEN`
   (resize-instance.yaml 已指向此路径)
-- 基础凭据(VULTR_API_KEY / TF_STATE_* / SSH):`kv/data/CICD/<env>`
+- 基础凭据(VULTR_API_KEY / SSH):`kv/data/CICD/<env>`；Terraform state 凭据(`TF_STATE_*`):`kv/data/CICD/<env>/iac_state`
 - GITOPS_TOKEN(CD 写 gitops):`kv/data/CICD/<env>`,公开仓库故设计为可选
 
 ## 安全:仍待用户手动处理(见 2026-07-24-secret-leak-ledger.md)

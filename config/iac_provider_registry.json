@@ -1,0 +1,44 @@
+{
+  "aws-cloud": {
+    "provisioner": "terraform",
+    "gitops_provider": "aws-cloud",
+    "terraform_tree": "aws-cloud",
+    "credential_mode": "aws-oidc"
+  },
+  "gcp-cloud": {
+    "provisioner": "terraform",
+    "gitops_provider": "gcp",
+    "terraform_tree": "gcp-cloud",
+    "credential_mode": "gcp-wif-vault"
+  },
+  "azure-cloud": {
+    "provisioner": "terraform",
+    "gitops_provider": "azure-cloud",
+    "terraform_tree": "azure-cloud",
+    "credential_mode": "azure-federated-identity"
+  },
+  "vultr-vps": {
+    "provisioner": "terraform",
+    "gitops_provider": "vultr",
+    "terraform_tree": "vultr-vps",
+    "credential_mode": "vault-vultr-token"
+  },
+  "akamai-cloud": {
+    "provisioner": "terraform",
+    "gitops_provider": "akamai",
+    "terraform_tree": "akamai-cloud",
+    "credential_mode": "vault-linode-token"
+  },
+  "ucloud": {
+    "provisioner": "existing",
+    "gitops_provider": "ucloud",
+    "terraform_tree": null,
+    "credential_mode": "vault-existing-host-facts"
+  },
+  "ulighthost": {
+    "provisioner": "existing",
+    "gitops_provider": "ulighthost",
+    "terraform_tree": null,
+    "credential_mode": "vault-existing-host-facts"
+  }
+}

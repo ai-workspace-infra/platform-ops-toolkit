@@ -20,13 +20,21 @@ generate_render() {
 
 terraform_init() {
   load_common_env
-  require_env VAULT_ENV_PATH TF_STATE_BUCKET TF_STATE_REGION
+  require_env VAULT_ENV_PATH TF_STATE_ENDPOINT TF_STATE_BUCKET TF_STATE_ACCESS_KEY TF_STATE_SECRET_KEY TF_STATE_REGION
 
   VAULT_ENV_PATH="${VAULT_ENV_PATH:-uat}"
   terraform init -input=false \
+    -backend-config="endpoint=${TF_STATE_ENDPOINT}" \
     -backend-config="bucket=${TF_STATE_BUCKET}" \
-    -backend-config="key=action-runner-${VAULT_ENV_PATH}/terraform.tfstate" \
-    -backend-config="region=${TF_STATE_REGION}"
+    -backend-config="key=terraform/${VAULT_ENV_PATH}/platform-ops-toolkit/vultr-vps/primary/action-runner/terraform.tfstate" \
+    -backend-config="access_key=${TF_STATE_ACCESS_KEY}" \
+    -backend-config="secret_key=${TF_STATE_SECRET_KEY}" \
+    -backend-config="region=${TF_STATE_REGION}" \
+    -backend-config="skip_credentials_validation=true" \
+    -backend-config="skip_metadata_api_check=true" \
+    -backend-config="skip_region_validation=true" \
+    -backend-config="use_path_style=true" \
+    -backend-config="use_lockfile=true"
 }
 
 terraform_action() {

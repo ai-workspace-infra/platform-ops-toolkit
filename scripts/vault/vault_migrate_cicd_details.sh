@@ -3,7 +3,8 @@ set -euo pipefail
 
 # Migrate KV v2 secret kv/CICD version 40 into:
 #   kv/CICD                 shared credentials
-#   kv/CICD/{sit,uat,prod}  environment-scoped infrastructure credentials
+#   kv/CICD/{sit,uat,prod}  environment-scoped provider/host credentials
+#   kv/CICD/{sit,uat,prod}/iac_state  S3-compatible Terraform state credentials
 #
 # Default is dry-run. Values are never printed, existing destination keys are
 # preserved, and the source path/version is never deleted.
@@ -18,7 +19,8 @@ TOKEN_VALUE=""
 
 # Based on docs/vault/kv_layout_and_migration.md.
 COMMON_KEYS="GHCR_USERNAME GHCR_TOKEN ROOT_BOOTSTRAP_PASSWORD"
-BASE_KEYS="SSH_PRIVATE_DEPLOY_KEY_B64 VULTR_API_KEY TF_STATE_ENDPOINT TF_STATE_BUCKET TF_STATE_ACCESS_KEY TF_STATE_SECRET_KEY TF_STATE_REGION"
+BASE_KEYS="SSH_PRIVATE_DEPLOY_KEY_B64 VULTR_API_KEY"
+IAC_STATE_KEYS="TF_STATE_ENDPOINT TF_STATE_BUCKET TF_STATE_ACCESS_KEY TF_STATE_SECRET_KEY TF_STATE_REGION"
 
 usage() {
   cat <<'EOF'
@@ -104,9 +106,11 @@ SOURCE_JSON="$TEMP_DIR/source.json"
 SOURCE_DATA="$TEMP_DIR/source-data.json"
 SHARED_KEYS="$TEMP_DIR/shared.keys"
 ENV_KEYS="$TEMP_DIR/env.keys"
+IAC_STATE_KEYS_FILE="$TEMP_DIR/iac-state.keys"
 UNKNOWN_KEYS="$TEMP_DIR/unknown.keys"
 : > "$SHARED_KEYS"
 : > "$ENV_KEYS"
+: > "$IAC_STATE_KEYS_FILE"
 : > "$UNKNOWN_KEYS"
 
 printf 'Source: %s (version %s)\n' "$SOURCE_PATH" "$SOURCE_VERSION"
@@ -124,10 +128,13 @@ classify() {
   case " $BASE_KEYS " in
     *" $key "*) printf 'envs'; return 0 ;;
   esac
+  case " $IAC_STATE_KEYS " in
+    *" $key "*) printf 'iac_state'; return 0 ;;
+  esac
   printf 'unknown'
 }
 
-for key in $COMMON_KEYS $BASE_KEYS; do
+for key in $COMMON_KEYS $BASE_KEYS $IAC_STATE_KEYS; do
   jq -e --arg key "$key" 'has($key)' "$SOURCE_DATA" >/dev/null \
     || die "source is missing required classified key: $key"
 done
@@ -136,6 +143,7 @@ while IFS= read -r key; do
   case "$(classify "$key")" in
     shared) printf '%s\n' "$key" >> "$SHARED_KEYS" ;;
     envs) printf '%s\n' "$key" >> "$ENV_KEYS" ;;
+    iac_state) printf '%s\n' "$key" >> "$IAC_STATE_KEYS_FILE" ;;
     unknown) printf '%s\n' "$key" >> "$UNKNOWN_KEYS" ;;
   esac
 done < <(jq -r 'keys[]' "$SOURCE_DATA")
@@ -159,6 +167,7 @@ fi
 printf 'Source keys: %s\n' "$(jq 'length' "$SOURCE_DATA")"
 printf '%s\n' 'Shared destination: kv/CICD'
 printf '%s\n' 'Environment destinations: kv/CICD/{sit,uat,prod}'
+printf '%s\n' 'Terraform state destinations: kv/CICD/{sit,uat,prod}/iac_state'
 printf 'Mode: %s (%s existing keys)\n' "$MODE" "$([[ "$FORCE" -eq 1 ]] && printf 'replace' || printf 'preserve')"
 
 write_subset() {
@@ -206,11 +215,12 @@ printf '%s\n' 'Plan (secret values are intentionally not displayed):'
 write_subset kv/CICD "$SHARED_KEYS"
 for env in sit uat prod; do
   write_subset "kv/CICD/$env" "$ENV_KEYS"
+  write_subset "kv/CICD/$env/iac_state" "$IAC_STATE_KEYS_FILE"
 done
 
 if [[ "$MODE" == "apply" ]]; then
   printf '%s\n' 'Verifying destination key names:'
-  for target in kv/CICD kv/CICD/sit kv/CICD/uat kv/CICD/prod; do
+  for target in kv/CICD kv/CICD/sit kv/CICD/uat kv/CICD/prod kv/CICD/sit/iac_state kv/CICD/uat/iac_state kv/CICD/prod/iac_state; do
     vault kv get -format=json "$target" \
       | jq -r --arg target "$target" '"  " + $target + ": " + ((.data.data // {}) | keys | join(","))'
   done

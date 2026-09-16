@@ -63,7 +63,7 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   cloud_provider="${INPUT_CLOUD_PROVIDER:-vultr-vps}"
   resource_file="${deployment_env}/${rf}"
   terraform_workspace="${deployment_env}-${cloud_provider}-${STATE_PROJECT}-${rf}"
-  state_key="${deployment_env}/${cloud_provider}/${STATE_PROJECT}/${rf}.tfstate"
+  state_key="terraform/${deployment_env}/${STATE_PROJECT}/${cloud_provider}/primary/${rf}/terraform.tfstate"
   # UI 使用单一 operation。下游 job 只消费解析后的执行意图，避免在
   # workflow 中重复拼接相互矛盾的开关条件。
   operation="${INPUT_OPERATION:-plan}"
@@ -188,7 +188,7 @@ else
   if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
     deployment_env=sit; resource_file=sit/all-in-one; terraform_workspace=sit-vultr-vps-platform-ops-toolkit-all-in-one
     resource_files_full="config/resources/sit/all-in-one.yaml"
-    state_key=sit/vultr-vps/platform-ops-toolkit/all-in-one.tfstate; target_domains=all
+    state_key=terraform/sit/platform-ops-toolkit/vultr-vps/primary/all-in-one/terraform.tfstate; target_domains=all
     # PR 只做 terraform plan, 不 apply。四个 deploy job 都要求
     # terraform_action == 'apply', 所以 plan 会让它们全部 skip ——
     # PR 仍然校验 terraform 配置, 但不再创建真实 VPS。
@@ -201,7 +201,7 @@ else
       refs/heads/main)
         deployment_env=uat; resource_file=uat/web-saas; terraform_workspace=uat-vultr-vps-platform-ops-toolkit-web-saas
         resource_files_full="config/resources/uat/web-saas.yaml"
-        state_key=uat/vultr-vps/platform-ops-toolkit/web-saas.tfstate; target_domains=web-saas
+        state_key=terraform/uat/platform-ops-toolkit/vultr-vps/primary/web-saas/terraform.tfstate; target_domains=web-saas
         # PR merge 后的 push 只做 IaC plan 校验，避免自动创建/变更真实资源。
         run_infrastructure=true; run_application_deploy=false
         terraform_action=plan; toolkit_action=none; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
@@ -211,7 +211,7 @@ else
       refs/heads/release/v*|refs/tags/v*)
         deployment_env=prod; resource_file=prod/web-saas; terraform_workspace=prod-vultr-vps-platform-ops-toolkit-web-saas
         resource_files_full="config/resources/prod/web-saas.yaml"
-        state_key=prod/vultr-vps/platform-ops-toolkit/web-saas.tfstate; target_domains=web-saas
+        state_key=terraform/prod/platform-ops-toolkit/vultr-vps/primary/web-saas/terraform.tfstate; target_domains=web-saas
         # 与 main/release push 一样只做 plan 校验, 不自动 apply/部署 —— 这才是
         # 文件顶部注释说的设计: "pull_request 和 branch/tag push 都只跑
         # provision 阶段, 只有 workflow_dispatch 能真正 apply/deploy"。这里此前
@@ -233,7 +233,7 @@ else
       refs/heads/release/*)
         deployment_env=uat; resource_file=uat/web-saas; terraform_workspace=uat-vultr-vps-platform-ops-toolkit-web-saas
         resource_files_full="config/resources/uat/web-saas.yaml"
-        state_key=uat/vultr-vps/platform-ops-toolkit/web-saas.tfstate; target_domains=web-saas
+        state_key=terraform/uat/platform-ops-toolkit/vultr-vps/primary/web-saas/terraform.tfstate; target_domains=web-saas
         run_infrastructure=true; run_application_deploy=false
         terraform_action=plan; toolkit_action=none; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
         cloud_provider="vultr-vps"
@@ -242,7 +242,7 @@ else
       *)
         deployment_env=sit; resource_file=sit/all-in-one; terraform_workspace=sit-vultr-vps-platform-ops-toolkit-all-in-one
         resource_files_full="config/resources/sit/all-in-one.yaml"
-        state_key=sit/vultr-vps/platform-ops-toolkit/all-in-one.tfstate; target_domains=all
+        state_key=terraform/sit/platform-ops-toolkit/vultr-vps/primary/all-in-one/terraform.tfstate; target_domains=all
         run_infrastructure=true; run_application_deploy=true
         terraform_action=apply; toolkit_action=deploy; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
         cloud_provider="vultr-vps"

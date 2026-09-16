@@ -29,7 +29,7 @@
 | `GHCR_USERNAME` / `GHCR_TOKEN` | ① 公共服务 | 留在 `kv/CICD` |
 | `SSH_PRIVATE_DEPLOY_KEY_B64` | ② 基础凭据 | `kv/CICD/{sit,uat,prod}` |
 | `VULTR_API_KEY` | ② 基础凭据 | `kv/CICD/{sit,uat,prod}` |
-| `TF_STATE_ENDPOINT/BUCKET/ACCESS_KEY/SECRET_KEY/REGION` | ② 基础凭据 | `kv/CICD/{sit,uat,prod}` |
+| `TF_STATE_ENDPOINT/BUCKET/ACCESS_KEY/SECRET_KEY/REGION` | ② Terraform state 凭据 | `kv/CICD/{sit,uat,prod}/iac_state` |
 | `CLOUDFLARE_DNS_API_TOKEN` | ② 建议（**待定**） | DNS 控制即基础设施控制。留在公共层意味着 sit role 能读到一个可以改生产 DNS 指向的凭据。拆分需先在 Cloudflare 建按 zone 限定的 token。 |
 | `AI_WORKSPACE_AUTH_TOKEN` | **待确认** | 是否随环境变化未知。 |
 | `INTERNAL_SERVICE_TOKEN` | ⚠️ **三处重复** | 同时存在于 `CICD`、`WEB_SAAS`、`accounts.svc.plus`。需确认哪一份是权威。 |
@@ -102,7 +102,7 @@ rag_pg_password      vault_pg_password    zitadel_pg_password  postgres_root_pas
 
 | Workflow | 仍从根路径读 |
 |---|---|
-| `deploy-action-runner-iac.yaml` | `SSH_PRIVATE_DEPLOY_KEY_B64`、`VULTR_API_KEY`、`TF_STATE_*` |
+| `deploy-action-runner-iac.yaml` | `SSH_PRIVATE_DEPLOY_KEY_B64`、`VULTR_API_KEY`、`TF_STATE_*`（state 从 `iac_state` 读取） |
 | `iac-pipeline-multi-cloud-account-matrix.yaml` | `TF_STATE_*`（路径硬编码，未走 env 变量） |
 | `iac-pipeline-multi-cloud-resources-matrix.yaml` | `TF_STATE_*`（同上） |
 | `iac-pipeline-multi-cloud-landingzone-baseline.yaml` | `TF_STATE_*`（同上） |
@@ -146,7 +146,8 @@ Env 显式传入（web-saas 的 `ACCOUNT_DB_PASSWORD` 已经是这个做法）�
 ```
 kv/
 ├── CICD                    ① 公共服务：GHCR_USERNAME / GHCR_TOKEN
-│   ├── sit                 ② 基础凭据：VULTR_API_KEY / TF_STATE_* / SSH_PRIVATE_DEPLOY_KEY_B64
+│   ├── sit                 ② provider/主机凭据：VULTR_API_KEY / SSH_PRIVATE_DEPLOY_KEY_B64
+│   │   └── iac_state       ② Terraform state 凭据：TF_STATE_*
 │   ├── uat                 ②
 │   └── prod                ②
 ├── openclaw                ① 公共服务
@@ -171,8 +172,8 @@ kv/
 
 每一步都可回退，且任一步做完流水线都应保持可用。
 
-1. **建 `kv/CICD/{sit,uat,prod}`**，各写入该环境的 `VULTR_API_KEY` / `TF_STATE_*` /
-   `SSH_PRIVATE_DEPLOY_KEY_B64`。
+1. **建 `kv/CICD/{sit,uat,prod}`**，各写入该环境的 `VULTR_API_KEY` /
+   `SSH_PRIVATE_DEPLOY_KEY_B64`；另建 `kv/CICD/{sit,uat,prod}/iac_state` 写入 `TF_STATE_*`。
    > 起步可以先把现有同一份凭据复制三份让链路跑通，但要清楚：**那时路径已隔离、凭据仍复用**，
    > 真正的隔离收益要等换成各自独立的 Vultr key 与 SSH 密钥对才成立。
 2. **应用 policy**（跑 `vault_auth_split.sh`）。此时新旧路径都可读，流水线不受影响。

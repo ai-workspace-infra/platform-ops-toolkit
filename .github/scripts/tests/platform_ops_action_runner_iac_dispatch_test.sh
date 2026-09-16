@@ -21,7 +21,7 @@ printf '%s\n' '{"web-saas":{"ip":"192.0.2.10"}}' >"${workdir}/vps/cmdb.json"
 command_env=(PATH="${workdir}/bin:${PATH}" COMMAND_LOG="${workdir}/commands.log")
 
 (cd "${workdir}/vps" && env "${command_env[@]}" VAULT_ENV_PATH=uat bash "${script}" render)
-(cd "${workdir}/vps" && env "${command_env[@]}" VAULT_ENV_PATH=uat TF_STATE_BUCKET=bucket TF_STATE_REGION=ap-northeast-1 bash "${script}" terraform-init)
+(cd "${workdir}/vps" && env "${command_env[@]}" VAULT_ENV_PATH=uat TF_STATE_ENDPOINT=https://s3.example.test TF_STATE_BUCKET=bucket TF_STATE_ACCESS_KEY=access TF_STATE_SECRET_KEY=secret TF_STATE_REGION=ap-northeast-1 bash "${script}" terraform-init)
 (cd "${workdir}/vps" && env "${command_env[@]}" TERRAFORM_ACTION=plan bash "${script}" terraform-action)
 (cd "${workdir}/vps" && env "${command_env[@]}" VAULT_ENV_PATH=uat bash "${script}" inventory)
 
@@ -33,6 +33,8 @@ grep -Fxq 'count=1' "${matrix_output}"
 grep -Fq 'python3 scripts/generate.py render' "${workdir}/commands.log"
 grep -Fq 'python3 scripts/generate.py inventory' "${workdir}/commands.log"
 grep -Fq 'terraform init -input=false' "${workdir}/commands.log"
+grep -Fq 'terraform/uat/platform-ops-toolkit/vultr-vps/primary/action-runner/terraform.tfstate' "${workdir}/commands.log"
+grep -Fq 'use_lockfile=true' "${workdir}/commands.log"
 grep -Fq 'terraform plan -auto-approve -input=false' "${workdir}/commands.log"
 
 if bash "${script}" unknown >/dev/null 2>&1; then
