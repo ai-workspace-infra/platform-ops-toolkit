@@ -28,6 +28,15 @@ path "kv/data/CICD/uat" {
 path "kv/metadata/CICD/uat" {
   capabilities = ["list", "read"]
 }
+# Terraform state is stored below the environment prefix. Vault evaluates
+# child paths independently, so the parent read permission above does not
+# authorize this concrete KV v2 data path.
+path "kv/data/CICD/uat/iac_state" {
+  capabilities = ["read"]
+}
+path "kv/metadata/CICD/uat/iac_state" {
+  capabilities = ["read"]
+}
 path "kv/data/CICD/domains/svc.plus" {
   capabilities = ["read"]
 }
