@@ -186,3 +186,162 @@ KV 中对应账号路径的 token；Terraform state、GitOps YAML 和文档中�
 private key。新增 GCP 账号时，新增对应的 `gcp_account_id`、KV 路径、Vault role/policy
 和 Terraform state 前缀，不能复用已有账号路径。邮箱样式账号会原样保留在 Vault/GCS
 隔离路径中，便于人工识别。
+
+## 6. UAT 完整验证流程
+
+以下流程用于确认 bootstrap 完成后，GitHub Actions 能通过 GitHub OIDC 使用新建的 GCP
+Workload Identity Federation 身份。所有命令都限定为 UAT；不要把 `environment` 改为
+`prod`，也不要在 UAT 验证阶段执行 PROD workflow。
+
+### 6.1 修复 ADC 认证并写入短期 token
+
+如果出现 `Reauthentication required`、`invalid_scope` 或无法刷新 token，重新建立 ADC：
+
+```bash
+gcloud auth application-default login
+```
+
+然后立即生成短期 token 并写入 UAT 账号路径：
+
+```bash
+export VAULT_ADDR=https://vault.svc.plus
+vault login
+
+GCP_ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+test -n "${GCP_ACCESS_TOKEN}"
+
+vault kv put -mount=kv CICD/uat/gcp-bootstrap/xworktech \
+  GCP_ACCESS_TOKEN="${GCP_ACCESS_TOKEN}" \
+  GCP_PROJECT_ID=xworktech-open-platform-uat
+
+unset GCP_ACCESS_TOKEN
+```
+
+也可以使用仓库脚本：
+
+```bash
+GCP_ENVIRONMENT=uat \
+GCP_ACCOUNT_ID=xworktech \
+GCP_PROJECT_ID=xworktech-open-platform-uat \
+bash scripts/gcp/bootstrap_gcp_auth_kv.sh
+```
+
+### 6.2 不暴露 token 地检查 Vault 字段
+
+```bash
+vault kv get -mount=kv -format=json CICD/uat/gcp-bootstrap/xworktech |
+  jq -e '.data.data |
+    (.GCP_ACCESS_TOKEN | type == "string" and length > 0) and
+    (.GCP_PROJECT_ID | type == "string" and . == "xworktech-open-platform-uat")' >/dev/null &&
+  echo "UAT GCP bootstrap secret: OK"
+```
+
+只看到 `UAT GCP bootstrap secret: OK` 即表示字段存在；不要把普通 `vault kv get` 的
+输出写入终端记录或 CI 日志。
+
+### 6.3 执行 UAT plan
+
+在 GitHub Actions 手工运行：
+
+```text
+Workflow:   GCP OIDC Bootstrap
+environment: uat
+action:      plan
+```
+
+成功判据：GitOps 声明校验、Vault JWT 登录、项目 ID 交叉校验、Terraform `init`、
+`fmt-check`、`validate` 和 `plan` 全部通过；`apply`、WIF smoke test 和 runtime
+output 写入步骤应被跳过。
+
+### 6.4 执行 UAT apply 并验证 OIDC
+
+确认 plan 内容符合预期后，再运行：
+
+```text
+Workflow:   GCP OIDC Bootstrap
+environment: uat
+action:      apply
+```
+
+成功判据：
+
+- UAT Workload Identity Pool/Provider 创建或复用成功；
+- `github-actions-uat` Service Account 创建或复用成功；
+- `google-github-actions/auth@v2` 使用新建身份登录成功；
+- `gcloud projects describe xworktech-open-platform-uat` 成功；
+- UAT 身份访问 `xworktech-open-platform-prod` 的负向检查通过；
+- provider 和 Service Account 输出写入 `kv/uat/platform/oidc/xworktech`。
+
+查看运行状态和失败日志：
+
+```bash
+gh run list --repo ai-workspace-infra/platform-ops-toolkit \
+  --workflow 'GCP OIDC Bootstrap' --branch main --limit 1
+
+gh run view <RUN_ID> --repo ai-workspace-infra/platform-ops-toolkit --log-failed
+```
+
+### 6.5 常见失败处理
+
+| 错误 | 处理 |
+| --- | --- |
+| `403 Forbidden`（Vault） | 确认 UAT role 已写入，并确认 role 为 `github-actions-platform-ops-toolkit-uat-gcp-bootstrap-xworktech`。 |
+| `401 Invalid Credentials`（Terraform/GCP） | Vault 中的 `GCP_ACCESS_TOKEN` 已过期或无效，重新执行 6.1。 |
+| `invalid_scope`（gcloud ADC） | 执行 `gcloud auth application-default login`，重新生成 token 并覆盖 KV。 |
+| `404`（Vault KV） | CLI 使用 `CICD/uat/gcp-bootstrap/xworktech`；只有 HTTP API 路径包含 `/data/`。 |
+
+如果 UAT apply 在 Terraform 阶段失败，后续 OIDC 登录和 smoke test 尚未发生；先修复
+bootstrap token、权限或 API 问题，再重新执行 UAT apply。生产变更必须另行规划，并经过
+受保护 GitHub Environment 审批。
+
+### 6.6 Bootstrap principal 的 GCP 最小前置权限
+
+GCP_ACCESS_TOKEN 对应的 principal 必须先在 UAT 项目中具备 bootstrap 权限。当前
+Terraform identity module 至少需要以下角色：
+
+    roles/iam.workloadIdentityPoolAdmin
+    roles/iam.serviceAccountAdmin
+    roles/resourcemanager.projectIamAdmin
+    roles/serviceusage.serviceUsageAdmin
+
+如果模块需要同时授予 bootstrap Service Account 后续基础设施权限，还需要按实际范围
+授予 roles/storage.admin、roles/compute.admin 等角色。权限应授予给生成
+GCP_ACCESS_TOKEN 的 principal，不能只授予将要创建的 github-actions-uat 账号。
+
+本次 UAT apply 的实际结果是：
+
+    iam.workloadIdentityPools.create denied
+    iam.serviceAccounts.create is required
+
+这表示 Vault token 已成功读取且 OAuth token 已被 GCP 接受，但 bootstrap principal
+权限不足；Terraform 没有完成 WIF 创建，后续 GitHub OIDC 登录和资源创建验证不会执行。
+补齐权限后，重新运行 6.4，成功后再验证下游 Cloud Run 或其他 UAT 资源。
+
+### 6.7 首次 bootstrap 的手动权限补全
+
+首次运行不能依赖 Terraform 给当前 access token 自己授予权限。请由已有的 UAT 项目
+管理员为生成 GCP_ACCESS_TOKEN 的 principal 预先授予以下角色：
+
+    roles/iam.workloadIdentityPoolAdmin
+    roles/iam.serviceAccountAdmin
+    roles/resourcemanager.projectIamAdmin
+    roles/serviceusage.serviceUsageAdmin
+
+例如，先将 GCP_BOOTSTRAP_MEMBER 设置为实际 principal（user: 邮箱或
+serviceAccount: 邮箱），再执行：
+
+    export GCP_BOOTSTRAP_MEMBER="user:admin@example.com"
+    export GCP_PROJECT_ID=xworktech-open-platform-uat
+
+    for role in \
+      roles/iam.workloadIdentityPoolAdmin \
+      roles/iam.serviceAccountAdmin \
+      roles/resourcemanager.projectIamAdmin \
+      roles/serviceusage.serviceUsageAdmin; do
+      gcloud projects add-iam-policy-binding "${GCP_PROJECT_ID}" \
+        --member="${GCP_BOOTSTRAP_MEMBER}" \
+        --role="${role}"
+    done
+
+不要把上述管理员 principal 写入 Vault bootstrap KV；Vault 只保存短期
+GCP_ACCESS_TOKEN 和 GCP_PROJECT_ID。权限补全后，再按 6.3 和 6.4 重新执行 UAT plan/apply。

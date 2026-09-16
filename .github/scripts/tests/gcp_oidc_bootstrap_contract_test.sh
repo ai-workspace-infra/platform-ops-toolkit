@@ -24,6 +24,12 @@ for required in \
   'hashicorp/vault-action' \
   'github-actions-platform-ops-toolkit-${{ inputs.environment }}-gcp-bootstrap-${{ steps.config.outputs.account_id }}' \
   'kv/data/CICD/${{ inputs.environment }}/gcp-bootstrap/${{ steps.config.outputs.account_id }}' \
+  'Verify GCP bootstrap permissions' \
+  'testIamPermissions' \
+  'iam.workloadIdentityPools.create' \
+  'iam.serviceAccounts.create' \
+  'iam.serviceAccounts.setIamPolicy' \
+  'serviceusage.services.enable' \
   'kv/data/CICD TF_STATE_ENDPOINT | TF_STATE_ENDPOINT' \
   'kv/data/CICD TF_STATE_BUCKET | TF_STATE_BUCKET' \
   'kv/data/CICD TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY' \
