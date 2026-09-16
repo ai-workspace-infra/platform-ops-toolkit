@@ -409,6 +409,8 @@ Resources workflow 的 `cloud_provider`、`vault_env_path`、`gcp_account_id` �
 
 ### 6.10 通过参数运行 GCP Landing Zone / Resources
 
+完整验证用例见 [`GCP-OIDC-Bootstrap-test-cases.md`](GCP-OIDC-Bootstrap-test-cases.md)。
+
 GCP 不使用 AWS 的 `component/<name>` 目录约定。GCP 平台 IAC 的唯一入口是：
 
     iac_modules/terraform-hcl-standard/gcp-cloud/envs/<environment>
