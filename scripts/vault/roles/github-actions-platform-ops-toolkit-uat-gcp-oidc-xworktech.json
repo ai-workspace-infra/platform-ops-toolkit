@@ -12,7 +12,8 @@
     "job_workflow_ref": [
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-landingzone-baseline.yaml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-account-matrix.yaml@*",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-resources-matrix.yaml@*"
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-resources-matrix.yaml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/gcp-iac-pipeline.yaml@*"
     ],
     "ref": [
       "refs/heads/main",

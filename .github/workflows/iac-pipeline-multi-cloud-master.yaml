@@ -58,6 +58,14 @@ on:
         description: "GCP account identifier used for the Vault JWT role"
         type: string
         default: xworktech
+      gcp_resource_manifest:
+        description: "Optional GCP GitOps manifest path; environment is validated before Terraform"
+        type: string
+        default: ''
+      gcp_iac_ref:
+        description: "Pinned iac_modules ref used when cloud_provider=gcp-cloud"
+        type: string
+        default: 8b09807226d954cfc71bd68481139f23dfb5c2fc
       aws_region:
         description: "AWS region used only when cloud_provider=aws-cloud"
         type: string
@@ -90,7 +98,7 @@ jobs:
 
   landingzone:
     needs: prepare-matrix
-    if: ${{ inputs.run_landingzone != false }}
+    if: ${{ inputs.cloud_provider != 'gcp-cloud' && inputs.run_landingzone != false }}
     uses: ./.github/workflows/iac-pipeline-multi-cloud-landingzone-baseline.yaml
     with:
       # push (this file's own change) 走的是空 inputs 上下文, || 'apply' 会让
@@ -107,11 +115,26 @@ jobs:
       aws_region: ${{ inputs.aws_region || 'ap-northeast-1' }}
       aws_role_arn: ${{ inputs.aws_role_arn || '' }}
 
+  gcp-platform:
+    needs: prepare-matrix
+    if: ${{ inputs.cloud_provider == 'gcp-cloud' }}
+    uses: ./.github/workflows/gcp-iac-pipeline.yml
+    with:
+      deploy_action: ${{ inputs.deploy_action || 'plan' }}
+      vault_env_path: ${{ inputs.vault_env_path || 'uat' }}
+      gcp_account_id: ${{ inputs.gcp_account_id || 'xworktech' }}
+      gcp_resource_manifest: ${{ inputs.gcp_resource_manifest || '' }}
+      iac_ref: ${{ inputs.gcp_iac_ref || '8b09807226d954cfc71bd68481139f23dfb5c2fc' }}
+      gitops_repo_name: ${{ inputs.gitops_repo_name || 'https://github.com/ai-workspace-infra/gitops.git' }}
+      gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
+    secrets: inherit
+
   account:
     needs: [landingzone, prepare-matrix]
     if: |
       always() &&
       needs.prepare-matrix.result == 'success' &&
+      inputs.cloud_provider != 'gcp-cloud' &&
       (inputs.run_account != false) &&
       (needs.landingzone.result == 'success' || needs.landingzone.result == 'skipped')
     uses: ./.github/workflows/iac-pipeline-multi-cloud-account-matrix.yaml
@@ -131,6 +154,7 @@ jobs:
     if: |
       always() &&
       needs.prepare-matrix.result == 'success' &&
+      inputs.cloud_provider != 'gcp-cloud' &&
       (inputs.run_resources != false) &&
       (needs.account.result == 'success' || needs.account.result == 'skipped')
     uses: ./.github/workflows/iac-pipeline-multi-cloud-resources-matrix.yaml

@@ -51,6 +51,14 @@ on:
         description: "GCP account identifier used for Vault JWT/WIF authentication"
         type: string
         default: xworktech
+      gcp_resource_manifest:
+        description: "Optional GCP GitOps manifest path"
+        type: string
+        default: ''
+      gcp_iac_ref:
+        description: "Pinned iac_modules ref used for GCP"
+        type: string
+        default: 8b09807226d954cfc71bd68481139f23dfb5c2fc
       aws_region:
         description: "AWS region used only when cloud_provider=aws-cloud"
         type: string
@@ -92,6 +100,14 @@ on:
         type: string
         required: false
         default: xworktech
+      gcp_resource_manifest:
+        type: string
+        required: false
+        default: ''
+      gcp_iac_ref:
+        type: string
+        required: false
+        default: 8b09807226d954cfc71bd68481139f23dfb5c2fc
       aws_region:
         type: string
         required: false
@@ -119,6 +135,7 @@ env:
 jobs:
   landingzone:
     name: "Deploy LandingZone Baseline"
+    if: env.CLOUD_PROVIDER != 'gcp-cloud'
     runs-on: ubuntu-latest
 
     steps:
@@ -228,3 +245,17 @@ jobs:
         SMTP_USERNAME: ${{ steps.smtp.outputs.SMTP_USERNAME }}
       run: |-
         .github/scripts/platform-ops/provision/iac-pipeline-multi-cloud-landingzone-baseline_landingzone_notify.sh
+
+  gcp-platform:
+    name: "Deploy GCP platform"
+    if: ${{ inputs.cloud_provider == 'gcp-cloud' }}
+    uses: ./.github/workflows/gcp-iac-pipeline.yml
+    with:
+      deploy_action: ${{ inputs.deploy_action || github.event.inputs.deploy_action || 'plan' }}
+      vault_env_path: ${{ inputs.vault_env_path || github.event.inputs.vault_env_path || 'uat' }}
+      gcp_account_id: ${{ inputs.gcp_account_id || github.event.inputs.gcp_account_id || 'xworktech' }}
+      gcp_resource_manifest: ${{ inputs.gcp_resource_manifest || github.event.inputs.gcp_resource_manifest || '' }}
+      iac_ref: ${{ inputs.gcp_iac_ref || github.event.inputs.gcp_iac_ref || '8b09807226d954cfc71bd68481139f23dfb5c2fc' }}
+      gitops_repo_name: ${{ inputs.gitops_repo_name || github.event.inputs.gitops_repo_name || 'https://github.com/ai-workspace-infra/gitops.git' }}
+      gitops_repo_ref: ${{ inputs.gitops_repo_ref || github.event.inputs.gitops_repo_ref || 'main' }}
+    secrets: inherit

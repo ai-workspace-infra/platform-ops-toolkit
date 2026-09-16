@@ -406,3 +406,43 @@ Resources workflow 的 `cloud_provider`、`vault_env_path`、`gcp_account_id` �
 运行时 role 只允许声明的 workflow 和环境 ref：UAT 使用 `main`/`uat-*`，PROD 使用
 `release/v*`/`v*`。WIF provider 同时使用 GitOps 的 `subjects` 生成 subject 条件，
 禁止其他 repository、环境或分支复用该 Service Account。
+
+### 6.10 通过参数运行 GCP Landing Zone / Resources
+
+GCP 不使用 AWS 的 `component/<name>` 目录约定。GCP 平台 IAC 的唯一入口是：
+
+    iac_modules/terraform-hcl-standard/gcp-cloud/envs/<environment>
+
+GitOps manifest 负责声明项目、网络、Artifact Registry、Cloud Run 和 Vault 节点；
+workflow 负责渲染 manifest、注入运行时 WIF 身份，并使用组织统一的 S3-compatible
+Terraform state。多云 master 根据 `cloud_provider` 路由，选择 GCP 时不会调用
+AWS 的 LandingZone/Resources matrix。
+
+可手动运行：
+
+    gh workflow run gcp-iac-pipeline.yml \
+      --ref main \
+      -f deploy_action=plan \
+      -f vault_env_path=uat \
+      -f gcp_account_id=xworktech \
+      -f gitops_repo_name=https://github.com/ai-workspace-infra/gitops.git \
+      -f gitops_repo_ref=main
+
+如需使用其他 GCP 账号或资源清单，只改变输入参数；不要修改 workflow 中的项目、
+Service Account、WIF provider 或 state key。`gcp_resource_manifest` 必须位于
+`resources/<namespace>/<environment>/gcp/`，并且清单中的 `global.environment`、
+`project_id` 和 organization ID 会在 Terraform 之前校验。
+
+执行顺序：
+
+    gcp-oidc-bootstrap.yml (apply)
+      -> gcp-iac-pipeline.yml (plan)
+      -> gcp-iac-pipeline.yml (apply, UAT)
+      -> gcp-iac-pipeline.yml (apply, PROD, protected environment approval)
+
+GCP 运行时 workflow 只从 Vault JWT role 读取非密钥 OIDC 输出和统一 state 配置，
+不会读取 bootstrap access token，也不会生成 `credentials.json`。state key 按
+`environment/account/cloud workspace` 隔离，例如：
+
+    platform-ops-toolkit/uat/xworktech/gcp-platform/terraform.tfstate
+    platform-ops-toolkit/prod/xworktech/gcp-platform/terraform.tfstate
