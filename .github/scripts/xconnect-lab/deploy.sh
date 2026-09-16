@@ -343,7 +343,7 @@ deploy_observability() {
     query="xconnect_runtime_info{role=\"${role}\",environment=\"${OBSERVABILITY_ENVIRONMENT}\",instance=\"${instance}\"}"
     result_file="$LAB_DIR/observability-${role}.json"
     for attempt in {1..12}; do
-      if curl --fail --silent --show-error --user "$OBSERVABILITY_USER:$OBSERVABILITY_PASSWORD" --get \
+      if curl --connect-timeout 10 --max-time 20 --fail --silent --show-error --user "$OBSERVABILITY_USER:$OBSERVABILITY_PASSWORD" --get \
         --data-urlencode "query=$query" "${OBSERVABILITY_ENDPOINT%/}${OBSERVABILITY_QUERY_PATH}" -o "$result_file" \
         && jq -e '.status == "success" and (.data.result | length) > 0' "$result_file" >/dev/null; then
         return 0
@@ -635,7 +635,10 @@ case "$stage" in
   gateway) test -f "$LAB_DIR/bootstrap.done"; enroll_gateway ;;
   one) test -f "$LAB_DIR/gateway.done"; enroll_one ;;
   observability) test -f "$LAB_DIR/one.done"; deploy_observability ;;
-  verify) test -f "$LAB_DIR/observability.done"; verify_overlay ;;
+  # Data-plane validation is intentionally independent of the central metrics
+  # backend. A delayed observability query must not hide the outcome of the
+  # signed-config, XHTTP, WireGuard, ping and HTTP checks.
+  verify) test -f "$LAB_DIR/one.done"; verify_overlay ;;
   all) prepare_runtime; bootstrap_accounts; enroll_gateway; enroll_one; deploy_observability; verify_overlay ;;
   *) echo 'Unknown deployment stage' >&2; exit 1 ;;
 esac

@@ -301,6 +301,9 @@ jobs:
       - name: Join Linux One using its formal invitation and reconcile Gateway
         if: inputs.mode == 'apply'
         run: bash .github/scripts/xconnect-lab/run.sh one
+      - name: Verify signed sync/ACK, services, exact-peer handshake and private ping/HTTP
+        if: inputs.mode == 'apply'
+        run: bash .github/scripts/xconnect-lab/run.sh verify
       - name: Install Ansible controller for XConnect observability
         if: inputs.mode == 'apply'
         run: |
@@ -313,9 +316,6 @@ jobs:
           OBSERVABILITY_QUERY_PATH: ${{ steps.topology.outputs.observability_query_path }}
           OBSERVABILITY_ENVIRONMENT: ${{ steps.topology.outputs.observability_environment }}
         run: bash .github/scripts/xconnect-lab/run.sh observability
-      - name: Verify signed sync/ACK, services, exact-peer handshake and private ping/HTTP
-        if: inputs.mode == 'apply'
-        run: bash .github/scripts/xconnect-lab/run.sh verify
       - name: Publish non-secret desktop handoff
         if: inputs.mode == 'apply' && inputs.gateway_provider != 'external'
         uses: actions/upload-artifact@v4
