@@ -182,8 +182,9 @@ create_invite() {
     --arg owner "$ZERO_OWNER_EMAIL" --arg controller "$formal_zero" \
     --arg network "$network_id" --arg gateway_id "$gateway_id" --arg gateway_key "$gateway_public_key" \
     --arg endpoint "$endpoint" --arg gateway_address "$gateway_address" --arg cidr "$overlay_cidr" --arg vless "$LAB_VLESS_ID" \
-    --arg role "$role" --arg device "$device_id" --arg expires "$expires" --arg server_name "$transport_server_name" \
-    '{owner_email:$owner,bootstrap:{controller_url:$controller,network:{id:$network,display_name:"XConnect UAT Gateway network",cidr:$cidr,gateway_id:$gateway_id,gateway_wireguard_public_key:$gateway_key,gateway_wireguard_address:$gateway_address,gateway_endpoint_host:$endpoint,gateway_endpoint_port:51820,transport_server_name:$server_name,transport_port:443,transport_auth_id:$vless,transport_kind:"vless-xhttp",transport_path:"/xconnect",transport_mode:"auto",transport_host:$server_name},invite:{device_id:$device,platform:"linux",role:$role,expires_at:$expires}}}' > "$request"
+    --arg role "$role" --arg device "$device_id" --arg expires "$expires" \
+    --arg server_name "$transport_server_name" --arg xhttp_host "$xhttp_host" \
+    '{owner_email:$owner,bootstrap:{controller_url:$controller,network:{id:$network,display_name:"XConnect UAT Gateway network",cidr:$cidr,gateway_id:$gateway_id,gateway_wireguard_public_key:$gateway_key,gateway_wireguard_address:$gateway_address,gateway_endpoint_host:$endpoint,gateway_endpoint_port:51820,transport_server_name:$server_name,transport_port:443,transport_auth_id:$vless,transport_kind:"vless-xhttp",transport_path:"/xconnect",transport_mode:"auto",transport_host:$xhttp_host},invite:{device_id:$device,platform:"linux",role:$role,expires_at:$expires}}}' > "$request"
   status=$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
     -H "X-Service-Token: $ZERO_SERVICE_TOKEN" -H 'Content-Type: application/json' \
     --data-binary "@$request" "$formal_zero/api/internal/overlay/networks/bootstrap" || true)
