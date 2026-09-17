@@ -522,10 +522,39 @@ if [[ "$8" != system-public-ca ]]; then
   [[ -r "$tls_ca_file" ]] || client_failure tls-ca-not-installed
   [[ "$(sha256sum "$tls_ca_file" | awk '{print $1}')" == "$8" ]] || client_failure tls-ca-handoff
 fi
-tls_verify=$(timeout 10 openssl s_client -connect "$2:443" -servername "$6" -verify_hostname "$6" \
-  -CAfile "$tls_ca_file" -verify_return_error </dev/null 2>/dev/null \
-  | awk '/Verify return code:/ {print $4; exit}' || true)
-[[ "$tls_verify" == 0 ]] || client_failure tls-trust-or-transport
+tls_probe() {
+  local ca_file="$1"
+  timeout 10 openssl s_client \
+    -connect "$2:443" \
+    -servername "$6" \
+    -verify_hostname "$6" \
+    -verify_return_error \
+    -alpn h2,http/1.1 \
+    -CAfile "$ca_file" </dev/null 2>&1 || true
+}
+tls_probe_result=$(tls_probe "$tls_ca_file")
+if grep -Eq '(^|[[:space:]])Verification: OK$|Verify return code: 0 \(ok\)' <<<"$tls_probe_result"; then
+  echo "tls_verification=ok source=$([[ "$8" == system-public-ca ]] && echo system-public-ca || echo vault-handoff)"
+elif [[ "$tls_ca_file" != /etc/ssl/certs/ca-certificates.crt ]]; then
+  # The shared svc.plus record may expose the issuer/intermediate chain in
+  # tls_ca_pem_b64. That is useful certificate material but is not necessarily
+  # a trust anchor. The endpoint uses a publicly trusted certificate, so retry
+  # with the host's public CA store while retaining strict hostname checking.
+  tls_probe_result=$(tls_probe /etc/ssl/certs/ca-certificates.crt)
+  if grep -Eq '(^|[[:space:]])Verification: OK$|Verify return code: 0 \(ok\)' <<<"$tls_probe_result"; then
+    echo 'tls_verification=ok source=system-public-ca'
+  else
+    tls_verify_code=$(awk -F': ' '/Verify return code:/ {print $2; exit}' <<<"$tls_probe_result" | tr ' ' '_' | tr -cd '[:alnum:]_()' || true)
+    [[ -n "$tls_verify_code" ]] || tls_verify_code=unavailable
+    echo "tls_verification=failed verify_code=$tls_verify_code" >&2
+    client_failure tls-trust-or-transport
+  fi
+else
+  tls_verify_code=$(awk -F': ' '/Verify return code:/ {print $2; exit}' <<<"$tls_probe_result" | tr ' ' '_' | tr -cd '[:alnum:]_()' || true)
+  [[ -n "$tls_verify_code" ]] || tls_verify_code=unavailable
+  echo "tls_verification=failed verify_code=$tls_verify_code" >&2
+  client_failure tls-trust-or-transport
+fi
 connected=0
 for attempt in {1..30}; do
   ping_ok=0
