@@ -33,9 +33,9 @@ if [[ "$gateway_provider" == external ]]; then
 else
   network_id="${base_network_id}-${run_id}"
   gateway_id="gw-${run_id}"
-  # The dynamic endpoint is addressed by IP, while this SNI is covered by the
-  # Vault wildcard certificate for svc.plus.
-  transport_server_name="${XCONNECT_GATEWAY_SERVER_NAME:-xconnect-lab.svc.plus}"
+  # The dynamic endpoint is addressed by its private IP, while the TLS SNI and
+  # XHTTP Host remain the reviewed, certificate-backed UAT transport host.
+  transport_server_name="${XCONNECT_GATEWAY_SERVER_NAME:-$xhttp_host}"
 fi
 client_id="one-${run_id}"
 CLIENT_SSH=(-i "$LAB_DIR/id_ed25519" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$LAB_DIR/known_hosts")
