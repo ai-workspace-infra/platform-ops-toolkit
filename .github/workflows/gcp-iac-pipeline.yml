@@ -1,0 +1,242 @@
+name: GCP IAC Platform Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_action:
+        description: Terraform action for the GCP platform stack.
+        type: choice
+        required: true
+        default: plan
+        options: [plan, apply, destroy]
+      vault_env_path:
+        description: Target GCP environment.
+        type: choice
+        required: true
+        default: uat
+        options: [uat, prod]
+      gcp_account_id:
+        description: Readable GCP account identifier used in Vault runtime role/path.
+        type: string
+        required: true
+        default: xworktech
+      gitops_repo_name:
+        description: GitOps repository (URL or owner/repo).
+        type: string
+        required: false
+        default: https://github.com/ai-workspace-infra/gitops.git
+      gitops_repo_ref:
+        description: GitOps repository branch, tag, or commit.
+        type: string
+        required: false
+        default: main
+      iac_ref:
+        description: Pinned iac_modules ref used for this run.
+        type: string
+        required: false
+        default: 8b09807226d954cfc71bd68481139f23dfb5c2fc
+      gcp_resource_manifest:
+        description: Optional manifest path inside GitOps; environment is validated against vault_env_path.
+        type: string
+        required: false
+        default: ''
+  workflow_call:
+    inputs:
+      deploy_action:
+        type: string
+        required: false
+        default: plan
+      vault_env_path:
+        type: string
+        required: true
+      gcp_account_id:
+        type: string
+        required: true
+      gitops_repo_name:
+        type: string
+        required: false
+        default: https://github.com/ai-workspace-infra/gitops.git
+      gitops_repo_ref:
+        type: string
+        required: false
+        default: main
+      iac_ref:
+        type: string
+        required: false
+        default: 8b09807226d954cfc71bd68481139f23dfb5c2fc
+      gcp_resource_manifest:
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: gcp-iac-${{ inputs.vault_env_path }}-${{ inputs.gcp_account_id }}
+  cancel-in-progress: false
+
+jobs:
+  gcp-platform:
+    name: GCP platform (${{ inputs.vault_env_path }}, action=${{ inputs.deploy_action }})
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.vault_env_path }}
+    env:
+      DEPLOY_ENV: ${{ inputs.vault_env_path }}
+      DEPLOY_ACTION: ${{ inputs.deploy_action || 'plan' }}
+      GCP_ACCOUNT_ID: ${{ inputs.gcp_account_id }}
+      GITOPS_REPO_NAME: ${{ inputs.gitops_repo_name || 'https://github.com/ai-workspace-infra/gitops.git' }}
+      GITOPS_REPO_REF: ${{ inputs.gitops_repo_ref || 'main' }}
+      IAC_REF: ${{ inputs.iac_ref || '8b09807226d954cfc71bd68481139f23dfb5c2fc' }}
+      GCP_RESOURCE_MANIFEST_INPUT: ${{ inputs.gcp_resource_manifest || '' }}
+      GCP_IAC_DIR: iac_modules/terraform-hcl-standard/gcp-cloud
+
+    steps:
+      - name: Checkout platform operations source
+        uses: actions/checkout@v4
+
+      - name: Checkout GCP Terraform modules
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: ${{ env.IAC_REF }}
+          path: iac_modules
+
+      - name: Setup GitOps and Terraform
+        uses: ./.github/actions/setup-iac-env
+        with:
+          gitops_repo_name: ${{ env.GITOPS_REPO_NAME }}
+          gitops_repo_ref: ${{ env.GITOPS_REPO_REF }}
+          gitops_target_path: gitops
+          aws_role_arn: ''
+
+      - name: Install GCP manifest renderer dependencies
+        shell: bash
+        run: python3 -m pip install --disable-pip-version-check --no-cache-dir pyyaml jinja2
+
+      - name: Resolve and validate GCP resource manifest
+        id: config
+        shell: bash
+        env:
+          GCP_ENVIRONMENT: ${{ env.DEPLOY_ENV }}
+          GCP_ACCOUNT_ID: ${{ env.GCP_ACCOUNT_ID }}
+          GCP_RESOURCE_MANIFEST_INPUT: ${{ env.GCP_RESOURCE_MANIFEST_INPUT }}
+        run: |
+          set -euo pipefail
+          case "${GCP_ENVIRONMENT}" in
+            uat|prod) ;;
+            *) echo "::error::vault_env_path must be uat or prod" >&2; exit 1 ;;
+          esac
+          if [[ -n "${GCP_RESOURCE_MANIFEST_INPUT}" ]]; then
+            manifest="${GCP_RESOURCE_MANIFEST_INPUT}"
+          else
+            manifest="resources/xworktech.com/${GCP_ENVIRONMENT}/gcp/open-platform-${GCP_ENVIRONMENT}.yaml"
+          fi
+          [[ "${manifest}" != /* && "${manifest}" != *..* ]] || { echo "::error::manifest path must be relative and cannot contain '..'" >&2; exit 1; }
+          [[ "${manifest}" == resources/*/${GCP_ENVIRONMENT}/gcp/*.yaml ]] || {
+            echo "::error::manifest must be under resources/<namespace>/${GCP_ENVIRONMENT}/gcp/" >&2
+            exit 1
+          }
+          test -f "gitops/${manifest}" || { echo "::error::GCP resource manifest not found: ${manifest}" >&2; exit 1; }
+          GCP_MANIFEST="${manifest}" ruby <<'RUBY'
+          require "yaml"
+          require "json"
+          manifest = ENV.fetch("GCP_MANIFEST")
+          doc = YAML.load_file(File.join("gitops", manifest))
+          global = doc.fetch("global")
+          environment = ENV.fetch("GCP_ENVIRONMENT")
+          abort "manifest environment mismatch" unless global.fetch("environment") == environment
+          project_id = global.fetch("project_id").to_s
+          abort "invalid GCP project_id" unless project_id.match?(/\A[a-z][a-z0-9-]{4,28}[a-z0-9]\z/)
+          abort "unexpected GCP organization_id" unless global.fetch("organization_id").to_s == "744119519286"
+          File.open(ENV.fetch("GITHUB_OUTPUT"), "a") do |io|
+            io.puts "manifest=#{manifest}"
+            io.puts "project_id=#{project_id}"
+          end
+          RUBY
+
+      - name: Configure GCP credentials through Vault JWT and Google WIF
+        id: gcp_auth
+        uses: ./.github/actions/configure-gcp-oidc
+        with:
+          environment: ${{ env.DEPLOY_ENV }}
+          account_id: ${{ env.GCP_ACCOUNT_ID }}
+
+      - name: Render GitOps manifest into Terraform
+        working-directory: ${{ env.GCP_IAC_DIR }}
+        env:
+          GITOPS_ROOT: ${{ github.workspace }}/gitops
+          GCP_MANIFEST: ${{ github.workspace }}/gitops/${{ steps.config.outputs.manifest }}
+          GCP_WORKDIR: envs/${{ env.DEPLOY_ENV }}
+        run: |
+          python3 scripts/generate.py render \
+            --resources "${GCP_MANIFEST}" \
+            --workdir "${GCP_WORKDIR}"
+
+      - name: Prepare runtime identity Terraform variables
+        env:
+          RUNTIME_VARS: ${{ runner.temp }}/gcp-runtime.auto.tfvars.json
+          PROJECT_ID: ${{ steps.config.outputs.project_id }}
+          DEPLOY_SERVICE_ACCOUNT: ${{ steps.gcp_auth.outputs.service_account }}
+          WORKLOAD_IDENTITY_PROVIDER: ${{ steps.gcp_auth.outputs.provider }}
+        run: |
+          jq -n \
+            --arg project_id "${PROJECT_ID}" \
+            --arg service_account "${DEPLOY_SERVICE_ACCOUNT}" \
+            --arg provider "${WORKLOAD_IDENTITY_PROVIDER}" \
+            '{project_id:$project_id, deploy_service_account:$service_account, workload_identity_provider:$provider}' \
+            > "${RUNTIME_VARS}"
+
+      - name: Terraform init with shared state backend
+        working-directory: ${{ env.GCP_IAC_DIR }}
+        env:
+          TF_CLI_ARGS_init: >-
+            -backend-config="endpoint=${{ steps.gcp_auth.outputs.state_endpoint }}"
+            -backend-config="bucket=${{ steps.gcp_auth.outputs.state_bucket }}"
+            -backend-config="key=terraform/${{ env.DEPLOY_ENV }}/${{ steps.config.outputs.project_id }}/gcp-cloud/${{ env.GCP_ACCOUNT_ID }}/platform/terraform.tfstate"
+            -backend-config="access_key=${{ steps.gcp_auth.outputs.state_access_key }}"
+            -backend-config="secret_key=${{ steps.gcp_auth.outputs.state_secret_key }}"
+            -backend-config="region=${{ steps.gcp_auth.outputs.state_region }}"
+            -backend-config="skip_credentials_validation=true"
+            -backend-config="skip_metadata_api_check=true"
+            -backend-config="skip_region_validation=true"
+            -backend-config="use_path_style=true"
+            -backend-config="use_lockfile=true"
+        run: terraform -chdir="envs/${DEPLOY_ENV}" init -input=false -reconfigure
+
+      - name: Terraform format and validate
+        working-directory: ${{ env.GCP_IAC_DIR }}
+        run: |
+          terraform -chdir="envs/${DEPLOY_ENV}" fmt -check
+          terraform -chdir="envs/${DEPLOY_ENV}" validate -no-color
+
+      - name: Terraform plan
+        if: ${{ env.DEPLOY_ACTION == 'plan' || env.DEPLOY_ACTION == 'apply' }}
+        working-directory: ${{ env.GCP_IAC_DIR }}
+        env:
+          RUNTIME_VARS: ${{ runner.temp }}/gcp-runtime.auto.tfvars.json
+        run: terraform -chdir="envs/${DEPLOY_ENV}" plan -input=false -no-color -var-file="${RUNTIME_VARS}"
+
+      - name: Terraform apply
+        if: ${{ env.DEPLOY_ACTION == 'apply' }}
+        working-directory: ${{ env.GCP_IAC_DIR }}
+        env:
+          RUNTIME_VARS: ${{ runner.temp }}/gcp-runtime.auto.tfvars.json
+        run: terraform -chdir="envs/${DEPLOY_ENV}" apply -input=false -auto-approve -var-file="${RUNTIME_VARS}"
+
+      - name: Terraform destroy
+        if: ${{ env.DEPLOY_ACTION == 'destroy' }}
+        working-directory: ${{ env.GCP_IAC_DIR }}
+        env:
+          RUNTIME_VARS: ${{ runner.temp }}/gcp-runtime.auto.tfvars.json
+        run: terraform -chdir="envs/${DEPLOY_ENV}" destroy -input=false -auto-approve -var-file="${RUNTIME_VARS}"
+
+      - name: Verify GCP OIDC-created resource access
+        if: ${{ env.DEPLOY_ACTION == 'apply' }}
+        env:
+          PROJECT_ID: ${{ steps.config.outputs.project_id }}
+        run: |
+          test "$(gcloud projects describe "${PROJECT_ID}" --format='value(projectId)')" = "${PROJECT_ID}"
+          echo "GCP OIDC runtime identity can access ${PROJECT_ID}"

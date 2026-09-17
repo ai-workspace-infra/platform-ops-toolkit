@@ -57,6 +57,16 @@ if [[ "$gateway_provider" != external ]]; then
   client_transport_endpoint="$gateway_private"
 fi
 
+# A managed external Gateway is addressed through its stable DNS name.  The
+# signed One config deliberately keeps that name as the VLESS/XHTTP remote
+# address so TLS SNI, certificate validation, and the configured XHTTP host
+# remain one coherent contract.  Its resolved IP is only a transport detail,
+# never a signed-config identity.
+client_xhttp_contract_endpoint="$client_transport_endpoint"
+if [[ "$gateway_provider" == external ]]; then
+  client_xhttp_contract_endpoint="$transport_server_name"
+fi
+
 wait_for_ssh() {
   local user="$1" host="$2" ready=false
   for attempt in {1..60}; do
@@ -166,10 +176,12 @@ create_invite() {
   local request="$LAB_DIR/invites/${role}-request.json"
   local expires
   expires=$(python3 -c 'from datetime import datetime,timezone,timedelta; print((datetime.now(timezone.utc)+timedelta(minutes=45)).isoformat(timespec="seconds").replace("+00:00","Z"))')
+  local endpoint="$client_transport_endpoint"
+  if [[ "$gateway_provider" == external ]]; then endpoint="$transport_server_name"; fi
   jq -n \
     --arg owner "$ZERO_OWNER_EMAIL" --arg controller "$formal_zero" \
     --arg network "$network_id" --arg gateway_id "$gateway_id" --arg gateway_key "$gateway_public_key" \
-    --arg endpoint "$client_transport_endpoint" --arg gateway_address "$gateway_address" --arg cidr "$overlay_cidr" --arg vless "$LAB_VLESS_ID" \
+    --arg endpoint "$endpoint" --arg gateway_address "$gateway_address" --arg cidr "$overlay_cidr" --arg vless "$LAB_VLESS_ID" \
     --arg role "$role" --arg device "$device_id" --arg expires "$expires" --arg server_name "$transport_server_name" \
     '{owner_email:$owner,bootstrap:{controller_url:$controller,network:{id:$network,display_name:"XConnect UAT Gateway network",cidr:$cidr,gateway_id:$gateway_id,gateway_wireguard_public_key:$gateway_key,gateway_wireguard_address:$gateway_address,gateway_endpoint_host:$endpoint,gateway_endpoint_port:51820,transport_server_name:$server_name,transport_port:443,transport_auth_id:$vless,transport_kind:"vless-xhttp",transport_path:"/xconnect",transport_mode:"auto",transport_host:$server_name},invite:{device_id:$device,platform:"linux",role:$role,expires_at:$expires}}}' > "$request"
   status=$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
@@ -183,9 +195,46 @@ create_invite() {
   chmod 600 "$destination"
 }
 
+reconcile_stable_gateway_owner() {
+  [[ "$gateway_provider" == external ]] || return 0
+  [[ "$network_id" == "net_uat" && "$gateway_id" == "gw-uat-tw-xconnect" && "$transport_server_name" == "tw-xconnect.svc.plus" ]] || {
+    echo 'External Gateway does not match the fixed UAT reconciliation identity' >&2
+    exit 1
+  }
+  local request="$LAB_DIR/stable-gateway-reconcile-request.json"
+  local response="$LAB_DIR/stable-gateway-reconcile-response.json"
+  jq -n \
+    --arg owner "$ZERO_OWNER_EMAIL" \
+    '{environment:"uat",network_id:"net_uat",gateway_id:"gw-uat-tw-xconnect",gateway_endpoint_host:"tw-xconnect.svc.plus",owner_email:$owner}' \
+    > "$request"
+  local status
+  status=$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+    -H "X-Service-Token: $ZERO_SERVICE_TOKEN" -H 'Content-Type: application/json' \
+    --data-binary "@$request" "$formal_zero/api/internal/overlay/gateways/reconcile-stable-owner" || true)
+  case "$status" in
+    200)
+      jq -e '(.environment == "uat" and .network_id == "net_uat" and .gateway_id == "gw-uat-tw-xconnect" and .gateway_endpoint_host == "tw-xconnect.svc.plus" and (.owner_reconciled | type) == "boolean")' "$response" >/dev/null \
+        || { echo 'Stable Gateway reconciliation returned an invalid response'; exit 1; }
+      echo 'Stable UAT Gateway ownership reconciliation passed'
+      ;;
+    404)
+      # First-time UAT bootstrap has no network to reconcile yet. The normal
+      # bootstrap below creates it under the current ZERO_OWNER_EMAIL.
+      jq -e '.error == "not_found"' "$response" >/dev/null \
+        || { echo 'Stable Gateway reconciliation returned an unexpected 404'; exit 1; }
+      echo 'Stable UAT Gateway network is absent; bootstrap will create it for the current owner'
+      ;;
+    *)
+      echo "Stable UAT Gateway ownership reconciliation failed: HTTP $status" >&2
+      exit 1
+      ;;
+  esac
+}
+
 bootstrap_accounts() {
 gateway_public_key=$(<"$LAB_DIR/gateway-public-key")
 echo 'Stage: real Accounts network and device-bound invitations'
+reconcile_stable_gateway_owner
 if [[ "$gateway_provider" != external ]]; then
   create_invite gateway "$gateway_id" "$LAB_DIR/invites/gateway"
 fi
@@ -294,7 +343,7 @@ deploy_observability() {
     query="xconnect_runtime_info{role=\"${role}\",environment=\"${OBSERVABILITY_ENVIRONMENT}\",instance=\"${instance}\"}"
     result_file="$LAB_DIR/observability-${role}.json"
     for attempt in {1..12}; do
-      if curl --fail --silent --show-error --user "$OBSERVABILITY_USER:$OBSERVABILITY_PASSWORD" --get \
+      if curl --connect-timeout 10 --max-time 20 --fail --silent --show-error --user "$OBSERVABILITY_USER:$OBSERVABILITY_PASSWORD" --get \
         --data-urlencode "query=$query" "${OBSERVABILITY_ENDPOINT%/}${OBSERVABILITY_QUERY_PATH}" -o "$result_file" \
         && jq -e '.status == "success" and (.data.result | length) > 0' "$result_file" >/dev/null; then
         return 0
@@ -352,9 +401,14 @@ if ip link show xconzero0 >/dev/null 2>&1; then echo 'gateway_wireguard_interfac
 GATEWAY_EARLY_FAILURE_DIAGNOSTICS
   exit 1
 fi
-ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- \
+echo 'Verify: Gateway XHTTP runtime contract'
+if ! ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- \
   gateway /var/lib/xconnect-gateway/runtime/xray.json - "$transport_server_name" "$xhttp_path" "$xhttp_mode" "$xhttp_host" \
-  < "$ROOT/.github/scripts/xconnect-lab/verify-xhttp-runtime.sh"
+  < "$ROOT/.github/scripts/xconnect-lab/verify-xhttp-runtime.sh"; then
+  echo 'Gateway XHTTP runtime contract verification failed.' >&2
+  exit 1
+fi
+echo 'gateway_xhttp_runtime=valid'
 
 # The persistent external Gateway is not a lab-owned application host. For
 # the private HTTP assertion only, expose a run-scoped marker on its existing
@@ -363,35 +417,78 @@ ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- \
 probe_pid_file=''
 if [[ "$gateway_provider" == external ]]; then
   probe_pid_file="/run/xconnect-one-${run_id}.pid"
-  ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$run_id" "$probe_pid_file" "$gateway_wireguard_ip" <<'START_PRIVATE_PROBE'
+  private_probe_status=0
+  ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$run_id" "$probe_pid_file" "$gateway_wireguard_ip" <<'START_PRIVATE_PROBE' || private_probe_status=$?
 set -euo pipefail
 run_id="$1"
 pid_file="$2"
 gateway_wireguard_ip="$3"
 probe_dir="/run/xconnect-one-${run_id}"
-sudo rm -rf "$probe_dir"
-sudo install -d -m 755 "$probe_dir"
-printf '%s\n' "$run_id" | sudo tee "$probe_dir/index.html" >/dev/null
-sudo sh -c "nohup python3 -m http.server 8080 --bind '$gateway_wireguard_ip' --directory '$probe_dir' >/run/xconnect-one-${run_id}.log 2>&1 & echo \$! > '$pid_file'"
-for attempt in {1..10}; do
-  sudo ss -H -ltn4 | awk -v endpoint="$gateway_wireguard_ip:8080" '$4 == endpoint {found=1} END {exit !found}' && exit 0
+
+# The One enrollment can advance the Gateway's signed generation immediately
+# before this verification step. Wait for the refreshed runtime to restore the
+# configured WireGuard address instead of racing a bind on a transiently
+# absent address.
+address_ready=0
+for attempt in {1..20}; do
+  if ip -4 -o addr show dev xconzero0 2>/dev/null | awk -v expected="${gateway_wireguard_ip}/32" '$4 == expected {found=1} END {exit !found}'; then
+    address_ready=1
+    break
+  fi
   sleep 1
 done
-sudo cat "/run/xconnect-one-${run_id}.log" >&2 || true
+if [[ "$address_ready" != 1 ]]; then
+  echo 'Gateway WireGuard address is not ready for the private HTTP probe' >&2
+  ip -4 -o addr show dev xconzero0 2>/dev/null || true
+  systemctl is-active xconnect-gateway-xray.service || true
+  exit 1
+fi
+
+rm -rf "$probe_dir"
+install -d -m 755 "$probe_dir"
+printf '%s\n' "$run_id" > "$probe_dir/index.html"
+
+# The shell is executing over SSH.  Explicitly detach every standard stream so
+# the background HTTP probe cannot retain the SSH stdin pipe and block the
+# verification command from returning.
+setsid nohup python3 -m http.server 8080 --bind "$gateway_wireguard_ip" --directory "$probe_dir" \
+  </dev/null >"/run/xconnect-one-${run_id}.log" 2>&1 &
+printf '%s\n' "$!" > "$pid_file"
+for attempt in {1..10}; do
+  # Keep the expected first poll non-fatal: python may not have bound the
+  # WireGuard address yet.  An `&& exit` list under `set -e` caused the
+  # remote script to abort before it could perform the remaining retries.
+  if ss -H -ltn4 | awk -v endpoint="$gateway_wireguard_ip:8080" '$4 == endpoint {found=1} END {exit !found}'; then
+    exit 0
+  fi
+  sleep 1
+done
+cat "/run/xconnect-one-${run_id}.log" >&2 || true
 echo 'private HTTP probe did not start' >&2
 exit 1
 START_PRIVATE_PROBE
+  if [[ "$private_probe_status" != 0 ]]; then
+    echo "Gateway private HTTP probe setup failed (ssh_exit=${private_probe_status}); collecting non-sensitive runtime state." >&2
+    ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s <<'GATEWAY_PRIVATE_PROBE_DIAGNOSTICS' || true
+set -euo pipefail
+ip -4 -o addr show dev xconzero0 2>/dev/null || true
+ss -H -ltn4 | awk '$4 ~ /:8080$/ {print $4}' || true
+systemctl is-active xconnect-gateway-xray.service || true
+GATEWAY_PRIVATE_PROBE_DIAGNOSTICS
+    exit 1
+  fi
+  echo 'gateway_private_http_probe=ready'
   cleanup_private_probe() {
     ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$run_id" "$probe_pid_file" <<'STOP_PRIVATE_PROBE' || true
 set -euo pipefail
 run_id="$1"
 pid_file="$2"
 if [[ -s "$pid_file" ]]; then
-  pid=$(sudo cat "$pid_file" || true)
-  [[ "$pid" =~ ^[0-9]+$ ]] && sudo kill "$pid" 2>/dev/null || true
+  pid=$(cat "$pid_file" || true)
+  [[ "$pid" =~ ^[0-9]+$ ]] && kill "$pid" 2>/dev/null || true
 fi
-sudo rm -f "$pid_file" "/run/xconnect-one-${run_id}.log"
-sudo rm -rf "/run/xconnect-one-${run_id}"
+rm -f "$pid_file" "/run/xconnect-one-${run_id}.log"
+rm -rf "/run/xconnect-one-${run_id}"
 STOP_PRIVATE_PROBE
   }
   trap cleanup_private_probe EXIT
@@ -401,6 +498,7 @@ gateway_ca_sha256='system-public-ca'
 if [[ "$gateway_provider" != external ]]; then
   gateway_ca_sha256=$(sha256sum "$LAB_DIR/tls/gateway-ca.crt" | awk '{print $1}')
 fi
+echo 'Verify: Linux One signed config, private reachability and ACK'
 if ! ssh "${CLIENT_SSH[@]}" "$client_user@$client" sudo bash -s -- "$run_id" "$client_transport_endpoint" "$gateway_public_key" "$client_id" "$network_id" "$transport_server_name" "$gateway_wireguard_ip" "$gateway_ca_sha256" <<'CLIENT_VERIFY'
 set -euo pipefail
 client_failure() {
@@ -459,12 +557,19 @@ echo "gateway_wireguard_handshake_age_seconds=$handshake_age"
 GATEWAY_FAILURE_DIAGNOSTICS
   exit 1
 fi
+echo 'linux_one_data_plane=valid'
 
-ssh "${CLIENT_SSH[@]}" "$client_user@$client" sudo bash -s -- \
-  one /var/lib/xconnect-one "$client_transport_endpoint" "$transport_server_name" "$xhttp_path" "$xhttp_mode" "$xhttp_host" \
-  < "$ROOT/.github/scripts/xconnect-lab/verify-xhttp-runtime.sh"
+echo 'Verify: Linux One XHTTP runtime contract'
+if ! ssh "${CLIENT_SSH[@]}" "$client_user@$client" sudo bash -s -- \
+  one /var/lib/xconnect-one "$client_xhttp_contract_endpoint" "$transport_server_name" "$xhttp_path" "$xhttp_mode" "$xhttp_host" \
+  < "$ROOT/.github/scripts/xconnect-lab/verify-xhttp-runtime.sh"; then
+  echo 'Linux One XHTTP runtime contract verification failed.' >&2
+  exit 1
+fi
+echo 'linux_one_xhttp_runtime=valid'
 
-ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$client_public_key" "$gateway_id" "$network_id" "$formal_zero" "$client_wireguard_ip" <<'RELAY_VERIFY'
+echo 'Verify: Gateway exact peer, signed state and route'
+if ! ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$client_public_key" "$gateway_id" "$network_id" "$formal_zero" "$client_wireguard_ip" <<'RELAY_VERIFY'
 set -euo pipefail
 wg show xconzero0 latest-handshakes | awk -v peer="$1" -v now="$(date +%s)" '$1 == peer && $2 > 0 && now-$2 >= 0 && now-$2 < 180 {ok=1} END {exit !ok}'
 jq -e --arg gateway "$2" --arg network "$3" --arg controller "$4" \
@@ -472,6 +577,17 @@ jq -e --arg gateway "$2" --arg network "$3" --arg controller "$4" \
   /var/lib/xconnect-gateway/state.json >/dev/null
 ip route get "$5" | grep -Fq 'dev xconzero0'
 RELAY_VERIFY
+then
+  echo 'Gateway exact peer, signed state or route verification failed.' >&2
+  ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$client_public_key" <<'RELAY_FAILURE_DIAGNOSTICS' || true
+set -euo pipefail
+wg show xconzero0 latest-handshakes || true
+ip -4 route show dev xconzero0 || true
+test -f /var/lib/xconnect-gateway/state.json && jq -c '{gateway_id,network_id,controller,applied_generation,applied_config_id}' /var/lib/xconnect-gateway/state.json || true
+RELAY_FAILURE_DIAGNOSTICS
+  exit 1
+fi
+echo 'gateway_exact_peer=valid'
 
 echo 'PASS: formal UAT Accounts enrollment, released Gateway and Linux One, signed sync/ACK, external Xray/WireGuard, private ping/HTTP and exact-peer handshake on both sides.'
 echo 'Not covered by Linux PASS: authenticated Portal data, macOS/Windows private HTTP, or policy enforcement/revocation.'
@@ -519,7 +635,10 @@ case "$stage" in
   gateway) test -f "$LAB_DIR/bootstrap.done"; enroll_gateway ;;
   one) test -f "$LAB_DIR/gateway.done"; enroll_one ;;
   observability) test -f "$LAB_DIR/one.done"; deploy_observability ;;
-  verify) test -f "$LAB_DIR/observability.done"; verify_overlay ;;
+  # Data-plane validation is intentionally independent of the central metrics
+  # backend. A delayed observability query must not hide the outcome of the
+  # signed-config, XHTTP, WireGuard, ping and HTTP checks.
+  verify) test -f "$LAB_DIR/one.done"; verify_overlay ;;
   all) prepare_runtime; bootstrap_accounts; enroll_gateway; enroll_one; deploy_observability; verify_overlay ;;
   *) echo 'Unknown deployment stage' >&2; exit 1 ;;
 esac

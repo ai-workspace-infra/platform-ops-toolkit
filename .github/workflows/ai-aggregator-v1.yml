@@ -7,6 +7,7 @@ on:
       - '.github/workflows/ai-aggregator-v1.yml'
       - 'scripts/ci/**'
       - 'scripts/verify_ai_aggregator_endpoints.sh'
+      - 'scripts/vault/initialize_ai_aggregator_paths.sh'
       - 'docs/plans/**'
   pull_request:
     paths:
@@ -15,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: "plan validates; provision creates only Spot nodes; stage configures services"
+        description: "plan validates; provision creates Spot nodes; stage injects Gateway secrets; activate starts services"
         required: true
         default: plan
         type: choice
@@ -77,6 +78,15 @@ jobs:
           if [ -f gitops/topology/prod/selfhost/ai-aggregator.yaml ]; then
             python3 scripts/ci/validate_ai_aggregator_manifest.py gitops/topology/prod/selfhost/ai-aggregator.yaml
           fi
+      - name: Reject deprecated AI Aggregator Vault references
+        run: |
+          if rg -n --glob 'ai-aggregator.yaml' \
+            'vault://kv/(uat|prod)/ai-aggregator/(accounts|instances|clients|cpa)/|vault://kv/(uat|prod)/ai-aggregator/database/postgresql|#(api_client_token|oauth_bundle|channel_token)' \
+            gitops/topology; then
+            echo 'deprecated AI Aggregator Vault reference detected' >&2
+            exit 1
+          fi
+
   resolve-provider:
     needs: validate
     if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
@@ -154,6 +164,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.environment == 'uat' &&
       contains(fromJSON('["provision","stage","activate"]'), inputs.operation))) }}
     runs-on: ubuntu-latest
+    environment: uat
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
@@ -213,6 +224,8 @@ jobs:
         env:
           VAULT_ADDR: https://vault.svc.plus
           VAULT_JWT_ROLE: ${{ vars.VAULT_JWT_ROLE }}
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
+          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
         run: |
           set -euo pipefail
           test -n "$VAULT_JWT_ROLE"
@@ -253,7 +266,7 @@ jobs:
           python3 iac_modules/terraform-hcl-standard/aws-cloud/scripts/generate.py inventory \
             --resources "${{ steps.contract.outputs.resources }}" \
             --workdir "${{ steps.contract.outputs.workdir }}"
-      - name: Deploy non-secret system configuration
+      - name: Deploy Gateway secrets and system configuration
         if: ${{ github.event_name == 'workflow_dispatch' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
         working-directory: playbooks
         env:
@@ -262,10 +275,10 @@ jobs:
         run: |
           ansible-playbook -i ../iac_modules/terraform-hcl-standard/aws-cloud/envs/ai-aggregator-uat/inventory.ini \
             deploy-ai-aggregator-v1.yml \
-            -e ai_aggregator_operation=stage \
+            -e ai_aggregator_operation=${{ inputs.operation == 'activate' && 'activate' || 'stage' }} \
             -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/uat/selfhost/ai-aggregator.yaml
       - name: Verify UAT endpoints
-        if: ${{ github.event_name == 'workflow_dispatch' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'activate' }}
         run: ./scripts/verify_ai_aggregator_endpoints.sh
       - name: Destroy UAT Spot resources
         if: ${{ always() && steps.contract.outputs.workdir != '' }}
@@ -328,7 +341,9 @@ jobs:
           if not resources.is_file():
               raise SystemExit(f'missing declared resource contract: {resources}')
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
-              output.write(f'resources={resources}\nworkdir={workdir}\n')
+              output.write(f'resources={resources}
+workdir={workdir}
+')
           PY
       - name: Login to Vault with GitHub OIDC
         if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate')) }}
@@ -336,62 +351,30 @@ jobs:
         env:
           VAULT_ADDR: https://vault.svc.plus
           VAULT_GCP_JWT_ROLE: ${{ vars.VAULT_GCP_JWT_ROLE }}
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
+          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
         run: |
           set -euo pipefail
           test -n "$VAULT_GCP_JWT_ROLE"
-          oidc_token="$(curl --fail --silent --show-error \
-            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=vault" | jq -r .value)"
-          vault_token="$(jq -n --arg role "$VAULT_GCP_JWT_ROLE" --arg jwt "$oidc_token" \
-            '{role: $role, jwt: $jwt}' | \
-            curl --fail --silent --show-error --request POST --data @- \
-            "$VAULT_ADDR/v1/auth/jwt/login" | jq -r .auth.client_token)"
+          oidc_token="$(curl --fail --silent --show-error             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN"             "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=vault" | jq -r .value)"
+          vault_token="$(jq -n --arg role "$VAULT_GCP_JWT_ROLE" --arg jwt "$oidc_token"             '{role: $role, jwt: $jwt}' |             curl --fail --silent --show-error --request POST --data @-               "$VAULT_ADDR/v1/auth/jwt/login" | jq -r .auth.client_token)"
           test -n "$vault_token" && test "$vault_token" != "null"
           echo "::add-mask::$vault_token"
           echo "token=$vault_token" >> "$GITHUB_OUTPUT"
-      - name: Load GCP Workload Identity settings from Vault
-        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate')) }}
-        id: gcp_vault
-        uses: hashicorp/vault-action@v4
-        with:
-          url: https://vault.svc.plus
-          method: jwt
-          path: jwt
-          role: ${{ vars.VAULT_GCP_JWT_ROLE }}
-          jwtGithubAudience: vault
-          secrets: |
-            kv/data/uat/serverless/gcp GCP_PROJECT_ID | GCP_PROJECT_ID ;
-            kv/data/uat/serverless/gcp GCP_WORKLOAD_IDENTITY_PROVIDER | GCP_WORKLOAD_IDENTITY_PROVIDER ;
-            kv/data/uat/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL
-      - name: Authenticate to GCP
-        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate')) }}
-        uses: google-github-actions/auth@v2
-        with:
-          project_id: ${{ steps.gcp_vault.outputs.GCP_PROJECT_ID }}
-          workload_identity_provider: ${{ steps.gcp_vault.outputs.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ steps.gcp_vault.outputs.GCP_SERVICE_ACCOUNT_EMAIL }}
-      - name: Render GCP UAT resources
+      - name: Provision GCP UAT Spot instance
         if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate')) }}
         env:
-          GCP_PROJECT_ID: ${{ steps.gcp_vault.outputs.GCP_PROJECT_ID }}
+          VAULT_ADDR: https://vault.svc.plus
+          VAULT_TOKEN: ${{ steps.vault_login.outputs.token }}
           AI_AGGREGATOR_SSH_CIDR: ${{ vars.AI_AGGREGATOR_SSH_CIDR }}
           AI_AGGREGATOR_SOURCE_CIDR: ${{ vars.AI_AGGREGATOR_SOURCE_CIDR }}
           AI_AGGREGATOR_SSH_PUBLIC_KEY: ${{ vars.AI_AGGREGATOR_SSH_PUBLIC_KEY }}
+          TARGET_DOMAIN_BASE: onwalk.net
         run: |
-          python3 iac_modules/terraform-hcl-standard/gcp-cloud/scripts/generate_ai_aggregator.py render \
-            --resources "${{ steps.contract.outputs.resources }}" \
-            --workdir "${{ steps.contract.outputs.workdir }}"
-      - name: Provision GCP UAT Spot resources
-        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate')) }}
-        run: |
-          terraform -chdir="${{ steps.contract.outputs.workdir }}" fmt -recursive
           terraform -chdir="${{ steps.contract.outputs.workdir }}" init -backend=false -input=false
           terraform -chdir="${{ steps.contract.outputs.workdir }}" validate
           terraform -chdir="${{ steps.contract.outputs.workdir }}" apply -auto-approve
-          python3 iac_modules/terraform-hcl-standard/gcp-cloud/scripts/generate_ai_aggregator.py inventory \
-            --resources "${{ steps.contract.outputs.resources }}" \
-            --workdir "${{ steps.contract.outputs.workdir }}"
-      - name: Deploy aggregator services and CPA desktops
+      - name: Deploy GCP UAT services
         if: ${{ github.event_name == 'workflow_dispatch' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
         working-directory: playbooks
         env:
@@ -399,21 +382,14 @@ jobs:
           VAULT_TOKEN: ${{ steps.vault_login.outputs.token }}
         run: |
           set -euo pipefail
-          ansible-playbook -i ../iac_modules/terraform-hcl-standard/gcp-cloud/envs/ai-aggregator-uat/inventory.ini \
-            deploy-ai-aggregator-v1.yml \
-            -e ai_aggregator_operation=stage \
-            -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/uat/selfhost/ai-aggregator.yaml
+          ansible-playbook -i ../iac_modules/terraform-hcl-standard/gcp-cloud/envs/ai-aggregator-uat/inventory.ini             deploy-ai-aggregator-v1.yml             -e ai_aggregator_operation=stage             -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/uat/selfhost/ai-aggregator.yaml
           desktop_vars="$RUNNER_TEMP/ai-desktop-vars.json"
           trap 'rm -f "$desktop_vars"' EXIT
           jq -n '{ai_desktop_password_by_host: {}}' > "$desktop_vars"
           while IFS= read -r cpa_id; do
             [ -n "$cpa_id" ] || continue
-            password="$(curl --fail --silent --show-error \
-              -H "X-Vault-Token: $VAULT_TOKEN" \
-              "$VAULT_ADDR/v1/kv/data/uat/ai-aggregator/cpa/$cpa_id" | \
-              jq -er '.data.data.desktop_password')"
-            jq --arg id "$cpa_id" --arg password "$password" \
-              '.ai_desktop_password_by_host[$id] = $password' "$desktop_vars" > "$desktop_vars.next"
+            password="$(curl --fail --silent --show-error               -H "X-Vault-Token: $VAULT_TOKEN"               "$VAULT_ADDR/v1/kv/data/uat/ai-aggregator/cpa/$cpa_id" |               jq -er '.data.data.desktop_password')"
+            jq --arg id "$cpa_id" --arg password "$password"               '.ai_desktop_password_by_host[$id] = $password' "$desktop_vars" > "$desktop_vars.next"
             mv "$desktop_vars.next" "$desktop_vars"
           done < <(python3 - <<'PY'
           import yaml
@@ -422,11 +398,7 @@ jobs:
               print(entry['node'])
           PY
           )
-          ansible-playbook -i ../iac_modules/terraform-hcl-standard/gcp-cloud/envs/ai-aggregator-uat/inventory.ini \
-            deploy_ai_desktop.yml \
-            -e ai_desktop_remote_enabled=true \
-            -e ai_desktop_manage_user=true \
-            -e @"$desktop_vars"
+          ansible-playbook -i ../iac_modules/terraform-hcl-standard/gcp-cloud/envs/ai-aggregator-uat/inventory.ini             deploy_ai_desktop.yml             -e ai_desktop_remote_enabled=true             -e ai_desktop_manage_user=true             -e @"$desktop_vars"
       - name: Verify UAT endpoints
         if: ${{ github.event_name == 'workflow_dispatch' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
         env:
@@ -493,22 +465,23 @@ jobs:
           if not resources.is_file():
               raise SystemExit(f'missing declared resource contract: {resources}')
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
-              output.write(f"resources={resources}\nworkdir={workdir}\nrenderer={root / contract['renderer']}\n")
+              output.write(f"resources={resources}
+workdir={workdir}
+renderer={root / contract['renderer']}
+")
           PY
       - name: Login to Vault with GitHub OIDC
         id: vault_login
         env:
           VAULT_ADDR: https://vault.svc.plus
           VAULT_VPS_JWT_ROLE: ${{ vars.VAULT_VPS_JWT_ROLE }}
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
+          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
         run: |
           set -euo pipefail
           test -n "$VAULT_VPS_JWT_ROLE"
-          oidc_token="$(curl --fail --silent --show-error \
-            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=vault" | jq -r .value)"
-          vault_token="$(jq -n --arg role "$VAULT_VPS_JWT_ROLE" --arg jwt "$oidc_token" \
-            '{role: $role, jwt: $jwt}' | curl --fail --silent --show-error \
-            --request POST --data @- "$VAULT_ADDR/v1/auth/jwt/login" | jq -r .auth.client_token)"
+          oidc_token="$(curl --fail --silent --show-error             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN"             "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=vault" | jq -r .value)"
+          vault_token="$(jq -n --arg role "$VAULT_VPS_JWT_ROLE" --arg jwt "$oidc_token"             '{role: $role, jwt: $jwt}' | curl --fail --silent --show-error             --request POST --data @- "$VAULT_ADDR/v1/auth/jwt/login" | jq -r .auth.client_token)"
           test -n "$vault_token" && test "$vault_token" != "null"
           echo "::add-mask::$vault_token"
           echo "token=$vault_token" >> "$GITHUB_OUTPUT"
@@ -531,16 +504,12 @@ jobs:
           AI_AGGREGATOR_SSH_PUBLIC_KEY: ${{ vars.AI_AGGREGATOR_SSH_PUBLIC_KEY }}
           TARGET_DOMAIN_BASE: onwalk.net
         run: |
-          python3 "${{ steps.contract.outputs.renderer }}" render \
-            --resources "${{ steps.contract.outputs.resources }}" \
-            --workdir "${{ steps.contract.outputs.workdir }}"
+          python3 "${{ steps.contract.outputs.renderer }}" render             --resources "${{ steps.contract.outputs.resources }}"             --workdir "${{ steps.contract.outputs.workdir }}"
           terraform -chdir="${{ steps.contract.outputs.workdir }}" fmt -recursive
           terraform -chdir="${{ steps.contract.outputs.workdir }}" init -backend=false -input=false
           terraform -chdir="${{ steps.contract.outputs.workdir }}" validate
           terraform -chdir="${{ steps.contract.outputs.workdir }}" apply -auto-approve
-          python3 "${{ steps.contract.outputs.renderer }}" inventory \
-            --resources "${{ steps.contract.outputs.resources }}" \
-            --workdir "${{ steps.contract.outputs.workdir }}"
+          python3 "${{ steps.contract.outputs.renderer }}" inventory             --resources "${{ steps.contract.outputs.resources }}"             --workdir "${{ steps.contract.outputs.workdir }}"
       - name: Deploy selected VPS services
         if: ${{ github.event_name == 'workflow_dispatch' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
         working-directory: playbooks
@@ -548,10 +517,7 @@ jobs:
           VAULT_ADDR: https://vault.svc.plus
           VAULT_TOKEN: ${{ steps.vault_login.outputs.token }}
         run: |
-          ansible-playbook -i "${{ steps.contract.outputs.workdir }}/inventory.ini" \
-            deploy-ai-aggregator-v1.yml \
-            -e ai_aggregator_operation=stage \
-            -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/uat/selfhost/ai-aggregator.yaml
+          ansible-playbook -i "${{ steps.contract.outputs.workdir }}/inventory.ini"             deploy-ai-aggregator-v1.yml             -e ai_aggregator_operation=stage             -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/uat/selfhost/ai-aggregator.yaml
       - name: Verify selected VPS endpoints
         if: ${{ github.event_name == 'workflow_dispatch' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
         env:
@@ -562,3 +528,72 @@ jobs:
         env:
           VULTR_API_KEY: ${{ steps.vps_vault.outputs.VULTR_API_KEY }}
         run: terraform -chdir="${{ steps.contract.outputs.workdir }}" destroy -auto-approve
+
+  prod-deploy:
+    needs: [validate, resolve-provider]
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' && inputs.environment == 'prod' &&
+      (inputs.operation == 'stage' || inputs.operation == 'activate') }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_ref || 'main' }}
+          path: gitops
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ inputs.playbooks_ref || 'main' }}
+          path: playbooks
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Ansible dependencies
+        run: pip install --quiet ansible-core pyyaml
+      - name: Resolve declared Prod target hosts
+        id: target_hosts
+        env:
+          GITOPS_MANIFEST: ${{ github.workspace }}/gitops/topology/prod/selfhost/ai-aggregator.yaml
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import yaml
+
+          manifest = yaml.safe_load(Path(os.environ['GITOPS_MANIFEST']).read_text())
+          hosts = sorted({node['inventory_host'] for node in manifest['spec']['nodes']})
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write(f"hosts={','.join(hosts)}
+")
+          PY
+      - name: Login to Vault with GitHub OIDC
+        id: vault_login
+        env:
+          VAULT_ADDR: https://vault.svc.plus
+          VAULT_JWT_ROLE: ${{ vars.VAULT_JWT_ROLE }}
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
+          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+        run: |
+          set -euo pipefail
+          test -n "$VAULT_JWT_ROLE"
+          oidc_token="$(curl --fail --silent --show-error             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN"             "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=vault" | jq -r .value)"
+          vault_token="$(jq -n --arg role "$VAULT_JWT_ROLE" --arg jwt "$oidc_token"             '{role: $role, jwt: $jwt}' |             curl --fail --silent --show-error --request POST --data @-               "$VAULT_ADDR/v1/auth/jwt/login" | jq -r .auth.client_token)"
+          test -n "$vault_token" && test "$vault_token" != "null"
+          echo "::add-mask::$vault_token"
+          echo "token=$vault_token" >> "$GITHUB_OUTPUT"
+      - name: Deploy Prod to existing persistent nodes
+        working-directory: playbooks
+        env:
+          VAULT_ADDR: https://vault.svc.plus
+          VAULT_TOKEN: ${{ steps.vault_login.outputs.token }}
+        run: |
+          ansible-playbook -i inventory.ini --limit "${{ steps.target_hosts.outputs.hosts }}" deploy-ai-aggregator-v1.yml             -e ai_aggregator_operation=${{ inputs.operation }}             -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/prod/selfhost/ai-aggregator.yaml
+      - name: Verify Prod endpoints
+        if: ${{ inputs.operation == 'activate' }}
+        env:
+          AI_AGGREGATOR_MANIFEST: ${{ github.workspace }}/gitops/topology/prod/selfhost/ai-aggregator.yaml
+        run: ./scripts/verify_ai_aggregator_endpoints.sh

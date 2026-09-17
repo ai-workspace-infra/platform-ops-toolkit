@@ -59,7 +59,7 @@ kv/data/CICD/prod/iac_state
 | 路径 | 用途 | 允许的字段 |
 | --- | --- | --- |
 | `aws-bootstrap` | 一次性 AWS 控制面身份 | `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`、可选 `AWS_SESSION_TOKEN` |
-| `iac_state` | 现有基础设施与 Terraform state 后端 | `VULTR_API_KEY`、`TF_STATE_ENDPOINT`、`TF_STATE_BUCKET`、`TF_STATE_ACCESS_KEY`、`TF_STATE_SECRET_KEY`、`TF_STATE_REGION`、`SSH_PRIVATE_DEPLOY_KEY_B64` |
+| `iac_state` | Terraform state 后端 | `TF_STATE_ENDPOINT`、`TF_STATE_BUCKET`、`TF_STATE_ACCESS_KEY`、`TF_STATE_SECRET_KEY`、`TF_STATE_REGION` |
 
 `iac_state` 不包含现有 Terraform identity state 或 bootstrap YAML。因此首次 OIDC 故障恢复
 不能假设可从空 state 安全执行完整的 Terraform identity apply；恢复流水线只更新由 GitOps

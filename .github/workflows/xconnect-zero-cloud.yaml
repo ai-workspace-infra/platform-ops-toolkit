@@ -219,7 +219,7 @@ jobs:
         run: bash .github/scripts/xconnect-lab/run.sh download
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.9.5
+          terraform_version: 1.10.5
           terraform_wrapper: false
       - name: Offline topology and Terraform preflight
         run: bash .github/scripts/xconnect-lab/run.sh preflight
@@ -232,11 +232,11 @@ jobs:
           role: ${{ steps.topology.outputs.vault_role }}
           jwtGithubAudience: vault
           secrets: |
-            kv/data/CICD/uat TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
-            kv/data/CICD/uat TF_STATE_BUCKET | TF_STATE_BUCKET ;
-            kv/data/CICD/uat TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
-            kv/data/CICD/uat TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
-            kv/data/CICD/uat TF_STATE_REGION | TF_STATE_REGION
+            kv/data/CICD/uat/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
+            kv/data/CICD/uat/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
+            kv/data/CICD/uat/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+            kv/data/CICD/uat/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+            kv/data/CICD/uat/iac_state TF_STATE_REGION | TF_STATE_REGION
       - name: Runtime credentials from dedicated Vault path
         if: inputs.mode == 'apply'
         uses: hashicorp/vault-action@v4
@@ -301,6 +301,9 @@ jobs:
       - name: Join Linux One using its formal invitation and reconcile Gateway
         if: inputs.mode == 'apply'
         run: bash .github/scripts/xconnect-lab/run.sh one
+      - name: Verify signed sync/ACK, services, exact-peer handshake and private ping/HTTP
+        if: inputs.mode == 'apply'
+        run: bash .github/scripts/xconnect-lab/run.sh verify
       - name: Install Ansible controller for XConnect observability
         if: inputs.mode == 'apply'
         run: |
@@ -313,9 +316,6 @@ jobs:
           OBSERVABILITY_QUERY_PATH: ${{ steps.topology.outputs.observability_query_path }}
           OBSERVABILITY_ENVIRONMENT: ${{ steps.topology.outputs.observability_environment }}
         run: bash .github/scripts/xconnect-lab/run.sh observability
-      - name: Verify signed sync/ACK, services, exact-peer handshake and private ping/HTTP
-        if: inputs.mode == 'apply'
-        run: bash .github/scripts/xconnect-lab/run.sh verify
       - name: Publish non-secret desktop handoff
         if: inputs.mode == 'apply' && inputs.gateway_provider != 'external'
         uses: actions/upload-artifact@v4
@@ -405,7 +405,7 @@ jobs:
         run: bash .github/scripts/xconnect-lab/run.sh topology
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.9.5
+          terraform_version: 1.10.5
           terraform_wrapper: false
       - name: Infrastructure credentials from UAT Vault role
         id: state-credentials
@@ -416,11 +416,11 @@ jobs:
           role: ${{ steps.topology.outputs.vault_role }}
           jwtGithubAudience: vault
           secrets: |
-            kv/data/CICD/uat TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
-            kv/data/CICD/uat TF_STATE_BUCKET | TF_STATE_BUCKET ;
-            kv/data/CICD/uat TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
-            kv/data/CICD/uat TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
-            kv/data/CICD/uat TF_STATE_REGION | TF_STATE_REGION
+            kv/data/CICD/uat/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
+            kv/data/CICD/uat/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
+            kv/data/CICD/uat/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+            kv/data/CICD/uat/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+            kv/data/CICD/uat/iac_state TF_STATE_REGION | TF_STATE_REGION
       - name: AWS short-lived OIDC credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:

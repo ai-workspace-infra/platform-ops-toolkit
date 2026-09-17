@@ -3,6 +3,10 @@ set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 roles="${repo_root}/scripts/create_vault_service_repo_roles.sh"
+cloud_lab_policy="${repo_root}/scripts/vault/policies/github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab.hcl"
+cloud_lab_role="${repo_root}/scripts/vault/roles/github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab.json"
+existing_one_policy="${repo_root}/scripts/vault/policies/github-actions-platform-ops-toolkit-uat-xconnect-existing-one.hcl"
+existing_one_role="${repo_root}/scripts/vault/roles/github-actions-platform-ops-toolkit-uat-xconnect-existing-one.json"
 workflow="${repo_root}/.github/workflows/xconnect-zero-cloud.yaml"
 runner="${repo_root}/.github/scripts/xconnect-lab/run.sh"
 topology_policy="${repo_root}/.github/scripts/xconnect-lab/validate-topology.jq"
@@ -12,26 +16,26 @@ existing_one_deploy="${repo_root}/.github/scripts/xconnect-existing-one-uat/depl
 role="github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab"
 
 bash -n "${roles}"
+test -f "${cloud_lab_policy}"
+test -f "${cloud_lab_role}"
+test -f "${existing_one_policy}"
+test -f "${existing_one_role}"
 
-grep -Fq "XCONNECT_CLOUD_LAB_ROLE=\"${role}\"" "${roles}"
-grep -Fq '"job_workflow_ref": "${WF_PREFIX}/xconnect-zero-cloud.yaml@refs/heads/main"' "${roles}"
-grep -Fq 'XCONNECT_CLOUD_LAB_POLICY="github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab"' "${roles}"
-grep -Fq '"token_policies": ["${XCONNECT_CLOUD_LAB_POLICY}"]' "${roles}"
-grep -Fq 'path "kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus"' "${roles}"
-if grep -Fq 'path "kv/data/prod/*"' "${roles}"; then
+grep -Fq '"job_workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/xconnect-zero-cloud.yaml@refs/heads/main"' "${cloud_lab_role}"
+grep -Fq '"token_policies":' "${cloud_lab_role}"
+grep -Fq 'path "kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus"' "${cloud_lab_policy}"
+if grep -Fq 'path "kv/data/prod/*"' "${cloud_lab_policy}"; then
   echo "XConnect cloud lab must not receive broad production access" >&2
   exit 1
 fi
-grep -Fq 'path "kv/data/uat/xconnect-one"' "${roles}"
-grep -Fq 'path "kv/data/CICD/observability"' "${roles}"
-cloud_lab_policy=$(awk '/^emit_xconnect_cloud_lab_policy\(\)/ {inside=1} inside {print} /^EOF$/ && inside {exit}' "${roles}")
-grep -Fq 'path "kv/data/CICD/domains/svc.plus"' <<<"${cloud_lab_policy}"
-grep -Fq 'path "kv/metadata/CICD/domains/svc.plus"' <<<"${cloud_lab_policy}"
-grep -Fq 'XCONNECT_EXISTING_ONE_ROLE="github-actions-platform-ops-toolkit-uat-xconnect-existing-one"' "${roles}"
-grep -Fq '"job_workflow_ref": "${WF_PREFIX}/xconnect-one-uat.yaml@refs/heads/main"' "${roles}"
-grep -Fq '"token_policies": ["${XCONNECT_EXISTING_ONE_POLICY}"]' "${roles}"
-grep -Fq 'path "kv/data/prod/ulighthost-xconnect/observability.svc.plus"' "${roles}"
-grep -Fq 'path "kv/data/CICD/domains/svc.plus"' "${roles}"
+grep -Fq 'path "kv/data/uat/xconnect-one"' "${cloud_lab_policy}"
+grep -Fq 'path "kv/data/CICD/observability"' "${cloud_lab_policy}"
+grep -Fq 'path "kv/data/CICD/domains/svc.plus"' "${cloud_lab_policy}"
+grep -Fq 'path "kv/metadata/CICD/domains/svc.plus"' "${cloud_lab_policy}"
+grep -Fq '"job_workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/xconnect-one-uat.yaml@refs/heads/main"' "${existing_one_role}"
+grep -Fq '"token_policies":' "${existing_one_role}"
+grep -Fq 'path "kv/data/prod/ulighthost-xconnect/observability.svc.plus"' "${existing_one_policy}"
+grep -Fq 'path "kv/data/CICD/domains/svc.plus"' "${existing_one_policy}"
 
 if grep -Fq '"${WF_PREFIX}/xconnect-cloud-lab.yml@*"' "${roles}"; then
   echo "XConnect cloud lab must use its dedicated main-only role, not the general workflow allowlist" >&2
@@ -49,7 +53,7 @@ fi
 grep -Fq -- '-f "$ROOT/.github/scripts/xconnect-lab/validate-topology.jq"' "${runner}"
 grep -Fq ".spec.vault.role == \"${role}\"" "${topology_policy}"
 
-grep -Fq 'kv/data/CICD/uat TF_STATE_ENDPOINT' "${workflow}"
+grep -Fq 'kv/data/CICD/uat/iac_state TF_STATE_ENDPOINT' "${workflow}"
 grep -Fq 'kv/data/uat/xconnect-one ZERO_SERVICE_TOKEN' "${workflow}"
 grep -Fq 'kv/data/uat/xconnect-one ZERO_OWNER_EMAIL' "${workflow}"
 grep -Fq 'gitops/vpn-overlay/uat/xconnect-lab.json' "${runner}"

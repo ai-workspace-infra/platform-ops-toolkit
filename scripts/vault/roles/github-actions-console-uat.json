@@ -1,0 +1,28 @@
+{
+  "role_name": "github-actions-console-uat",
+  "description": "console UAT business CI; shared CICD credential read access only.",
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": [
+    "vault"
+  ],
+  "bound_claims_type": "glob",
+  "bound_claims": {
+    "repository": "ai-workspace-services/portal",
+    "job_workflow_ref": "ai-workspace-services/portal/.github/workflows/*pipeline.ym*@*",
+    "ref": [
+      "refs/heads/main",
+      "refs/heads/release/*",
+      "refs/heads/daily-build-*",
+      "refs/tags/uat-*",
+      "refs/tags/daily-build-*"
+    ]
+  },
+  "token_policies": [
+    "github-actions-console"
+  ],
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": "1h",
+  "token_max_ttl": "1h"
+}

@@ -12,7 +12,7 @@ role 绑定与 policy 生成见 [vault_authentication_and_policy_isolation.md](.
 | 层 | 路径 | sit | uat | prod | 权限 |
 |---|---|---|---|---|---|
 | **① 公共服务** | `kv/data/CICD`（GHCR）、`kv/data/openclaw`、`kv/data/action-runner` | ✅ | ✅ | ✅ | **只读，不可改** |
-| **② 基础凭据** | `kv/data/CICD/<env>` | 仅 `sit` | 仅 `uat` | 仅 `prod` | **只读** |
+| **② 基础凭据** | `kv/data/CICD/<env>` + `kv/data/CICD/<env>/iac_state` | 仅 `sit` | 仅 `uat` | 仅 `prod` | **只读** |
 | **③ 环境业务密钥** | `kv/data/<env>/*` | 仅 `sit` | 仅 `uat` | 仅 `prod` | 可读写（prod 无 `delete`） |
 
 ## 2. 归属判据
@@ -36,7 +36,7 @@ role 绑定与 policy 生成见 [vault_authentication_and_policy_isolation.md](.
 |---|---|---|
 | `GHCR_USERNAME` / `GHCR_TOKEN` | ① | 三个环境拉的是同一批镜像，不存在环境维度。 |
 | `VULTR_API_KEY` | ② | 能创建/销毁任意主机。 |
-| `TF_STATE_*` | ② | 能读写全部 Terraform state。 |
+| `TF_STATE_*` | ② `iac_state` | 通过环境级 S3-compatible backend 访问对应 state 前缀。 |
 | `SSH_PRIVATE_DEPLOY_KEY_B64` | ② | 能登录目标主机。 |
 | `POSTGRES_ROOT_PASSWORD` | ③ | 每个环境自己的数据库。 |
 | `xray_uuid` | ③ | 已在 `kv/<env>/agent-proxy`，正确。 |
@@ -49,7 +49,7 @@ role 绑定与 policy 生成见 [vault_authentication_and_policy_isolation.md](.
 1. 三个 role 都能读 ① 的全部路径。
 2. ① 的路径上**没有任何** `create` / `update` / `delete` / `patch` / `sudo`——
    公共资产不允许被任何单一环境的流水线改动。
-3. 每个 role 能读**自己**的 `kv/data/CICD/<env>`。
+3. 每个 role 能读**自己**的 `kv/data/CICD/<env>` 与 `kv/data/CICD/<env>/iac_state`。
 4. ② 的路径同样只读。流水线**消费**凭据，不负责**轮换**凭据。
 5. 每个 role 的 policy 里**不出现**其他环境的 `kv/data/CICD/<other>`。
 6. **不使用 `kv/data/CICD/*` 通配符**——它会一次性击穿第 5 条。
@@ -77,7 +77,7 @@ role 绑定与 policy 生成见 [vault_authentication_and_policy_isolation.md](.
 |---|---|---|
 | [`scripts/backup/vault_backup_to_keychain.sh`](../../scripts/backup/vault_backup_to_keychain.sh) | 全量导出 → macOS Keychain，回读比对 sha256 | 否（只读） |
 | [`scripts/vault/vault_layout_verify.py`](../../scripts/vault/vault_layout_verify.py) | 校验上面 7 条不变式 | 否（只读） |
-| [`scripts/vault/vault_migrate_base_credentials.sh`](../../scripts/vault/vault_migrate_base_credentials.sh) | 迁移第 1 步：基础凭据 → `kv/CICD/<env>` | 是（只新增，不删除） |
+| [`scripts/vault/vault_migrate_base_credentials.sh`](../../scripts/vault/vault_migrate_base_credentials.sh) | 迁移第 1 步：provider/主机凭据 → `kv/CICD/<env>`，state 凭据 → `kv/CICD/<env>/iac_state` | 是（只新增，不删除） |
 | [`docs/tasks/vault_auth_split.sh`](../tasks/vault_auth_split.sh) | 生成 policy 与 jwt role | 是 |
 
 ### 执行顺序
@@ -111,7 +111,7 @@ role 绑定与 policy 生成见 [vault_authentication_and_policy_isolation.md](.
 
 分层描述的是**目标状态**。以下几点尚未达成，不要按已完成来假设：
 
-- **`kv/CICD/{sit,uat,prod}` 尚未创建**，基础凭据还在根路径上。
+- **`kv/CICD/{sit,uat,prod}` 及其 `iac_state` 子路径尚未创建**，凭据还在根路径上。
 - **`prod/` 不存在**，第 ③ 层在 prod 上是空的。
 - **三个环境仍共用同一份凭据**。第 1 步脚本跑完只是把同一份复制成三份——
   **路径已隔离，凭据仍复用**。真正的隔离收益要等各环境换成独立的
