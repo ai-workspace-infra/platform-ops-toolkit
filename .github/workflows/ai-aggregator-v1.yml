@@ -341,9 +341,7 @@ jobs:
           if not resources.is_file():
               raise SystemExit(f'missing declared resource contract: {resources}')
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
-              output.write(f'resources={resources}
-workdir={workdir}
-')
+              output.write(f'resources={resources}\nworkdir={workdir}\n')
           PY
       - name: Login to Vault with GitHub OIDC
         if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate')) }}
@@ -465,10 +463,7 @@ workdir={workdir}
           if not resources.is_file():
               raise SystemExit(f'missing declared resource contract: {resources}')
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
-              output.write(f"resources={resources}
-workdir={workdir}
-renderer={root / contract['renderer']}
-")
+              output.write(f"resources={resources}\nworkdir={workdir}\nrenderer={root / contract['renderer']}\n")
           PY
       - name: Login to Vault with GitHub OIDC
         id: vault_login
@@ -567,8 +562,7 @@ renderer={root / contract['renderer']}
           manifest = yaml.safe_load(Path(os.environ['GITOPS_MANIFEST']).read_text())
           hosts = sorted({node['inventory_host'] for node in manifest['spec']['nodes']})
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
-              output.write(f"hosts={','.join(hosts)}
-")
+              output.write(f"hosts={','.join(hosts)}\n")
           PY
       - name: Login to Vault with GitHub OIDC
         id: vault_login
