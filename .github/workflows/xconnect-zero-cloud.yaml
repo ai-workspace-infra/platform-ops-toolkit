@@ -82,7 +82,7 @@ on:
         required: false
         default: '35.79.83.48/32'
       matrix_node_filter:
-        description: Node filter for the enrollment matrix (all, ai-aggregator, or specific node id)
+        description: Node filter for the enrollment matrix (none, all, ai-aggregator, or specific node id)
         type: string
         required: false
         default: 'all'
@@ -338,7 +338,10 @@ jobs:
   enroll_node_matrix:
     name: Enroll One / ${{ matrix.node.id }} (${{ matrix.node.role }})
     needs: [preflight, apply]
-    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'apply' && (inputs.matrix_node_filter == 'all' || inputs.matrix_node_filter == matrix.node.id || inputs.matrix_node_filter == matrix.node.subsystem)
+    # `matrix` is only available after the matrix has been expanded; using it
+    # in a job-level if makes GitHub reject the workflow before dispatch.
+    # Selection is therefore evaluated by the first step below.
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'apply'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -380,10 +383,26 @@ jobs:
             subsystem: ai-aggregator
             overlay_ip: '10.77.0.14'
     steps:
+      - name: Select requested enrollment target
+        id: selection
+        env:
+          MATRIX_NODE_FILTER: ${{ inputs.matrix_node_filter }}
+          MATRIX_NODE_ID: ${{ matrix.node.id }}
+          MATRIX_NODE_SUBSYSTEM: ${{ matrix.node.subsystem }}
+        run: |
+          selected=false
+          if [[ "${MATRIX_NODE_FILTER}" == "all" ||
+                "${MATRIX_NODE_FILTER}" == "${MATRIX_NODE_ID}" ||
+                "${MATRIX_NODE_FILTER}" == "${MATRIX_NODE_SUBSYSTEM}" ]]; then
+            selected=true
+          fi
+          echo "selected=${selected}" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
+        if: steps.selection.outputs.selected == 'true'
         with:
           persist-credentials: false
       - name: Authenticate CI to Vault via GitHub JWT
+        if: steps.selection.outputs.selected == 'true'
         id: bootstrap
         uses: hashicorp/vault-action@v4
         with:
@@ -395,6 +414,7 @@ jobs:
           secrets: |
             kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
       - name: Infra repository access
+        if: steps.selection.outputs.selected == 'true'
         id: infra-token
         uses: actions/create-github-app-token@v3
         with:
@@ -403,6 +423,7 @@ jobs:
           owner: ai-workspace-infra
           repositories: gitops,playbooks
       - name: CLI release token access
+        if: steps.selection.outputs.selected == 'true'
         id: cli-token
         uses: actions/create-github-app-token@v3
         with:
@@ -411,6 +432,7 @@ jobs:
           owner: ai-workspace-xstream
           repositories: XConnect-One
       - uses: actions/checkout@v7
+        if: steps.selection.outputs.selected == 'true'
         with:
           repository: ai-workspace-infra/gitops
           ref: ${{ env.GITOPS_REF }}
@@ -418,6 +440,7 @@ jobs:
           path: gitops
           persist-credentials: false
       - uses: actions/checkout@v7
+        if: steps.selection.outputs.selected == 'true'
         with:
           repository: ai-workspace-infra/playbooks
           ref: ${{ env.PLAYBOOKS_REF }}
@@ -425,6 +448,7 @@ jobs:
           path: playbooks
           persist-credentials: false
       - name: Runtime credentials from dedicated Vault path
+        if: steps.selection.outputs.selected == 'true'
         uses: hashicorp/vault-action@v4
         with:
           url: https://vault.svc.plus
@@ -438,12 +462,14 @@ jobs:
             kv/data/CICD/domains/svc.plus tls_ca_pem_b64 | GATEWAY_TLS_CA_PEM_B64 ;
             kv/data/CICD/domains/svc.plus tls_trust_bundle_pem_b64 | GATEWAY_TLS_TRUST_BUNDLE_PEM_B64
       - name: AWS short-lived OIDC credentials
+        if: steps.selection.outputs.selected == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::950604983695:role/GithubAction_IAC_Deploy_Role
           aws-region: ap-northeast-1
           audience: sts.amazonaws.com
       - name: Download XConnect-One release
+        if: steps.selection.outputs.selected == 'true'
         env:
           GH_TOKEN: ${{ steps.cli-token.outputs.token }}
         run: |
@@ -454,6 +480,7 @@ jobs:
             --pattern 'SHA256SUMS' --dir "$RUNNER_TEMP/releases" --clobber
           install -m 755 "$RUNNER_TEMP/releases/xconnect-linux-arm64" "$RUNNER_TEMP/bin/xconnect"
       - name: Enroll node into XConnect Zero
+        if: steps.selection.outputs.selected == 'true'
         env:
           NODE_ID: ${{ matrix.node.id }}
           NODE_ROLE: ${{ matrix.node.role }}
@@ -467,7 +494,7 @@ jobs:
   reconcile_mesh:
     name: Reconcile Gateway & Mesh
     needs: [apply, enroll_node_matrix]
-    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'apply'
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'apply' && inputs.gateway_provider == 'external'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
