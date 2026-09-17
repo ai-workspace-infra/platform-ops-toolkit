@@ -524,15 +524,17 @@ if [[ "$8" != system-public-ca ]]; then
 fi
 tls_probe() {
   local ca_file="$1"
+  local endpoint="$2"
+  local name="$3"
   timeout 10 openssl s_client \
-    -connect "$2:443" \
-    -servername "$6" \
-    -verify_hostname "$6" \
+    -connect "$endpoint:443" \
+    -servername "$name" \
+    -verify_hostname "$name" \
     -verify_return_error \
     -alpn h2,http/1.1 \
     -CAfile "$ca_file" </dev/null 2>&1 || true
 }
-tls_probe_result=$(tls_probe "$tls_ca_file")
+tls_probe_result=$(tls_probe "$tls_ca_file" "$2" "$6")
 if grep -Eq '(^|[[:space:]])Verification: OK$|Verify return code: 0 \(ok\)' <<<"$tls_probe_result"; then
   echo "tls_verification=ok source=$([[ "$8" == system-public-ca ]] && echo system-public-ca || echo vault-handoff)"
 elif [[ "$tls_ca_file" != /etc/ssl/certs/ca-certificates.crt ]]; then
@@ -540,7 +542,7 @@ elif [[ "$tls_ca_file" != /etc/ssl/certs/ca-certificates.crt ]]; then
   # tls_ca_pem_b64. That is useful certificate material but is not necessarily
   # a trust anchor. The endpoint uses a publicly trusted certificate, so retry
   # with the host's public CA store while retaining strict hostname checking.
-  tls_probe_result=$(tls_probe /etc/ssl/certs/ca-certificates.crt)
+  tls_probe_result=$(tls_probe /etc/ssl/certs/ca-certificates.crt "$2" "$6")
   if grep -Eq '(^|[[:space:]])Verification: OK$|Verify return code: 0 \(ok\)' <<<"$tls_probe_result"; then
     echo 'tls_verification=ok source=system-public-ca'
   else
