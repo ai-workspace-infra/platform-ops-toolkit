@@ -81,6 +81,11 @@ on:
         type: string
         required: false
         default: '35.79.83.48/32'
+      matrix_node_filter:
+        description: Node filter for the enrollment matrix (all, ai-aggregator, or specific node id)
+        type: string
+        required: false
+        default: 'all'
 permissions:
   contents: read
   id-token: write
@@ -112,6 +117,7 @@ jobs:
           bash .github/scripts/tests/xconnect_cloud_lab_vault_role_contract_test.sh
           bash .github/scripts/tests/xconnect_gateway_dns_contract_test.sh
           bash .github/scripts/tests/xconnect_xhttp_runtime_contract_test.sh
+          bash .github/scripts/tests/xconnect_ai_aggregator_matrix_contract_test.sh
       - name: Validate runtime scripts and workflow inputs
         if: matrix.suite == 'runtime'
         run: |
@@ -121,6 +127,7 @@ jobs:
           bash -n .github/scripts/xconnect-lab/deploy.sh
           bash -n .github/scripts/xconnect-lab/gateway.sh
           bash -n .github/scripts/xconnect-lab/verify-xhttp-runtime.sh
+          bash -n .github/scripts/xconnect-lab/enroll-node.sh
 
   apply:
     name: UAT lab / ${{ inputs.mode }}
@@ -327,6 +334,175 @@ jobs:
       - name: Keep verified Gateway/Linux One Spot until lease expiry
         if: inputs.mode == 'apply'
         run: bash .github/scripts/xconnect-lab/run.sh node-observation
+
+  enroll_node_matrix:
+    name: Enroll One / ${{ matrix.node.id }} (${{ matrix.node.role }})
+    needs: [preflight, apply]
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'apply' && (inputs.matrix_node_filter == 'all' || inputs.matrix_node_filter == matrix.node.id || inputs.matrix_node_filter == matrix.node.subsystem)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      MODE: ${{ inputs.mode }}
+      GITOPS_REF: ${{ inputs.gitops_ref || 'acbc88faf6072c14dc55c14c2cd601d3693e065e' }}
+      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '0f319649a8634523fe7e2d18ae2a22639ef2a97d' }}
+      CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
+      GATEWAY_PROVIDER: ${{ inputs.gateway_provider || 'external' }}
+      EXTERNAL_GATEWAY_ID: ${{ inputs.external_gateway_id || 'gw-uat-tw-xconnect' }}
+      EXTERNAL_NETWORK_ID: ${{ inputs.external_network_id || 'net_uat' }}
+      EXTERNAL_GATEWAY_SERVER_NAME: ${{ inputs.external_gateway_server_name || 'tw-xconnect.svc.plus' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+          - id: gateway-01
+            name: ai-aggregator-gateway-01
+            role: gateway
+            subsystem: ai-aggregator
+            overlay_ip: '10.77.0.10'
+          - id: cpa-codex-01
+            name: ai-aggregator-cpa-codex-01
+            role: cpa
+            subsystem: ai-aggregator
+            overlay_ip: '10.77.0.11'
+          - id: cpa-claude-01
+            name: ai-aggregator-cpa-claude-01
+            role: cpa
+            subsystem: ai-aggregator
+            overlay_ip: '10.77.0.12'
+          - id: cpa-codex-02
+            name: ai-aggregator-cpa-codex-02
+            role: cpa
+            subsystem: ai-aggregator
+            overlay_ip: '10.77.0.13'
+          - id: cpa-grok-01
+            name: ai-aggregator-cpa-grok-01
+            role: cpa
+            subsystem: ai-aggregator
+            overlay_ip: '10.77.0.14'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Authenticate CI to Vault via GitHub JWT
+        id: bootstrap
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: ${{ env.XCONNECT_VAULT_ROLE }}
+          jwtGithubAudience: vault
+          exportEnv: false
+          secrets: |
+            kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
+      - name: Infra repository access
+        id: infra-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: Iv23liNwStpQIiXajhpb
+          private-key: ${{ steps.bootstrap.outputs.APP_PRIVATE_KEY }}
+          owner: ai-workspace-infra
+          repositories: gitops,playbooks
+      - name: CLI release token access
+        id: cli-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: Iv23liNwStpQIiXajhpb
+          private-key: ${{ steps.bootstrap.outputs.APP_PRIVATE_KEY }}
+          owner: ai-workspace-xstream
+          repositories: XConnect-One
+      - uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ env.GITOPS_REF }}
+          token: ${{ steps.infra-token.outputs.token }}
+          path: gitops
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ env.PLAYBOOKS_REF }}
+          token: ${{ steps.infra-token.outputs.token }}
+          path: playbooks
+          persist-credentials: false
+      - name: Runtime credentials from dedicated Vault path
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: ${{ env.XCONNECT_VAULT_ROLE }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/uat/xconnect-one VLESS_ID | LAB_VLESS_ID ;
+            kv/data/uat/xconnect-one ZERO_SERVICE_TOKEN | ZERO_SERVICE_TOKEN ;
+            kv/data/uat/xconnect-one ZERO_OWNER_EMAIL | ZERO_OWNER_EMAIL ;
+            kv/data/CICD/domains/svc.plus tls_ca_pem_b64 | GATEWAY_TLS_CA_PEM_B64 ;
+            kv/data/CICD/domains/svc.plus tls_trust_bundle_pem_b64 | GATEWAY_TLS_TRUST_BUNDLE_PEM_B64
+      - name: AWS short-lived OIDC credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::950604983695:role/GithubAction_IAC_Deploy_Role
+          aws-region: ap-northeast-1
+          audience: sts.amazonaws.com
+      - name: Download XConnect-One release
+        env:
+          GH_TOKEN: ${{ steps.cli-token.outputs.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/releases"
+          gh release download "${{ env.CLI_RELEASE_TAG }}" \
+            --repo ai-workspace-xstream/XConnect-One \
+            --pattern 'xconnect-linux-arm64' \
+            --pattern 'SHA256SUMS' --dir "$RUNNER_TEMP/releases" --clobber
+          install -m 755 "$RUNNER_TEMP/releases/xconnect-linux-arm64" "$RUNNER_TEMP/bin/xconnect"
+      - name: Enroll node into XConnect Zero
+        env:
+          NODE_ID: ${{ matrix.node.id }}
+          NODE_ROLE: ${{ matrix.node.role }}
+          NODE_NAME: ${{ matrix.node.name }}
+          NODE_OVERLAY_IP: ${{ matrix.node.overlay_ip }}
+          LAB_DIR: ${{ runner.temp }}/xconnect-lab
+          CLI_BINARY: ${{ runner.temp }}/bin/xconnect
+        run: |
+          bash .github/scripts/xconnect-lab/enroll-node.sh
+
+  reconcile_mesh:
+    name: Reconcile Gateway & Mesh
+    needs: [apply, enroll_node_matrix]
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'apply' && always() && !cancelled()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GATEWAY_PROVIDER: ${{ inputs.gateway_provider || 'external' }}
+      EXTERNAL_GATEWAY_ID: ${{ inputs.external_gateway_id || 'gw-uat-tw-xconnect' }}
+      EXTERNAL_NETWORK_ID: ${{ inputs.external_network_id || 'net_uat' }}
+      EXTERNAL_GATEWAY_SERVER_NAME: ${{ inputs.external_gateway_server_name || 'tw-xconnect.svc.plus' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Authenticate CI to Vault via GitHub JWT
+        id: bootstrap
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: ${{ env.XCONNECT_VAULT_ROLE }}
+          jwtGithubAudience: vault
+          exportEnv: false
+          secrets: |
+            kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus host | EXTERNAL_GATEWAY_HOST ;
+            kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus user | EXTERNAL_GATEWAY_USER ;
+            kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus ssh_private_key_b64 | EXTERNAL_GATEWAY_SSH_PRIVATE_KEY_B64
+      - name: Reconcile Gateway Peer Table
+        run: |
+          echo "Reconciling Gateway with all matrix enrolled peers..."
+          mkdir -p "$RUNNER_TEMP/gateway"
+          printf '%s' "$EXTERNAL_GATEWAY_SSH_PRIVATE_KEY_B64" | base64 --decode > "$RUNNER_TEMP/gateway/key"
+          chmod 600 "$RUNNER_TEMP/gateway/key"
+          ssh -i "$RUNNER_TEMP/gateway/key" -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new \
+            "$EXTERNAL_GATEWAY_USER@$EXTERNAL_GATEWAY_HOST" \
+            'sudo xconnect-gateway up --state-dir /var/lib/xconnect-gateway --tls-cert /etc/xconnect-gateway/tls.crt --tls-key /etc/xconnect-gateway/tls.key'
+          rm -rf "$RUNNER_TEMP/gateway"
+          echo "Gateway peer reconciliation complete."
 
   cleanup:
     name: UAT lab / explicit cleanup
