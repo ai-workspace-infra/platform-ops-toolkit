@@ -72,17 +72,18 @@ def main() -> None:
     expected_env_prefix = f"vault://kv/{env}/ai-aggregator/"
     allowed_vault_ref = re.compile(
         rf"^{re.escape(expected_env_prefix)}"
-        r"(?:database/(?:new-api|litellm)|gateway/(?:caddy|new-api|litellm)|"
+        r"(?:database/(?:new-api|litellm)|gateway/(?:caddy|kong|new-api|litellm)|"
         r"litellm/providers/(?:openai|anthropic|xai))#"
     )
     for value in iter_strings(data):
         if value.startswith("vault://") and not allowed_vault_ref.match(value):
             fail(f"Vault reference is outside the v1 contract: {value.split('#', 1)[0]}")
 
-    if not str(entrypoint.get("admin_basic_auth_ref", "")).startswith(
+    admin_basic_auth_ref = str(entrypoint.get("admin_basic_auth_ref", ""))
+    if admin_basic_auth_ref and not admin_basic_auth_ref.startswith(
         f"{expected_env_prefix}gateway/caddy#"
     ):
-        fail("Caddy admin Basic Auth material must be referenced from Vault")
+        fail("Optional Caddy admin Basic Auth material must be referenced from Vault")
 
     infrastructure = spec.get("infrastructure", {})
     contract = infrastructure.get("resource_contract", {})
@@ -153,8 +154,8 @@ def main() -> None:
             fail(f"client profile {client_id} must use HTTPS")
         if not profile.get("model_alias"):
             fail(f"client profile {client_id} must declare a model alias")
-        if profile.get("token_source") != "database":
-            fail(f"client profile {client_id} tokens must be database-managed")
+        if profile.get("token_source") not in {"database", "kong"}:
+            fail(f"client profile {client_id} tokens must be managed by Kong or the service database")
     if client_profiles["claude-code"].get("chain") != "new-api-cpa":
         fail("Claude Code must use the New API -> CPA chain")
     if client_profiles["android-studio"].get("chain") != "litellm-direct":
