@@ -86,7 +86,9 @@ wait_for_ssh "$client_user" "$client"
 mkdir -p "$LAB_DIR/tls" "$LAB_DIR/invites"
 : "${XCONNECT_GATEWAY_TLS_FULLCHAIN_PEM_B64:?Gateway TLS fullchain was not supplied by Vault}"
 : "${XCONNECT_GATEWAY_TLS_KEY_PEM_B64:?Gateway TLS private key was not supplied by Vault}"
-gateway_trust_bundle_b64="${XCONNECT_GATEWAY_TLS_TRUST_BUNDLE_PEM_B64:-${XCONNECT_GATEWAY_TLS_CA_PEM_B64:-}}"
+# The domain record's CA bundle is the trust anchor for clients. Keep the
+# broader trust bundle as a compatibility fallback for older Vault records.
+gateway_trust_bundle_b64="${XCONNECT_GATEWAY_TLS_CA_PEM_B64:-${XCONNECT_GATEWAY_TLS_TRUST_BUNDLE_PEM_B64:-}}"
 : "${gateway_trust_bundle_b64:?Gateway trust bundle was not supplied by Vault}"
 printf '%s' "$XCONNECT_GATEWAY_TLS_FULLCHAIN_PEM_B64" | base64 --decode > "$LAB_DIR/tls/server.crt"
 printf '%s' "$XCONNECT_GATEWAY_TLS_KEY_PEM_B64" | base64 --decode > "$LAB_DIR/tls/server.key"
