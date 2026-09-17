@@ -15,6 +15,9 @@ def fail(message: str) -> None:
     raise SystemExit(f"manifest validation failed: {message}")
 
 
+SUPPORTED_UAT_PROVIDERS = {"aws", "gcp", "vps", "vultr-vps"}
+
+
 def iter_strings(value):
     if isinstance(value, dict):
         for child in value.values():
@@ -88,8 +91,9 @@ def main() -> None:
     infrastructure = spec.get("infrastructure", {})
     contract = infrastructure.get("resource_contract", {})
     if env == "uat":
-        if infrastructure.get("provider") != "aws" or infrastructure.get("provisioner") != "terraform":
-            fail("UAT infrastructure must use the AWS Terraform adapter")
+        provider = infrastructure.get("provider")
+        if provider not in SUPPORTED_UAT_PROVIDERS or infrastructure.get("provisioner") != "terraform":
+            fail("UAT infrastructure must select aws, gcp, or vps with the Terraform adapter")
         if infrastructure.get("lifecycle") != "ephemeral" or not infrastructure.get("spot_instance"):
             fail("UAT infrastructure must be ephemeral Spot resources")
         if infrastructure.get("max_runtime_minutes") != 60:
@@ -164,10 +168,10 @@ def main() -> None:
     # Testing environment constraints for UAT: AWS Spot t4g 1h rule
     test_env = spec.get("testing_environment")
     if test_env:
-        if test_env.get("provider") != "aws":
-            fail("testing environment provider must be aws")
-        if test_env.get("architecture") != "arm64":
-            fail("testing environment architecture must be arm64")
+        if env == "uat" and test_env.get("provider") != infrastructure.get("provider"):
+            fail("testing environment provider must match infrastructure.provider")
+        if test_env.get("architecture") not in {"arm64", "amd64"}:
+            fail("testing environment architecture must be arm64 or amd64")
         if not test_env.get("spot_instance"):
             fail("testing environment must use spot instances (spot_instance: true)")
         if test_env.get("max_runtime_minutes") != 60:
@@ -217,8 +221,8 @@ def main() -> None:
 
     if env == "uat":
         for node in node_records:
-            if node.get("provider") != "aws" or node.get("lifecycle") != "ephemeral":
-                fail("UAT aggregator nodes must be AWS ephemeral resources")
+            if node.get("provider") != infrastructure.get("provider") or node.get("lifecycle") != "ephemeral":
+                fail("UAT aggregator nodes must match the selected provider and be ephemeral")
             if not node.get("spot_instance") or node.get("max_runtime_minutes") != 60:
                 fail("UAT aggregator nodes must use 60-minute Spot lifecycle")
     elif env == "prod":
