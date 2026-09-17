@@ -494,7 +494,7 @@ jobs:
   reconcile_mesh:
     name: Reconcile Gateway & Mesh
     needs: [apply, enroll_node_matrix]
-    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'apply'
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'apply' && inputs.gateway_provider == 'external'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
