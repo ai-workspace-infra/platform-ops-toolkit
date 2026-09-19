@@ -806,6 +806,15 @@ jobs:
         env:
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
 
+      # Post-deploy checklist: the brand website must stay reviewable by
+      # Google / Apple / Android company and app-store reviewers (pages served
+      # in place on the brand domain, legal name, company-domain email, no
+      # legacy branding). Spec: store-and-startup-homepage-spec skill.
+      - name: Verify brand website review readiness
+        run: ./scripts/serverless_uat/verify_brand_site_review_readiness.sh
+        env:
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+
   trigger_data_migration:
     name: Data Migration / Supabase
     needs: [preflight, supabase, cloud_run, cloudflare_ssr, frontend_router, edge_gateway, static_pages, serverless_domains]
