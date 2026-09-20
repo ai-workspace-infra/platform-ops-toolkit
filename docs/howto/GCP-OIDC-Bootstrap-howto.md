@@ -304,8 +304,9 @@ Terraform identity module 至少需要以下角色：
     roles/resourcemanager.projectIamAdmin
     roles/serviceusage.serviceUsageAdmin
 
-如果模块需要同时授予 bootstrap Service Account 后续基础设施权限，还需要按实际范围
-授予 roles/storage.admin、roles/compute.admin 等角色。权限应授予给生成
+bootstrap Service Account 默认只保留身份和 IAM 管理职责，不自动授予
+`roles/storage.admin`、`roles/compute.admin` 等业务基础设施权限；这些权限应由后续
+runtime deploy Service Account 按资源需求单独授予。权限应授予给生成
 GCP_ACCESS_TOKEN 的 principal，不能只授予将要创建的 github-actions-uat 账号。
 
 本次 UAT apply 的实际结果是：
