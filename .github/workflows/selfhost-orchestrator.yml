@@ -92,7 +92,7 @@ on:
         - agent-proxy
         - web-saas + agent-proxy
       cloud_provider:
-        description: "云服务商（已接线：vultr-vps、aws-cloud；其余选项为预留）"
+        description: "云服务商（Akamai 使用已有 Terraform state，不创建新 VPS）"
         required: true
         default: "vultr-vps"
         type: choice
@@ -101,6 +101,17 @@ on:
         - gcp-cloud
         - azure-cloud
         - vultr-vps
+        - akamai-cloud
+      akamai_account:
+        description: "Akamai Cloud concrete account name/ID used by the state key"
+        required: false
+        default: "manbuzhe2026"
+        type: string
+      include_external_agent_proxy:
+        description: "是否部署 GitOps 声明的 Ulighthost existing Agent Proxy 节点"
+        required: false
+        default: true
+        type: boolean
       instance_plan:
         description: "选择 Web SaaS VPS 规格 (全域建议 4C8G，单域支持 2C4G 矩阵)"
         required: true
@@ -111,9 +122,9 @@ on:
         - 2C4G
         - 1C2G
       agent_proxy_plan:
-        description: "Agent Proxy 运行时规格（AWS 默认 2C1G，使用 T4g.micro）"
+        description: "Agent Proxy 运行时规格（UAT/PROD 默认 1C2G；不默认创建 AWS Spot）"
         required: true
-        default: "2C1G"
+        default: "1C2G"
         type: choice
         options:
         - 1C1G
@@ -159,7 +170,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: deploy-env-migration
+  group: deploy-env-migration-${{ github.event.inputs.vault_env_path || 'uat' }}-${{ github.event.inputs.cloud_provider || 'vultr-vps' }}-${{ github.event.inputs.akamai_account || 'primary' }}
   cancel-in-progress: false
 
 env:
@@ -194,6 +205,7 @@ env:
   # 指向 platform-ops-toolkit 的 Terraform 目录
   ENV_DIR: infra/iac_modules/terraform-hcl-standard/${{ github.event.inputs.cloud_provider || 'vultr-vps' }}/envs/platform-ops-toolkit
   PLAYBOOKS_DIR: infra/playbooks
+  AKAMAI_ACCOUNT: ${{ github.event.inputs.akamai_account || 'manbuzhe2026' }}
 
 jobs:
   # GitHub Actions renders jobs as a dependency graph.  Keep every job and
@@ -209,7 +221,7 @@ jobs:
       INPUT_VAULT_ENV_PATH:        ${{ github.event.inputs.vault_env_path }}
       INPUT_TARGET_DOMAINS:        ${{ github.event.inputs.target_domains }}
       INPUT_INSTANCE_PLAN:          ${{ inputs.instance_plan || github.event.inputs.instance_plan || '4C8G' }}
-      INPUT_AGENT_PROXY_PLAN:       ${{ inputs.agent_proxy_plan || github.event.inputs.agent_proxy_plan || '2C1G' }}
+      INPUT_AGENT_PROXY_PLAN:       ${{ inputs.agent_proxy_plan || github.event.inputs.agent_proxy_plan || '1C2G' }}
       INPUT_OPERATION:             ${{ github.event.inputs.operation }}
       INPUT_SOURCE_REF:            ${{ github.event.inputs.source_ref }}
       INPUT_OFFLINE_MODE:          ${{ github.event.inputs.offline_mode }}
@@ -219,6 +231,8 @@ jobs:
       INPUT_DNS_MODE:              ${{ github.event.inputs.dns_mode }}
       INPUT_DEPLOY_TAG:            ${{ github.event.inputs.deploy_tag }}
       INPUT_AGENT_CONTROLLER_URL:  ${{ github.event.inputs.agent_controller_url }}
+      INPUT_AKAMAI_ACCOUNT:        ${{ github.event.inputs.akamai_account || 'manbuzhe2026' }}
+      INPUT_INCLUDE_EXTERNAL_AGENT_PROXY: ${{ github.event.inputs.include_external_agent_proxy != 'false' && 'true' || 'false' }}
     outputs:
       deployment_env:           ${{ steps.route.outputs.deployment_env }}
       resource_file:            ${{ steps.route.outputs.resource_file }}
@@ -255,6 +269,7 @@ jobs:
       hosts_agent_proxy_iac: ${{ steps.agent_proxy_matrix.outputs.hosts_agent_proxy_iac || steps.matrix.outputs.hosts_agent_proxy || '[]' }}
       hosts_agent_proxy_non_iac: ${{ steps.agent_proxy_matrix.outputs.hosts_agent_proxy_non_iac || '[]' }}
       agent_proxy_region_count: ${{ steps.agent_proxy_matrix.outputs.agent_proxy_region_count || '0' }}
+      include_external_agent_proxy: ${{ steps.route.outputs.include_external_agent_proxy || 'true' }}
       count:              ${{ steps.matrix.outputs.count || '0' }}
     steps:
     - name: Checkout repository
@@ -269,9 +284,9 @@ jobs:
 
     - name: Validate cloud_provider
       # 仅支持已接线的云厂商
-      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cloud_provider != '' && github.event.inputs.cloud_provider != 'vultr-vps' && github.event.inputs.cloud_provider != 'aws-cloud' }}
+      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cloud_provider != '' && github.event.inputs.cloud_provider != 'vultr-vps' && github.event.inputs.cloud_provider != 'aws-cloud' && github.event.inputs.cloud_provider != 'akamai-cloud' }}
       run: |
-        echo "::error::cloud_provider='${{ github.event.inputs.cloud_provider }}' is reserved but not wired for this environment-replica workflow yet. Use 'vultr-vps' or 'aws-cloud' for now." >&2
+        echo "::error::cloud_provider='${{ github.event.inputs.cloud_provider }}' is not wired for this environment-replica workflow." >&2
         exit 1
 
     - name: Route ref to an explicit profile
@@ -301,6 +316,7 @@ jobs:
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/github-actions-oidc.json
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/vultr/web-saas.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/vultr/agent-proxy.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/vultr/all-in-one.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/web-saas.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/agent-proxy.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/action-runner.yaml
@@ -308,6 +324,7 @@ jobs:
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/gcp/agent-proxy.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/azure/web-saas.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/azure/agent-proxy.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/akamai/xconnect.yaml
 
     - name: Resolve Agent Proxy machine service origins from GitOps
       id: agent_proxy_origins
@@ -508,8 +525,13 @@ jobs:
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_reconcile-terraform-state.sh
 
+    - name: Validate existing Akamai Terraform state
+      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'akamai-cloud'
+      working-directory: ${{ env.ENV_DIR }}
+      run: terraform validate -no-color
+
     - name: Terraform Plan / Apply / Destroy
-      if: steps.route.outputs.run_infrastructure == 'true'
+      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider != 'akamai-cloud'
       working-directory: ${{ env.ENV_DIR }}
       env:
         ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_ACTION:    ${{ steps.route.outputs.terraform_action }}
@@ -564,6 +586,7 @@ jobs:
       if: >-
         ${{ steps.route.outputs.run_infrastructure == 'true' &&
         steps.route.outputs.terraform_action == 'apply' &&
+        steps.route.outputs.cloud_provider == 'akamai-cloud' &&
         contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
         steps.route.outputs.target_domains) }}
       env:
@@ -1696,6 +1719,7 @@ jobs:
       contains(fromJSON('["uat","prod"]'), needs.provision.outputs.deployment_env) &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
+      needs.provision.outputs.include_external_agent_proxy == 'true' &&
       contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
       needs.provision.outputs.target_domains) &&
       needs.provision.outputs.hosts_agent_proxy_non_iac != '[]' &&

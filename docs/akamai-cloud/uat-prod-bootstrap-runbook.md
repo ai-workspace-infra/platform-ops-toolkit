@@ -24,6 +24,29 @@ Terraform 创建、销毁或 apply。
 原有 AWS JP 节点继续保留 `tky-proxy.svc.plus` legacy 入口；它与新的
 `jp-xconnect.svc.plus` 不冲突。
 
+## Daily Snapshot / Agent Proxy 路由
+
+`Daily Main Snapshot` 完成应用快照后，按下面的矩阵分别 dispatch
+`selfhost-orchestrator.yml`：
+
+| 环境 | 云端 Agent Proxy leg | Existing Agent Proxy leg |
+|---|---|---|
+| UAT | `akamai-cloud`，JP/US/SG，读取 Akamai state | `ulighthost`，TW |
+| PROD | 现有 `aws-cloud` 节点 + `akamai-cloud` JP/US/SG | `ulighthost`，PH |
+
+PROD 的 AWS leg 使用现有 AWS state，`include_external_agent_proxy=false`，因此不会把
+PH 再次部署到 AWS leg；Akamai leg 使用 `include_external_agent_proxy=true`，才会继续
+部署 GitOps 中声明的 PH existing 节点。AWS SPOT 不属于该默认矩阵，也不会由 Daily
+Snapshot 新建。Akamai leg 的 state 只做 `init`、`validate`、`inventory` 和 Ansible
+部署，状态对象固定为：
+
+```text
+terraform/<env>/svc.plus/akamai-cloud/<account>/xconnect/terraform.tfstate
+```
+
+每日快照脚本会等待对应的 selfhost workflow 完成；AWS 与 Akamai 使用不同的 workflow
+concurrency group，避免两条 PROD leg 互相取消或覆盖。
+
 ## 1. 初始化 UAT/PROD KV 与 OIDC Role
 
 使用具有目标 KV 写权限和 JWT role/policy 管理权限的 Vault 管理会话。不要使用已经

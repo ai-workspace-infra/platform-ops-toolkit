@@ -16,10 +16,7 @@ iac_repository="${IAC_REPOSITORY:-ai-workspace-infra/iac_modules}"
 xconnect_one_release_override="${XCONNECT_ONE_RELEASE_TAG:-}"
 xconnect_gateway_release_override="${XCONNECT_GATEWAY_RELEASE_TAG:-}"
 agent_controller_url="${AGENT_CONTROLLER_URL:-https://accounts-serverless-uat.onwalk.net}"
-# UAT validates on an ephemeral AWS Graviton Spot node. T4g.small supplies
-# 2 vCPU / 2 GiB; its one-hour lifetime and lack of an EIP are declared in
-# the AWS UAT resource configuration.
-agent_proxy_plan="${AGENT_PROXY_PLAN:-2C2G}"
+agent_proxy_plan="${AGENT_PROXY_PLAN:-1C2G}"
 skip_stripe_catalog="${SKIP_STRIPE_CATALOG:-false}"
 enable_migration="${ENABLE_MIGRATION:-true}"
 accounts_source_backend="${ACCOUNTS_SOURCE_BACKEND:-supabase}"
@@ -122,7 +119,9 @@ dispatch_selfhost() {
     -f operation=deploy \
     -f vault_env_path=uat \
     -f target_domains=agent-proxy \
-    -f cloud_provider=aws-cloud \
+    -f cloud_provider=akamai-cloud \
+    -f "akamai_account=${AKAMAI_ACCOUNT_UAT:-manbuzhe2026}" \
+    -f include_external_agent_proxy=true \
     -f "agent_proxy_plan=${agent_proxy_plan}" \
     -f "deploy_tag=${snapshot_tag}" \
     -f source_host=console.svc.plus \
@@ -197,3 +196,4 @@ fi
 selfhost_run_url="$(dispatch_selfhost | tail -n 1)"
 echo "Dispatched UAT selfhost agent-proxy deploy for ${snapshot_tag}: ${selfhost_run_url}"
 echo "Agent Proxy controller: ${agent_controller_url}"
+gh run watch "${selfhost_run_url##*/}" --repo "${target_repo}" --exit-status --compact

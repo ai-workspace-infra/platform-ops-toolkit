@@ -29,6 +29,7 @@ resolve_gitops_resource_files() {
   case "${provider}" in
     aws-cloud) provider_dir=aws ;;
     vultr-vps) provider_dir=vultr ;;
+    akamai-cloud) provider_dir=akamai ;;
     gcp-cloud) provider_dir=gcp ;;
     azure-cloud) provider_dir=azure ;;
     *)
@@ -36,6 +37,11 @@ resolve_gitops_resource_files() {
       return 1
       ;;
   esac
+
+  if [[ "${provider}" == "akamai-cloud" ]]; then
+    printf '%s/%s/akamai/xconnect.yaml' "${gitops_root}" "${environment}"
+    return 0
+  fi
 
   case "${domains}" in
     all) printf '%s/%s/%s/all-in-one.yaml' "${gitops_root}" "${environment}" "${provider_dir}" ;;
@@ -92,6 +98,11 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   resource_file="${deployment_env}/${rf}"
   terraform_workspace="${deployment_env}-${cloud_provider}-${STATE_PROJECT}-${rf}"
   state_key="terraform/${deployment_env}/${STATE_PROJECT}/${cloud_provider}/primary/${rf}/terraform.tfstate"
+  if [ "${cloud_provider}" = "akamai-cloud" ]; then
+    account="${INPUT_AKAMAI_ACCOUNT:?INPUT_AKAMAI_ACCOUNT is required for akamai-cloud}"
+    state_key="terraform/${deployment_env}/svc.plus/akamai-cloud/${account}/xconnect/terraform.tfstate"
+    terraform_workspace="${deployment_env}-akamai-cloud-svc.plus-xconnect"
+  fi
   # UI 使用单一 operation。下游 job 只消费解析后的执行意图，避免在
   # workflow 中重复拼接相互矛盾的开关条件。
   operation="${INPUT_OPERATION:-plan}"
@@ -368,6 +379,15 @@ fi
 : "${deploy_tag+x}"
 validate_deploy_tag_policy "${deployment_env}" "${deploy_tag}"
 
+include_external_agent_proxy="${INPUT_INCLUDE_EXTERNAL_AGENT_PROXY:-true}"
+case "${include_external_agent_proxy}" in
+  true|false) ;;
+  *)
+    echo "::error::include_external_agent_proxy must be true or false." >&2
+    exit 1
+    ;;
+esac
+
 # Agent Proxy normally registers against the Web SaaS Accounts service on the
 # same Selfhost host. The combined UAT path overrides this with the already
 # deployed Serverless Accounts endpoint, while keeping the default safe for
@@ -409,7 +429,7 @@ if [ "${run_application_deploy}" = "true" ]; then
   esac
 fi
 
-for key in deployment_env resource_file resource_files_full terraform_workspace state_key run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider source_host source_domain_base target_domain_base env_suffix dns_mode deploy_tag agent_controller_url billing_service_base_url; do
+for key in deployment_env resource_file resource_files_full terraform_workspace state_key run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider source_host source_domain_base target_domain_base env_suffix dns_mode deploy_tag agent_controller_url billing_service_base_url include_external_agent_proxy; do
   value="${!key:-}"
   echo "$key=$value" >> "$GITHUB_OUTPUT"
 done

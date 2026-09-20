@@ -2,9 +2,10 @@
 """Build the IaC and non-IaC Agent Proxy deployment matrices.
 
 The Terraform CMDB is authoritative for the three Akamai Cloud/Linode nodes
-(JP, US, and SG). GitOps is authoritative for the manually provisioned PH
-edge in production. The compatibility fallback for a topology created before
-the explicit connection_source field treats only the PH pool as non-IaC.
+(JP, US, and SG). GitOps is authoritative for the manually provisioned TW
+edge in UAT and PH edge in production. The compatibility fallback for a
+topology created before the explicit connection_source field treats only the
+PH pool as non-IaC.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ EXPECTED_POOLS_BY_ENV = {
     "uat": {"jp", "us", "sg", "tw"},
     "prod": {"jp", "us", "sg", "ph"},
 }
+EXPECTED_NON_IAC_POOL_BY_ENV = {"uat": "tw", "prod": "ph"}
 
 
 def output(name: str, value: object) -> None:
@@ -39,6 +41,7 @@ def main() -> int:
     expected_pools = EXPECTED_POOLS_BY_ENV.get(deployment_env)
     if expected_pools is None:
         raise SystemExit(f"unsupported deployment environment: {deployment_env}")
+    expected_non_iac_pool = EXPECTED_NON_IAC_POOL_BY_ENV[deployment_env]
 
     cmdb = json.loads(cmdb_file.read_text(encoding="utf-8"))
     iac_hosts = [
@@ -69,14 +72,25 @@ def main() -> int:
             )
         region_count = len(pools)
         for pool in pools:
+            pool_name = pool.get("name")
             for node in pool.get("nodes") or []:
                 source = node.get("connection_source")
-                legacy_ph = deployment_env == "prod" and source is None and pool.get("name") == "ph"
+                legacy_ph = deployment_env == "prod" and source is None and pool_name == "ph"
                 if source == "vault" or legacy_ph:
+                    if pool_name != expected_non_iac_pool:
+                        raise SystemExit(
+                            f"{deployment_env.upper()} non-IaC node must be in "
+                            f"{expected_non_iac_pool!r}, found {pool_name!r}"
+                        )
                     node_id = node.get("id")
                     if not node_id:
                         raise SystemExit(f"non-IaC pool {pool.get('name')} has a node without id")
                     non_iac_hosts.append(node_id)
+                elif source != "terraform_cmdb":
+                    raise SystemExit(
+                        f"{deployment_env.upper()} IaC pool {pool_name!r} must use "
+                        f"connection_source=terraform_cmdb"
+                    )
 
     expected_non_iac_count = 1
     if len(non_iac_hosts) != expected_non_iac_count:
