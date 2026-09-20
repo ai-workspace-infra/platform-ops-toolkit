@@ -15,11 +15,11 @@ from pathlib import Path
 script = Path(sys.argv[1])
 
 fixtures = {
-    "uat": ({"jp", "us", "sg", "tw"}, "tw", "tw-existing"),
-    "prod": ({"jp", "us", "sg", "ph"}, "ph", "ph-existing"),
+    "uat": ({"jp", "us", "sg", "tw"}, {"tw": "tw-existing"}),
+    "prod": ({"jp", "us", "sg", "ph", "tw"}, {"ph": "ph-existing", "tw": "tw-existing"}),
 }
 
-for environment, (pool_names, external_pool, external_id) in fixtures.items():
+for environment, (pool_names, external_nodes) in fixtures.items():
     with tempfile.TemporaryDirectory() as temp_dir:
         temp = Path(temp_dir)
         cmdb = temp / "cmdb.json"
@@ -27,15 +27,15 @@ for environment, (pool_names, external_pool, external_id) in fixtures.items():
         cmdb.write_text(
             json.dumps({
                 f"{region}-xconnect": {"groups": ["agent_proxy"]}
-                for region in sorted(pool_names - {external_pool})
+                for region in sorted(pool_names - set(external_nodes))
             }),
             encoding="utf-8",
         )
         topology = temp / "topology.yaml"
         nodes = []
         for region in sorted(pool_names):
-            if region == external_pool:
-                nodes.append(f"  - name: {region}\n    nodes:\n      - id: {external_id}\n        connection_source: vault")
+            if region in external_nodes:
+                nodes.append(f"  - name: {region}\n    nodes:\n      - id: {external_nodes[region]}\n        connection_source: vault")
             else:
                 nodes.append(f"  - name: {region}\n    nodes:\n      - id: {region}-xconnect\n        connection_source: terraform_cmdb")
         topology.write_text("spec:\n  pools:\n" + "\n".join(nodes) + "\n", encoding="utf-8")
@@ -51,8 +51,8 @@ for environment, (pool_names, external_pool, external_id) in fixtures.items():
         iac_hosts = json.loads(values["hosts_agent_proxy_iac"])
         non_iac_hosts = json.loads(values["hosts_agent_proxy_non_iac"])
         assert len(iac_hosts) == 3, (environment, iac_hosts)
-        assert non_iac_hosts == [external_id], (environment, non_iac_hosts)
-        assert values["agent_proxy_region_count"] == "4", (environment, values)
+        assert set(non_iac_hosts) == set(external_nodes.values()), (environment, non_iac_hosts)
+        assert values["agent_proxy_region_count"] == str(len(pool_names)), (environment, values)
 
 print("platform_ops_agent_proxy_matrix_contract_test: PASS")
 PY

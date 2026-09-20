@@ -61,7 +61,7 @@ workflow 会从各仓库当时的 `main` SHA 创建不可变的
 UAT 的后续 Agent Proxy 部署由 `selfhost-orchestrator.yml` 路由到 Akamai Cloud
 JP/US/SG，并把 Ulighthost existing TW 作为独立 non-IaC leg。PROD 则拆成两条
 selfhost leg：现有 AWS 节点使用 `aws-cloud` 且不包含 existing 节点，Akamai Cloud
-JP/US/SG 使用 `akamai-cloud` 并包含 Ulighthost existing PH。PROD 旧 AWS 节点继续
+JP/US/SG 使用 `akamai-cloud` 并包含 Ulighthost existing PH/TW。PROD 旧 AWS 节点继续
 纳入矩阵，但 AWS SPOT 不再是 Daily Snapshot 的默认新建资源。
 
 稳定发布 tag 与日常构建 tag 共用同一个跨仓库打标脚本，区别只在 tag
