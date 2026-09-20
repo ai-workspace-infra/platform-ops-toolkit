@@ -80,6 +80,18 @@ for required in \
   }
 done
 
+for required in \
+  'spot_vms' \
+  'spot_instance_name' \
+  'gcloud compute instances describe' \
+  'scheduling.provisioningModel' \
+  'Expected ${INSTANCE_NAME} to be SPOT'; do
+  grep -Fq -- "${required}" "${gcp_iac_workflow}" || {
+    echo "GCP IAC workflow missing Spot verification contract: ${required}" >&2
+    exit 1
+  }
+done
+
 grep -Fq 'kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT' "${runtime_action}" || {
   echo "GCP runtime OIDC action must load the shared state contract" >&2
   exit 1
