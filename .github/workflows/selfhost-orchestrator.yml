@@ -316,6 +316,7 @@ jobs:
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/github-actions-oidc.json
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/vultr/web-saas.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/vultr/agent-proxy.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/vultr/all-in-one.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/web-saas.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/agent-proxy.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/action-runner.yaml
