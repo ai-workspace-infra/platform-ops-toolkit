@@ -130,6 +130,9 @@ jobs:
     - name: Verify serverless aliases serve without redirects
       run: bash .github/scripts/tests/serverless_public_chain_challenge_test.sh
 
+    - name: Verify brand website review-readiness post-check contract
+      run: bash .github/scripts/tests/serverless_brand_site_review_readiness_test.sh
+
     - name: Verify serverless Portal Accounts endpoint contract
       run: bash .github/scripts/tests/serverless_portal_accounts_endpoint_contract_test.sh
 
