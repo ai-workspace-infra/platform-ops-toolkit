@@ -35,6 +35,15 @@ assert_contains() {
   fi
 }
 
+assert_in_output() {
+  local output="$1" expected="$2"
+  if ! grep -Fq "${expected}" <<<"${output}"; then
+    echo "expected substring '${expected}' in route output:" >&2
+    echo "${output}" >&2
+    exit 1
+  fi
+}
+
 deploy_output="$(run_route env INPUT_OPERATION=deploy INPUT_DNS_MODE=none)"
 assert_contains "${deploy_output}" "run_infrastructure=true"
 assert_contains "${deploy_output}" "run_application_deploy=true"
@@ -47,6 +56,21 @@ if grep -Fq "config/resources/" <<<"${deploy_output}"; then
   echo "route still references the removed toolkit-local config/resources tree" >&2
   exit 1
 fi
+
+uat_full_output="$(run_route env INPUT_TARGET_DOMAINS=all INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=plan INPUT_DNS_MODE=none)"
+assert_contains "${uat_full_output}" "target_domains=all"
+assert_contains "${uat_full_output}" "resource_file=uat/selfhost"
+assert_contains "${uat_full_output}" "terraform_workspace=uat-platform-ops-toolkit-akamai-cloud-manbuzhe2026-selfhost"
+assert_contains "${uat_full_output}" "state_key=terraform/uat/platform-ops-toolkit/akamai-cloud/manbuzhe2026/selfhost/terraform.tfstate"
+assert_in_output "${uat_full_output}" "open-platform.yaml"
+assert_in_output "${uat_full_output}" "ai-workspace.yaml"
+assert_in_output "${uat_full_output}" "xconnect.yaml"
+
+akamai_plan_output="$(mktemp)"
+INPUT_CLOUD_PROVIDER=akamai-cloud INPUT_INSTANCE_PLAN=2C8G GITHUB_OUTPUT="${akamai_plan_output}" \
+  "${repo_root}/.github/scripts/platform-ops/provision/platform-ops_provision_map-instance-plan.sh"
+assert_contains "$(cat "${akamai_plan_output}")" "api=g6-highmem-2"
+rm -f "${akamai_plan_output}"
 
 for provider in aws-cloud gcp-cloud azure-cloud vultr-vps akamai-cloud; do
   provider_output="$(run_route env INPUT_CLOUD_PROVIDER="${provider}" INPUT_CLOUD_ACCOUNT=primary INPUT_OPERATION=plan INPUT_DNS_MODE=none)"

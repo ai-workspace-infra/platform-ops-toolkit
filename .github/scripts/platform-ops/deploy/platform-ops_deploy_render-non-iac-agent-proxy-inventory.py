@@ -36,7 +36,7 @@ def main() -> int:
         )
     pools = (topology.get("spec") or {}).get("pools") or []
     expected_pools = {
-        "uat": {"jp", "us", "sg", "tw"},
+        "uat": {"jp", "us", "sg", "tw", "ph"},
         "prod": {"jp", "us", "sg", "ph", "tw"},
     }[deployment_env]
     if {pool.get("name") for pool in pools} != expected_pools:

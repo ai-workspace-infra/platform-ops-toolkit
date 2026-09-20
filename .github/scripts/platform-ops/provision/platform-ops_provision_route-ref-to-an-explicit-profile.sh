@@ -114,7 +114,17 @@ resolve_gitops_resource_files() {
   }
 
   case "${domains}" in
-    all) printf '%s/%s/%s/all-in-one.yaml' "${gitops_root}" "${environment}" "${provider_dir}" ;;
+    all)
+      if [[ "${environment}" == "uat" && "${provider}" == "akamai-cloud" ]]; then
+        printf '%s/%s/%s/web-saas.yaml,%s/%s/%s/open-platform.yaml,%s/%s/%s/ai-workspace.yaml,%s/%s/%s/xconnect.yaml' \
+          "${gitops_root}" "${environment}" "${provider_dir}" \
+          "${gitops_root}" "${environment}" "${provider_dir}" \
+          "${gitops_root}" "${environment}" "${provider_dir}" \
+          "${gitops_root}" "${environment}" "${provider_dir}"
+      else
+        printf '%s/%s/%s/all-in-one.yaml' "${gitops_root}" "${environment}" "${provider_dir}"
+      fi
+      ;;
     'web-saas + agent-proxy') printf '%s/%s/%s/web-saas.yaml,%s/%s/%s/agent-proxy.yaml' "${gitops_root}" "${environment}" "${provider_dir}" "${gitops_root}" "${environment}" "${provider_dir}" ;;
     *) printf '%s/%s/%s/%s.yaml' "${gitops_root}" "${environment}" "${provider_dir}" "${domains}" ;;
   esac
@@ -166,6 +176,9 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   
   cloud_provider="${INPUT_CLOUD_PROVIDER:-$(default_provider_for_environment "${deployment_env}")}"
   set_provider_metadata
+  if [[ "${deployment_env}" == "uat" && "${cloud_provider}" == "akamai-cloud" && "${target_domains}" == "all" ]]; then
+    rf="selfhost"
+  fi
   resource_file="${deployment_env}/${rf}"
   terraform_workspace="${deployment_env}-${STATE_PROJECT}-${cloud_provider}-${account}-${rf}"
   state_key="terraform/${deployment_env}/${STATE_PROJECT}/${cloud_provider}/${account}/${rf}/terraform.tfstate"
@@ -304,11 +317,11 @@ else
   else
     case "${GITHUB_REF}" in
       refs/heads/main)
-        deployment_env=uat; resource_file=uat/web-saas; cloud_provider="$(default_provider_for_environment uat)"
+        deployment_env=uat; resource_file=uat/selfhost; cloud_provider="$(default_provider_for_environment uat)"
         set_provider_metadata
-        terraform_workspace="uat-${STATE_PROJECT}-${cloud_provider}-${account}-web-saas"
-        resource_files_full="config/resources/uat/web-saas.yaml"
-        state_key="terraform/uat/${STATE_PROJECT}/${cloud_provider}/${account}/web-saas/terraform.tfstate"; target_domains=web-saas
+        terraform_workspace="uat-${STATE_PROJECT}-${cloud_provider}-${account}-selfhost"
+        resource_files_full="config/resources/uat/selfhost.yaml"
+        state_key="terraform/uat/${STATE_PROJECT}/${cloud_provider}/${account}/selfhost/terraform.tfstate"; target_domains=all
         # PR merge 后的 push 只做 IaC plan 校验，避免自动创建/变更真实资源。
         run_infrastructure=true; run_application_deploy=false
         terraform_action=plan; toolkit_action=none; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off

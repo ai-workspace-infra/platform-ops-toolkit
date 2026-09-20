@@ -15,7 +15,7 @@ from pathlib import Path
 script = Path(sys.argv[1])
 
 fixtures = {
-    "uat": ({"jp", "us", "sg", "tw"}, {"tw": "tw-existing"}),
+    "uat": ({"jp", "us", "sg", "tw", "ph"}, {"ph": "ph-existing", "tw": "tw-existing"}),
     "prod": ({"jp", "us", "sg", "ph", "tw"}, {"ph": "ph-existing", "tw": "tw-existing"}),
 }
 
