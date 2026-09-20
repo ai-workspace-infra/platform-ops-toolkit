@@ -15,6 +15,89 @@ SOURCE_HOST_DEFAULT="install.svc.plus"
 SOURCE_DOMAIN_BASE_DEFAULT="svc.plus"
 TARGET_DOMAIN_BASE_DEFAULT="onwalk.net"
 STATE_PROJECT="platform-ops-toolkit"
+REGISTRY_PATH="${GITHUB_WORKSPACE:-${PWD}}/config/iac_provider_registry.json"
+ENVIRONMENT_DEFAULTS_PATH="${GITHUB_WORKSPACE:-${PWD}}/config/iac_environment_defaults.json"
+
+registry_value() {
+  local provider="$1"
+  local field="$2"
+  python3 - "${REGISTRY_PATH}" "${provider}" "${field}" <<'PY'
+import json
+import sys
+
+registry_path, provider, field = sys.argv[1:]
+registry = json.load(open(registry_path, encoding="utf-8"))
+try:
+    value = registry[provider][field]
+except KeyError:
+    raise SystemExit(2)
+if value is None or value == "":
+    raise SystemExit(2)
+print(value)
+PY
+}
+
+environment_default() {
+  local environment="$1"
+  local field="$2"
+  python3 - "${ENVIRONMENT_DEFAULTS_PATH}" "${environment}" "${field}" <<'PY'
+import json
+import sys
+
+defaults_path, environment, field = sys.argv[1:]
+defaults = json.load(open(defaults_path, encoding="utf-8"))
+try:
+    value = defaults[environment][field]
+except KeyError:
+    raise SystemExit(2)
+if value is None or value == "":
+    raise SystemExit(2)
+print(value)
+PY
+}
+
+validate_provider() {
+  local provider="$1"
+  local provisioner
+  provisioner="$(registry_value "${provider}" provisioner)" || {
+    echo "::error::Unsupported cloud_provider '${provider}'. Add it to config/iac_provider_registry.json before selecting it." >&2
+    return 1
+  }
+  if [[ "${provisioner}" != terraform ]]; then
+    echo "::error::cloud_provider '${provider}' uses the '${provisioner}' adapter and cannot run the Terraform selfhost orchestrator." >&2
+    return 1
+  fi
+}
+
+provider_account() {
+  local provider="$1"
+  local account="${INPUT_CLOUD_ACCOUNT:-}"
+  if [[ "${provider}" == "akamai-cloud" && -z "${account}" ]]; then
+    account="${INPUT_AKAMAI_ACCOUNT:-}"
+  fi
+  if [[ -z "${account}" ]]; then
+    account="$(environment_default "${deployment_env}" account)"
+  fi
+  printf '%s' "${account}"
+}
+
+default_provider_for_environment() {
+  local environment="$1"
+  printf '%s' "${CLOUD_PROVIDER_DEFAULT:-$(environment_default "${environment}" cloud_provider)}"
+}
+
+set_provider_metadata() {
+  validate_provider "${cloud_provider}"
+  provider_tree="$(registry_value "${cloud_provider}" terraform_tree)"
+  provider_gitops_dir="$(registry_value "${cloud_provider}" gitops_provider)"
+  provider_provisioner="$(registry_value "${cloud_provider}" provisioner)"
+  provider_credential_mode="$(registry_value "${cloud_provider}" credential_mode)"
+  account="$(provider_account "${cloud_provider}")"
+  [[ -n "${account}" ]] || {
+    echo "::error::No concrete account configured for cloud_provider '${cloud_provider}'. Set cloud_account or the provider-specific account input." >&2
+    exit 1
+  }
+}
 
 # Non-sensitive resource declarations live in the GitOps repository.  Keep the
 # generated path absolute because this script runs from the toolkit checkout,
@@ -23,25 +106,12 @@ resolve_gitops_resource_files() {
   local environment="$1"
   local provider="$2"
   local domains="$3"
-  local provider_dir
   local gitops_root="${GITHUB_WORKSPACE:-${PWD}}/gitops/resources/svc.plus"
-
-  case "${provider}" in
-    aws-cloud) provider_dir=aws ;;
-    vultr-vps) provider_dir=vultr ;;
-    akamai-cloud) provider_dir=akamai ;;
-    gcp-cloud) provider_dir=gcp ;;
-    azure-cloud) provider_dir=azure ;;
-    *)
-      echo "::error::Unsupported GitOps resource provider '${provider}'." >&2
-      return 1
-      ;;
-  esac
-
-  if [[ "${provider}" == "akamai-cloud" ]]; then
-    printf '%s/%s/akamai/xconnect.yaml' "${gitops_root}" "${environment}"
-    return 0
-  fi
+  local provider_dir
+  provider_dir="$(registry_value "${provider}" gitops_provider)" || {
+    echo "::error::Unsupported GitOps resource provider '${provider}'." >&2
+    return 1
+  }
 
   case "${domains}" in
     all) printf '%s/%s/%s/all-in-one.yaml' "${gitops_root}" "${environment}" "${provider_dir}" ;;
@@ -94,15 +164,11 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     resource_files_full="config/resources/${deployment_env}/${target_domains}.yaml"
   fi
   
-  cloud_provider="${INPUT_CLOUD_PROVIDER:-vultr-vps}"
+  cloud_provider="${INPUT_CLOUD_PROVIDER:-$(default_provider_for_environment "${deployment_env}")}"
+  set_provider_metadata
   resource_file="${deployment_env}/${rf}"
-  terraform_workspace="${deployment_env}-${cloud_provider}-${STATE_PROJECT}-${rf}"
-  state_key="terraform/${deployment_env}/${STATE_PROJECT}/${cloud_provider}/primary/${rf}/terraform.tfstate"
-  if [ "${cloud_provider}" = "akamai-cloud" ]; then
-    account="${INPUT_AKAMAI_ACCOUNT:?INPUT_AKAMAI_ACCOUNT is required for akamai-cloud}"
-    state_key="terraform/${deployment_env}/svc.plus/akamai-cloud/${account}/xconnect/terraform.tfstate"
-    terraform_workspace="${deployment_env}-akamai-cloud-svc.plus-xconnect"
-  fi
+  terraform_workspace="${deployment_env}-${STATE_PROJECT}-${cloud_provider}-${account}-${rf}"
+  state_key="terraform/${deployment_env}/${STATE_PROJECT}/${cloud_provider}/${account}/${rf}/terraform.tfstate"
   # UI 使用单一 operation。下游 job 只消费解析后的执行意图，避免在
   # workflow 中重复拼接相互矛盾的开关条件。
   operation="${INPUT_OPERATION:-plan}"
@@ -190,7 +256,6 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   source_host="${INPUT_SOURCE_HOST}"
   source_domain_base="${INPUT_SOURCE_DOMAIN_BASE}"
   target_domain_base="${INPUT_TARGET_DOMAIN_BASE}"
-  cloud_provider="${INPUT_CLOUD_PROVIDER:-vultr-vps}"
   dns_mode="${INPUT_DNS_MODE:-none}"
   if [ "${operation}" = "destroy" ]; then
     # Destroy has no deployment or DNS side effects. Treat a stale UI value
@@ -225,32 +290,36 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
 else
   GITHUB_EVENT_NAME="${GITHUB_EVENT_NAME:-}"
   if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-    deployment_env=sit; resource_file=sit/all-in-one; terraform_workspace=sit-vultr-vps-platform-ops-toolkit-all-in-one
+    deployment_env=sit; resource_file=sit/all-in-one; cloud_provider="$(default_provider_for_environment sit)"
+    set_provider_metadata
+    terraform_workspace="sit-${STATE_PROJECT}-${cloud_provider}-${account}-all-in-one"
     resource_files_full="config/resources/sit/all-in-one.yaml"
-    state_key=terraform/sit/platform-ops-toolkit/vultr-vps/primary/all-in-one/terraform.tfstate; target_domains=all
+    state_key="terraform/sit/${STATE_PROJECT}/${cloud_provider}/${account}/all-in-one/terraform.tfstate"; target_domains=all
     # PR 只做 terraform plan, 不 apply。四个 deploy job 都要求
     # terraform_action == 'apply', 所以 plan 会让它们全部 skip ——
     # PR 仍然校验 terraform 配置, 但不再创建真实 VPS。
     run_infrastructure=true; run_application_deploy=false
     terraform_action=plan; toolkit_action=none; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
-    cloud_provider="vultr-vps"
     source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-sit
   else
     case "${GITHUB_REF}" in
       refs/heads/main)
-        deployment_env=uat; resource_file=uat/web-saas; terraform_workspace=uat-vultr-vps-platform-ops-toolkit-web-saas
+        deployment_env=uat; resource_file=uat/web-saas; cloud_provider="$(default_provider_for_environment uat)"
+        set_provider_metadata
+        terraform_workspace="uat-${STATE_PROJECT}-${cloud_provider}-${account}-web-saas"
         resource_files_full="config/resources/uat/web-saas.yaml"
-        state_key=terraform/uat/platform-ops-toolkit/vultr-vps/primary/web-saas/terraform.tfstate; target_domains=web-saas
+        state_key="terraform/uat/${STATE_PROJECT}/${cloud_provider}/${account}/web-saas/terraform.tfstate"; target_domains=web-saas
         # PR merge 后的 push 只做 IaC plan 校验，避免自动创建/变更真实资源。
         run_infrastructure=true; run_application_deploy=false
         terraform_action=plan; toolkit_action=none; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
-        cloud_provider="vultr-vps"
     source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-uat
         ;;
       refs/heads/release/v*|refs/tags/v*)
-        deployment_env=prod; resource_file=prod/web-saas; terraform_workspace=prod-vultr-vps-platform-ops-toolkit-web-saas
+        deployment_env=prod; resource_file=prod/web-saas; cloud_provider="$(default_provider_for_environment prod)"
+        set_provider_metadata
+        terraform_workspace="prod-${STATE_PROJECT}-${cloud_provider}-${account}-web-saas"
         resource_files_full="config/resources/prod/web-saas.yaml"
-        state_key=terraform/prod/platform-ops-toolkit/vultr-vps/primary/web-saas/terraform.tfstate; target_domains=web-saas
+        state_key="terraform/prod/${STATE_PROJECT}/${cloud_provider}/${account}/web-saas/terraform.tfstate"; target_domains=web-saas
         # 与 main/release push 一样只做 plan 校验, 不自动 apply/部署 —— 这才是
         # 文件顶部注释说的设计: "pull_request 和 branch/tag push 都只跑
         # provision 阶段, 只有 workflow_dispatch 能真正 apply/deploy"。这里此前
@@ -263,28 +332,29 @@ else
         # workflow_dispatch 显式触发, 由人选择 action=deploy 并确认输入。
         run_infrastructure=true; run_application_deploy=false
         terraform_action=plan; toolkit_action=none; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
-        cloud_provider="vultr-vps"
         # A v* tag is a production plan-only trigger.  It still renders and
         # validates the production GitOps contract, whose public endpoints
         # live under svc.plus rather than the UAT default onwalk.net.
         source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="svc.plus"; target_domain_base="svc.plus"; env_suffix=""
         ;;
       refs/heads/release/*)
-        deployment_env=uat; resource_file=uat/web-saas; terraform_workspace=uat-vultr-vps-platform-ops-toolkit-web-saas
+        deployment_env=uat; resource_file=uat/web-saas; cloud_provider="$(default_provider_for_environment uat)"
+        set_provider_metadata
+        terraform_workspace="uat-${STATE_PROJECT}-${cloud_provider}-${account}-web-saas"
         resource_files_full="config/resources/uat/web-saas.yaml"
-        state_key=terraform/uat/platform-ops-toolkit/vultr-vps/primary/web-saas/terraform.tfstate; target_domains=web-saas
+        state_key="terraform/uat/${STATE_PROJECT}/${cloud_provider}/${account}/web-saas/terraform.tfstate"; target_domains=web-saas
         run_infrastructure=true; run_application_deploy=false
         terraform_action=plan; toolkit_action=none; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
-        cloud_provider="vultr-vps"
     source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-uat
         ;;
       *)
-        deployment_env=sit; resource_file=sit/all-in-one; terraform_workspace=sit-vultr-vps-platform-ops-toolkit-all-in-one
+        deployment_env=sit; resource_file=sit/all-in-one; cloud_provider="$(default_provider_for_environment sit)"
+        set_provider_metadata
+        terraform_workspace="sit-${STATE_PROJECT}-${cloud_provider}-${account}-all-in-one"
         resource_files_full="config/resources/sit/all-in-one.yaml"
-        state_key=terraform/sit/platform-ops-toolkit/vultr-vps/primary/all-in-one/terraform.tfstate; target_domains=all
+        state_key="terraform/sit/${STATE_PROJECT}/${cloud_provider}/${account}/all-in-one/terraform.tfstate"; target_domains=all
         run_infrastructure=true; run_application_deploy=true
         terraform_action=apply; toolkit_action=deploy; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
-        cloud_provider="vultr-vps"
     source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-sit
         ;;
     esac
@@ -429,9 +499,12 @@ if [ "${run_application_deploy}" = "true" ]; then
   esac
 fi
 
-for key in deployment_env resource_file resource_files_full terraform_workspace state_key run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider source_host source_domain_base target_domain_base env_suffix dns_mode deploy_tag agent_controller_url billing_service_base_url include_external_agent_proxy; do
+for key in deployment_env resource_file resource_files_full terraform_workspace state_key run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider provider_tree provider_gitops_dir provider_provisioner provider_credential_mode account source_host source_domain_base target_domain_base env_suffix dns_mode deploy_tag agent_controller_url billing_service_base_url include_external_agent_proxy; do
   value="${!key:-}"
   echo "$key=$value" >> "$GITHUB_OUTPUT"
 done
+
+echo "vps_root=infra/iac_modules/terraform-hcl-standard/${provider_tree}" >> "$GITHUB_OUTPUT"
+echo "env_dir=infra/iac_modules/terraform-hcl-standard/${provider_tree}/envs/platform-ops-toolkit" >> "$GITHUB_OUTPUT"
 
 echo "vault_env_path=${deployment_env}" >> "$GITHUB_OUTPUT"

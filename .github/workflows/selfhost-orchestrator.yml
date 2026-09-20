@@ -82,7 +82,7 @@ on:
       target_domains:
         description: "选择要执行的业务域 (Business Domain)"
         required: true
-        default: "all"
+        default: "web-saas"
         type: choice
         options:
         - all
@@ -92,16 +92,15 @@ on:
         - agent-proxy
         - web-saas + agent-proxy
       cloud_provider:
-        description: "云服务商（Akamai 使用已有 Terraform state，不创建新 VPS）"
+        description: "云服务商（按 provider registry 选择；UAT 默认 Akamai Cloud）"
         required: true
-        default: "vultr-vps"
-        type: choice
-        options:
-        - aws-cloud
-        - gcp-cloud
-        - azure-cloud
-        - vultr-vps
-        - akamai-cloud
+        default: "akamai-cloud"
+        type: string
+      cloud_account:
+        description: "所选云厂商的具体账户名/ID；留空时使用环境 profile 的账户"
+        required: false
+        default: ""
+        type: string
       akamai_account:
         description: "Akamai Cloud concrete account name/ID used by the state key"
         required: false
@@ -170,7 +169,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: deploy-env-migration-${{ github.event.inputs.vault_env_path || 'uat' }}-${{ github.event.inputs.cloud_provider || 'vultr-vps' }}-${{ github.event.inputs.akamai_account || 'primary' }}
+  group: deploy-env-migration-${{ github.event.inputs.vault_env_path || 'uat' }}-${{ github.event.inputs.cloud_provider || 'auto' }}-${{ github.event.inputs.cloud_account || github.event.inputs.akamai_account || 'profile' }}
   cancel-in-progress: false
 
 env:
@@ -201,9 +200,6 @@ env:
   VAULT_KV_BILLING: kv/data/${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || github.event.inputs.vault_env_path || 'uat' }}/billing-service
   VAULT_KV_DATABASES: kv/data/${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || github.event.inputs.vault_env_path || 'uat' }}/databases
   VAULT_KV_AGENT_PROXY: kv/data/${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || github.event.inputs.vault_env_path || 'uat' }}/agent-proxy
-  VPS_ROOT: infra/iac_modules/terraform-hcl-standard/${{ github.event.inputs.cloud_provider || 'vultr-vps' }}
-  # 指向 platform-ops-toolkit 的 Terraform 目录
-  ENV_DIR: infra/iac_modules/terraform-hcl-standard/${{ github.event.inputs.cloud_provider || 'vultr-vps' }}/envs/platform-ops-toolkit
   PLAYBOOKS_DIR: infra/playbooks
   AKAMAI_ACCOUNT: ${{ github.event.inputs.akamai_account || 'manbuzhe2026' }}
 
@@ -218,6 +214,7 @@ jobs:
     # Static job-level env: inputs known at job start (no step output refs allowed here)
     env:
       INPUT_CLOUD_PROVIDER:        ${{ github.event.inputs.cloud_provider }}
+      INPUT_CLOUD_ACCOUNT:         ${{ github.event.inputs.cloud_account }}
       INPUT_VAULT_ENV_PATH:        ${{ github.event.inputs.vault_env_path }}
       INPUT_TARGET_DOMAINS:        ${{ github.event.inputs.target_domains }}
       INPUT_INSTANCE_PLAN:          ${{ inputs.instance_plan || github.event.inputs.instance_plan || '4C8G' }}
@@ -282,13 +279,6 @@ jobs:
         # otherwise newly added scripts are absent from the checked-out tree.
         ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.inputs.source_ref || 'main' }}
 
-    - name: Validate cloud_provider
-      # 仅支持已接线的云厂商
-      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cloud_provider != '' && github.event.inputs.cloud_provider != 'vultr-vps' && github.event.inputs.cloud_provider != 'aws-cloud' && github.event.inputs.cloud_provider != 'akamai-cloud' }}
-      run: |
-        echo "::error::cloud_provider='${{ github.event.inputs.cloud_provider }}' is not wired for this environment-replica workflow." >&2
-        exit 1
-
     - name: Route ref to an explicit profile
       id: route
       # env block inherited from job level — no repetition needed here
@@ -300,8 +290,8 @@ jobs:
         ${{ (steps.route.outputs.run_infrastructure == 'true' ||
         steps.route.outputs.run_application_deploy == 'true' ||
         steps.route.outputs.toolkit_action == 'migrate') &&
-        (contains(fromJSON('["all","web-saas","agent-proxy","web-saas + agent-proxy"]'),
-        steps.route.outputs.target_domains) || steps.route.outputs.cloud_provider == 'aws-cloud') }}
+        contains(fromJSON('["all","web-saas","agent-proxy","web-saas + agent-proxy"]'),
+        steps.route.outputs.target_domains) }}
       uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/gitops
@@ -324,6 +314,7 @@ jobs:
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/gcp/agent-proxy.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/azure/web-saas.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/azure/agent-proxy.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/akamai/web-saas.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/akamai/xconnect.yaml
 
     - name: Resolve Agent Proxy machine service origins from GitOps
@@ -397,6 +388,19 @@ jobs:
           ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_REGION   | TF_STATE_REGION ;
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | SSH_PRIVATE_DEPLOY_KEY_B64
 
+    - name: Load Akamai Cloud token from the provider role
+      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'akamai-cloud'
+      id: akamai_vault
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        method: jwt
+        role: github-actions-platform-ops-toolkit-${{ steps.route.outputs.deployment_env }}-akamai-oidc-bootstrap-${{ steps.route.outputs.account }}
+        jwtGithubAudience: vault
+        exportToken: false
+        secrets: |
+          kv/data/CICD/${{ steps.route.outputs.deployment_env }}/akamai-cloud/${{ steps.route.outputs.account }} LINODE_TOKEN | LINODE_TOKEN
+
     - name: Resolve AWS OIDC deployment configuration from GitOps
       id: aws_oidc
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'aws-cloud'
@@ -433,14 +437,20 @@ jobs:
     - name: Export Terraform credentials
       if: steps.route.outputs.run_infrastructure == 'true'
       run: |
-        if [ "${{ steps.route.outputs.cloud_provider }}" == "vultr-vps" ]; then
+        case "${{ steps.route.outputs.cloud_provider }}" in
+          vultr-vps)
           echo "AWS_ACCESS_KEY_ID=${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}"   >> "$GITHUB_ENV"
           echo "AWS_SECRET_ACCESS_KEY=${{ steps.vault.outputs.TF_STATE_SECRET_KEY }}" >> "$GITHUB_ENV"
           echo "TF_VAR_vultr_api_key=${{ steps.vault.outputs.VULTR_API_KEY }}"      >> "$GITHUB_ENV"
           # 同一把 key 的裸名版本: state 对账与备份对账直接调 Vultr REST API,
           # 它们不是 terraform 变量的消费者。
           echo "VULTR_API_KEY=${{ steps.vault.outputs.VULTR_API_KEY }}"             >> "$GITHUB_ENV"
-        fi
+          ;;
+          akamai-cloud)
+          echo "TF_VAR_linode_token=${{ steps.akamai_vault.outputs.LINODE_TOKEN }}" >> "$GITHUB_ENV"
+          echo "LINODE_TOKEN=${{ steps.akamai_vault.outputs.LINODE_TOKEN }}"       >> "$GITHUB_ENV"
+          ;;
+        esac
         echo "TF_STATE_ENDPOINT=${{ steps.vault.outputs.TF_STATE_ENDPOINT }}"     >> "$GITHUB_ENV"
         echo "TF_STATE_BUCKET=${{ steps.vault.outputs.TF_STATE_BUCKET }}"         >> "$GITHUB_ENV"
         echo "TF_STATE_ACCESS_KEY=${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}" >> "$GITHUB_ENV"
@@ -493,7 +503,7 @@ jobs:
 
     - name: generate.py render
       if: steps.route.outputs.run_infrastructure == 'true'
-      working-directory: ${{ env.VPS_ROOT }}
+      working-directory: ${{ steps.route.outputs.vps_root }}
       env:
         TARGET_DOMAIN:      ${{ steps.route.outputs.target_domains }}
         INSTANCE_PLAN_API:  ${{ steps.plan.outputs.api }}
@@ -505,7 +515,7 @@ jobs:
 
     - name: Terraform init
       if: steps.route.outputs.run_infrastructure == 'true'
-      working-directory: ${{ env.ENV_DIR }}
+      working-directory: ${{ steps.route.outputs.env_dir }}
       env:
         ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY: ${{ steps.route.outputs.state_key }}
         # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / TF_STATE_* from GITHUB_ENV
@@ -518,21 +528,21 @@ jobs:
     # 例行对账, 没有孤儿时是空操作。
     - name: Reconcile Terraform state with Vultr
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'vultr-vps'
-      working-directory: ${{ env.ENV_DIR }}
+      working-directory: ${{ steps.route.outputs.env_dir }}
       env:
         ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE: ${{ steps.route.outputs.terraform_workspace }}
         # AWS_* / VULTR_API_KEY from GITHUB_ENV
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_reconcile-terraform-state.sh
 
-    - name: Validate existing Akamai Terraform state
-      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'akamai-cloud'
-      working-directory: ${{ env.ENV_DIR }}
+    - name: Validate selected Terraform provider configuration
+      if: steps.route.outputs.run_infrastructure == 'true'
+      working-directory: ${{ steps.route.outputs.env_dir }}
       run: terraform validate -no-color
 
     - name: Terraform Plan / Apply / Destroy
-      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider != 'akamai-cloud'
-      working-directory: ${{ env.ENV_DIR }}
+      if: steps.route.outputs.run_infrastructure == 'true'
+      working-directory: ${{ steps.route.outputs.env_dir }}
       env:
         ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_ACTION:    ${{ steps.route.outputs.terraform_action }}
         ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE: ${{ steps.route.outputs.terraform_workspace }}
@@ -546,7 +556,7 @@ jobs:
 
     - name: generate.py inventory
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.terraform_action == 'apply'
-      working-directory: ${{ env.VPS_ROOT }}
+      working-directory: ${{ steps.route.outputs.vps_root }}
       env:
         TARGET_DOMAIN_BASE: ${{ steps.route.outputs.target_domain_base }}
         INSTANCE_PLAN_API: ${{ steps.plan.outputs.api }}
@@ -556,7 +566,7 @@ jobs:
 
     - name: Verify AWS EC2 boot health
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.terraform_action == 'apply' && steps.route.outputs.cloud_provider == 'aws-cloud'
-      working-directory: ${{ env.ENV_DIR }}
+      working-directory: ${{ steps.route.outputs.env_dir }}
       env:
         CMDB_FILE: cmdb.json
       run: ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_verify-aws-boot-health.sh
@@ -566,7 +576,7 @@ jobs:
     # 进入 state。实例 active 之后再设就没有这个竞态; 先读后写, 一致则不发请求。
     - name: Reconcile backup schedules
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.terraform_action == 'apply' && steps.route.outputs.cloud_provider == 'vultr-vps'
-      working-directory: ${{ env.ENV_DIR }}
+      working-directory: ${{ steps.route.outputs.env_dir }}
       env:
         # VULTR_API_KEY from GITHUB_ENV
         HOSTS_MANIFEST: hosts_manifest.json
@@ -577,7 +587,7 @@ jobs:
     - name: Build deploy matrix
       id: matrix
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.terraform_action == 'apply'
-      working-directory: ${{ env.ENV_DIR }}
+      working-directory: ${{ steps.route.outputs.env_dir }}
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_build-deploy-matrix.sh
 
@@ -590,8 +600,8 @@ jobs:
         contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
         steps.route.outputs.target_domains) }}
       env:
-        CMDB_FILE: ${{ env.ENV_DIR }}/cmdb.json
-        HOSTS_MANIFEST_FILE: ${{ env.ENV_DIR }}/hosts_manifest.json
+        CMDB_FILE: ${{ steps.route.outputs.env_dir }}/cmdb.json
+        HOSTS_MANIFEST_FILE: ${{ steps.route.outputs.env_dir }}/hosts_manifest.json
         DEPLOYMENT_ENV: ${{ steps.route.outputs.deployment_env }}
         GITOPS_XCONNECT_CONFIG: ${{ github.workspace }}/gitops/topology/${{ steps.route.outputs.deployment_env }}/selfhost/${{ steps.route.outputs.deployment_env == 'uat' && 'xconnect-regional-pool.yaml' || 'xconnect-regional-pools.yaml' }}
       run: >-
@@ -629,9 +639,9 @@ jobs:
       with:
         name: platform-ops-toolkit-cmdb
         path: |
-          ${{ env.ENV_DIR }}/cmdb.json
-          ${{ env.ENV_DIR }}/hosts_manifest.json
-          ${{ env.ENV_DIR }}/inventory.ini
+          ${{ steps.route.outputs.env_dir }}/cmdb.json
+          ${{ steps.route.outputs.env_dir }}/hosts_manifest.json
+          ${{ steps.route.outputs.env_dir }}/inventory.ini
 
 
 

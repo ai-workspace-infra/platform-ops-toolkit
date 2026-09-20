@@ -40,9 +40,28 @@ assert_contains "${deploy_output}" "run_infrastructure=true"
 assert_contains "${deploy_output}" "run_application_deploy=true"
 assert_contains "${deploy_output}" "terraform_action=apply"
 assert_contains "${deploy_output}" "dns_mode=none"
-assert_contains "${deploy_output}" "resource_files_full=${repo_root}/gitops/resources/svc.plus/uat/vultr/web-saas.yaml"
+assert_contains "${deploy_output}" "cloud_provider=akamai-cloud"
+assert_contains "${deploy_output}" "provider_tree=akamai-cloud"
+assert_contains "${deploy_output}" "resource_files_full=${repo_root}/gitops/resources/svc.plus/uat/akamai/web-saas.yaml"
 if grep -Fq "config/resources/" <<<"${deploy_output}"; then
   echo "route still references the removed toolkit-local config/resources tree" >&2
+  exit 1
+fi
+
+for provider in aws-cloud gcp-cloud azure-cloud vultr-vps akamai-cloud; do
+  provider_output="$(run_route env INPUT_CLOUD_PROVIDER="${provider}" INPUT_CLOUD_ACCOUNT=primary INPUT_OPERATION=plan INPUT_DNS_MODE=none)"
+  assert_contains "${provider_output}" "cloud_provider=${provider}"
+  assert_contains "${provider_output}" "provider_provisioner=terraform"
+  assert_contains "${provider_output}" "state_key=terraform/uat/platform-ops-toolkit/${provider}/primary/web-saas/terraform.tfstate"
+done
+
+if run_route env INPUT_CLOUD_PROVIDER=ulighthost INPUT_OPERATION=plan INPUT_DNS_MODE=none >/dev/null 2>&1; then
+  echo "existing-resource provider unexpectedly entered the Terraform route" >&2
+  exit 1
+fi
+
+if run_route env INPUT_CLOUD_PROVIDER=not-a-provider INPUT_OPERATION=plan INPUT_DNS_MODE=none >/dev/null 2>&1; then
+  echo "unregistered provider unexpectedly entered the Terraform route" >&2
   exit 1
 fi
 
