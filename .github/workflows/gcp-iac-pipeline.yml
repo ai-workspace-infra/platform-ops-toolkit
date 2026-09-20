@@ -151,9 +151,12 @@ jobs:
           project_id = global.fetch("project_id").to_s
           abort "invalid GCP project_id" unless project_id.match?(/\A[a-z][a-z0-9-]{4,28}[a-z0-9]\z/)
           abort "unexpected GCP organization_id" unless global.fetch("organization_id").to_s == "744119519286"
+          spot = Array(doc["spot_vms"]).first
           File.open(ENV.fetch("GITHUB_OUTPUT"), "a") do |io|
             io.puts "manifest=#{manifest}"
             io.puts "project_id=#{project_id}"
+            io.puts "spot_instance_name=#{spot&.fetch("name", "")}" 
+            io.puts "spot_instance_zone=#{spot&.fetch("zone", "")}" 
           end
           RUBY
 
@@ -240,3 +243,20 @@ jobs:
         run: |
           test "$(gcloud projects describe "${PROJECT_ID}" --format='value(projectId)')" = "${PROJECT_ID}"
           echo "GCP OIDC runtime identity can access ${PROJECT_ID}"
+
+      - name: Verify Spot instance provisioning model
+        if: ${{ env.DEPLOY_ACTION == 'apply' && steps.config.outputs.spot_instance_name != '' }}
+        env:
+          PROJECT_ID: ${{ steps.config.outputs.project_id }}
+          INSTANCE_NAME: ${{ steps.config.outputs.spot_instance_name }}
+          INSTANCE_ZONE: ${{ steps.config.outputs.spot_instance_zone }}
+        run: |
+          set -euo pipefail
+          model="$(gcloud compute instances describe "${INSTANCE_NAME}" \
+            --project="${PROJECT_ID}" --zone="${INSTANCE_ZONE}" \
+            --format='value(scheduling.provisioningModel)')"
+          test "${model}" = "SPOT" || {
+            echo "Expected ${INSTANCE_NAME} to be SPOT, got ${model}" >&2
+            exit 1
+          }
+          echo "Spot instance verified: ${INSTANCE_NAME} (${INSTANCE_ZONE})"

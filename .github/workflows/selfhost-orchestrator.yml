@@ -299,6 +299,10 @@ jobs:
           topology/${{ steps.route.outputs.deployment_env }}/selfhost/xconnect-regional-pools.yaml
           topology/${{ steps.route.outputs.deployment_env }}/serverless/runtime-topology.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/github-actions-oidc.json
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/vultr/
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/gcp/
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/azure/
 
     - name: Resolve Agent Proxy machine service origins from GitOps
       id: agent_proxy_origins
