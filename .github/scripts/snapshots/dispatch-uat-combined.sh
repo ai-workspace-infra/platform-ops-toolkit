@@ -113,12 +113,14 @@ wait_for_serverless() {
 }
 
 dispatch_selfhost() {
+  # UAT selfhost owns the full Akamai profile: three business nodes plus
+  # JP/US/SG Agent Proxy. TW/PH are added by the external inventory matrix.
   gh workflow run "${selfhost_workflow}" \
     --repo "${target_repo}" \
     --ref main \
     -f operation=deploy \
     -f vault_env_path=uat \
-    -f target_domains=agent-proxy \
+    -f target_domains=all \
     -f cloud_provider=akamai-cloud \
     -f "akamai_account=${AKAMAI_ACCOUNT_UAT:-manbuzhe2026}" \
     -f include_external_agent_proxy=true \
