@@ -7,6 +7,7 @@
 ## 文件
 
 - [`bootstrap-vault-kv-tldr.md`](bootstrap-vault-kv-tldr.md)：路径、字段和最短执行步骤。
+- [`uat-prod-bootstrap-runbook.md`](uat-prod-bootstrap-runbook.md)：UAT/PROD Role、KV、workflow 与故障修复流程。
 - [`init-vault-kv.sh`](init-vault-kv.sh)：初始化 state KV，并调用仓库中已有的 Akamai token/OIDC bootstrap。
 - `scripts/vault/bootstrap_akamai_cloud_kv.sh`：只写入 Akamai provider token。
 - `scripts/vault/bootstrap_akamai_oidc_roles.sh`：创建环境/账户绑定的 Vault JWT role 和 read-only policy。
@@ -48,6 +49,9 @@ export TF_STATE_REGION='us-east-1'
 bash docs/akamai-cloud/init-vault-kv.sh --apply --env all
 bash docs/akamai-cloud/init-vault-kv.sh --check --env all
 ```
+
+完成 KV 初始化后，按环境执行 `plan` / `apply` 的 workflow 参数和验证步骤，见
+[`uat-prod-bootstrap-runbook.md`](uat-prod-bootstrap-runbook.md)。
 
 如果 UAT/PROD 共用同一个实际账户，两个 `AKAMAI_ACCOUNT_*` 可以相同；Vault
 路径和 GitHub OIDC role 仍按环境分开。
