@@ -52,7 +52,8 @@ concurrency:
 env:
   VAULT_ADDR: https://vault.svc.plus
   VAULT_ROLE: github-actions-platform-ops-toolkit-${{ github.event.inputs.vault_env_path || 'uat' }}
-  VAULT_KV: kv/data/CICD
+  VAULT_KV: kv/data/CICD/${{ github.event.inputs.vault_env_path || 'uat' }}
+  VAULT_KV_IAC_STATE: kv/data/CICD/${{ github.event.inputs.vault_env_path || 'uat' }}/iac_state
   VAULT_KV_ACTION_RUNNER: kv/data/action-runner
   VPS_ROOT: infra/iac_modules/terraform-hcl-standard/vultr-vps
   ENV_DIR: infra/iac_modules/terraform-hcl-standard/vultr-vps/envs/platform-ops-toolkit
@@ -77,11 +78,11 @@ jobs:
           ignoreNotFound: true
           secrets: |
             ${{ env.VAULT_KV }} VULTR_API_KEY | VULTR_API_KEY ;
-            ${{ env.VAULT_KV }} TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
-            ${{ env.VAULT_KV }} TF_STATE_BUCKET | TF_STATE_BUCKET ;
-            ${{ env.VAULT_KV }} TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
-            ${{ env.VAULT_KV }} TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
-            ${{ env.VAULT_KV }} TF_STATE_REGION | TF_STATE_REGION
+            ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
+            ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_BUCKET | TF_STATE_BUCKET ;
+            ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+            ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+            ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_REGION | TF_STATE_REGION
 
       - name: Checkout iac_modules
         uses: actions/checkout@v7
@@ -92,7 +93,7 @@ jobs:
 
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.9.8"
+          terraform_version: "1.10.5"
 
       - uses: actions/setup-python@v7
         with:
@@ -116,6 +117,8 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ steps.vault.outputs.TF_STATE_SECRET_KEY }}
           TF_STATE_ENDPOINT: ${{ steps.vault.outputs.TF_STATE_ENDPOINT }}
           TF_STATE_BUCKET: ${{ steps.vault.outputs.TF_STATE_BUCKET }}
+          TF_STATE_ACCESS_KEY: ${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}
+          TF_STATE_SECRET_KEY: ${{ steps.vault.outputs.TF_STATE_SECRET_KEY }}
           TF_STATE_REGION: ${{ steps.vault.outputs.TF_STATE_REGION }}
           VAULT_ENV_PATH: ${{ github.event.inputs.vault_env_path || 'uat' }}
         run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy-action-runner-iac.sh terraform-init

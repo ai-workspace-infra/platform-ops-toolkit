@@ -17,12 +17,22 @@ on:
         description: Reviewed Playbooks commit SHA
         type: string
         required: false
-        default: 'dfa5f4c397d79d40681aaa96939003f38b9f2266'
+        default: 'e3af025a3776c860bfbbd4ff25a76cdc29e6f0da'
       cli_release_tag:
         description: XConnect-One GitHub Release tag
         type: string
         required: false
-        default: 'v0.1.12'
+        default: 'v0.1.14'
+      gateway_release_tag:
+        description: XConnect-Gateway GitHub Release tag
+        type: string
+        required: false
+        default: 'v0.1.8'
+      xray_release_tag:
+        description: XTLS/Xray-core GitHub Release tag
+        type: string
+        required: false
+        default: 'v26.3.27'
       network_id:
         description: Existing UAT Zero network identity
         type: string
@@ -38,6 +48,11 @@ on:
         type: string
         required: false
         default: 'tw-xconnect.svc.plus'
+      gateway_wireguard_address:
+        description: Optional Gateway WireGuard IPv4 /32 override inside the GitOps overlay CIDR
+        type: string
+        required: false
+        default: ''
       ssh_debug_ingress_cidrs:
         description: Optional operator SSH IPv4 /32 allowlist; not stored in GitOps
         type: string
@@ -62,14 +77,17 @@ jobs:
     timeout-minutes: 30
     env:
       MODE: ${{ inputs.mode }}
-      GITOPS_REF: ${{ inputs.gitops_ref || 'cc49c984fa022b5eeb767d0dc1c83afadc0bc2f9' }}
-      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'dfa5f4c397d79d40681aaa96939003f38b9f2266' }}
-      CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.12' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || 'acbc88faf6072c14dc55c14c2cd601d3693e065e' }}
+      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'e3af025a3776c860bfbbd4ff25a76cdc29e6f0da' }}
+      CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
+      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.8' }}
+      XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
       ZERO_NETWORK_ID: ${{ inputs.network_id || 'net_uat' }}
       ONE_DEVICE_ID: observability-uat
       ONE_VAULT_KEY: ${{ inputs.one_vault_key || 'observability.svc.plus' }}
       GATEWAY_VAULT_KEY: ${{ inputs.gateway_vault_key || 'tw-xconnect.svc.plus' }}
       GATEWAY_SERVER_NAME: tw-xconnect.svc.plus
+      GATEWAY_WIREGUARD_ADDRESS: ${{ inputs.gateway_wireguard_address }}
       SSH_DEBUG_INGRESS_CIDRS: ${{ inputs.ssh_debug_ingress_cidrs || '35.79.83.48/32' }}
     steps:
       - uses: actions/checkout@v4
@@ -82,6 +100,8 @@ jobs:
           [[ "${GITOPS_REF}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${PLAYBOOKS_REF}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${CLI_RELEASE_TAG}" =~ ^v[0-9A-Za-z._-]+$ ]]
+          [[ "${GATEWAY_RELEASE_TAG}" =~ ^v[0-9A-Za-z._-]+$ ]]
+          [[ "${XRAY_RELEASE_TAG}" =~ ^v[0-9A-Za-z._-]+$ ]]
           bash -n .github/scripts/xconnect-existing-one-uat/deploy.sh
           test "${SSH_DEBUG_INGRESS_CIDRS}" != '0.0.0.0/0'
 
@@ -113,7 +133,7 @@ jobs:
           client-id: Iv23liNwStpQIiXajhpb
           private-key: ${{ steps.bootstrap.outputs.APP_PRIVATE_KEY }}
           owner: ai-workspace-xstream
-          repositories: XConnect-One
+          repositories: XConnect-One,XConnect-Gateway
 
       - uses: actions/checkout@v4
         with:
@@ -156,9 +176,13 @@ jobs:
             kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} host | ONE_HOST ;
             kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} user | ONE_USER ;
             kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} ssh_private_key_b64 | ONE_SSH_PRIVATE_KEY_B64 ;
+            kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} sudo_password | ONE_BECOME_PASSWORD ;
             kv/data/prod/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} host | GATEWAY_HOST ;
             kv/data/prod/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} user | GATEWAY_USER ;
             kv/data/prod/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} ssh_private_key_b64 | GATEWAY_SSH_PRIVATE_KEY_B64 ;
+            kv/data/CICD/domains/svc.plus tls_fullchain_pem_b64 | GATEWAY_TLS_CERT_B64 ;
+            kv/data/CICD/domains/svc.plus tls_key_pem_b64 | GATEWAY_TLS_KEY_B64 ;
+            kv/data/CICD/domains/svc.plus not_after_epoch | GATEWAY_TLS_NOT_AFTER_EPOCH ;
             kv/data/CICD/observability user | OBSERVABILITY_USER ;
             kv/data/CICD/observability password | OBSERVABILITY_PASSWORD
 
@@ -174,6 +198,8 @@ jobs:
           LAB_DIR: ${{ runner.temp }}/xconnect-existing-one
           GITHUB_WORKSPACE: ${{ github.workspace }}
           CLI_RELEASE_TOKEN: ${{ steps.artifact-token.outputs.token }}
+          GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.8' }}
+          XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
           ZERO_ACCOUNTS_API_URL: https://accounts-uat.onwalk.net
           LAB_VLESS_ID: ${{ steps.runtime.outputs.LAB_VLESS_ID }}
           ZERO_SERVICE_TOKEN: ${{ steps.runtime.outputs.ZERO_SERVICE_TOKEN }}
@@ -182,9 +208,13 @@ jobs:
           ONE_HOST: ${{ steps.runtime.outputs.ONE_HOST }}
           ONE_USER: ${{ steps.runtime.outputs.ONE_USER }}
           ONE_SSH_PRIVATE_KEY_B64: ${{ steps.runtime.outputs.ONE_SSH_PRIVATE_KEY_B64 }}
+          ONE_BECOME_PASSWORD: ${{ steps.runtime.outputs.ONE_BECOME_PASSWORD }}
           GATEWAY_HOST: ${{ steps.runtime.outputs.GATEWAY_HOST }}
           GATEWAY_USER: ${{ steps.runtime.outputs.GATEWAY_USER }}
           GATEWAY_SSH_PRIVATE_KEY_B64: ${{ steps.runtime.outputs.GATEWAY_SSH_PRIVATE_KEY_B64 }}
+          GATEWAY_TLS_CERT_B64: ${{ steps.runtime.outputs.GATEWAY_TLS_CERT_B64 }}
+          GATEWAY_TLS_KEY_B64: ${{ steps.runtime.outputs.GATEWAY_TLS_KEY_B64 }}
+          GATEWAY_TLS_NOT_AFTER_EPOCH: ${{ steps.runtime.outputs.GATEWAY_TLS_NOT_AFTER_EPOCH }}
           GATEWAY_SERVER_NAME: tw-xconnect.svc.plus
           OBSERVABILITY_USER: ${{ steps.runtime.outputs.OBSERVABILITY_USER }}
           OBSERVABILITY_PASSWORD: ${{ steps.runtime.outputs.OBSERVABILITY_PASSWORD }}

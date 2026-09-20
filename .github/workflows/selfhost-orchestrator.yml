@@ -92,7 +92,7 @@ on:
         - agent-proxy
         - web-saas + agent-proxy
       cloud_provider:
-        description: "云服务商（已接线：vultr-vps、aws-cloud；其余选项为预留）"
+        description: "云服务商（Akamai 使用已有 Terraform state，不创建新 VPS）"
         required: true
         default: "vultr-vps"
         type: choice
@@ -101,6 +101,17 @@ on:
         - gcp-cloud
         - azure-cloud
         - vultr-vps
+        - akamai-cloud
+      akamai_account:
+        description: "Akamai Cloud concrete account name/ID used by the state key"
+        required: false
+        default: "manbuzhe2026"
+        type: string
+      include_external_agent_proxy:
+        description: "是否部署 GitOps 声明的 Ulighthost existing Agent Proxy 节点"
+        required: false
+        default: true
+        type: boolean
       instance_plan:
         description: "选择 Web SaaS VPS 规格 (全域建议 4C8G，单域支持 2C4G 矩阵)"
         required: true
@@ -111,9 +122,9 @@ on:
         - 2C4G
         - 1C2G
       agent_proxy_plan:
-        description: "Agent Proxy 运行时规格（AWS 默认 2C1G，使用 T4g.micro）"
+        description: "Agent Proxy 运行时规格（UAT/PROD 默认 1C2G；不默认创建 AWS Spot）"
         required: true
-        default: "2C1G"
+        default: "1C2G"
         type: choice
         options:
         - 1C1G
@@ -159,7 +170,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: deploy-env-migration
+  group: deploy-env-migration-${{ github.event.inputs.vault_env_path || 'uat' }}-${{ github.event.inputs.cloud_provider || 'vultr-vps' }}-${{ github.event.inputs.akamai_account || 'primary' }}
   cancel-in-progress: false
 
 env:
@@ -179,6 +190,7 @@ env:
   # 设施"和"登录主机"的能力, 是提权的实际载体, 必须隔离 —— sit 失陷不应拿到
   # prod 的云账号与主机私钥。
   VAULT_KV_BASE: kv/data/CICD/${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || github.event.inputs.vault_env_path || 'uat' }}
+  VAULT_KV_IAC_STATE: kv/data/CICD/${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || github.event.inputs.vault_env_path || 'uat' }}/iac_state
   VAULT_KV_OPENCLAW: kv/data/openclaw
   VAULT_KV_WEB_SAAS: kv/data/WEB_SAAS
   # 计费域密钥按环境隔离, 与 databases / agent-proxy 同形。此前是共享的
@@ -193,6 +205,7 @@ env:
   # 指向 platform-ops-toolkit 的 Terraform 目录
   ENV_DIR: infra/iac_modules/terraform-hcl-standard/${{ github.event.inputs.cloud_provider || 'vultr-vps' }}/envs/platform-ops-toolkit
   PLAYBOOKS_DIR: infra/playbooks
+  AKAMAI_ACCOUNT: ${{ github.event.inputs.akamai_account || 'manbuzhe2026' }}
 
 jobs:
   # GitHub Actions renders jobs as a dependency graph.  Keep every job and
@@ -208,7 +221,7 @@ jobs:
       INPUT_VAULT_ENV_PATH:        ${{ github.event.inputs.vault_env_path }}
       INPUT_TARGET_DOMAINS:        ${{ github.event.inputs.target_domains }}
       INPUT_INSTANCE_PLAN:          ${{ inputs.instance_plan || github.event.inputs.instance_plan || '4C8G' }}
-      INPUT_AGENT_PROXY_PLAN:       ${{ inputs.agent_proxy_plan || github.event.inputs.agent_proxy_plan || '2C1G' }}
+      INPUT_AGENT_PROXY_PLAN:       ${{ inputs.agent_proxy_plan || github.event.inputs.agent_proxy_plan || '1C2G' }}
       INPUT_OPERATION:             ${{ github.event.inputs.operation }}
       INPUT_SOURCE_REF:            ${{ github.event.inputs.source_ref }}
       INPUT_OFFLINE_MODE:          ${{ github.event.inputs.offline_mode }}
@@ -218,6 +231,8 @@ jobs:
       INPUT_DNS_MODE:              ${{ github.event.inputs.dns_mode }}
       INPUT_DEPLOY_TAG:            ${{ github.event.inputs.deploy_tag }}
       INPUT_AGENT_CONTROLLER_URL:  ${{ github.event.inputs.agent_controller_url }}
+      INPUT_AKAMAI_ACCOUNT:        ${{ github.event.inputs.akamai_account || 'manbuzhe2026' }}
+      INPUT_INCLUDE_EXTERNAL_AGENT_PROXY: ${{ github.event.inputs.include_external_agent_proxy != 'false' && 'true' || 'false' }}
     outputs:
       deployment_env:           ${{ steps.route.outputs.deployment_env }}
       resource_file:            ${{ steps.route.outputs.resource_file }}
@@ -254,6 +269,7 @@ jobs:
       hosts_agent_proxy_iac: ${{ steps.agent_proxy_matrix.outputs.hosts_agent_proxy_iac || steps.matrix.outputs.hosts_agent_proxy || '[]' }}
       hosts_agent_proxy_non_iac: ${{ steps.agent_proxy_matrix.outputs.hosts_agent_proxy_non_iac || '[]' }}
       agent_proxy_region_count: ${{ steps.agent_proxy_matrix.outputs.agent_proxy_region_count || '0' }}
+      include_external_agent_proxy: ${{ steps.route.outputs.include_external_agent_proxy || 'true' }}
       count:              ${{ steps.matrix.outputs.count || '0' }}
     steps:
     - name: Checkout repository
@@ -268,9 +284,9 @@ jobs:
 
     - name: Validate cloud_provider
       # 仅支持已接线的云厂商
-      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cloud_provider != '' && github.event.inputs.cloud_provider != 'vultr-vps' && github.event.inputs.cloud_provider != 'aws-cloud' }}
+      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cloud_provider != '' && github.event.inputs.cloud_provider != 'vultr-vps' && github.event.inputs.cloud_provider != 'aws-cloud' && github.event.inputs.cloud_provider != 'akamai-cloud' }}
       run: |
-        echo "::error::cloud_provider='${{ github.event.inputs.cloud_provider }}' is reserved but not wired for this environment-replica workflow yet. Use 'vultr-vps' or 'aws-cloud' for now." >&2
+        echo "::error::cloud_provider='${{ github.event.inputs.cloud_provider }}' is not wired for this environment-replica workflow." >&2
         exit 1
 
     - name: Route ref to an explicit profile
@@ -284,8 +300,8 @@ jobs:
         ${{ (steps.route.outputs.run_infrastructure == 'true' ||
         steps.route.outputs.run_application_deploy == 'true' ||
         steps.route.outputs.toolkit_action == 'migrate') &&
-        (contains(fromJSON('["all","web-saas","agent-proxy","web-saas + agent-proxy"]'),
-        steps.route.outputs.target_domains) || steps.route.outputs.cloud_provider == 'aws-cloud') }}
+        contains(fromJSON('["all","web-saas","agent-proxy","web-saas + agent-proxy"]'),
+        steps.route.outputs.target_domains) }}
       uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/gitops
@@ -298,15 +314,18 @@ jobs:
           topology/${{ steps.route.outputs.deployment_env }}/selfhost/xconnect-regional-pools.yaml
           topology/${{ steps.route.outputs.deployment_env }}/serverless/runtime-topology.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/github-actions-oidc.json
-           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/vultr/web-saas.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/vultr/web-saas.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/vultr/agent-proxy.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/vultr/all-in-one.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/web-saas.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/agent-proxy.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/action-runner.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/gcp/web-saas.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/gcp/agent-proxy.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/azure/web-saas.yaml
-           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/azure/agent-proxy.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/azure/agent-proxy.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/akamai/web-saas.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/akamai/xconnect.yaml
 
     - name: Resolve Agent Proxy machine service origins from GitOps
       id: agent_proxy_origins
@@ -372,11 +391,11 @@ jobs:
         exportToken: true
         secrets: |
           ${{ env.VAULT_KV_BASE }} VULTR_API_KEY     | VULTR_API_KEY ;
-          ${{ env.VAULT_KV_BASE }} TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
-          ${{ env.VAULT_KV_BASE }} TF_STATE_BUCKET   | TF_STATE_BUCKET ;
-          ${{ env.VAULT_KV_BASE }} TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
-          ${{ env.VAULT_KV_BASE }} TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
-          ${{ env.VAULT_KV_BASE }} TF_STATE_REGION   | TF_STATE_REGION ;
+          ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
+          ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_BUCKET   | TF_STATE_BUCKET ;
+          ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+          ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+          ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_REGION   | TF_STATE_REGION ;
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | SSH_PRIVATE_DEPLOY_KEY_B64
 
     - name: Resolve AWS OIDC deployment configuration from GitOps
@@ -425,6 +444,8 @@ jobs:
         fi
         echo "TF_STATE_ENDPOINT=${{ steps.vault.outputs.TF_STATE_ENDPOINT }}"     >> "$GITHUB_ENV"
         echo "TF_STATE_BUCKET=${{ steps.vault.outputs.TF_STATE_BUCKET }}"         >> "$GITHUB_ENV"
+        echo "TF_STATE_ACCESS_KEY=${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}" >> "$GITHUB_ENV"
+        echo "TF_STATE_SECRET_KEY=${{ steps.vault.outputs.TF_STATE_SECRET_KEY }}" >> "$GITHUB_ENV"
         echo "TF_STATE_REGION=${{ steps.vault.outputs.TF_STATE_REGION }}"         >> "$GITHUB_ENV"
 
     - name: Derive AWS EC2 public key from the Vault deploy key
@@ -444,7 +465,7 @@ jobs:
     - uses: hashicorp/setup-terraform@v4
       if: steps.route.outputs.run_infrastructure == 'true'
       with:
-        terraform_version: "1.9.8"
+        terraform_version: "1.10.5"
 
     - uses: actions/setup-python@v6
       if: steps.route.outputs.run_infrastructure == 'true'
@@ -505,8 +526,13 @@ jobs:
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_reconcile-terraform-state.sh
 
+    - name: Validate existing Akamai Terraform state
+      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'akamai-cloud'
+      working-directory: ${{ env.ENV_DIR }}
+      run: terraform validate -no-color
+
     - name: Terraform Plan / Apply / Destroy
-      if: steps.route.outputs.run_infrastructure == 'true'
+      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider != 'akamai-cloud'
       working-directory: ${{ env.ENV_DIR }}
       env:
         ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_ACTION:    ${{ steps.route.outputs.terraform_action }}
@@ -561,12 +587,14 @@ jobs:
       if: >-
         ${{ steps.route.outputs.run_infrastructure == 'true' &&
         steps.route.outputs.terraform_action == 'apply' &&
-        steps.route.outputs.deployment_env == 'prod' &&
+        steps.route.outputs.cloud_provider == 'akamai-cloud' &&
         contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
         steps.route.outputs.target_domains) }}
       env:
         CMDB_FILE: ${{ env.ENV_DIR }}/cmdb.json
-        GITOPS_XCONNECT_CONFIG: ${{ github.workspace }}/gitops/topology/${{ steps.route.outputs.deployment_env }}/selfhost/xconnect-regional-pools.yaml
+        HOSTS_MANIFEST_FILE: ${{ env.ENV_DIR }}/hosts_manifest.json
+        DEPLOYMENT_ENV: ${{ steps.route.outputs.deployment_env }}
+        GITOPS_XCONNECT_CONFIG: ${{ github.workspace }}/gitops/topology/${{ steps.route.outputs.deployment_env }}/selfhost/${{ steps.route.outputs.deployment_env == 'uat' && 'xconnect-regional-pool.yaml' || 'xconnect-regional-pools.yaml' }}
       run: >-
         python3
         ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_build-agent-proxy-matrices.py
@@ -1234,7 +1262,7 @@ jobs:
         XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops-xconnect/topology/prod/selfhost/xconnect-regional-pools.yaml
         XCONNECT_CMDB_FILE: ${{ github.workspace }}/cmdb/cmdb.json
       run: |-
-        for pool in jp us hk ph; do
+        for pool in jp us sg ph; do
           XCONNECT_POOL="${pool}" ansible-playbook reconcile_xconnect_entrypoint.yml
         done
 
@@ -1683,16 +1711,17 @@ jobs:
 
   deploy_agent_proxy_non_iac:
     name: "[3] Agent Proxy non-IaC | ${{ matrix.host }}"
-    # PH is deliberately outside Terraform state. Its public address and
-    # password come from the GitOps declaration plus Vault, while the three
-    # AWS regions continue through deploy_agent_proxy's CMDB matrix above.
+    # TW and PH are deliberately outside Terraform state. Their public
+    # addresses and credentials come from the GitOps declaration plus Vault,
+    # while JP/US/SG continue through the CMDB Agent Proxy matrix above.
     needs: [provision]
     if: >-
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
-      needs.provision.outputs.deployment_env == 'prod' &&
+      contains(fromJSON('["uat","prod"]'), needs.provision.outputs.deployment_env) &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
+      needs.provision.outputs.include_external_agent_proxy == 'true' &&
       contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
       needs.provision.outputs.target_domains) &&
       needs.provision.outputs.hosts_agent_proxy_non_iac != '[]' &&
@@ -1734,6 +1763,7 @@ jobs:
         path: gitops
         sparse-checkout-cone-mode: false
         sparse-checkout: |
+          topology/uat/selfhost/xconnect-regional-pool.yaml
           topology/prod/selfhost/xconnect-regional-pools.yaml
 
     - name: Download CMDB
@@ -1798,13 +1828,13 @@ jobs:
     - name: Resolve non-IaC node Vault path
       id: vault_path
       env:
-        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/prod/selfhost/xconnect-regional-pools.yaml
+        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/${{ needs.provision.outputs.deployment_env }}/selfhost/${{ needs.provision.outputs.deployment_env == 'uat' && 'xconnect-regional-pool.yaml' || 'xconnect-regional-pools.yaml' }}
         XCONNECT_NODE_ID: ${{ matrix.host }}
       run: >-
         python3
         ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_resolve-non-iac-agent-proxy-vault-path.py
 
-    - name: Read PH node record from Vault
+    - name: Read external Agent Proxy node record from Vault
       env:
         XCONNECT_VAULT_API_PATH: ${{ steps.vault_path.outputs.vault_api_path }}
         XCONNECT_VAULT_RESPONSE_FILE: ${{ runner.temp }}/xconnect-vault.json
@@ -1823,10 +1853,14 @@ jobs:
     - name: Render non-IaC Agent Proxy inventory
       id: bootstrap_inventory
       env:
-        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/prod/selfhost/xconnect-regional-pools.yaml
+        DEPLOYMENT_ENV: ${{ needs.provision.outputs.deployment_env }}
+        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/${{ needs.provision.outputs.deployment_env }}/selfhost/${{ needs.provision.outputs.deployment_env == 'uat' && 'xconnect-regional-pool.yaml' || 'xconnect-regional-pools.yaml' }}
         XCONNECT_VAULT_RESPONSE_FILE: ${{ runner.temp }}/xconnect-vault.json
-        XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/ph-agent-proxy-bootstrap-inventory.yml
+        XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/external-agent-proxy-bootstrap-inventory.yml
         XCONNECT_NODE_ID: ${{ matrix.host }}
+        # The renderer replaces this fallback with a node-scoped Vault key
+        # when ssh_private_key_b64 is present in the node record.
+        XCONNECT_DEPLOY_KEY_FILE: ${{ steps.deploy_key.outputs.path }}
       run: >-
         python3
         ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_render-non-iac-agent-proxy-inventory.py
@@ -1850,16 +1884,17 @@ jobs:
         SSH_PUBLIC_DEPLOY_KEY="$(ssh-keygen -y -f "${{ steps.deploy_key.outputs.path }}")"
         export SSH_PUBLIC_DEPLOY_KEY
         ansible-playbook \
-          -i "${{ runner.temp }}/ph-agent-proxy-bootstrap-inventory.yml" \
+          -i "${{ runner.temp }}/external-agent-proxy-bootstrap-inventory.yml" \
           prepare_non_iac_ssh_access.yml \
           --limit "${MATRIX_HOST}"
 
     - name: Render deploy-key inventory for non-IaC node
       id: inventory
       env:
-        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/prod/selfhost/xconnect-regional-pools.yaml
+        DEPLOYMENT_ENV: ${{ needs.provision.outputs.deployment_env }}
+        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/${{ needs.provision.outputs.deployment_env }}/selfhost/${{ needs.provision.outputs.deployment_env == 'uat' && 'xconnect-regional-pool.yaml' || 'xconnect-regional-pools.yaml' }}
         XCONNECT_VAULT_RESPONSE_FILE: ${{ runner.temp }}/xconnect-vault.json
-        XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/ph-agent-proxy-inventory.yml
+        XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/external-agent-proxy-inventory.yml
         XCONNECT_NODE_ID: ${{ matrix.host }}
         XCONNECT_DEPLOY_KEY_FILE: ${{ steps.deploy_key.outputs.path }}
       run: >-
@@ -1871,7 +1906,7 @@ jobs:
         VAULT_ROLE: ${{ env.VAULT_ROLE }}
         VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
         DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
-        RESTORE_INVENTORY_FILE: ${{ runner.temp }}/ph-agent-proxy-inventory.yml
+        RESTORE_INVENTORY_FILE: ${{ runner.temp }}/external-agent-proxy-inventory.yml
       run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_base_restore-caddy-certs.sh
 
     - name: Resolve Xray Exporter image
@@ -1910,7 +1945,7 @@ jobs:
         XRAY_EXPORTER_TCP_LISTEN_ADDR: 127.0.0.1:8081
         VECTOR_SNAPSHOT_URL: ""
       run: >-
-        ansible-playbook -i "${{ runner.temp }}/ph-agent-proxy-inventory.yml"
+        ansible-playbook -i "${{ runner.temp }}/external-agent-proxy-inventory.yml"
         setup-agent-proxy-domain.yml
         --limit "${MATRIX_HOST}"
         -e agent_service_hosts=agent_proxy
@@ -1924,7 +1959,7 @@ jobs:
       working-directory: playbooks
       run: >-
         ansible
-        -i "${{ runner.temp }}/ph-agent-proxy-inventory.yml"
+        -i "${{ runner.temp }}/external-agent-proxy-inventory.yml"
         "${MATRIX_HOST}"
         -m shell
         -a 'systemctl is-active --quiet caddy && systemctl is-active --quiet xray'
@@ -1941,7 +1976,7 @@ jobs:
         VECTOR_SNAPSHOT_URL: http://127.0.0.1:8686
       run: >-
         ansible-playbook
-        -i "${{ runner.temp }}/ph-agent-proxy-inventory.yml"
+        -i "${{ runner.temp }}/external-agent-proxy-inventory.yml"
         deploy_observability_agent.yml
         --limit "${MATRIX_HOST}"
         -e observability_agent_hosts=agent_proxy

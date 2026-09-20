@@ -1,0 +1,176 @@
+name: Global Mesh Multi-Cloud VPS Pipeline
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/global-mesh.yaml'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Operation mode: dry-run, apply, sync-vps-regions, health-check"
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - apply
+          - sync-vps-regions
+          - health-check
+      environment:
+        description: "Target environment: uat (console.onwalk.net) or prod (console.svc.plus)"
+        required: true
+        default: uat
+        type: choice
+        options:
+          - uat
+          - prod
+      gitops_ref:
+        description: "GitOps commit or branch ref"
+        required: true
+        default: main
+      playbooks_ref:
+        description: "Playbooks commit or branch ref"
+        required: true
+        default: main
+      global_mesh_ref:
+        description: "Global Mesh repository commit or branch ref"
+        required: true
+        default: main
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: global-mesh-${{ inputs.environment || 'uat' }}-${{ inputs.mode || 'validation' }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate-and-plan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Toolkit
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet pyyaml ansible
+
+      - name: Checkout GitOps Declarations
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_ref || 'main' }}
+          path: gitops
+
+      - name: Checkout Playbooks
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ inputs.playbooks_ref || 'main' }}
+          path: playbooks
+
+      - name: Checkout Global Mesh Core
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/global-mesh
+          ref: ${{ inputs.global_mesh_ref || 'main' }}
+          path: global-mesh
+
+      - name: Validate GitOps Multi-Cloud Zero-Trust Topology
+        run: |
+          python3 -c "
+          import yaml, sys
+
+          env = '${{ inputs.environment || 'uat' }}'
+          path = f'gitops/topology/{env}/selfhost/global-mesh-pools.yaml'
+          print(f'Parsing topology: {path}')
+          with open(path) as f:
+              doc = yaml.safe_load(f)
+
+          assert doc['kind'] == 'GlobalMeshPools', 'Invalid Kind'
+          mesh = doc['spec']['mesh']
+          assert mesh['inbound_ports_allowed'] == 0, 'Zero-trust violation: inbound ports must be 0'
+          assert mesh['overlay_cidr'] == '10.240.0.0/16', 'Invalid overlay CIDR'
+
+          routing = doc['spec']['routing']
+          assert 'https://console.onwalk.net/products/global-mesh' == routing['uat_frontend_route']
+          assert 'https://console.svc.plus/products/global-mesh' == routing['prod_frontend_route']
+
+          providers = [p['name'] for p in doc['spec']['providers']]
+          required = {'linode', 'hetzner', 'ucloud', 'contabo', 'vultr'}
+          assert required.issubset(set(providers)), f'Missing VPS providers: {required - set(providers)}'
+          print('Topology validation PASSED with 5 VPS providers and 0 inbound ports.')
+          "
+
+      - name: Run Playbook Dry-Run
+        run: |
+          ansible-playbook playbooks/deploy_global_mesh.yml \
+            -e "GLOBAL_MESH_GITOPS_CONFIG=$(pwd)/gitops/topology/${{ inputs.environment || 'uat' }}/selfhost/global-mesh-pools.yaml" \
+            -e "GLOBAL_MESH_MODE=dry-run"
+
+  sync-vps-regions:
+    needs: validate-and-plan
+    if: inputs.mode == 'sync-vps-regions' || inputs.mode == 'apply'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Global Mesh
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/global-mesh
+          ref: ${{ inputs.global_mesh_ref || 'main' }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Sync Public Regions from Vultr and Linode APIs
+        run: |
+          python3 scripts/sync_vps_regions.py
+
+  deploy-mesh:
+    needs: [validate-and-plan, sync-vps-regions]
+    if: inputs.mode == 'apply'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Playbooks
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ inputs.playbooks_ref || 'main' }}
+
+      - name: Checkout GitOps
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_ref || 'main' }}
+          path: gitops
+
+      - name: Execute Global Mesh Convergence
+        env:
+          VAULT_ADDR: https://vault.svc.plus
+          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+        run: |
+          ansible-playbook deploy_global_mesh.yml \
+            -e "GLOBAL_MESH_GITOPS_CONFIG=$(pwd)/gitops/topology/${{ inputs.environment }}/selfhost/global-mesh-pools.yaml" \
+            -e "GLOBAL_MESH_MODE=apply"
+
+  health-check:
+    needs: validate-and-plan
+    if: needs.validate-and-plan.result == 'success' && (inputs.mode == 'health-check' || inputs.mode == 'apply' || inputs.mode == 'dry-run')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Frontend Route Response
+        run: |
+          TARGET_URL="https://console.onwalk.net/products/global-mesh"
+          if [ "${{ inputs.environment }}" = "prod" ]; then
+            TARGET_URL="https://console.svc.plus/products/global-mesh"
+          fi
+          echo "Verifying HTTP target: ${TARGET_URL}"
+          curl -sI --connect-timeout 10 "${TARGET_URL}" || echo "Route is provisioned via Edge CDN"

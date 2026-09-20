@@ -13,6 +13,31 @@ spec.loader.exec_module(prepare)
 
 
 class CleanupBoundary(unittest.TestCase):
+    def test_backend_is_scoped_to_exact_lab_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            declaration = folder / 'declaration.json'
+            declaration.write_text(json.dumps({'spec': {'gateway_provider': 'external'}}))
+            environment = {
+                'TF_VAR_run_id': 'xcl-123-1',
+                'TF_STATE_BUCKET': 'state-bucket',
+                'TF_STATE_REGION': 'ap-northeast-1',
+                'TF_STATE_ENDPOINT': 'https://state.example',
+                'TF_STATE_ACCESS_KEY': 'access',
+                'TF_STATE_SECRET_KEY': 'secret',
+            }
+            with patch.dict(os.environ, environment, clear=False), patch('sys.argv',
+                    ['prepare', 'backend', directory, str(declaration)]):
+                prepare.main()
+            backend = json.loads((folder / 'backend.json').read_text())
+            self.assertEqual(
+                backend['key'],
+                'terraform/uat/svc.plus/aws-cloud/primary/xconnect-lab/xcl-123-1/terraform.tfstate')
+
+    def test_backend_refuses_non_lab_run_identifier(self):
+        with self.assertRaises(ValueError):
+            prepare.lab_state_key('../shared-state')
+
     def run_cleanup(self, root):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
@@ -36,6 +61,13 @@ class CleanupBoundary(unittest.TestCase):
         self.run_cleanup({'resources': [
             {'address': 'aws_instance.client', 'type': 'aws_instance', 'values': {'tags_all': {'LabRun': 'xcl-123-1'}}},
             {'address': 'aws_instance.gateway', 'type': 'aws_instance', 'values': {'tags_all': {'LabRun': 'xcl-123-1'}}}]})
+
+    def test_counted_gateway_resources_are_owned_cleanup_targets(self):
+        self.run_cleanup({'resources': [
+            {'address': 'aws_security_group.gateway[0]', 'type': 'aws_security_group', 'values': {'tags_all': {'LabRun': 'xcl-123-1'}}},
+            {'address': 'aws_instance.gateway[0]', 'type': 'aws_instance', 'values': {'tags_all': {'LabRun': 'xcl-123-1'}}},
+            {'address': 'aws_security_group.client', 'type': 'aws_security_group', 'values': {'tags_all': {'LabRun': 'xcl-123-1'}}},
+            {'address': 'aws_instance.client', 'type': 'aws_instance', 'values': {'tags_all': {'LabRun': 'xcl-123-1'}}}]})
 
     def test_reused_network_data_is_not_destroyable_state(self):
         self.run_cleanup({'resources': [
@@ -63,7 +95,8 @@ class DesktopContract(unittest.TestCase):
             'ingress_cidrs': ['198.51.100.10/32'] if cidrs is None else cidrs,
             'platforms': ['darwin', 'windows'] if platforms is None else platforms,
             'max_join_window_minutes': 20,
-            'transport': 'vless-tls-xudp',
+            'transport': 'vless-xhttp',
+            'profile': {'kind': 'vless-xhttp', 'path': '/xconnect', 'mode': 'auto', 'host': 'tw-xconnect.svc.plus'},
             'public_wireguard_ingress': False,
         }}
 
@@ -143,7 +176,8 @@ class GatewayTransportContract(unittest.TestCase):
         value = {'gateway_transport': {
             'enabled': True,
             'port': 443,
-            'transport': 'vless-tls-xudp',
+            'transport': 'vless-xhttp',
+            'profile': {'kind': 'vless-xhttp', 'path': '/xconnect', 'mode': 'auto', 'host': 'tw-xconnect.svc.plus'},
             'ingress_cidrs': [],
             'public_wireguard_ingress': False,
         }}
@@ -165,7 +199,7 @@ class GatewayTransportContract(unittest.TestCase):
 
     def test_public_transport_policy_is_fail_closed(self):
         for updates in ({'enabled': False}, {'port': 1443},
-                        {'transport': 'vless-xhttp'}, {'public_wireguard_ingress': True}):
+                        {'transport': 'vless-tls-xudp'}, {'public_wireguard_ingress': True}):
             with self.subTest(updates=updates), self.assertRaises(ValueError):
                 prepare.validate_gateway_transport_ingress(self.spec(**updates), '35.79.83.48/32')
 
@@ -179,7 +213,7 @@ class GatewayTransportContract(unittest.TestCase):
             'gateway_public_key': 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
             'gateway_endpoint': {'host': '8.8.8.8', 'port': 443, 'server_name': 'xconnect-lab.invalid'},
             'accounts_url': 'https://accounts-uat.onwalk.net',
-            'portal_url': 'https://console-cloudflare-uat.onwalk.net/panel/xconnect-zero',
+            'portal_url': 'https://console-serverless-uat.onwalk.net/panel/xconnect-zero',
             'instances': {
                 'gateway': {'instance_id': 'i-abcdef123', 'public_ip': '8.8.8.8', 'private_ip': '10.0.0.10'},
                 'linux_one': {'instance_id': 'i-0123abcd', 'public_ip': '1.1.1.1', 'private_ip': '10.0.0.20'},

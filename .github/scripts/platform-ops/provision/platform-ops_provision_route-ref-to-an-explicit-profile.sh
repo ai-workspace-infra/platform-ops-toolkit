@@ -4,7 +4,7 @@ set -euo pipefail
 # -----------------------------------------------------------------------------
 # 域名基准集中定义, 各分支不要再各写各的字面量。
 #
-# 主机名由 TARGET_DOMAIN_BASE 拼接 (见 config/resources/*/*.yaml 里的
+# 主机名由 TARGET_DOMAIN_BASE 拼接 (见 GitOps resources/*/*/*.yaml 里的
 # console-uat.{{ TARGET_DOMAIN_BASE }}), 而 uat 的多条触发路径共用同一个
 # terraform workspace 与 state。一旦取值不一致, 同一份 state 就会被要求
 # 提供名字不同的资源, terraform 会销毁一台再建一台。
@@ -15,6 +15,40 @@ SOURCE_HOST_DEFAULT="install.svc.plus"
 SOURCE_DOMAIN_BASE_DEFAULT="svc.plus"
 TARGET_DOMAIN_BASE_DEFAULT="onwalk.net"
 STATE_PROJECT="platform-ops-toolkit"
+
+# Non-sensitive resource declarations live in the GitOps repository.  Keep the
+# generated path absolute because this script runs from the toolkit checkout,
+# while generate.py runs from the checked-out iac_modules directory.
+resolve_gitops_resource_files() {
+  local environment="$1"
+  local provider="$2"
+  local domains="$3"
+  local provider_dir
+  local gitops_root="${GITHUB_WORKSPACE:-${PWD}}/gitops/resources/svc.plus"
+
+  case "${provider}" in
+    aws-cloud) provider_dir=aws ;;
+    vultr-vps) provider_dir=vultr ;;
+    akamai-cloud) provider_dir=akamai ;;
+    gcp-cloud) provider_dir=gcp ;;
+    azure-cloud) provider_dir=azure ;;
+    *)
+      echo "::error::Unsupported GitOps resource provider '${provider}'." >&2
+      return 1
+      ;;
+  esac
+
+  if [[ "${provider}" == "akamai-cloud" ]]; then
+    printf '%s/%s/akamai/xconnect.yaml' "${gitops_root}" "${environment}"
+    return 0
+  fi
+
+  case "${domains}" in
+    all) printf '%s/%s/%s/all-in-one.yaml' "${gitops_root}" "${environment}" "${provider_dir}" ;;
+    'web-saas + agent-proxy') printf '%s/%s/%s/web-saas.yaml,%s/%s/%s/agent-proxy.yaml' "${gitops_root}" "${environment}" "${provider_dir}" "${gitops_root}" "${environment}" "${provider_dir}" ;;
+    *) printf '%s/%s/%s/%s.yaml' "${gitops_root}" "${environment}" "${provider_dir}" "${domains}" ;;
+  esac
+}
 dns_mode=none
 uat_dns_update=false
 
@@ -63,7 +97,12 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   cloud_provider="${INPUT_CLOUD_PROVIDER:-vultr-vps}"
   resource_file="${deployment_env}/${rf}"
   terraform_workspace="${deployment_env}-${cloud_provider}-${STATE_PROJECT}-${rf}"
-  state_key="${deployment_env}/${cloud_provider}/${STATE_PROJECT}/${rf}.tfstate"
+  state_key="terraform/${deployment_env}/${STATE_PROJECT}/${cloud_provider}/primary/${rf}/terraform.tfstate"
+  if [ "${cloud_provider}" = "akamai-cloud" ]; then
+    account="${INPUT_AKAMAI_ACCOUNT:?INPUT_AKAMAI_ACCOUNT is required for akamai-cloud}"
+    state_key="terraform/${deployment_env}/svc.plus/akamai-cloud/${account}/xconnect/terraform.tfstate"
+    terraform_workspace="${deployment_env}-akamai-cloud-svc.plus-xconnect"
+  fi
   # UI 使用单一 operation。下游 job 只消费解析后的执行意图，避免在
   # workflow 中重复拼接相互矛盾的开关条件。
   operation="${INPUT_OPERATION:-plan}"
@@ -188,7 +227,7 @@ else
   if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
     deployment_env=sit; resource_file=sit/all-in-one; terraform_workspace=sit-vultr-vps-platform-ops-toolkit-all-in-one
     resource_files_full="config/resources/sit/all-in-one.yaml"
-    state_key=sit/vultr-vps/platform-ops-toolkit/all-in-one.tfstate; target_domains=all
+    state_key=terraform/sit/platform-ops-toolkit/vultr-vps/primary/all-in-one/terraform.tfstate; target_domains=all
     # PR 只做 terraform plan, 不 apply。四个 deploy job 都要求
     # terraform_action == 'apply', 所以 plan 会让它们全部 skip ——
     # PR 仍然校验 terraform 配置, 但不再创建真实 VPS。
@@ -201,7 +240,7 @@ else
       refs/heads/main)
         deployment_env=uat; resource_file=uat/web-saas; terraform_workspace=uat-vultr-vps-platform-ops-toolkit-web-saas
         resource_files_full="config/resources/uat/web-saas.yaml"
-        state_key=uat/vultr-vps/platform-ops-toolkit/web-saas.tfstate; target_domains=web-saas
+        state_key=terraform/uat/platform-ops-toolkit/vultr-vps/primary/web-saas/terraform.tfstate; target_domains=web-saas
         # PR merge 后的 push 只做 IaC plan 校验，避免自动创建/变更真实资源。
         run_infrastructure=true; run_application_deploy=false
         terraform_action=plan; toolkit_action=none; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
@@ -211,7 +250,7 @@ else
       refs/heads/release/v*|refs/tags/v*)
         deployment_env=prod; resource_file=prod/web-saas; terraform_workspace=prod-vultr-vps-platform-ops-toolkit-web-saas
         resource_files_full="config/resources/prod/web-saas.yaml"
-        state_key=prod/vultr-vps/platform-ops-toolkit/web-saas.tfstate; target_domains=web-saas
+        state_key=terraform/prod/platform-ops-toolkit/vultr-vps/primary/web-saas/terraform.tfstate; target_domains=web-saas
         # 与 main/release push 一样只做 plan 校验, 不自动 apply/部署 —— 这才是
         # 文件顶部注释说的设计: "pull_request 和 branch/tag push 都只跑
         # provision 阶段, 只有 workflow_dispatch 能真正 apply/deploy"。这里此前
@@ -233,7 +272,7 @@ else
       refs/heads/release/*)
         deployment_env=uat; resource_file=uat/web-saas; terraform_workspace=uat-vultr-vps-platform-ops-toolkit-web-saas
         resource_files_full="config/resources/uat/web-saas.yaml"
-        state_key=uat/vultr-vps/platform-ops-toolkit/web-saas.tfstate; target_domains=web-saas
+        state_key=terraform/uat/platform-ops-toolkit/vultr-vps/primary/web-saas/terraform.tfstate; target_domains=web-saas
         run_infrastructure=true; run_application_deploy=false
         terraform_action=plan; toolkit_action=none; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
         cloud_provider="vultr-vps"
@@ -242,7 +281,7 @@ else
       *)
         deployment_env=sit; resource_file=sit/all-in-one; terraform_workspace=sit-vultr-vps-platform-ops-toolkit-all-in-one
         resource_files_full="config/resources/sit/all-in-one.yaml"
-        state_key=sit/vultr-vps/platform-ops-toolkit/all-in-one.tfstate; target_domains=all
+        state_key=terraform/sit/platform-ops-toolkit/vultr-vps/primary/all-in-one/terraform.tfstate; target_domains=all
         run_infrastructure=true; run_application_deploy=true
         terraform_action=apply; toolkit_action=deploy; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
         cloud_provider="vultr-vps"
@@ -251,6 +290,11 @@ else
     esac
   fi
 fi
+
+# The route profile above still records the logical resource name for state and
+# workspace compatibility. Resolve the physical declaration only after all
+# event/ref branches have selected the final environment/provider.
+resource_files_full="$(resolve_gitops_resource_files "${deployment_env}" "${cloud_provider}" "${target_domains}")"
 
 uat_dns_update="${uat_dns_update:-false}"
 case "${uat_dns_update}" in
@@ -335,6 +379,15 @@ fi
 : "${deploy_tag+x}"
 validate_deploy_tag_policy "${deployment_env}" "${deploy_tag}"
 
+include_external_agent_proxy="${INPUT_INCLUDE_EXTERNAL_AGENT_PROXY:-true}"
+case "${include_external_agent_proxy}" in
+  true|false) ;;
+  *)
+    echo "::error::include_external_agent_proxy must be true or false." >&2
+    exit 1
+    ;;
+esac
+
 # Agent Proxy normally registers against the Web SaaS Accounts service on the
 # same Selfhost host. The combined UAT path overrides this with the already
 # deployed Serverless Accounts endpoint, while keeping the default safe for
@@ -376,7 +429,7 @@ if [ "${run_application_deploy}" = "true" ]; then
   esac
 fi
 
-for key in deployment_env resource_file resource_files_full terraform_workspace state_key run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider source_host source_domain_base target_domain_base env_suffix dns_mode deploy_tag agent_controller_url billing_service_base_url; do
+for key in deployment_env resource_file resource_files_full terraform_workspace state_key run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider source_host source_domain_base target_domain_base env_suffix dns_mode deploy_tag agent_controller_url billing_service_base_url include_external_agent_proxy; do
   value="${!key:-}"
   echo "$key=$value" >> "$GITHUB_OUTPUT"
 done

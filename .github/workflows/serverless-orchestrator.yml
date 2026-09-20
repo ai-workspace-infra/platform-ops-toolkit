@@ -526,7 +526,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-services/frontend-router
-          ref: ${{ inputs.tag_ref }}
+          ref: ${{ inputs.tag_ref || 'main' }}
           path: frontend-router
 
       - name: Setup Node.js
@@ -803,6 +803,15 @@ jobs:
 
       - name: Verify Frontend Router boundary assets
         run: ./.github/scripts/serverless/verify_frontend_boundary_assets.sh
+        env:
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+
+      # Post-deploy checklist: the brand website must stay reviewable by
+      # Google / Apple / Android company and app-store reviewers (pages served
+      # in place on the brand domain, legal name, company-domain email, no
+      # legacy branding). Spec: store-and-startup-homepage-spec skill.
+      - name: Verify brand website review readiness
+        run: ./scripts/serverless_uat/verify_brand_site_review_readiness.sh
         env:
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
 

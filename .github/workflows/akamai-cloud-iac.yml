@@ -1,0 +1,249 @@
+name: Akamai Cloud IaC
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_action:
+        type: choice
+        required: true
+        default: plan
+        options: [plan, apply, destroy]
+      vault_env_path:
+        type: choice
+        required: true
+        default: uat
+        options: [uat, prod]
+      project:
+        type: string
+        required: true
+        default: svc.plus
+      account:
+        type: string
+        required: true
+      workspace:
+        type: string
+        required: true
+        default: ai-workspace
+      resource_manifest:
+        description: Relative path in GitOps; defaults to resources/<project>/<env>/akamai/<workspace>.yaml.
+        type: string
+        required: false
+        default: ''
+      gitops_repo_name:
+        type: string
+        required: false
+        default: ai-workspace-infra/gitops
+      gitops_repo_ref:
+        type: string
+        required: false
+        default: main
+      iac_ref:
+        type: string
+        required: false
+        default: main
+  workflow_call:
+    inputs:
+      deploy_action:
+        type: string
+        required: false
+        default: plan
+      vault_env_path:
+        type: string
+        required: true
+      project:
+        type: string
+        required: true
+      account:
+        type: string
+        required: true
+      workspace:
+        type: string
+        required: true
+      resource_manifest:
+        type: string
+        required: false
+        default: ''
+      gitops_repo_name:
+        type: string
+        required: false
+        default: ai-workspace-infra/gitops
+      gitops_repo_ref:
+        type: string
+        required: false
+        default: main
+      iac_ref:
+        type: string
+        required: false
+        default: main
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: akamai-cloud-${{ inputs.vault_env_path }}-${{ inputs.project }}-${{ inputs.account }}-${{ inputs.workspace }}
+  cancel-in-progress: false
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.vault_env_path }}
+    env:
+      DEPLOY_ACTION: ${{ inputs.deploy_action || 'plan' }}
+      DEPLOY_ENV: ${{ inputs.vault_env_path }}
+      PROJECT: ${{ inputs.project }}
+      ACCOUNT: ${{ inputs.account }}
+      WORKSPACE: ${{ inputs.workspace }}
+      GITOPS_REPO: ${{ inputs.gitops_repo_name }}
+      GITOPS_REF: ${{ inputs.gitops_repo_ref }}
+      IAC_REF: ${{ inputs.iac_ref }}
+      MANIFEST_INPUT: ${{ inputs.resource_manifest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout IaC modules
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: ${{ env.IAC_REF }}
+          path: iac_modules
+
+      - name: Checkout GitOps declarations
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.GITOPS_REPO }}
+          ref: ${{ env.GITOPS_REF }}
+          path: gitops
+
+      - name: Resolve canonical state contract
+        id: contract
+        run: |
+          python3 scripts/iac/resolve_iac_contract.py \
+            --environment "${DEPLOY_ENV}" --project "${PROJECT}" \
+            --provider akamai-cloud --account "${ACCOUNT}" --workspace "${WORKSPACE}" \
+            --github-output
+
+      - name: Validate Akamai account name
+        run: |
+          set -euo pipefail
+          [[ "${ACCOUNT}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
+            echo 'account must contain only letters, numbers, dot, underscore, or hyphen' >&2
+            exit 1
+          }
+          case "${ACCOUNT}" in
+            primary|default|main)
+              echo 'account must be a concrete account name or ID, not an alias' >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Load Akamai Cloud and state credentials from Vault
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path }}-akamai-oidc-bootstrap-${{ inputs.account }}
+          jwtGithubAudience: vault
+          exportToken: false
+          secrets: |
+            kv/data/CICD/${{ inputs.vault_env_path }}/akamai-cloud/${{ inputs.account }} LINODE_TOKEN | LINODE_TOKEN ;
+            kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
+            kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
+            kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+            kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+            kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_REGION | TF_STATE_REGION
+
+      - name: Validate Linode token without exposing it
+        env:
+          LINODE_TOKEN: ${{ steps.vault.outputs.LINODE_TOKEN }}
+        run: |
+          set -euo pipefail
+          normalized_token="$(printf '%s' "${LINODE_TOKEN}" | tr -d '\r\n')"
+          [[ -n "${normalized_token}" ]] || { echo 'LINODE_TOKEN is empty' >&2; exit 1; }
+          echo "::add-mask::${normalized_token}"
+          {
+            echo 'LINODE_TOKEN<<AKAMAI_TOKEN_EOF'
+            printf '%s\n' "${normalized_token}"
+            echo 'AKAMAI_TOKEN_EOF'
+          } >> "${GITHUB_ENV}"
+          curl --fail --silent --show-error --header "Authorization: Bearer ${normalized_token}" \
+            https://api.linode.com/v4/profile | jq -e '.username and .email' >/dev/null
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+
+      - name: Resolve GitOps resource declaration
+        id: manifest
+        run: |
+          set -euo pipefail
+          manifest="${MANIFEST_INPUT:-resources/${PROJECT}/${DEPLOY_ENV}/akamai/${WORKSPACE}.yaml}"
+          [[ "${manifest}" != /* && "${manifest}" != *..* ]] || { echo "invalid resource manifest path" >&2; exit 1; }
+          [[ "${manifest}" == resources/*/${DEPLOY_ENV}/akamai/*.yaml ]] || { echo "manifest must be under resources/<project>/${DEPLOY_ENV}/akamai/" >&2; exit 1; }
+          test -f "gitops/${manifest}"
+          echo "path=${manifest}" >> "$GITHUB_OUTPUT"
+
+      - name: Render Akamai Terraform root
+        env:
+          GITOPS_ROOT: ${{ github.workspace }}/gitops
+          TF_STATE_ENDPOINT: ${{ steps.vault.outputs.TF_STATE_ENDPOINT }}
+          TF_STATE_REGION: ${{ steps.vault.outputs.TF_STATE_REGION }}
+        working-directory: iac_modules/terraform-hcl-standard/akamai-cloud
+        run: |
+          python3 scripts/generate.py render \
+            --resources "${GITHUB_WORKSPACE}/gitops/${{ steps.manifest.outputs.path }}" \
+            --workdir "envs/${DEPLOY_ENV}"
+
+      - name: Configure S3-compatible state backend
+        env:
+          TF_STATE_ENDPOINT: ${{ steps.vault.outputs.TF_STATE_ENDPOINT }}
+          TF_STATE_BUCKET: ${{ steps.vault.outputs.TF_STATE_BUCKET }}
+          TF_STATE_ACCESS_KEY: ${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}
+          TF_STATE_SECRET_KEY: ${{ steps.vault.outputs.TF_STATE_SECRET_KEY }}
+          TF_STATE_REGION: ${{ steps.vault.outputs.TF_STATE_REGION }}
+          TF_STATE_KEY: ${{ steps.contract.outputs.state_key }}
+        run: |
+          set -euo pipefail
+          umask 077
+          backend="${RUNNER_TEMP}/akamai-backend.hcl"
+          printf '%s\n' \
+            "bucket = \"${TF_STATE_BUCKET}\"" \
+            "key = \"${TF_STATE_KEY}\"" \
+            "region = \"${TF_STATE_REGION}\"" \
+            "access_key = \"${TF_STATE_ACCESS_KEY}\"" \
+            "secret_key = \"${TF_STATE_SECRET_KEY}\"" \
+            'skip_credentials_validation = true' \
+            'skip_region_validation = true' \
+            'skip_requesting_account_id = true' \
+            'skip_metadata_api_check = true' \
+            'skip_s3_checksum = true' \
+            'use_path_style = true' \
+            'use_lockfile = true' > "${backend}"
+          terraform -chdir="iac_modules/terraform-hcl-standard/akamai-cloud/envs/${DEPLOY_ENV}" init -input=false -reconfigure -backend-config="${backend}"
+
+      - name: Terraform validate and plan
+        run: |
+          set -euo pipefail
+          export TF_VAR_linode_token="${LINODE_TOKEN}"
+          root="iac_modules/terraform-hcl-standard/akamai-cloud/envs/${DEPLOY_ENV}"
+          terraform -chdir="${root}" validate -no-color
+          if [[ "${DEPLOY_ACTION}" != destroy ]]; then terraform -chdir="${root}" plan -input=false -no-color; fi
+
+      - name: Terraform apply or destroy
+        if: ${{ inputs.deploy_action == 'apply' || inputs.deploy_action == 'destroy' }}
+        run: |
+          set -euo pipefail
+          export TF_VAR_linode_token="${LINODE_TOKEN}"
+          terraform -chdir="iac_modules/terraform-hcl-standard/akamai-cloud/envs/${DEPLOY_ENV}" "${DEPLOY_ACTION}" -input=false -auto-approve
+
+      - name: Produce CMDB after apply
+        if: ${{ inputs.deploy_action == 'apply' }}
+        env:
+          GITOPS_ROOT: ${{ github.workspace }}/gitops
+        working-directory: iac_modules/terraform-hcl-standard/akamai-cloud
+        run: |
+          python3 scripts/generate.py inventory \
+            --resources "${GITHUB_WORKSPACE}/gitops/${{ steps.manifest.outputs.path }}" \
+            --workdir "envs/${DEPLOY_ENV}"

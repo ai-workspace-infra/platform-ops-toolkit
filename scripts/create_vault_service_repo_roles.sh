@@ -1,575 +1,160 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# =============================================================================
-# Vault Authentication & Policy Split Initialization (Consolidated Entrypoint)
+# Vault Authentication & Policy Split Initialization.
+#
+# This is intentionally an orchestration entrypoint. The authorization rules
+# live in scripts/vault/policies/*.hcl and scripts/vault/roles/*.json.
 #
 # Requirements:
-# 1. Run this script from a terminal with access to Vault (e.g. https://vault.svc.plus).
-# 2. Vault must be initialized and unsealed.
-# 3. Export VAULT_ADDR and VAULT_TOKEN (with admin privileges).
+#   VAULT_ADDR   Vault address (default: https://vault.svc.plus)
+#   VAULT_TOKEN  admin-capable token, or an authenticated Vault CLI session
 #
-# -----------------------------------------------------------------------------
-# Summary of Security & Governance Rules:
-#
-# 1. Platform-Ops Toolkit & Playbooks:
-#    - user_claim is set to 'sub' (workload identity: repo + ref + workflow).
-#    - job_workflow_ref is pinned to the explicit workflow allowlist. Entries end
-#      in @* on purpose: the ref bound_claim already restricts dispatch to release
-#      tags, so pinning a specific tag here adds no isolation and silently breaks
-#      the workflow on the next release, at the Vault step, where nothing points
-#      back at the tag as the cause.
-#    - Token policies provide strict tier-based isolation for sit, uat, and prod.
-#    - Token type is batch (1h TTL, no default policy).
-#
-# 2. Business Service Repositories (accounts, billing-service, console, content-service, docs, postgresql):
-#    - Dedicated github-actions-<service> policy giving read-only access to kv/data/CICD (GHCR push credentials).
-#    - Business CI workflows do not inherit platform policies or environment-level secrets.
-# =============================================================================
+# A role declaration contains a human-readable "description" and "role_name".
+# Those metadata fields are stripped before the remaining JSON is sent to Vault.
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+POLICY_DIR="${VAULT_POLICY_DEFINITION_DIR:-${SCRIPT_DIR}/vault/policies}"
+ROLE_DIR="${VAULT_ROLE_DEFINITION_DIR:-${SCRIPT_DIR}/vault/roles}"
 
 export VAULT_ADDR="${VAULT_ADDR:-https://vault.svc.plus}"
+
+mode=apply
+akamai_env="${AKAMAI_OIDC_ENV:-all}"
+while (($# > 0)); do
+  case "$1" in
+    --apply) mode=apply ;;
+    --check) mode=check ;;
+    --env)
+      (($# >= 2)) || { echo "--env requires uat, prod, or all" >&2; exit 2; }
+      akamai_env="$2"
+      shift
+      ;;
+    -h|--help)
+      cat <<'EOF'
+Usage:
+  scripts/create_vault_service_repo_roles.sh [--apply|--check] [--env uat|prod|all]
+
+The default remains --apply. When AKAMAI_ACCOUNT_UAT and/or
+AKAMAI_ACCOUNT_PROD is provided, the matching dynamic Akamai Cloud/Linode
+GitHub OIDC role and policy are also managed.
+EOF
+      exit 0
+      ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+akamai_env="${akamai_env,,}"
+case "$akamai_env" in
+  uat|prod|all) ;;
+  *) echo "invalid Akamai environment: ${akamai_env}" >&2; exit 2 ;;
+esac
 
 if [ -z "${VAULT_TOKEN:-}" ] && ! vault token lookup >/dev/null 2>&1; then
   echo "Error: no authenticated Vault CLI session is available." >&2
   echo "  export VAULT_ADDR=https://vault.svc.plus" >&2
-  echo "  export VAULT_TOKEN=hvs.xxx   (admin token, do NOT commit it)" >&2
+  echo "  export VAULT_TOKEN=hvs.xxx  (admin token, do NOT commit it)" >&2
   exit 1
 fi
 
-REPO="ai-workspace-infra/platform-ops-toolkit"
-PLAYBOOKS_REPO="ai-workspace-infra/playbooks"
-TOKEN_TTL="1h"
-XCONNECT_CLOUD_LAB_ROLE="github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab"
-XCONNECT_CLOUD_LAB_POLICY="github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab"
-XCONNECT_EXISTING_ONE_ROLE="github-actions-platform-ops-toolkit-uat-xconnect-existing-one"
-XCONNECT_EXISTING_ONE_POLICY="github-actions-platform-ops-toolkit-uat-xconnect-existing-one"
-TLS_ROTATION_ROLE="github-actions-platform-ops-toolkit-tls-rotation"
-
-# -----------------------------------------------------------------------------
-# Workflow Allowlists for Platform-Ops & Playbooks
-# -----------------------------------------------------------------------------
-WF_PREFIX="${REPO}/.github/workflows"
-read -r -d '' ALLOWED_WORKFLOWS <<EOF || true
-    "${WF_PREFIX}/selfhost-orchestrator.yml@*",
-    "${WF_PREFIX}/daily-main-snapshot.yaml@*",
-    "${WF_PREFIX}/resize-instance.yaml@*",
-    "${WF_PREFIX}/deploy-action-runner-iac.yaml@*",
-    "${WF_PREFIX}/iac-pipeline-multi-cloud-account-matrix.yaml@*",
-    "${WF_PREFIX}/iac-pipeline-multi-cloud-resources-matrix.yaml@*",
-    "${WF_PREFIX}/iac-pipeline-multi-cloud-landingzone-baseline.yaml@*",
-    "${WF_PREFIX}/cron-rotate-domain-tls-certs.yaml@*",
-    "${WF_PREFIX}/configure-email-dns.yaml@*",
-    "${WF_PREFIX}/data-migration.yaml@*",
-    "${WF_PREFIX}/k6-performance-test.yaml@*",
-    "${WF_PREFIX}/uat-serverless-orchestrator.yml@*",
-    "${WF_PREFIX}/serverless-orchestrator.yml@*",
-    "${WF_PREFIX}/hybrid-orchestrator.yml@*"
-EOF
-
-PLAYBOOKS_WF_PREFIX="${PLAYBOOKS_REPO}/.github/workflows"
-read -r -d '' PLAYBOOKS_ALLOWED_WORKFLOWS <<EOF || true
-    "${PLAYBOOKS_WF_PREFIX}/web-saas-domain-cd.yaml@*",
-    "${PLAYBOOKS_WF_PREFIX}/ai-workspace-domain-cd.yaml@*",
-    "${PLAYBOOKS_WF_PREFIX}/agent-proxy-domain-cd.yaml@*",
-    "${PLAYBOOKS_WF_PREFIX}/open-platform-domain-cd.yaml@*",
-    "${PLAYBOOKS_WF_PREFIX}/domain-cd.yaml@*"
-EOF
-
-# -----------------------------------------------------------------------------
-# Platform-Ops Tier Policies (Common Read + Domain Certs + Env Credentials)
-# -----------------------------------------------------------------------------
-emit_common_read_paths() {
-  cat <<'EOF'
-path "kv/data/CICD" {
-  capabilities = ["read"]
-}
-path "kv/data/CICD/github-app/daily-snapshot" {
-  capabilities = ["read"]
-}
-path "kv/data/CICD/observability" {
-  capabilities = ["read"]
-}
-path "kv/metadata/CICD" {
-  capabilities = ["list", "read"]
-}
-path "kv/metadata/CICD/github-app/daily-snapshot" {
-  capabilities = ["read"]
-}
-path "kv/data/openclaw" {
-  capabilities = ["read"]
-}
-path "kv/data/action-runner" {
-  capabilities = ["read"]
-}
-path "kv/metadata/action-runner" {
-  capabilities = ["list", "read"]
-}
-EOF
-}
-
-emit_domain_cert_paths() {
-  cat <<'EOF'
-path "kv/data/CICD/domains/*" {
-  capabilities = ["create", "read", "update", "list"]
-}
-path "kv/metadata/CICD/domains/*" {
-  capabilities = ["list", "read"]
-}
-EOF
-}
-
-emit_base_credential_paths() {
-  local env="$1"
-  cat <<EOF
-path "kv/data/CICD/${env}" {
-  capabilities = ["read"]
-}
-path "kv/metadata/CICD/${env}" {
-  capabilities = ["list", "read"]
-}
-EOF
-}
-
-emit_env_policy() {
-  local env="$1"
-
-  emit_common_read_paths
-  emit_domain_cert_paths
-  emit_base_credential_paths "${env}"
-
-  if [ "${env}" != "sit" ]; then
-    cat <<'EOF'
-path "kv/data/WEB_SAAS" {
-  capabilities = ["read"]
-}
-path "kv/metadata/WEB_SAAS" {
-  capabilities = ["list", "read"]
-}
-EOF
-  fi
-
-  if [ "${env}" = "prod" ]; then
-    cat <<EOF
-path "kv/data/${env}/*" {
-  capabilities = ["create", "read", "update", "list"]
-}
-
-path "kv/metadata/${env}/*" {
-  capabilities = ["list", "read"]
-}
-EOF
-  else
-    cat <<EOF
-path "kv/data/${env}/*" {
-  capabilities = ["create", "read", "update", "delete", "list"]
-}
-path "kv/metadata/${env}/*" {
-  capabilities = ["list", "read", "delete"]
-}
-EOF
-  fi
-}
-
-# The cloud-lab workflow is UAT-scoped, but its external relay is a shared
-# production-owned host. Grant only the one relay record it needs instead of
-# attaching the broad UAT policy (which also permits writes to all UAT paths).
-emit_xconnect_cloud_lab_policy() {
-  emit_common_read_paths
-  emit_base_credential_paths uat
-  cat <<'EOF'
-path "kv/data/uat/xconnect-one" {
-  capabilities = ["read"]
-}
-path "kv/metadata/uat/xconnect-one" {
-  capabilities = ["list", "read"]
-}
-path "kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus" {
-  capabilities = ["read"]
-}
-path "kv/metadata/prod/ulighthost-xconnect/tw-xconnect.svc.plus" {
-  capabilities = ["list", "read"]
-}
-EOF
-}
-
-emit_tls_rotation_policy() {
-  cat <<'EOF'
-path "kv/data/CICD" {
-  capabilities = ["read"]
-}
-path "kv/metadata/CICD" {
-  capabilities = ["list", "read"]
-}
-path "kv/data/CICD/domains/*" {
-  capabilities = ["create", "read", "update", "list"]
-}
-path "kv/metadata/CICD/domains/*" {
-  capabilities = ["list", "read"]
-}
-EOF
-}
-
-# The existing-One workflow never uses Terraform; it only reads the exact
-# runtime records needed to enroll the fixed UAT host and observe it.
-emit_xconnect_existing_one_policy() {
-  cat <<'EOF'
-path "kv/data/CICD/github-app/daily-snapshot" {
-  capabilities = ["read"]
-}
-path "kv/data/uat/xconnect-one" {
-  capabilities = ["read"]
-}
-path "kv/data/prod/ulighthost-xconnect/observability.svc.plus" {
-  capabilities = ["read"]
-}
-path "kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus" {
-  capabilities = ["read"]
-}
-path "kv/data/CICD/observability" {
-  capabilities = ["read"]
-}
-EOF
-}
-
-echo "=== Provisioning Platform-Ops Policies ==="
-for env in dev sit uat prod; do
-  echo "  Writing policy github-actions-platform-ops-toolkit-${env}..."
-  emit_env_policy "${env}" | vault policy write "github-actions-platform-ops-toolkit-${env}" -
+for command_name in vault jq; do
+  command -v "${command_name}" >/dev/null 2>&1 || {
+    echo "Error: ${command_name} is required." >&2
+    exit 1
+  }
 done
-echo "  Writing policy ${XCONNECT_CLOUD_LAB_POLICY}..."
-emit_xconnect_cloud_lab_policy | vault policy write "${XCONNECT_CLOUD_LAB_POLICY}" -
-echo "  Writing policy ${TLS_ROTATION_ROLE}..."
-emit_tls_rotation_policy | vault policy write "${TLS_ROTATION_ROLE}" -
-echo "  Writing policy ${XCONNECT_EXISTING_ONE_POLICY}..."
-emit_xconnect_existing_one_policy | vault policy write "${XCONNECT_EXISTING_ONE_POLICY}" -
 
-# -----------------------------------------------------------------------------
-# Platform-Ops & Playbooks Roles
-# -----------------------------------------------------------------------------
-write_role() {
-  local suffix="$1" policy="$2" ref_claim="$3"
-  vault write "auth/jwt/role/github-actions-platform-ops-toolkit-${suffix}" - <<EOF
-{
-  "role_type": "jwt",
-  "user_claim": "sub",
-  "bound_audiences": ["vault"],
-  "bound_claims_type": "glob",
-  "bound_claims": {
-    "repository": "${REPO}",
-    "job_workflow_ref": [
-${ALLOWED_WORKFLOWS}
-    ],
-    "ref": ${ref_claim}
-  },
-  "token_policies": ["${policy}"],
-  "token_no_default_policy": true,
-  "token_type": "batch",
-  "token_ttl": "${TOKEN_TTL}",
-  "token_max_ttl": "${TOKEN_TTL}"
-}
-EOF
-}
+[[ -d "${POLICY_DIR}" ]] || { echo "Missing policy directory: ${POLICY_DIR}" >&2; exit 1; }
+[[ -d "${ROLE_DIR}" ]] || { echo "Missing role directory: ${ROLE_DIR}" >&2; exit 1; }
 
-# Dedicated to the disposable XConnect lab. Keep this separate from the broad
-# UAT workflow allowlist so the live role can be audited and repaired without
-# rewriting unrelated workflow bindings.
-write_xconnect_cloud_lab_role() {
-  vault write "auth/jwt/role/${XCONNECT_CLOUD_LAB_ROLE}" - <<EOF
-{
-  "role_type": "jwt",
-  "user_claim": "sub",
-  "bound_audiences": ["vault"],
-  "bound_claims_type": "glob",
-  "bound_claims": {
-    "repository": "${REPO}",
-    "job_workflow_ref": "${WF_PREFIX}/xconnect-zero-cloud.yaml@refs/heads/main",
-    "ref": "refs/heads/main"
-  },
-  "token_policies": ["${XCONNECT_CLOUD_LAB_POLICY}"],
-  "token_no_default_policy": true,
-  "token_type": "batch",
-  "token_ttl": "${TOKEN_TTL}",
-  "token_max_ttl": "${TOKEN_TTL}"
-}
-EOF
-}
+shopt -s nullglob
+policy_files=("${POLICY_DIR}"/*.hcl)
+role_files=("${ROLE_DIR}"/*.json)
+(( ${#policy_files[@]} > 0 )) || { echo "No policy declarations found." >&2; exit 1; }
+(( ${#role_files[@]} > 0 )) || { echo "No role declarations found." >&2; exit 1; }
 
-write_xconnect_existing_one_role() {
-  vault write "auth/jwt/role/${XCONNECT_EXISTING_ONE_ROLE}" - <<EOF
-{
-  "role_type": "jwt",
-  "user_claim": "sub",
-  "bound_audiences": ["vault"],
-  "bound_claims_type": "glob",
-  "bound_claims": {
-    "repository": "${REPO}",
-    "job_workflow_ref": "${WF_PREFIX}/xconnect-one-uat.yaml@refs/heads/main",
-    "ref": "refs/heads/main"
-  },
-  "token_policies": ["${XCONNECT_EXISTING_ONE_POLICY}"],
-  "token_no_default_policy": true,
-  "token_type": "batch",
-  "token_ttl": "${TOKEN_TTL}",
-  "token_max_ttl": "${TOKEN_TTL}"
-}
-EOF
-}
+echo "=== Provisioning Vault policies from ${POLICY_DIR} ==="
+for policy_file in "${policy_files[@]}"; do
+  policy_name="${policy_file##*/}"
+  policy_name="${policy_name%.hcl}"
+  [[ "${policy_name}" =~ ^[A-Za-z0-9][A-Za-z0-9._%+@-]*[A-Za-z0-9]$ ]] || {
+    echo "Invalid policy filename: ${policy_file}" >&2
+    exit 1
+  }
+  if [[ "$mode" == check ]]; then
+    echo "  Checking policy ${policy_name}..."
+    vault policy read "${policy_name}" >/dev/null
+  else
+    echo "  Writing policy ${policy_name}..."
+    vault policy write "${policy_name}" "${policy_file}"
+  fi
+done
 
-# Certificate rotation runs from protected main on a schedule and must not
-# inherit the broad production role, whose refs are limited to release tags
-# and release branches.
-write_tls_rotation_role() {
-  vault write "auth/jwt/role/${TLS_ROTATION_ROLE}" - <<EOF
-{
-  "role_type": "jwt",
-  "user_claim": "sub",
-  "bound_audiences": ["vault"],
-  "bound_claims_type": "glob",
-  "bound_claims": {
-    "repository": "${REPO}",
-    "job_workflow_ref": "${WF_PREFIX}/cron-rotate-domain-tls-certs.yaml@*",
-    "ref": "refs/heads/main"
-  },
-  "token_policies": ["${TLS_ROTATION_ROLE}"],
-  "token_no_default_policy": true,
-  "token_type": "batch",
-  "token_ttl": "${TOKEN_TTL}",
-  "token_max_ttl": "${TOKEN_TTL}"
-}
-EOF
-}
+echo "=== Provisioning Vault JWT roles from ${ROLE_DIR} ==="
+for role_file in "${role_files[@]}"; do
+  role_name="${role_file##*/}"
+  role_name="${role_name%.json}"
+  [[ "${role_name}" =~ ^[A-Za-z0-9][A-Za-z0-9._%+@-]*[A-Za-z0-9]$ ]] || {
+    echo "Invalid role filename: ${role_file}" >&2
+    exit 1
+  }
 
-# `main` can initiate a release but is never the release artifact: Daily Main
-# Snapshot re-tags an already verified immutable source as a new v* tag. This
-# role is deliberately pinned to that one workflow on protected main, so the
-# normal production role stays restricted to release tags / release branches.
-write_daily_snapshot_prod_release_role() {
-  vault write "auth/jwt/role/github-actions-platform-ops-toolkit-prod-release" - <<EOF
-{
-  "role_type": "jwt",
-  "user_claim": "sub",
-  "bound_audiences": ["vault"],
-  "bound_claims_type": "glob",
-  "bound_claims": {
-    "repository": "${REPO}",
-    "job_workflow_ref": "${WF_PREFIX}/daily-main-snapshot.yaml@*",
-    "ref": "refs/heads/main"
-  },
-  "token_policies": ["github-actions-platform-ops-toolkit-prod"],
-  "token_no_default_policy": true,
-  "token_type": "batch",
-  "token_ttl": "${TOKEN_TTL}",
-  "token_max_ttl": "${TOKEN_TTL}"
-}
-EOF
-}
+  jq -e --arg expected "${role_name}" '
+    .role_name == $expected and
+    (.description | type == "string" and length > 0) and
+    .role_type == "jwt" and
+    .user_claim == "sub" and
+    (.bound_audiences | type == "array" and length > 0) and
+    (.bound_claims | type == "object") and
+    (.token_policies | type == "array" and length > 0) and
+    .token_no_default_policy == true and
+    .token_type == "batch" and
+    (.token_ttl | type == "string" and length > 0) and
+    (.token_max_ttl | type == "string" and length > 0)
+  ' "${role_file}" >/dev/null || {
+    echo "Invalid role declaration: ${role_file}" >&2
+    exit 1
+  }
 
-write_aws_oidc_bootstrap_policy() {
-  vault policy write github-actions-platform-ops-toolkit-prod-aws-bootstrap - <<'EOF'
-path "kv/data/CICD/prod/aws-bootstrap" {
-  capabilities = ["read"]
-}
-path "kv/metadata/CICD/prod/aws-bootstrap" {
-  capabilities = ["read"]
-}
-path "kv/data/CICD/prod/iac_state" {
-  capabilities = ["read"]
-}
-path "kv/metadata/CICD/prod/iac_state" {
-  capabilities = ["read"]
-}
-EOF
-}
+  while IFS= read -r policy_name; do
+    [[ "${policy_name}" =~ ^[A-Za-z0-9][A-Za-z0-9._%+@-]*[A-Za-z0-9]$ ]] || {
+      echo "Invalid policy reference in ${role_file}: ${policy_name}" >&2
+      exit 1
+    }
+    [[ -f "${POLICY_DIR}/${policy_name}.hcl" ]] || {
+      echo "Missing policy declaration for ${role_name}: ${policy_name}.hcl" >&2
+      exit 1
+    }
+  done < <(jq -er '.token_policies[]' "${role_file}")
 
-write_aws_oidc_bootstrap_role() {
-  vault write auth/jwt/role/github-actions-platform-ops-toolkit-prod-aws-bootstrap - <<EOF
-{
-  "role_type": "jwt",
-  "user_claim": "sub",
-  "bound_audiences": ["vault"],
-  "bound_claims_type": "glob",
-  "bound_claims": {
-    "repository": "${REPO}",
-    "job_workflow_ref": "${WF_PREFIX}/aws-oidc-bootstrap.yml@*",
-    "ref": "refs/heads/main"
-  },
-  "token_policies": ["github-actions-platform-ops-toolkit-prod-aws-bootstrap"],
-  "token_no_default_policy": true,
-  "token_type": "batch",
-  "token_ttl": "20m",
-  "token_max_ttl": "20m"
-}
-EOF
-}
+  if [[ "$mode" == check ]]; then
+    echo "  Checking role ${role_name}..."
+    vault read "auth/jwt/role/${role_name}" >/dev/null
+  else
+    echo "  Writing role ${role_name}..."
+    jq -c 'del(.role_name, .description)' "${role_file}" |
+      vault write "auth/jwt/role/${role_name}" -
+  fi
+done
 
-write_playbooks_role() {
-  local suffix="$1" policy="$2" ref_claim="$3"
-  vault write "auth/jwt/role/github-actions-playbooks-${suffix}" - <<EOF
-{
-  "role_type": "jwt",
-  "user_claim": "sub",
-  "bound_audiences": ["vault"],
-  "bound_claims_type": "glob",
-  "bound_claims": {
-    "repository": "${REPO}",
-    "job_workflow_ref": [
-${PLAYBOOKS_ALLOWED_WORKFLOWS}
-    ],
-    "ref": ${ref_claim}
-  },
-  "token_policies": ["${policy}"],
-  "token_no_default_policy": true,
-  "token_type": "batch",
-  "token_ttl": "${TOKEN_TTL}",
-  "token_max_ttl": "${TOKEN_TTL}"
-}
-EOF
-}
+if [[ -n "${AKAMAI_ACCOUNT_UAT:-}" || -n "${AKAMAI_ACCOUNT_PROD:-}" ]]; then
+  echo "=== Provisioning dynamic Akamai Cloud/Linode OIDC roles ==="
+  akamai_script="${SCRIPT_DIR}/vault/bootstrap_akamai_oidc_roles.sh"
+  if [[ "$mode" == check ]]; then
+    bash "${akamai_script}" --check --env "${akamai_env}"
+  else
+    bash "${akamai_script}" --apply --env "${akamai_env}"
+  fi
+else
+  echo "=== Skipping dynamic Akamai roles (AKAMAI_ACCOUNT_* not provided) ==="
+fi
 
-echo "=== Provisioning Platform-Ops & Playbooks Roles ==="
-echo "  Creating SIT role..."
-write_role sit github-actions-platform-ops-toolkit-sit '["refs/pull/*/merge", "refs/heads/*"]'
-echo "  Creating dedicated XConnect cloud-lab UAT role..."
-write_xconnect_cloud_lab_role
-echo "  Creating dedicated existing-One UAT role..."
-write_xconnect_existing_one_role
-echo "  Creating DEV role..."
-write_role dev github-actions-platform-ops-toolkit-dev '["refs/heads/main", "refs/heads/dev/*", "refs/heads/feature/*", "refs/pull/*/merge"]'
-echo "  Creating UAT role..."
-write_role uat github-actions-platform-ops-toolkit-uat '["refs/heads/main", "refs/heads/release/*", "refs/heads/bugfix/*", "refs/heads/daily-build-*", "refs/tags/daily-build-*"]'
-echo "  Creating PROD role..."
-write_role prod github-actions-platform-ops-toolkit-prod '["refs/tags/v*", "refs/heads/release/v*"]'
-echo "  Creating PROD release-authoring role..."
-write_daily_snapshot_prod_release_role
-echo "  Creating dedicated TLS rotation role..."
-write_tls_rotation_role
-echo "  Creating dedicated AWS OIDC bootstrap role..."
-write_aws_oidc_bootstrap_policy
-write_aws_oidc_bootstrap_role
-
-echo "  Creating Playbooks SIT role..."
-write_playbooks_role sit github-actions-platform-ops-toolkit-sit '["refs/pull/*/merge", "refs/heads/*"]'
-echo "  Creating Playbooks UAT role..."
-write_playbooks_role uat github-actions-platform-ops-toolkit-uat '["refs/heads/main", "refs/heads/release/*", "refs/heads/bugfix/*", "refs/heads/daily-build-*", "refs/tags/daily-build-*"]'
-echo "  Creating Playbooks PROD role..."
-write_playbooks_role prod github-actions-platform-ops-toolkit-prod '["refs/tags/v*", "refs/heads/release/v*"]'
-
-# -----------------------------------------------------------------------------
-# Business Service Repository Roles & Policies
-# -----------------------------------------------------------------------------
-write_service_policy() {
-  local service="$1"
-  echo "  Creating policy github-actions-${service}..."
-  vault policy write "github-actions-${service}" - <<'EOF'
-path "kv/data/CICD" {
-  capabilities = ["read"]
-}
-path "kv/metadata/CICD" {
-  capabilities = ["list", "read"]
-}
-EOF
-}
-
-write_service_role() {
-  local service="$1" suffix="$2" ref_claim="$3" repo="$4"
-  local workflow_glob="${5:-${repo}/.github/workflows/*pipeline.ym*@*}"
-  echo "  Creating role github-actions-${service}-${suffix} <- ${repo}"
-  vault write "auth/jwt/role/github-actions-${service}-${suffix}" - <<EOF
-{
-  "role_type": "jwt",
-  "user_claim": "sub",
-  "bound_audiences": ["vault"],
-  "bound_claims_type": "glob",
-  "bound_claims": {
-    "repository": "${repo}",
-    "job_workflow_ref": "${workflow_glob}",
-    "ref": ${ref_claim}
-  },
-  "token_policies": ["github-actions-${service}"],
-  "token_no_default_policy": true,
-  "token_type": "batch",
-  "token_ttl": "${TOKEN_TTL}",
-  "token_max_ttl": "${TOKEN_TTL}"
-}
-EOF
-}
-
-process_service_repo() {
-  local service="$1" repo="$2" workflow="${3:-}"
-  echo "=== Business Service: ${service} (${repo}) ==="
-  write_service_policy "${service}"
-
-  write_service_role "${service}" sit \
-    '["refs/pull/*/merge", "refs/heads/*", "refs/tags/sit-*"]' \
-    "${repo}" "${workflow}"
-
-  write_service_role "${service}" uat \
-    '["refs/heads/main", "refs/heads/release/*", "refs/heads/daily-build-*", "refs/tags/uat-*", "refs/tags/daily-build-*"]' \
-    "${repo}" "${workflow}"
-
-  write_service_role "${service}" prod \
-    '["refs/tags/v*", "refs/heads/release/v*"]' \
-    "${repo}" "${workflow}"
-}
-
-process_gitops_service_repo() {
-  local repo="ai-workspace-infra/gitops"
-  local workflow="${repo}/.github/workflows/validate-release-pr.yml@*"
-  echo "=== Deployment Consumer: gitops (${repo}) ==="
-  write_service_policy gitops
-  write_service_role gitops sit '"refs/pull/*/merge"' "${repo}" "${workflow}"
-  write_service_role gitops uat '"refs/heads/main"' "${repo}" "${workflow}"
-  write_service_role gitops prod '["refs/tags/v*", "refs/heads/release/v*"]' "${repo}" "${workflow}"
-}
-
-process_artifacts_service_repo() {
-  local repo="ai-workspace-infra/artifacts"
-  local workflow="${repo}/.github/workflows/*@*"
-  echo "=== Infrastructure Artifacts: artifacts (${repo}) ==="
-  echo "  Creating policy github-actions-artifacts..."
-  vault policy write github-actions-artifacts - <<'EOF'
-path "kv/data/CICD" {
-  capabilities = ["read"]
-}
-path "kv/data/CICD/*" {
-  capabilities = ["read"]
-}
-path "kv/metadata/CICD" {
-  capabilities = ["list", "read"]
-}
-path "kv/metadata/CICD/*" {
-  capabilities = ["list", "read"]
-}
-EOF
-
-  write_service_role artifacts sit \
-    '["refs/pull/*/merge", "refs/heads/*", "refs/tags/sit-*"]' \
-    "${repo}" "${workflow}"
-
-  write_service_role artifacts uat \
-    '["refs/heads/main", "refs/heads/feature/*", "refs/heads/daily-build-*", "refs/tags/uat-*", "refs/tags/daily-build-*"]' \
-    "${repo}" "${workflow}"
-
-  write_service_role artifacts prod \
-    '["refs/tags/v*", "refs/heads/release/v*"]' \
-    "${repo}" "${workflow}"
-}
-
-process_service_repo accounts         ai-workspace-services/accounts
-process_service_repo billing-service  ai-workspace-services/billing-service
-process_service_repo console          ai-workspace-services/portal
-process_service_repo content-service  ai-workspace-services/content-service
-process_service_repo docs             ai-workspace-services/docs
-process_service_repo postgresql       ai-workspace-services/postgresql.svc.plus
-process_artifacts_service_repo
-process_gitops_service_repo
-
-# -----------------------------------------------------------------------------
-# Dead Role Cleanup
-# -----------------------------------------------------------------------------
-echo "=== Cleaning Up Deprecated Roles ==="
-vault delete auth/jwt/role/github-actions-platform-ops-toolkit-prod-tags 2>/dev/null \
-  || echo "  (github-actions-platform-ops-toolkit-prod-tags not present, skipped)"
+echo "=== Cleaning up deprecated roles ==="
+# GCP bootstrap roles are managed declarations and must never be removed by
+# this entrypoint. Only this explicitly retired legacy role is cleaned up.
+vault delete auth/jwt/role/github-actions-platform-ops-toolkit-prod-tags 2>/dev/null ||
+  echo "  (github-actions-platform-ops-toolkit-prod-tags not present, skipped)"
 
 echo
 echo "========================================================================="

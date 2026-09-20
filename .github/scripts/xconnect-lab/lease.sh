@@ -8,14 +8,17 @@ state_api() {
     AWS_SESSION_TOKEN='' AWS_REGION="$TF_STATE_REGION" \
     aws --endpoint-url "$TF_STATE_ENDPOINT" s3api "$@" > "$LAB_DIR/state-api.log" 2>&1
 }
-prefix=uat/xconnect-lab/_leases
+prefix=runs/uat/svc.plus/aws-cloud/primary/xconnect-lab
 case "${1:?}" in
   create)
     run="$(<"$LAB_DIR/run-id")"
-    jq -n --arg run "$run" --arg iac "$IAC_REF" --arg gitops "$GITOPS_REF" \
+    jq -n --arg run "$run" --arg iac "$IAC_REF" --arg gitops "$GITOPS_REF" --arg playbooks "$PLAYBOOKS_REF" \
       --arg cli "$CLI_RELEASE_TAG" --arg gateway "$GATEWAY_RELEASE_TAG" --arg xray "$XRAY_RELEASE_TAG" \
+      --arg provider "${GATEWAY_PROVIDER:-external}" --arg external_gateway_id "${EXTERNAL_GATEWAY_ID:-}" \
+      --arg external_network_id "${EXTERNAL_NETWORK_ID:-}" --arg external_server_name "${EXTERNAL_GATEWAY_SERVER_NAME:-}" \
+      --arg gateway_wireguard_address "${GATEWAY_WIREGUARD_ADDRESS:-}" \
       --arg expires "$(jq -r .expires_at "$LAB_DIR/variables.json")" \
-      '{run:$run,expires_at:$expires,inputs:{mode:"cleanup",cleanup_run:$run,iac_ref:$iac,gitops_ref:$gitops,cli_release_tag:$cli,gateway_release_tag:$gateway,xray_release_tag:$xray}}' > "$LAB_DIR/lease.json"
+      '{run:$run,expires_at:$expires,inputs:{mode:"cleanup",cleanup_run:$run,iac_ref:$iac,gitops_ref:$gitops,playbooks_ref:$playbooks,cli_release_tag:$cli,gateway_release_tag:$gateway,xray_release_tag:$xray,gateway_provider:$provider,external_gateway_id:$external_gateway_id,external_network_id:$external_network_id,external_gateway_server_name:$external_server_name,gateway_wireguard_address:$gateway_wireguard_address}}' > "$LAB_DIR/lease.json"
     state_api put-object --bucket "$TF_STATE_BUCKET" --key "$prefix/$run.json" --body "$LAB_DIR/lease.json"
     ;;
   delete)
@@ -26,7 +29,7 @@ case "${1:?}" in
     state_api list-objects-v2 --bucket "$TF_STATE_BUCKET" --prefix "$prefix/"
     jq -r '.Contents[]?.Key' "$LAB_DIR/state-api.log" > "$LAB_DIR/keys"
     while IFS= read -r key; do
-      [[ "$key" =~ ^uat/xconnect-lab/_leases/xcl-[0-9]+-[0-9]+\.json$ ]] || exit 1
+      [[ "$key" =~ ^runs/uat/svc\.plus/aws-cloud/primary/xconnect-lab/xcl-[0-9]+-[0-9]+\.json$ ]] || exit 1
       state_api get-object --bucket "$TF_STATE_BUCKET" --key "$key" "$LAB_DIR/lease.json"
       jq -e --arg key "$key" '.run | test("^xcl-[0-9]+-[0-9]+$")' "$LAB_DIR/lease.json" >/dev/null
       run="$(jq -r .run "$LAB_DIR/lease.json")"

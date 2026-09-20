@@ -65,7 +65,7 @@ GHCR_TOKEN
 ROOT_BOOTSTRAP_PASSWORD
 ```
 
-基础设施凭据写入三个环境路径：
+provider/主机凭据写入三个环境路径：
 
 ```text
 kv/CICD/sit
@@ -78,6 +78,19 @@ kv/CICD/prod
 ```text
 SSH_PRIVATE_DEPLOY_KEY_B64
 VULTR_API_KEY
+```
+
+Terraform state 凭据单独写入：
+
+```text
+kv/CICD/sit/iac_state
+kv/CICD/uat/iac_state
+kv/CICD/prod/iac_state
+```
+
+包含：
+
+```text
 TF_STATE_ENDPOINT
 TF_STATE_BUCKET
 TF_STATE_ACCESS_KEY

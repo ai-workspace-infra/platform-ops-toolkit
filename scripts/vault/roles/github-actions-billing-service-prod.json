@@ -1,0 +1,25 @@
+{
+  "role_name": "github-actions-billing-service-prod",
+  "description": "billing-service PROD business CI; shared CICD credential read access only.",
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": [
+    "vault"
+  ],
+  "bound_claims_type": "glob",
+  "bound_claims": {
+    "repository": "ai-workspace-services/billing-service",
+    "job_workflow_ref": "ai-workspace-services/billing-service/.github/workflows/*pipeline.ym*@*",
+    "ref": [
+      "refs/tags/v*",
+      "refs/heads/release/v*"
+    ]
+  },
+  "token_policies": [
+    "github-actions-billing-service"
+  ],
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": "1h",
+  "token_max_ttl": "1h"
+}

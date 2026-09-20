@@ -37,7 +37,21 @@ on:
         description: "服务商 / Cloud Provider (必选, 无默认值 —— 决定 terraform 模块目录、config 路径与 backend key, 选错等于部署到错误目标)"
         type: choice
         required: true
-        options: [aws-cloud, gcp-cloud, azure-cloud, vultr-vps]
+        options: [aws-cloud, gcp-cloud, azure-cloud, vultr-vps, akamai-cloud, ucloud, ulighthost]
+      state_account:
+        description: "Concrete cloud account name or ID; aliases such as primary/default are not allowed"
+        type: string
+        required: true
+      workspace:
+        description: "Terraform/external inventory workspace"
+        type: string
+        required: false
+        default: platform
+      resource_manifest:
+        description: "GitOps manifest path for Akamai or an external provider"
+        type: string
+        required: false
+        default: ''
       accounts_components:
         description: "账号层级组件选择 (逗号分隔)"
         type: string
@@ -54,6 +68,26 @@ on:
         description: "GitOps repo ref (branch/tag/sha) to use"
         type: string
         default: main
+      gcp_account_id:
+        description: "GCP account identifier used for the Vault JWT role"
+        type: string
+        default: xworktech
+      gcp_resource_manifest:
+        description: "Optional GCP GitOps manifest path; environment is validated before Terraform"
+        type: string
+        default: ''
+      gcp_iac_ref:
+        description: "Pinned iac_modules ref used when cloud_provider=gcp-cloud"
+        type: string
+        default: 8b09807226d954cfc71bd68481139f23dfb5c2fc
+      aws_region:
+        description: "AWS region used only when cloud_provider=aws-cloud"
+        type: string
+        default: ap-northeast-1
+      aws_role_arn:
+        description: "AWS OIDC role used only when cloud_provider=aws-cloud"
+        type: string
+        default: ''
 
 permissions:
   id-token: write
@@ -78,7 +112,7 @@ jobs:
 
   landingzone:
     needs: prepare-matrix
-    if: ${{ inputs.run_landingzone != false }}
+    if: ${{ contains(fromJSON('["aws-cloud", "azure-cloud", "vultr-vps"]'), inputs.cloud_provider) && inputs.run_landingzone != false }}
     uses: ./.github/workflows/iac-pipeline-multi-cloud-landingzone-baseline.yaml
     with:
       # push (this file's own change) 走的是空 inputs 上下文, || 'apply' 会让
@@ -89,14 +123,33 @@ jobs:
       project: ${{ inputs.project || 'svc.plus' }}
       vault_env_path: ${{ inputs.vault_env_path || 'sit' }}
       cloud_provider: ${{ inputs.cloud_provider }}
+      state_account: ${{ inputs.state_account }}
       gitops_repo_name: ${{ inputs.gitops_repo_name || 'https://github.com/cloud-neutral-workshop/gitops.git' }}
       gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
+      gcp_account_id: ${{ inputs.gcp_account_id || 'xworktech' }}
+      aws_region: ${{ inputs.aws_region || 'ap-northeast-1' }}
+      aws_role_arn: ${{ inputs.aws_role_arn || '' }}
+
+  gcp-platform:
+    needs: prepare-matrix
+    if: ${{ inputs.cloud_provider == 'gcp-cloud' }}
+    uses: ./.github/workflows/gcp-iac-pipeline.yml
+    with:
+      deploy_action: ${{ inputs.deploy_action || 'plan' }}
+      vault_env_path: ${{ inputs.vault_env_path || 'uat' }}
+      gcp_account_id: ${{ inputs.gcp_account_id || 'xworktech' }}
+      gcp_resource_manifest: ${{ inputs.gcp_resource_manifest || '' }}
+      iac_ref: ${{ inputs.gcp_iac_ref || '8b09807226d954cfc71bd68481139f23dfb5c2fc' }}
+      gitops_repo_name: ${{ inputs.gitops_repo_name || 'https://github.com/ai-workspace-infra/gitops.git' }}
+      gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
+    secrets: inherit
 
   account:
     needs: [landingzone, prepare-matrix]
     if: |
       always() &&
       needs.prepare-matrix.result == 'success' &&
+      contains(fromJSON('["aws-cloud", "azure-cloud", "vultr-vps"]'), inputs.cloud_provider) &&
       (inputs.run_account != false) &&
       (needs.landingzone.result == 'success' || needs.landingzone.result == 'skipped')
     uses: ./.github/workflows/iac-pipeline-multi-cloud-account-matrix.yaml
@@ -105,9 +158,11 @@ jobs:
       project: ${{ inputs.project || 'svc.plus' }}
       vault_env_path: ${{ inputs.vault_env_path || 'sit' }}
       cloud_provider: ${{ inputs.cloud_provider }}
+      state_account: ${{ inputs.state_account }}
       components_json: ${{ needs.prepare-matrix.outputs.account_components }}
       gitops_repo_name: ${{ inputs.gitops_repo_name || 'https://github.com/cloud-neutral-workshop/gitops.git' }}
       gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
+      gcp_account_id: ${{ inputs.gcp_account_id || 'xworktech' }}
     secrets: inherit
 
   resources:
@@ -115,6 +170,7 @@ jobs:
     if: |
       always() &&
       needs.prepare-matrix.result == 'success' &&
+      contains(fromJSON('["aws-cloud", "azure-cloud", "vultr-vps"]'), inputs.cloud_provider) &&
       (inputs.run_resources != false) &&
       (needs.account.result == 'success' || needs.account.result == 'skipped')
     uses: ./.github/workflows/iac-pipeline-multi-cloud-resources-matrix.yaml
@@ -123,7 +179,41 @@ jobs:
       project: ${{ inputs.project || 'svc.plus' }}
       vault_env_path: ${{ inputs.vault_env_path || 'sit' }}
       cloud_provider: ${{ inputs.cloud_provider }}
+      state_account: ${{ inputs.state_account }}
       components_json: ${{ needs.prepare-matrix.outputs.resources_components }}
       gitops_repo_name: ${{ inputs.gitops_repo_name || 'https://github.com/cloud-neutral-workshop/gitops.git' }}
+      gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
+      gcp_account_id: ${{ inputs.gcp_account_id || 'xworktech' }}
+      aws_region: ${{ inputs.aws_region || 'ap-northeast-1' }}
+      aws_role_arn: ${{ inputs.aws_role_arn || '' }}
+    secrets: inherit
+
+  akamai-cloud:
+    needs: prepare-matrix
+    if: ${{ inputs.cloud_provider == 'akamai-cloud' }}
+    uses: ./.github/workflows/akamai-cloud-iac.yml
+    with:
+      deploy_action: ${{ inputs.deploy_action || 'plan' }}
+      vault_env_path: ${{ inputs.vault_env_path || 'uat' }}
+      project: ${{ inputs.project || 'svc.plus' }}
+      account: ${{ inputs.state_account }}
+      workspace: ${{ inputs.workspace || 'platform' }}
+      resource_manifest: ${{ inputs.resource_manifest || '' }}
+      gitops_repo_name: ${{ inputs.gitops_repo_name || 'ai-workspace-infra/gitops' }}
+      gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
+    secrets: inherit
+
+  external-inventory:
+    needs: prepare-matrix
+    if: ${{ inputs.cloud_provider == 'ucloud' || inputs.cloud_provider == 'ulighthost' }}
+    uses: ./.github/workflows/external-inventory-state.yml
+    with:
+      cloud_provider: ${{ inputs.cloud_provider }}
+      vault_env_path: ${{ inputs.vault_env_path || 'uat' }}
+      project: ${{ inputs.project || 'svc.plus' }}
+      account: ${{ inputs.state_account }}
+      workspace: ${{ inputs.workspace || 'platform' }}
+      resource_manifest: ${{ inputs.resource_manifest }}
+      gitops_repo_name: ${{ inputs.gitops_repo_name || 'ai-workspace-infra/gitops' }}
       gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
     secrets: inherit

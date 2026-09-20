@@ -67,8 +67,10 @@ grep -Fq -- '-f dns_mode=uat-records' "${workdir}/gh.log"
 grep -Fq -- '-f skip_stripe_catalog=true' "${workdir}/gh.log"
 grep -Fq -- '-f operation=deploy' "${workdir}/gh.log"
 grep -Fq -- '-f target_domains=agent-proxy' "${workdir}/gh.log"
-grep -Fq -- '-f cloud_provider=aws-cloud' "${workdir}/gh.log"
-grep -Fq -- '-f agent_proxy_plan=2C2G' "${workdir}/gh.log"
+grep -Fq -- '-f cloud_provider=akamai-cloud' "${workdir}/gh.log"
+grep -Fq -- '-f akamai_account=manbuzhe2026' "${workdir}/gh.log"
+grep -Fq -- '-f include_external_agent_proxy=true' "${workdir}/gh.log"
+grep -Fq -- '-f agent_proxy_plan=1C2G' "${workdir}/gh.log"
 grep -Fq -- '-f deploy_tag=uat-daily-build-2026.08.21-r5' "${workdir}/gh.log"
 grep -Fq -- '-f agent_controller_url=https://accounts-serverless-uat.onwalk.net' "${workdir}/gh.log"
 grep -Fq -- '-f iac_ref=0123456789012345678901234567890123456789' "${workdir}/gh.log"
@@ -127,5 +129,15 @@ SKIP_STRIPE_CATALOG=true \
 bash "${prod_dispatcher}"
 
 grep -Fq -- 'workflow run serverless-orchestrator.yml --repo ai-workspace-infra/platform-ops-toolkit --ref v2026.08.21 -f operation=deploy+migrate' "${workdir}/gh-prod-migration.log"
+grep -Fq -- '-f cloud_provider=aws-cloud' "${workdir}/gh-prod-migration.log"
+grep -Fq -- '-f agent_proxy_plan=1C2G' "${workdir}/gh-prod-migration.log"
+grep -Fq -- '-f include_external_agent_proxy=false' "${workdir}/gh-prod-migration.log"
+grep -Fq -- '-f cloud_provider=akamai-cloud' "${workdir}/gh-prod-migration.log"
+grep -Fq -- '-f akamai_account=manbuzhe2026' "${workdir}/gh-prod-migration.log"
+grep -Fq -- '-f include_external_agent_proxy=true' "${workdir}/gh-prod-migration.log"
+if grep -Fq 'Spot/60m' "${workdir}/gh-prod-migration.log"; then
+  echo "production daily dispatch must not select an AWS Spot pool" >&2
+  exit 1
+fi
 
 echo "daily_snapshot_combined_dispatch_test: PASS"

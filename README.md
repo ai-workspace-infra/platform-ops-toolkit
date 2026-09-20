@@ -51,6 +51,11 @@ chmod +x scripts/create_vault_service_repo_roles.sh
 
 For the detailed JWT auth, Role/Policy, workflow claim, KV isolation, and troubleshooting instructions, see [Vault Authentication and Policy Isolation](docs/vault/vault_authentication_and_policy_isolation.md). This README only provides the onboarding path and operation entry points.
 
+For the minimum GCP bootstrap auth fields and environment-scoped KV paths, see [GCP OIDC Bootstrap Vault KV](docs/howto/gcp-oidc-bootstrap-vault-kv.md).
+
+For the post-merge verification matrix covering state keys, Vault isolation, Akamai/Linode,
+S3 lockfile concurrency, and existing providers, see [Unified IaC State Validation](docs/howto/unified-iac-state-validation.md).
+
 Verify the result:
 
 ```bash
@@ -96,7 +101,8 @@ The workflow mainly reads three KV tiers after authentication:
 | Type | Path | Examples |
 | --- | --- | --- |
 | Shared CI credentials | `kv/data/CICD` | GHCR and shared runtime credentials |
-| Environment base credentials | `kv/data/CICD/<env>` | `VULTR_API_KEY`, Terraform state, SSH key |
+| Environment provider/host credentials | `kv/data/CICD/<env>` | `VULTR_API_KEY`, SSH key |
+| Terraform state credentials | `kv/data/CICD/<env>/iac_state` | `TF_STATE_*` |
 | Environment application secrets | `kv/data/<env>/*` | Database, Billing, and agent-proxy secrets |
 
 `<env>` is `sit`, `uat`, or `prod`. Production secrets should not be deleted or rotated by an ordinary deployment workflow.

@@ -11,6 +11,9 @@ creates, updates, or destroys the persistent Gateway host.
 Vault:   kv/prod/ulighthost-xconnect/tw-xconnect.svc.plus
          ├─ host / user / ssh_private_key_b64
          └─ endpoint metadata (sensitive values remain in Vault)
+TLS:     kv/CICD/domains/svc.plus
+         ├─ tls_fullchain_pem_b64
+         └─ tls_key_pem_b64
 
 GitOps:  public transport and protocol declaration only
 AWS:     one disposable t4g.micro Spot, one-hour lease
@@ -18,13 +21,16 @@ Gateway: tw-xconnect.svc.plus, external Linux relay/service
 ```
 
 The persistent host is outside Terraform ownership. Its Gateway state,
+binary, Xray runtime, WireGuard packages and domain TLS material are reconciled
+by the UAT workflow over the Vault-authorized SSH channel. The workflow never
+prints or commits the certificate or key.
 WireGuard private key, TLS private key and runtime files remain on that host.
 The workflow reads only the Vault fields required for SSH and enrollment; no
 secret is written to GitOps, Actions artifacts, or the public desktop handoff.
 
 ## Workflow dispatch
 
-Run `.github/workflows/xconnect-zero-cloud.yaml` with:
+Run `.github/workflows/xconnect-one-uat.yaml` with:
 
 ```text
 mode=apply
@@ -36,16 +42,15 @@ external_gateway_server_name=tw-xconnect.svc.plus
 
 The workflow then performs:
 
-1. UAT readiness and immutable release checks.
-2. Creation of one UAT Linux One Spot and its one-hour expiry timer.
-3. Formal Accounts bootstrap for the stable network and a short-lived Linux
-   One invitation. The external Gateway is not re-enrolled.
-4. Linux One enrollment, signed configuration sync, ACK and Gateway peer
-   reconciliation over the formal Accounts API.
-5. TCP 443 TLS reachability, Xray/WireGuard service checks, exact peer
-   handshake, private ping and private HTTP checks.
-6. Observation until the One lease expires, followed by exact-run cleanup of
-   the One Spot state only.
+1. Resolve the fixed node records and the shared `svc.plus` fullchain/key from
+   Vault.
+2. Download and checksum-verify the pinned Gateway, Xray and One releases.
+3. Install Gateway Xray/WireGuard runtime, inject TLS material, and initialize
+   its local identity when `state.json` is absent.
+4. Create formal Gateway and One invitations, then enroll both through
+   Accounts.
+5. Apply signed configuration, send ACK, verify exact peer handshake, private
+   ping and private HTTP checks.
 
 The current stable transport is VLESS/TLS on TCP 443. Public WireGuard UDP
 51820 is not opened. XHTTP and Reality remain future transport profiles.

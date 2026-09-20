@@ -97,7 +97,7 @@ done
 5. 使用无 Cookie、无登录状态的浏览器再检查一次主页、Privacy 和 Support；
 6. 将 UAT workflow 运行链接、路由版本、Cloudflare Custom Domain 状态和探针结果保存到发布证据中。
 
-生产环境的验证必须额外检查 `xworktech.com`，不能用 UAT 的结果替代。当前审核快照（2026-09-13）：UAT 快照 `daily-build-2026.09.13-r8` 的 `onwalk.net` 与 `console.onwalk.net` 主页、法律和支持路径，以及 robots/sitemap 均返回 `200` 且无跳转；对应发布记录为 [Daily Main Snapshot 34743118398](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/34743118398) 和 [Serverless Orchestrator 34743298874](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/34743298874)。PROD 的 `xworktech.com` 法律路径仍会跳转到 `svc.plus`，且 sitemap 仍返回 `404`，因此 PROD 保持冻结，直到以已验证的 UAT 制品完成生产发布并通过本节验收。
+生产环境的验证必须额外检查 `xworktech.com`，不能用 UAT 的结果替代。当前审核快照（2026-09-13）：UAT 快照 `daily-build-2026.09.13-r8` 的 `onwalk.net` 与 `console.onwalk.net` 主页、法律和支持路径，以及 robots/sitemap 均返回 `200` 且无跳转；对应发布记录为 [Daily Main Snapshot 34743118398](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/34743118398) 和 [Serverless Orchestrator 34743298874](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/34743298874)。PROD 已使用不可变发布 ref `v2026.09.13-r6`、已验证应用制品 `v2026.09.13-r4` 完成自托管部署，[Selfhost Orchestrator 34748398026](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/34748398026) 全部阶段成功。公网探针显示 `xworktech.com` 的 Homepage、About、Privacy、Terms、Contact、Support、robots.txt 和 sitemap.xml 均直接返回 `200`，无 `Location` 跳转；HTML 页面包含组织名称并将 canonical 指向 `https://xworktech.com`。`console.svc.plus` 与 `console-serverless-prod.svc.plus` 仍受 Cloudflare 挑战保护，属于生产控制面入口，不作为 Google Play/Apple 公开法律页面；不得将其配置为主页或法律页链接。
 
 ## 6. 变更检查清单
 

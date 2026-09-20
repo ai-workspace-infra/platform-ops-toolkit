@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 import subprocess
 import sys
+import urllib.parse
 import urllib.request
 import uuid
 
@@ -25,12 +26,20 @@ PUBLIC_INSTANCE_KEYS = {'instance_id', 'public_ip', 'private_ip'}
 PUBLIC_EXPECTED_DEVICE_KEYS = {'darwin', 'windows'}
 PUBLIC_VERIFICATION_KEYS = {'target', 'expected_marker'}
 FORMAL_ACCOUNTS_URL = 'https://accounts-uat.onwalk.net'
-FORMAL_PORTAL_URL = 'https://console-cloudflare-uat.onwalk.net/panel/xconnect-zero'
+FORMAL_PORTAL_URL = 'https://console-serverless-uat.onwalk.net/panel/xconnect-zero'
+LAB_STATE_PREFIX = 'terraform/uat/svc.plus/aws-cloud/primary/xconnect-lab'
 
 
 def save(path, value):
     path.write_text(json.dumps(value))
     path.chmod(0o600)
+
+
+def lab_state_key(run):
+    """Return the isolated Terraform state key for one disposable lab run."""
+    if not re.fullmatch(r'xcl-[0-9]+-[0-9]+', run):
+        raise ValueError('run_id must be an exact xcl-GITHUB_RUN_ID-GITHUB_RUN_ATTEMPT value')
+    return f'{LAB_STATE_PREFIX}/{run}/terraform.tfstate'
 
 
 def validate_desktop_validation(spec, window):
@@ -44,7 +53,7 @@ def validate_desktop_validation(spec, window):
         raise ValueError('desktop_validation.enabled must be true for a desktop join window')
     if desktop.get('max_join_window_minutes') != 20:
         raise ValueError('desktop_validation.max_join_window_minutes must be 20')
-    if desktop.get('transport') != 'vless-tls-xudp' or desktop.get('public_wireguard_ingress') is not False:
+    if desktop.get('transport') != 'vless-xhttp' or desktop.get('public_wireguard_ingress') is not False:
         raise ValueError('desktop_validation transport or WireGuard ingress policy is incompatible')
     cidrs = desktop.get('ingress_cidrs')
     if not isinstance(cidrs, list) or not 1 <= len(cidrs) <= 2:
@@ -73,8 +82,11 @@ def validate_gateway_transport_ingress(spec, requested=''):
     transport = spec.get('gateway_transport')
     if not isinstance(transport, dict) or transport.get('enabled') is not True:
         raise ValueError('gateway_transport.enabled must be true')
-    if transport.get('port') != 443 or transport.get('transport') != 'vless-tls-xudp':
-        raise ValueError('Gateway public transport must be VLESS/TLS on TCP 443')
+    if transport.get('port') != 443 or transport.get('transport') != 'vless-xhttp':
+        raise ValueError('Gateway public transport must be VLESS/XHTTP on TCP 443')
+    profile = transport.get('profile') or {}
+    if profile != {'kind': 'vless-xhttp', 'path': '/xconnect', 'mode': 'auto', 'host': 'tw-xconnect.svc.plus'}:
+        raise ValueError('Gateway public transport must use the reviewed XHTTP profile')
     if transport.get('public_wireguard_ingress') is not False:
         raise ValueError('Gateway public transport must not expose WireGuard UDP')
     raw = str(requested or '').strip()
@@ -91,6 +103,30 @@ def validate_gateway_transport_ingress(spec, requested=''):
         if interface.version != 4 or interface.network.prefixlen != 32 or str(interface) != cidr:
             raise ValueError('Gateway transport ingress must be canonical IPv4 /32 values')
     return cidrs
+
+
+def validate_overlay_gateway_address(spec, requested=''):
+    """Resolve the Gateway WG /32 from dispatch or the GitOps declaration."""
+    overlay = spec.get('overlay')
+    if not isinstance(overlay, dict):
+        raise ValueError('overlay must be an object')
+    raw = str(requested or overlay.get('gateway_address', '')).strip()
+    try:
+        address = ipaddress.ip_interface(raw)
+        network = ipaddress.ip_network(str(overlay.get('cidr', '')), strict=False)
+    except ValueError as exc:
+        raise ValueError('gateway WireGuard address and overlay CIDR must be valid IP values') from exc
+    if address.version != 4 or address.network.prefixlen != 32 or str(address) != raw:
+        raise ValueError('gateway WireGuard address must be a canonical IPv4 /32')
+    if network.version != 4 or address.ip not in network:
+        raise ValueError('gateway WireGuard address must belong to the declared overlay CIDR')
+    try:
+        device = ipaddress.ip_interface(str(overlay.get('device_address', '')))
+    except ValueError as exc:
+        raise ValueError('device WireGuard address must be a valid IP interface') from exc
+    if address.ip == device.ip:
+        raise ValueError('gateway and device WireGuard addresses must be different')
+    return raw
 
 
 def validate_ssh_debug_access(spec, requested=None):
@@ -215,7 +251,15 @@ def validate_public_handoff(value):
     }:
         raise ValueError('public desktop handoff expected device IDs are not run-bound')
     _exact_keys(value['verification'], PUBLIC_VERIFICATION_KEYS, 'verification')
-    if value['verification'] != {'target': 'http://10.77.0.1:8080/', 'expected_marker': run}:
+    verification = value['verification']
+    target = urllib.parse.urlsplit(verification['target'])
+    try:
+        target_ip = ipaddress.ip_address(target.hostname or '')
+    except ValueError as exc:
+        raise ValueError('public desktop handoff verification target must use an IPv4 address') from exc
+    if (verification['expected_marker'] != run or target.scheme != 'http' or
+            target.path != '/' or target.port != 8080 or target_ip.version != 4 or
+            not target_ip.is_private):
         raise ValueError('public desktop handoff verification binding is invalid')
     forbidden = ('invite', 'token', 'vless', 'private', 'owneremail', 'owner_email')
     if any(any(word in str(key).lower() for word in forbidden) for key in value):
@@ -235,6 +279,12 @@ def main():
             raise ValueError('validate-transport requires a declaration and comma-separated ingress list')
         declaration = json.loads(Path(sys.argv[2]).read_text())
         validate_gateway_transport_ingress(declaration['spec'], sys.argv[3])
+        return
+    if len(sys.argv) >= 2 and sys.argv[1] == 'validate-overlay-gateway-address':
+        if len(sys.argv) != 4:
+            raise ValueError('validate-overlay-gateway-address requires a declaration and optional address')
+        declaration = json.loads(Path(sys.argv[2]).read_text())
+        print(validate_overlay_gateway_address(declaration['spec'], sys.argv[3]))
         return
     if len(sys.argv) >= 2 and sys.argv[1] == 'validate-windows':
         if len(sys.argv) != 4:
@@ -262,7 +312,10 @@ def main():
     if action == 'backend':
         save(folder / 'backend.json', {
             'bucket': os.environ['TF_STATE_BUCKET'],
-            'key': f'uat/xconnect-lab/{run}/terraform.tfstate',
+            # A live Spot run keeps its own state until its explicit cleanup.
+            # Sharing this key made a later run replace the prior run's SG
+            # while its ENI remained attached, which AWS correctly rejects.
+            'key': lab_state_key(run),
             'region': os.environ['TF_STATE_REGION'],
             'endpoints': {'s3': os.environ['TF_STATE_ENDPOINT']},
             'access_key': os.environ['TF_STATE_ACCESS_KEY'],
@@ -270,7 +323,7 @@ def main():
             'token': '',
             'skip_credentials_validation': True, 'skip_region_validation': True,
             'skip_requesting_account_id': True, 'skip_metadata_api_check': True,
-            'use_path_style': True})
+            'use_path_style': True, 'use_lockfile': True})
         return
     zero = spec['zero']
     values = {'run_id': run, 'gateway_provider': gateway_provider,
@@ -324,7 +377,12 @@ def main():
         for resource in resources:
             if resource.get('mode') == 'data':
                 continue
-            if resource['address'] not in allowed:
+            # Terraform renders counted resources with an index in state
+            # (for example aws_instance.gateway[0]). Normalize only the
+            # expected top-level addresses; never broaden this to arbitrary
+            # indexed or nested resources.
+            address = re.sub(r'\[0\]$', '', resource['address'])
+            if address not in allowed:
                 raise ValueError('Unexpected resource in lab state; refusing cleanup')
             v = resource['values']
             if resource['type'].startswith('aws_') and 'tags_all' in v and v['tags_all'].get('LabRun') != run:

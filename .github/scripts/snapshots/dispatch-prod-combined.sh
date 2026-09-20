@@ -105,11 +105,25 @@ serverless_id="${serverless_url##*/}"
 echo "Dispatched production serverless deployment: ${serverless_url}"
 gh run watch "${serverless_id}" --repo "${repo}" --exit-status --compact
 
-selfhost_url="$(dispatch_and_assert_ref selfhost-orchestrator.yml \
+aws_selfhost_url="$(dispatch_and_assert_ref selfhost-orchestrator.yml \
   -f operation=deploy -f vault_env_path=prod -f target_domains=agent-proxy \
-  -f cloud_provider=aws-cloud -f agent_proxy_plan=2C1G \
+  -f cloud_provider=aws-cloud -f agent_proxy_plan=1C2G \
+  -f include_external_agent_proxy=false \
   -f "deploy_tag=${release_tag}" \
   -f source_host=install.svc.plus -f source_domain_base=svc.plus \
   -f target_domain_base=svc.plus -f dns_mode=prod-cutover \
   -f agent_controller_url=https://accounts-serverless-prod.svc.plus | tail -n 1)"
-echo "Dispatched production Agent Proxy pool (Tokyo t4g.micro on-demand + US t4g.micro Spot/60m): ${selfhost_url}"
+echo "Dispatched production existing AWS Agent Proxy pool (on-demand only): ${aws_selfhost_url}"
+
+akamai_selfhost_url="$(dispatch_and_assert_ref selfhost-orchestrator.yml \
+  -f operation=deploy -f vault_env_path=prod -f target_domains=agent-proxy \
+  -f cloud_provider=akamai-cloud -f "akamai_account=${AKAMAI_ACCOUNT_PROD:-manbuzhe2026}" \
+  -f include_external_agent_proxy=true \
+  -f "deploy_tag=${release_tag}" \
+  -f source_host=install.svc.plus -f source_domain_base=svc.plus \
+  -f target_domain_base=svc.plus -f dns_mode=prod-cutover \
+  -f agent_controller_url=https://accounts-serverless-prod.svc.plus | tail -n 1)"
+echo "Dispatched production Akamai JP/US/SG plus Ulighthost PH Agent Proxy pool: ${akamai_selfhost_url}"
+
+gh run watch "${aws_selfhost_url##*/}" --repo "${repo}" --exit-status --compact
+gh run watch "${akamai_selfhost_url##*/}" --repo "${repo}" --exit-status --compact
