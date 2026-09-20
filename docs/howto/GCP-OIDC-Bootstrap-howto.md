@@ -97,6 +97,18 @@ kv/CICD/uat/gcp-bootstrap/xworktech
 kv/CICD/prod/gcp-bootstrap/xworktech
 ```
 
+对于非 `xworktech` 账号，初始化脚本必须显式提供该账号对应的
+`GCP_EXPECTED_PROJECT_ID`；没有 project 映射时脚本会拒绝写入，避免跨账号或跨环境
+误写 Vault 路径。例如：
+
+```bash
+GCP_ENVIRONMENT=uat \
+GCP_ACCOUNT_ID=platform@xworktech.com \
+GCP_PROJECT_ID=xworktech-open-platform-uat \
+GCP_EXPECTED_PROJECT_ID=xworktech-open-platform-uat \
+bash scripts/gcp/bootstrap_gcp_auth_kv.sh
+```
+
 ### Shell 脚本写入
 
 使用仓库脚本统一校验环境、账号标识和项目 ID，并通过 KV v2 HTTP API 写入。脚本会

@@ -178,7 +178,8 @@ for required in \
   'CICD/${environment}/gcp-bootstrap/${account_id}' \
   'GCP_BOOTSTRAP_ACTION must be write or check' \
   'gcloud auth application-default print-access-token' \
-  'GCP_PROJECT_ID does not match GCP_ENVIRONMENT'; do
+  'GCP_PROJECT_ID does not match GCP_ENVIRONMENT' \
+  'GCP_EXPECTED_PROJECT_ID is required for non-xworktech accounts'; do
   grep -Fq -- "${required}" "${kv_helper}" || {
     echo "GCP Vault KV helper missing contract: ${required}" >&2
     exit 1
