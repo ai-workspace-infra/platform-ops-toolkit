@@ -16,6 +16,7 @@ run_route() {
     INPUT_SOURCE_DOMAIN_BASE=svc.plus \
     INPUT_TARGET_DOMAIN_BASE=onwalk.net \
     INPUT_OFFLINE_MODE=off \
+    GITHUB_WORKSPACE="${repo_root}" \
     GITHUB_OUTPUT="${output}" \
     "$@" "${route_script}"; then
     rm -f "${output}"
@@ -39,6 +40,11 @@ assert_contains "${deploy_output}" "run_infrastructure=true"
 assert_contains "${deploy_output}" "run_application_deploy=true"
 assert_contains "${deploy_output}" "terraform_action=apply"
 assert_contains "${deploy_output}" "dns_mode=none"
+assert_contains "${deploy_output}" "resource_files_full=${repo_root}/gitops/resources/svc.plus/uat/vultr/web-saas.yaml"
+if grep -Fq "config/resources/" <<<"${deploy_output}"; then
+  echo "route still references the removed toolkit-local config/resources tree" >&2
+  exit 1
+fi
 
 source_ref_output="$(run_route env INPUT_OPERATION=deploy INPUT_DNS_MODE=none INPUT_SOURCE_REF=uat-daily-build-2026.08.12-r14)"
 assert_contains "${source_ref_output}" "infra_ref=uat-daily-build-2026.08.12-r14"

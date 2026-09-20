@@ -4,7 +4,7 @@ set -euo pipefail
 # -----------------------------------------------------------------------------
 # 域名基准集中定义, 各分支不要再各写各的字面量。
 #
-# 主机名由 TARGET_DOMAIN_BASE 拼接 (见 config/resources/*/*.yaml 里的
+# 主机名由 TARGET_DOMAIN_BASE 拼接 (见 GitOps resources/*/*/*.yaml 里的
 # console-uat.{{ TARGET_DOMAIN_BASE }}), 而 uat 的多条触发路径共用同一个
 # terraform workspace 与 state。一旦取值不一致, 同一份 state 就会被要求
 # 提供名字不同的资源, terraform 会销毁一台再建一台。
@@ -15,6 +15,34 @@ SOURCE_HOST_DEFAULT="install.svc.plus"
 SOURCE_DOMAIN_BASE_DEFAULT="svc.plus"
 TARGET_DOMAIN_BASE_DEFAULT="onwalk.net"
 STATE_PROJECT="platform-ops-toolkit"
+
+# Non-sensitive resource declarations live in the GitOps repository.  Keep the
+# generated path absolute because this script runs from the toolkit checkout,
+# while generate.py runs from the checked-out iac_modules directory.
+resolve_gitops_resource_files() {
+  local environment="$1"
+  local provider="$2"
+  local domains="$3"
+  local provider_dir
+  local gitops_root="${GITHUB_WORKSPACE:-${PWD}}/gitops/resources/svc.plus"
+
+  case "${provider}" in
+    aws-cloud) provider_dir=aws ;;
+    vultr-vps) provider_dir=vultr ;;
+    gcp-cloud) provider_dir=gcp ;;
+    azure-cloud) provider_dir=azure ;;
+    *)
+      echo "::error::Unsupported GitOps resource provider '${provider}'." >&2
+      return 1
+      ;;
+  esac
+
+  case "${domains}" in
+    all) printf '%s/%s/%s/all-in-one.yaml' "${gitops_root}" "${environment}" "${provider_dir}" ;;
+    'web-saas + agent-proxy') printf '%s/%s/%s/web-saas.yaml,%s/%s/%s/agent-proxy.yaml' "${gitops_root}" "${environment}" "${provider_dir}" "${gitops_root}" "${environment}" "${provider_dir}" ;;
+    *) printf '%s/%s/%s/%s.yaml' "${gitops_root}" "${environment}" "${provider_dir}" "${domains}" ;;
+  esac
+}
 dns_mode=none
 uat_dns_update=false
 
@@ -251,6 +279,11 @@ else
     esac
   fi
 fi
+
+# The route profile above still records the logical resource name for state and
+# workspace compatibility. Resolve the physical declaration only after all
+# event/ref branches have selected the final environment/provider.
+resource_files_full="$(resolve_gitops_resource_files "${deployment_env}" "${cloud_provider}" "${target_domains}")"
 
 uat_dns_update="${uat_dns_update:-false}"
 case "${uat_dns_update}" in
