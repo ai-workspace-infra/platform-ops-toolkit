@@ -1851,6 +1851,7 @@ jobs:
     - name: Render non-IaC Agent Proxy inventory
       id: bootstrap_inventory
       env:
+        DEPLOYMENT_ENV: ${{ needs.provision.outputs.deployment_env }}
         XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/${{ needs.provision.outputs.deployment_env }}/selfhost/${{ needs.provision.outputs.deployment_env == 'uat' && 'xconnect-regional-pool.yaml' || 'xconnect-regional-pools.yaml' }}
         XCONNECT_VAULT_RESPONSE_FILE: ${{ runner.temp }}/xconnect-vault.json
         XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/external-agent-proxy-bootstrap-inventory.yml
@@ -1885,6 +1886,7 @@ jobs:
     - name: Render deploy-key inventory for non-IaC node
       id: inventory
       env:
+        DEPLOYMENT_ENV: ${{ needs.provision.outputs.deployment_env }}
         XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/${{ needs.provision.outputs.deployment_env }}/selfhost/${{ needs.provision.outputs.deployment_env == 'uat' && 'xconnect-regional-pool.yaml' || 'xconnect-regional-pools.yaml' }}
         XCONNECT_VAULT_RESPONSE_FILE: ${{ runner.temp }}/xconnect-vault.json
         XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/external-agent-proxy-inventory.yml
