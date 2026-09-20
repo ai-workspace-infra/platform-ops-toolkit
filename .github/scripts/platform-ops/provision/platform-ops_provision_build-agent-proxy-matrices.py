@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Build the IaC and non-IaC Agent Proxy deployment matrices.
 
-The Terraform CMDB is authoritative for AWS nodes.  GitOps is authoritative
-for manually provisioned regional nodes; the current production topology has
-one such node, PH.  The compatibility fallback for a topology created before
+The Terraform CMDB is authoritative for the three Akamai Cloud/Linode nodes
+(JP, US, and SG). GitOps is authoritative for the manually provisioned PH
+edge in production. The compatibility fallback for a topology created before
 the explicit connection_source field treats only the PH pool as non-IaC.
 """
 
@@ -17,7 +17,10 @@ from pathlib import Path
 import yaml
 
 
-EXPECTED_POOLS = {"jp", "us", "hk", "ph"}
+EXPECTED_POOLS_BY_ENV = {
+    "uat": {"jp", "us", "sg", "tw"},
+    "prod": {"jp", "us", "sg", "ph"},
+}
 
 
 def output(name: str, value: object) -> None:
@@ -32,6 +35,10 @@ def output(name: str, value: object) -> None:
 def main() -> int:
     cmdb_file = Path(os.environ["CMDB_FILE"])
     gitops_file = Path(os.environ.get("GITOPS_XCONNECT_CONFIG", ""))
+    deployment_env = os.environ.get("DEPLOYMENT_ENV", "prod")
+    expected_pools = EXPECTED_POOLS_BY_ENV.get(deployment_env)
+    if expected_pools is None:
+        raise SystemExit(f"unsupported deployment environment: {deployment_env}")
 
     cmdb = json.loads(cmdb_file.read_text(encoding="utf-8"))
     iac_hosts = [
@@ -41,7 +48,7 @@ def main() -> int:
     ]
     if len(iac_hosts) != 3:
         raise SystemExit(
-            "PROD Agent Proxy IaC matrix must contain exactly JP, US, and HK; "
+            f"{deployment_env.upper()} Agent Proxy IaC matrix must contain exactly JP, US, and SG; "
             f"found {len(iac_hosts)} CMDB hosts"
         )
     output("hosts_agent_proxy_iac", iac_hosts)
@@ -54,25 +61,28 @@ def main() -> int:
         topology = yaml.safe_load(gitops_file.read_text(encoding="utf-8")) or {}
         pools = (topology.get("spec") or {}).get("pools") or []
         pool_names = {pool.get("name") for pool in pools}
-        if pool_names != EXPECTED_POOLS:
+        if pool_names != expected_pools:
             raise SystemExit(
-                "PROD XConnect topology must declare exactly jp, us, hk, and ph pools; "
+                f"{deployment_env.upper()} XConnect topology must declare "
+                f"exactly {sorted(expected_pools)} pools; "
                 f"found {sorted(pool_names)}"
             )
         region_count = len(pools)
         for pool in pools:
             for node in pool.get("nodes") or []:
                 source = node.get("connection_source")
-                legacy_ph = source is None and pool.get("name") == "ph"
+                legacy_ph = deployment_env == "prod" and source is None and pool.get("name") == "ph"
                 if source == "vault" or legacy_ph:
                     node_id = node.get("id")
                     if not node_id:
                         raise SystemExit(f"non-IaC pool {pool.get('name')} has a node without id")
                     non_iac_hosts.append(node_id)
 
-    if len(non_iac_hosts) != 1:
+    expected_non_iac_count = 1
+    if len(non_iac_hosts) != expected_non_iac_count:
         raise SystemExit(
-            "PROD Agent Proxy non-IaC matrix must contain exactly the PH node; "
+            f"{deployment_env.upper()} Agent Proxy non-IaC matrix must contain "
+            f"exactly {expected_non_iac_count} node(s); "
             f"found {non_iac_hosts!r}"
         )
 
