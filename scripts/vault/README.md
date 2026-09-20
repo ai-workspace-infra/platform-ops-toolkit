@@ -52,6 +52,30 @@ export VAULT_TOKEN='hvs.***'
 bash scripts/create_vault_service_repo_roles.sh
 ```
 
+The same entrypoint can also manage the account-specific Akamai Cloud/Linode
+OIDC role. Set the concrete account name or ID and select the environment:
+
+```bash
+export AKAMAI_ACCOUNT_PROD='actual-account'
+bash scripts/create_vault_service_repo_roles.sh --apply --env prod
+```
+
+Use `--check` to verify static declarations and the dynamic Akamai role without
+writing Vault:
+
+```bash
+export AKAMAI_ACCOUNT_PROD='actual-account'
+bash scripts/create_vault_service_repo_roles.sh --check --env prod
+```
+
+When no `AKAMAI_ACCOUNT_UAT` or `AKAMAI_ACCOUNT_PROD` is provided, the entrypoint
+keeps its previous behavior and skips dynamic Akamai role management. The
+account-specific role name is:
+
+```text
+github-actions-platform-ops-toolkit-<env>-akamai-oidc-bootstrap-<account>
+```
+
 ## Akamai Cloud/Linode account-specific role
 
 The Akamai Cloud/Linode workflow uses the concrete account name or ID in both
