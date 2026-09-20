@@ -23,11 +23,21 @@ for environment, (pool_names, external_nodes) in fixtures.items():
     with tempfile.TemporaryDirectory() as temp_dir:
         temp = Path(temp_dir)
         cmdb = temp / "cmdb.json"
+        manifest = temp / "hosts_manifest.json"
         output = temp / "output"
         cmdb.write_text(
             json.dumps({
-                f"{region}-xconnect": {"groups": ["agent_proxy"]}
+                f"{region}-xconnect": {"name": f"{region}-xconnect"}
                 for region in sorted(pool_names - set(external_nodes))
+            }),
+            encoding="utf-8",
+        )
+        manifest.write_text(
+            json.dumps({
+                "hosts": [
+                    {"name": f"{region}-xconnect", "groups": ["agent_proxy"]}
+                    for region in sorted(pool_names - set(external_nodes))
+                ]
             }),
             encoding="utf-8",
         )
@@ -42,6 +52,7 @@ for environment, (pool_names, external_nodes) in fixtures.items():
         env = os.environ.copy()
         env.update({
             "CMDB_FILE": str(cmdb),
+            "HOSTS_MANIFEST_FILE": str(manifest),
             "GITOPS_XCONNECT_CONFIG": str(topology),
             "DEPLOYMENT_ENV": environment,
             "GITHUB_OUTPUT": str(output),
