@@ -82,12 +82,13 @@ on:
       target_domains:
         description: "选择要执行的业务域 (Business Domain)"
         required: true
-        default: "web-saas"
+        default: "all"
         type: choice
         options:
         - all
         - ai-workspace
         - web-saas
+        - open-platform
         - infra-platform
         - agent-proxy
         - web-saas + agent-proxy
@@ -112,13 +113,14 @@ on:
         default: true
         type: boolean
       instance_plan:
-        description: "选择 Web SaaS VPS 规格 (全域建议 4C8G，单域支持 2C4G 矩阵)"
+        description: "选择默认业务 VPS 规格（UAT Selfhost 默认 Akamai Cloud：web-saas/open-platform 2C4G，ai-workspace 2C8G；Agent Proxy 由矩阵声明）"
         required: true
-        default: "4C8G"
+        default: "2C4G"
         type: choice
         options:
         - 4C8G
         - 2C4G
+        - 2C8G
         - 1C2G
       agent_proxy_plan:
         description: "Agent Proxy 运行时规格（UAT/PROD 默认 1C2G；不默认创建 AWS Spot）"
@@ -290,7 +292,7 @@ jobs:
         ${{ (steps.route.outputs.run_infrastructure == 'true' ||
         steps.route.outputs.run_application_deploy == 'true' ||
         steps.route.outputs.toolkit_action == 'migrate') &&
-        contains(fromJSON('["all","web-saas","agent-proxy","web-saas + agent-proxy"]'),
+        contains(fromJSON('["all","web-saas","open-platform","agent-proxy","web-saas + agent-proxy"]'),
         steps.route.outputs.target_domains) }}
       uses: actions/checkout@v7
       with:
@@ -315,6 +317,8 @@ jobs:
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/azure/web-saas.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/azure/agent-proxy.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/akamai/web-saas.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/akamai/open-platform.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/akamai/ai-workspace.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/akamai/xconnect.yaml
 
     - name: Resolve Agent Proxy machine service origins from GitOps
@@ -1155,7 +1159,7 @@ jobs:
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
       (needs.deploy_web_saas.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
-      (needs.deploy_infra_platform.result == 'success' || !contains(fromJSON('["all","infra-platform"]'), needs.provision.outputs.target_domains)) &&
+      (needs.deploy_infra_platform.result == 'success' || !contains(fromJSON('["all","infra-platform","open-platform"]'), needs.provision.outputs.target_domains)) &&
       (needs.deploy_agent_proxy.result == 'success' || !contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       (needs.deploy_agent_proxy_non_iac.result == 'success' || needs.provision.outputs.hosts_agent_proxy_non_iac == '[]' || !contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       (needs.deploy_ai_workspace.result == 'success' || !contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.target_domains)) &&
@@ -1561,7 +1565,7 @@ jobs:
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
-      contains(fromJSON('["all","infra-platform"]'), needs.provision.outputs.target_domains) &&
+      contains(fromJSON('["all","infra-platform","open-platform"]'), needs.provision.outputs.target_domains) &&
       needs.provision.outputs.hosts_infra_platform != '[]' &&
       needs.provision.outputs.hosts_infra_platform != '' }}
     strategy:

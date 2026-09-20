@@ -19,10 +19,10 @@ import yaml
 
 
 EXPECTED_POOLS_BY_ENV = {
-    "uat": {"jp", "us", "sg", "tw"},
+    "uat": {"jp", "us", "sg", "tw", "ph"},
     "prod": {"jp", "us", "sg", "ph", "tw"},
 }
-EXPECTED_NON_IAC_POOLS_BY_ENV = {"uat": {"tw"}, "prod": {"ph", "tw"}}
+EXPECTED_NON_IAC_POOLS_BY_ENV = {"uat": {"ph", "tw"}, "prod": {"ph", "tw"}}
 
 
 def output(name: str, value: object) -> None:
