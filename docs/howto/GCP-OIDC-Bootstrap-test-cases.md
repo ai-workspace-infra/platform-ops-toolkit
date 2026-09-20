@@ -138,10 +138,13 @@ gh run watch "${run_id}" --exit-status
 预期：
 
 - Vault 成功读取 `CICD/uat/gcp-bootstrap/xworktech`；
-- `testIamPermissions` 检查成功后才进入 Terraform；
+- `testIamPermissions` 只检查项目资源上的 Service Account、项目 IAM 和
+  Service Usage 权限，检查成功后才进入 Terraform；
+- Workload Identity Pool/Provider 的 create 权限属于 IAM API 资源操作，不能用
+  不存在的 pool 在项目资源上做权威预检，由 Terraform apply 的 IAM API 操作验证；
 - plan 阶段不存在 `terraform apply` 执行；
-- 权限不足时列出 `iam.workloadIdentityPools.create`、
-  `iam.serviceAccounts.create` 等缺失项并失败；
+- 项目级权限不足时列出 `iam.serviceAccounts.create`、
+  `resourcemanager.projects.setIamPolicy` 等缺失项并失败；
 - 权限预检失败时不创建或修改 GCP 资源。
 
 ## TC-06：bootstrap apply 和 runtime KV

@@ -31,9 +31,8 @@ for required in \
   'hashicorp/vault-action' \
   'github-actions-platform-ops-toolkit-${{ inputs.environment }}-gcp-bootstrap-${{ steps.config.outputs.account_id }}' \
   'kv/data/CICD/${{ inputs.environment }}/gcp-bootstrap/${{ steps.config.outputs.account_id }}' \
-  'Verify GCP bootstrap permissions' \
+  'Verify GCP project bootstrap permissions' \
   'testIamPermissions' \
-  'iam.workloadIdentityPools.create' \
   'iam.serviceAccounts.create' \
   'iam.serviceAccounts.setIamPolicy' \
   'serviceusage.services.enable' \
@@ -54,6 +53,7 @@ for required in \
   'xworktech-open-platform-prod' \
   'allowed_subjects' \
   'gcp_oidc_audience' \
+  'WIF pool/provider create permissions will be validated by the Terraform IAM API operation.' \
   'kv/data/${ENVIRONMENT}/platform/oidc/${ACCOUNT_ID}'; do
   grep -Fq -- "${required}" "${workflow}" || {
     echo "GCP OIDC bootstrap workflow missing contract: ${required}" >&2

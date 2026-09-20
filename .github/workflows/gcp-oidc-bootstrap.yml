@@ -85,14 +85,17 @@ jobs:
           DECLARED_PROJECT_ID: ${{ steps.config.outputs.project_id }}
         run: test "${VAULT_PROJECT_ID}" = "${DECLARED_PROJECT_ID}"
 
-      - name: Verify GCP bootstrap permissions
+      - name: Verify GCP project bootstrap permissions
         env:
           ACCESS_TOKEN: ${{ steps.vault.outputs.GCP_ACCESS_TOKEN }}
           PROJECT_ID: ${{ steps.config.outputs.project_id }}
         run: |
+          set -euo pipefail
+          # projects.testIamPermissions is authoritative for permissions on the
+          # project resource. WIF pool/provider create permissions are checked
+          # by the IAM API when Terraform creates those resources; they cannot
+          # be authoritatively tested on a pool that does not exist yet.
           required_permissions='[
-            "iam.workloadIdentityPools.create",
-            "iam.workloadIdentityPoolProviders.create",
             "iam.serviceAccounts.create",
             "iam.serviceAccounts.setIamPolicy",
             "resourcemanager.projects.setIamPolicy",
@@ -113,7 +116,8 @@ jobs:
             echo 'Grant the roles listed in the GCP OIDC bootstrap how-to using an existing project administrator, then retry UAT.'
             exit 1
           fi
-          echo "GCP bootstrap permissions: OK (${PROJECT_ID})"
+          echo "GCP project bootstrap permissions: OK (${PROJECT_ID})"
+          echo 'WIF pool/provider create permissions will be validated by the Terraform IAM API operation.'
 
       - name: Write Terraform input file
         env:
