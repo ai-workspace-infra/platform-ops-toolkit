@@ -112,6 +112,10 @@ grep -Fq 'XCONNECT_DEPLOY_KEY_FILE: ${{ steps.deploy_key.outputs.path }}' <<<"${
   echo "non-IaC inventory must receive the materialized deploy-key path" >&2
   exit 1
 }
+grep -Fq 'ssh_private_key_b64 is present in the node record' <<<"${non_iac_block}" || {
+  echo "non-IaC bootstrap inventory must allow a node-scoped SSH key" >&2
+  exit 1
+}
 grep -Fq 'DEPLOYMENT_ENV: ${{ needs.provision.outputs.deployment_env }}' <<<"${non_iac_block}" || {
   echo "non-IaC inventory must receive the deployment environment" >&2
   exit 1
