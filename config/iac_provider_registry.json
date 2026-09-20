@@ -1,7 +1,7 @@
 {
   "aws-cloud": {
     "provisioner": "terraform",
-    "gitops_provider": "aws-cloud",
+    "gitops_provider": "aws",
     "terraform_tree": "aws-cloud",
     "credential_mode": "aws-oidc"
   },
@@ -13,7 +13,7 @@
   },
   "azure-cloud": {
     "provisioner": "terraform",
-    "gitops_provider": "azure-cloud",
+    "gitops_provider": "azure",
     "terraform_tree": "azure-cloud",
     "credential_mode": "azure-federated-identity"
   },

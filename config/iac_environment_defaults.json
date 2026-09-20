@@ -1,0 +1,14 @@
+{
+  "sit": {
+    "cloud_provider": "vultr-vps",
+    "account": "primary"
+  },
+  "uat": {
+    "cloud_provider": "akamai-cloud",
+    "account": "manbuzhe2026"
+  },
+  "prod": {
+    "cloud_provider": "aws-cloud",
+    "account": "primary"
+  }
+}
