@@ -157,7 +157,7 @@ jobs:
           terraform -chdir=iac_modules/terraform-hcl-standard/gcp-cloud/bootstrap/identity init -input=false -reconfigure \
             -backend-config="endpoint=${TF_STATE_ENDPOINT}" \
             -backend-config="bucket=${TF_STATE_BUCKET}" \
-            -backend-config="key=terraform/${{ inputs.environment }}/${{ steps.config.outputs.project_id }}/gcp-cloud/${{ steps.config.outputs.account_id }}/gcp-oidc-bootstrap/terraform.tfstate" \
+            -backend-config="key=${{ steps.config.outputs.state_key }}" \
             -backend-config="access_key=${TF_STATE_ACCESS_KEY}" \
             -backend-config="secret_key=${TF_STATE_SECRET_KEY}" \
             -backend-config="region=${TF_STATE_REGION}" \
