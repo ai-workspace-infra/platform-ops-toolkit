@@ -591,6 +591,7 @@ jobs:
         steps.route.outputs.target_domains) }}
       env:
         CMDB_FILE: ${{ env.ENV_DIR }}/cmdb.json
+        HOSTS_MANIFEST_FILE: ${{ env.ENV_DIR }}/hosts_manifest.json
         DEPLOYMENT_ENV: ${{ steps.route.outputs.deployment_env }}
         GITOPS_XCONNECT_CONFIG: ${{ github.workspace }}/gitops/topology/${{ steps.route.outputs.deployment_env }}/selfhost/${{ steps.route.outputs.deployment_env == 'uat' && 'xconnect-regional-pool.yaml' || 'xconnect-regional-pools.yaml' }}
       run: >-

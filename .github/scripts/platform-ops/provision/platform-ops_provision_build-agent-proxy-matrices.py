@@ -36,6 +36,7 @@ def output(name: str, value: object) -> None:
 
 def main() -> int:
     cmdb_file = Path(os.environ["CMDB_FILE"])
+    manifest_file = Path(os.environ.get("HOSTS_MANIFEST_FILE", ""))
     gitops_file = Path(os.environ.get("GITOPS_XCONNECT_CONFIG", ""))
     deployment_env = os.environ.get("DEPLOYMENT_ENV", "prod")
     expected_pools = EXPECTED_POOLS_BY_ENV.get(deployment_env)
@@ -44,10 +45,25 @@ def main() -> int:
     expected_non_iac_pools = EXPECTED_NON_IAC_POOLS_BY_ENV[deployment_env]
 
     cmdb = json.loads(cmdb_file.read_text(encoding="utf-8"))
+    # Akamai generate.py keeps declared groups in hosts_manifest.json while
+    # older CMDB producers put them directly on each CMDB record. Accept both
+    # contracts and map manifest host names back to the CMDB fqdn key.
+    manifest_agent_proxy_names: set[str] = set()
+    if manifest_file.is_file():
+        manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+        for host in manifest.get("hosts", []) or []:
+            if "agent_proxy" in (host.get("groups") or []):
+                for key in (host.get("name"), host.get("label")):
+                    if key:
+                        manifest_agent_proxy_names.add(str(key))
     iac_hosts = [
         host
         for host, facts in cmdb.items()
-        if "agent_proxy" in (facts.get("groups") or [])
+        if (
+            "agent_proxy" in (facts.get("groups") or [])
+            or str(facts.get("name", "")) in manifest_agent_proxy_names
+            or str(facts.get("label", "")) in manifest_agent_proxy_names
+        )
     ]
     if len(iac_hosts) != 3:
         raise SystemExit(
