@@ -47,7 +47,7 @@ checks = {
   "spec.repository" => spec["repository"] == ENV.fetch("EXPECTED_REPOSITORY"),
   "spec.subjects" => spec["subjects"].is_a?(Array) && spec["subjects"].include?(required_subject),
   "spec.state.bucket" => spec.dig("state", "bucket").to_s.match?(/\A[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\z/),
-  "spec.state.key" => spec.dig("state", "key") == "terraform/#{environment}/#{expected_project}/gcp-cloud/#{account_id}/gcp-oidc-bootstrap/terraform.tfstate"
+  "spec.state.key" => spec.dig("state", "key") == "platform-ops-toolkit/#{environment}/#{account_id}/gcp-oidc-bootstrap/terraform.tfstate"
 }
 failed = checks.select { |_name, passed| !passed }.keys
 abort "GCP OIDC declaration failed validation: #{failed.join(", ")}" unless failed.empty?

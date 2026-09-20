@@ -43,7 +43,7 @@ for required in \
   'kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY' \
   'kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_REGION | TF_STATE_REGION' \
   'backend-config="endpoint=${TF_STATE_ENDPOINT}"' \
-  'backend-config="key=terraform/${{ inputs.environment }}/${{ steps.config.outputs.project_id }}/gcp-cloud/${{ steps.config.outputs.account_id }}/gcp-oidc-bootstrap/terraform.tfstate"' \
+  'backend-config="key=${{ steps.config.outputs.state_key }}"' \
   'backend-config="use_path_style=true"' \
   'identity plan' \
   'identity apply' \
@@ -200,7 +200,7 @@ for required in \
   'xworktech-open-platform-uat' \
   'xworktech-open-platform-prod' \
   'spec.subjects' \
-  'terraform/#{environment}/#{expected_project}/gcp-cloud/#{account_id}/gcp-oidc-bootstrap/terraform.tfstate'; do
+  'platform-ops-toolkit/#{environment}/#{account_id}/gcp-oidc-bootstrap/terraform.tfstate'; do
   grep -Fq -- "${required}" "${resolver}" || {
     echo "GCP OIDC resolver missing validation: ${required}" >&2
     exit 1

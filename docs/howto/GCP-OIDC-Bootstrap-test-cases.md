@@ -200,10 +200,10 @@ gcloud projects describe xworktech-open-platform-uat
 UAT 与 PROD 必须使用不同 canonical key：
 
 ```text
-terraform/uat/xworktech/gcp-cloud/xworktech/gcp-oidc-bootstrap/terraform.tfstate
-terraform/prod/xworktech/gcp-cloud/xworktech/gcp-oidc-bootstrap/terraform.tfstate
-terraform/uat/xworktech-open-platform-uat/gcp-cloud/xworktech/platform/terraform.tfstate
-terraform/prod/xworktech-open-platform-prod/gcp-cloud/xworktech/platform/terraform.tfstate
+platform-ops-toolkit/uat/xworktech/gcp-oidc-bootstrap/terraform.tfstate
+platform-ops-toolkit/prod/xworktech/gcp-oidc-bootstrap/terraform.tfstate
+platform-ops-toolkit/uat/xworktech/gcp-platform/terraform.tfstate
+platform-ops-toolkit/prod/xworktech/gcp-platform/terraform.tfstate
 ```
 
 检查 workflow 使用了 environment/project/cloud/account/workspace 分段，并包含
