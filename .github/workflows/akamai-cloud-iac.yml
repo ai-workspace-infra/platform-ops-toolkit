@@ -202,7 +202,6 @@ jobs:
           umask 077
           backend="${RUNNER_TEMP}/akamai-backend.hcl"
           printf '%s\n' \
-            "endpoint = \"${TF_STATE_ENDPOINT}\"" \
             "bucket = \"${TF_STATE_BUCKET}\"" \
             "key = \"${TF_STATE_KEY}\"" \
             "region = \"${TF_STATE_REGION}\"" \
