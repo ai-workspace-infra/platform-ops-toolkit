@@ -16,9 +16,9 @@ set -euo pipefail
 #   - state 空, 云上也没有对应 label   -> 真的已经销毁干净了, 放行(重复
 #                                          destroy 必须保持幂等)。
 #   - state 空, 云上却有对应 label     -> 假绿, 硬失败并报出实例 ID。
-# Vultr 的 label 取自 render 阶段落盘的 hosts_manifest.json；AWS 的渲染器不
-# 生成这个 Vultr 专用文件，因此改为从 terraform.auto.tfvars.json 读取
-# name_prefix，并用 Tag_<name_prefix> 查询 EC2。两条路径都不依赖 apply 后的 CMDB。
+# Vultr/Akamai 的 label 取自 render 阶段落盘的 hosts_manifest.json；AWS 的
+# 渲染器不生成这个云厂商专用文件，因此改为从 terraform.auto.tfvars.json 读取
+# name_prefix，并用 Tag_<name_prefix> 查询 EC2。三条路径都不依赖 apply 后的 CMDB。
 # -----------------------------------------------------------------------------
 
 : "${ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE:?terraform workspace is required}"
@@ -32,6 +32,9 @@ case "${ENV_STEPS_ROUTE_OUTPUTS_CLOUD_PROVIDER}" in
     ;;
   vultr-vps)
     managed_resource_type="vultr_instance"
+    ;;
+  akamai-cloud)
+    managed_resource_type="linode_instance"
     ;;
   *)
     echo "::error::unsupported destroy scope provider: ${ENV_STEPS_ROUTE_OUTPUTS_CLOUD_PROVIDER}" >&2
@@ -92,6 +95,46 @@ if [[ "${ENV_STEPS_ROUTE_OUTPUTS_CLOUD_PROVIDER}" == "aws-cloud" ]]; then
   {
     echo "::error::Refusing to report a successful destroy that would delete nothing."
     echo "Workspace ${ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE} (state ${ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY}) manages no instances, but AWS still has ${#stray[@]} EC2 instance(s) matching Tag_${name_prefix}=true:"
+    printf '  - %s\n' "${stray[@]}"
+    echo "They belong to a different workspace/state. Re-run destroy with the target_domains value that created them, or adopt them into this state first."
+  } >&2
+  exit 1
+fi
+
+if [[ "${ENV_STEPS_ROUTE_OUTPUTS_CLOUD_PROVIDER}" == "akamai-cloud" ]]; then
+  : "${LINODE_TOKEN:?LINODE_TOKEN is required for Akamai Cloud destroy scope checks}"
+  : "${HOSTS_MANIFEST:=hosts_manifest.json}"
+
+  [[ -f "${HOSTS_MANIFEST}" ]] || {
+    echo "::error::${HOSTS_MANIFEST} is missing; run generate.py render before asserting Akamai destroy scope." >&2
+    exit 1
+  }
+
+  mapfile -t expected_labels < <(jq -r '.hosts[]?.label | select(. != "")' "${HOSTS_MANIFEST}")
+  if [[ "${#expected_labels[@]}" -eq 0 ]]; then
+    echo "Destroy scope: this Akamai profile declares no hosts; nothing to destroy."
+    exit 0
+  fi
+
+  instances="$(curl -fsS --retry 3 --retry-connrefused \
+    -H "Authorization: Bearer ${LINODE_TOKEN}" \
+    'https://api.linode.com/v4/linode/instances?page_size=500')"
+
+  stray=()
+  for label in "${expected_labels[@]}"; do
+    match="$(jq -r --arg l "${label}" \
+      '.data[]? | select(.label == $l) | "\(.id) (\(.ipv4[0] // \"no-public-ip\"))"' <<<"${instances}")"
+    [[ -n "${match}" ]] && stray+=("${label} -> ${match}")
+  done
+
+  if [[ "${#stray[@]}" -eq 0 ]]; then
+    echo "Destroy scope: state is empty and Akamai Cloud has no instance matching this profile's labels; already destroyed."
+    exit 0
+  fi
+
+  {
+    echo "::error::Refusing to report a successful destroy that would delete nothing."
+    echo "Workspace ${ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE} (state ${ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY}) manages no instances, but Akamai Cloud still has ${#stray[@]} instance(s) declared by this profile:"
     printf '  - %s\n' "${stray[@]}"
     echo "They belong to a different workspace/state. Re-run destroy with the target_domains value that created them, or adopt them into this state first."
   } >&2
