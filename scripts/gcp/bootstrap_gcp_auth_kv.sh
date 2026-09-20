@@ -20,16 +20,25 @@ esac
   echo "GCP_PROJECT_ID must be a valid GCP project ID" >&2
   exit 1
 }
+[[ "${vault_addr}" =~ ^https?://[^/]+/?$ ]] || {
+  echo "VAULT_ADDR must be an https:// or http:// Vault URL" >&2
+  exit 1
+}
 command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
 
-# Keep the existing xworktech guard, while allowing additional accounts to
-# supply their project ID from the matching GitOps declaration. Callers can
-# also provide an explicit expected project for an account-specific check.
+# xworktech is the initial account contract. Additional accounts must provide
+# an explicit project mapping; silently accepting an arbitrary project would
+# allow a caller to write one account's bootstrap token under another target.
 expected_project="${GCP_EXPECTED_PROJECT_ID:-}"
-if [[ -z "${expected_project}" && "${account_id}" == "xworktech" ]]; then
-  expected_project="${default_project}"
+if [[ -z "${expected_project}" ]]; then
+  if [[ "${account_id}" == "xworktech" ]]; then
+    expected_project="${default_project}"
+  else
+    echo "GCP_EXPECTED_PROJECT_ID is required for non-xworktech accounts" >&2
+    exit 1
+  fi
 fi
-if [[ -n "${expected_project}" && "${project_id}" != "${expected_project}" ]]; then
+if [[ "${project_id}" != "${expected_project}" ]]; then
   echo "GCP_PROJECT_ID does not match GCP_ENVIRONMENT/account" >&2
   exit 1
 fi
