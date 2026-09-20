@@ -37,6 +37,9 @@ jobs:
     - name: Verify unified multi-cloud IaC state contract
       run: python3 scripts/tests/test_iac_state_contract.py
 
+    - name: Verify IAC self-check matrix is dry-run only
+      run: bash .github/scripts/tests/platform_ops_iac_self_check_contract_test.sh
+
     # A broken job condition never fails a run -- it shows up as `skipped`,
     # which is indistinguishable from "deliberately not requested". These
     # invariants have to be asserted, because review does not catch them.
