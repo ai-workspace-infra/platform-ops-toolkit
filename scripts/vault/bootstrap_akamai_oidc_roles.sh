@@ -104,6 +104,7 @@ publish_env() {
   if [[ "$mode" == check ]]; then
     vault policy read "$policy_name" >/dev/null
     vault read "${VAULT_JWT_AUTH_MOUNT}/role/${role_name}" >/dev/null
+    verify_role_claims "$env_name" "$account" "$role_name"
     echo "present ${env_name}/${account}"
     return
   fi
@@ -111,7 +112,40 @@ publish_env() {
   vault policy write "$policy_name" "$policy_file" >/dev/null
   jq -c 'del(.role_name, .description)' "$role_file" |
     vault write "${VAULT_JWT_AUTH_MOUNT}/role/${role_name}" - >/dev/null
+  verify_role_claims "$env_name" "$account" "$role_name"
   echo "written ${env_name}/${account}"
+}
+
+verify_role_claims() {
+  local env_name="$1"
+  local account="$2"
+  local role_name="$3"
+  local expected_environment="$env_name"
+  local role_json
+
+  role_json="$(vault read -format=json "${VAULT_JWT_AUTH_MOUNT}/role/${role_name}")"
+  if ! jq -e \
+    --arg repository "ai-workspace-infra/platform-ops-toolkit" \
+    --arg iac_workflow "ai-workspace-infra/platform-ops-toolkit/.github/workflows/akamai-cloud-iac.yml@*" \
+    --arg selfhost_workflow "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-orchestrator.yml@*" \
+    --arg expected_ref "refs/heads/main" \
+    --arg expected_environment "$expected_environment" '
+      def as_array: if type == "array" then . else [.] end;
+      .data.bound_claims as $claims
+      | ($claims.job_workflow_ref | as_array) as $workflows
+      | ($claims.ref | as_array) as $refs
+      | (
+          ($workflows | index($iac_workflow)) != null
+          and ($workflows | index($selfhost_workflow)) != null
+          and ($claims.repository == $repository)
+          and (($refs | index($expected_ref)) != null)
+          and ($claims.environment == $expected_environment)
+        )
+    ' <<<"$role_json" >/dev/null; then
+    echo "::error::Vault role ${role_name} was written/read, but its repository/ref/environment/job_workflow_ref claims are not the Akamai Cloud contract for ${env_name}/${account}." >&2
+    echo "::error::Required workflows: akamai-cloud-iac.yml and selfhost-orchestrator.yml; required ref: refs/heads/main; required environment: ${expected_environment}." >&2
+    return 1
+  fi
 }
 
 tmp_dir="$(mktemp -d)"

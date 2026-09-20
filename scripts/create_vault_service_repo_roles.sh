@@ -16,6 +16,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 POLICY_DIR="${VAULT_POLICY_DEFINITION_DIR:-${SCRIPT_DIR}/vault/policies}"
 ROLE_DIR="${VAULT_ROLE_DEFINITION_DIR:-${SCRIPT_DIR}/vault/roles}"
+VAULT_JWT_AUTH_MOUNT="${VAULT_JWT_AUTH_MOUNT:-auth/jwt}"
+VAULT_JWT_AUTH_MOUNT="${VAULT_JWT_AUTH_MOUNT#/}"
+VAULT_JWT_AUTH_MOUNT="${VAULT_JWT_AUTH_MOUNT%/}"
+export VAULT_JWT_AUTH_MOUNT
 
 export VAULT_ADDR="${VAULT_ADDR:-https://vault.svc.plus}"
 
@@ -130,11 +134,11 @@ for role_file in "${role_files[@]}"; do
 
   if [[ "$mode" == check ]]; then
     echo "  Checking role ${role_name}..."
-    vault read "auth/jwt/role/${role_name}" >/dev/null
+    vault read "${VAULT_JWT_AUTH_MOUNT}/role/${role_name}" >/dev/null
   else
     echo "  Writing role ${role_name}..."
     jq -c 'del(.role_name, .description)' "${role_file}" |
-      vault write "auth/jwt/role/${role_name}" -
+      vault write "${VAULT_JWT_AUTH_MOUNT}/role/${role_name}" -
   fi
 done
 
