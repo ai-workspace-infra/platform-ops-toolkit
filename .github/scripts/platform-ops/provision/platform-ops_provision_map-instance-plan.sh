@@ -30,12 +30,16 @@ if [ "$PROVIDER" == "aws-cloud" ]; then
     echo "api=t4g.large" >> "$GITHUB_OUTPUT"
   fi
 elif [ "$PROVIDER" == "akamai-cloud" ]; then
+  # Akamai's high-memory 2-vCPU plan is 48 GiB, not the requested 2C8G
+  # shape.  Use the current G8 Dedicated 8x2 plan for an exact 2 vCPU/8 GiB
+  # mapping.  Keep this explicit so a generation rename cannot silently
+  # oversize AI Workspace nodes again.
   if [ "$PLAN" == "1C2G" ]; then
     echo "api=g6-standard-1" >> "$GITHUB_OUTPUT"
   elif [ "$PLAN" == "2C4G" ]; then
     echo "api=g6-standard-2" >> "$GITHUB_OUTPUT"
   elif [ "$PLAN" == "2C8G" ]; then
-    echo "api=g6-highmem-2" >> "$GITHUB_OUTPUT"
+    echo "api=g8-dedicated-8-2" >> "$GITHUB_OUTPUT"
   else
     echo "api=g6-standard-4" >> "$GITHUB_OUTPUT"
   fi
