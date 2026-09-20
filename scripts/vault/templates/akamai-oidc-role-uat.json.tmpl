@@ -7,7 +7,10 @@
   "bound_claims_type": "glob",
   "bound_claims": {
     "repository": "ai-workspace-infra/platform-ops-toolkit",
-    "job_workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/akamai-cloud-iac.yml@*",
+    "job_workflow_ref": [
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/akamai-cloud-iac.yml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-orchestrator.yml@*"
+    ],
     "ref": "refs/heads/main",
     "environment": "uat"
   },
