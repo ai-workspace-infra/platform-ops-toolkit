@@ -160,8 +160,15 @@ jobs:
           LINODE_TOKEN: ${{ steps.vault.outputs.LINODE_TOKEN }}
         run: |
           set -euo pipefail
-          echo "::add-mask::${LINODE_TOKEN}"
-          curl --fail --silent --show-error --header "Authorization: Bearer ${LINODE_TOKEN}" \
+          normalized_token="$(printf '%s' "${LINODE_TOKEN}" | tr -d '\r\n')"
+          [[ -n "${normalized_token}" ]] || { echo 'LINODE_TOKEN is empty' >&2; exit 1; }
+          echo "::add-mask::${normalized_token}"
+          {
+            echo 'LINODE_TOKEN<<AKAMAI_TOKEN_EOF'
+            printf '%s\n' "${normalized_token}"
+            echo 'AKAMAI_TOKEN_EOF'
+          } >> "${GITHUB_ENV}"
+          curl --fail --silent --show-error --header "Authorization: Bearer ${normalized_token}" \
             https://api.linode.com/v4/profile | jq -e '.username and .email' >/dev/null
 
       - uses: hashicorp/setup-terraform@v3
@@ -217,18 +224,18 @@ jobs:
           terraform -chdir="iac_modules/terraform-hcl-standard/akamai-cloud/envs/${DEPLOY_ENV}" init -input=false -reconfigure -backend-config="${backend}"
 
       - name: Terraform validate and plan
-        env:
-          TF_VAR_linode_token: ${{ steps.vault.outputs.LINODE_TOKEN }}
         run: |
+          set -euo pipefail
+          export TF_VAR_linode_token="${LINODE_TOKEN}"
           root="iac_modules/terraform-hcl-standard/akamai-cloud/envs/${DEPLOY_ENV}"
           terraform -chdir="${root}" validate -no-color
           if [[ "${DEPLOY_ACTION}" != destroy ]]; then terraform -chdir="${root}" plan -input=false -no-color; fi
 
       - name: Terraform apply or destroy
         if: ${{ inputs.deploy_action == 'apply' || inputs.deploy_action == 'destroy' }}
-        env:
-          TF_VAR_linode_token: ${{ steps.vault.outputs.LINODE_TOKEN }}
         run: |
+          set -euo pipefail
+          export TF_VAR_linode_token="${LINODE_TOKEN}"
           terraform -chdir="iac_modules/terraform-hcl-standard/akamai-cloud/envs/${DEPLOY_ENV}" "${DEPLOY_ACTION}" -input=false -auto-approve
 
       - name: Produce CMDB after apply
