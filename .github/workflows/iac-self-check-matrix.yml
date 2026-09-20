@@ -160,7 +160,7 @@ jobs:
   summary:
     name: IAC self-check summary
     needs: [prepare, self-check]
-    if: always() && needs.prepare.result == 'success'
+    if: ${{ always() && needs.prepare.result == 'success' && (needs.self-check.result == 'success' || needs.self-check.result == 'failure') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout toolkit
@@ -184,4 +184,3 @@ jobs:
             --environment "${ENVIRONMENT}" \
             --project "${PROJECT}" \
             >> "${GITHUB_STEP_SUMMARY}"
-
