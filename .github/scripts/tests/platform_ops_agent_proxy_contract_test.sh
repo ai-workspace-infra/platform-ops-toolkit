@@ -4,6 +4,39 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 workflow="${repo_root}/.github/workflows/selfhost-orchestrator.yml"
 
+grep -Fq -- '- akamai-cloud' "${workflow}" || {
+  echo "selfhost workflow must expose akamai-cloud as a selectable provider" >&2
+  exit 1
+}
+grep -Fq "steps.route.outputs.cloud_provider == 'akamai-cloud'" "${workflow}" || {
+  echo "selfhost workflow must support an existing Akamai state deployment path" >&2
+  exit 1
+}
+grep -Fq "include_external_agent_proxy == 'true'" "${workflow}" || {
+  echo "external Agent Proxy deployment must be explicitly selectable" >&2
+  exit 1
+}
+grep -Fq 'default: "1C2G"' "${workflow}" || {
+  echo "Agent Proxy workflow default must be the 1C2G plan" >&2
+  exit 1
+}
+if grep -Fq 'T4g.micro' "${workflow}"; then
+  echo "Agent Proxy workflow must not retain the old AWS Spot/T4g.micro default" >&2
+  exit 1
+fi
+grep -Fq "steps.route.outputs.cloud_provider != 'akamai-cloud'" "${workflow}" || {
+  echo "Akamai selfhost leg must not run Terraform apply/destroy" >&2
+  exit 1
+}
+grep -Fq "steps.route.outputs.cloud_provider == 'akamai-cloud'" "${workflow}" || {
+  echo "Akamai selfhost leg must build the regional Agent Proxy matrix" >&2
+  exit 1
+}
+grep -Fq "terraform/\${deployment_env}/svc.plus/akamai-cloud/\${account}/xconnect/terraform.tfstate" "${repo_root}/.github/scripts/platform-ops/provision/platform-ops_provision_route-ref-to-an-explicit-profile.sh" || {
+  echo "Akamai state key must use environment/project/cloud/account/workspace" >&2
+  exit 1
+}
+
 grep -Fq "contains(needs.provision.outputs.target_domains, 'agent-proxy')" "${workflow}" || {
   echo "agent-proxy-only deployments must restore the shared Vault TLS certificate" >&2
   exit 1
