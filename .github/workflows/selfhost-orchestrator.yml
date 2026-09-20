@@ -299,10 +299,15 @@ jobs:
           topology/${{ steps.route.outputs.deployment_env }}/selfhost/xconnect-regional-pools.yaml
           topology/${{ steps.route.outputs.deployment_env }}/serverless/runtime-topology.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/github-actions-oidc.json
-          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/vultr/
-          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/
-          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/gcp/
-          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/azure/
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/vultr/web-saas.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/vultr/agent-proxy.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/web-saas.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/agent-proxy.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/action-runner.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/gcp/web-saas.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/gcp/agent-proxy.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/azure/web-saas.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/azure/agent-proxy.yaml
 
     - name: Resolve Agent Proxy machine service origins from GitOps
       id: agent_proxy_origins
