@@ -9,7 +9,7 @@ UAT 的 `selfhost-orchestrator` 默认使用 `akamai-cloud` provider，并以
 | --- | --- | --- | --- |
 | `web-saas` | 2C4G (`g6-standard-2`) | Web SaaS 服务节点 | `resources/svc.plus/uat/akamai/web-saas.yaml` |
 | `open-platform` | 2C4G (`g6-standard-2`) | 迁移 `vault.svc.plus` 与 `observability.svc.plus` | `resources/svc.plus/uat/akamai/open-platform.yaml` |
-| `ai-workspace` | 2C8G (`g6-highmem-2`) | AI Workspace 套件 | `resources/svc.plus/uat/akamai/ai-workspace.yaml` |
+| `ai-workspace` | 2C8G (`g8-dedicated-8-2`) | AI Workspace 套件 | `resources/svc.plus/uat/akamai/ai-workspace.yaml` |
 
 UAT Agent Proxy 使用五区域矩阵：
 

@@ -69,7 +69,7 @@ assert_in_output "${uat_full_output}" "xconnect.yaml"
 akamai_plan_output="$(mktemp)"
 INPUT_CLOUD_PROVIDER=akamai-cloud INPUT_INSTANCE_PLAN=2C8G GITHUB_OUTPUT="${akamai_plan_output}" \
   "${repo_root}/.github/scripts/platform-ops/provision/platform-ops_provision_map-instance-plan.sh"
-assert_contains "$(cat "${akamai_plan_output}")" "api=g6-highmem-2"
+assert_contains "$(cat "${akamai_plan_output}")" "api=g8-dedicated-8-2"
 rm -f "${akamai_plan_output}"
 
 for provider in aws-cloud gcp-cloud azure-cloud vultr-vps akamai-cloud; do
