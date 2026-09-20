@@ -1,0 +1,186 @@
+name: IAC Self Check Matrix
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Only dry-run is supported; keep this true"
+        required: true
+        default: true
+        type: boolean
+      vault_env_path:
+        description: "Environment whose GitOps coverage is inspected"
+        required: true
+        default: uat
+        type: choice
+        options: [sit, uat, prod]
+      project:
+        description: "GitOps project/base domain"
+        required: true
+        default: svc.plus
+        type: string
+      cloud_providers:
+        description: "Comma-separated providers; empty means every Terraform provider in the registry"
+        required: false
+        default: "aws-cloud,gcp-cloud,azure-cloud,vultr-vps,akamai-cloud"
+        type: string
+  pull_request:
+    paths:
+      - ".github/workflows/iac-self-check-matrix.yml"
+      - ".github/scripts/platform-ops/observe/platform-ops_iac-self-check.py"
+      - "config/iac_provider_registry.json"
+      - "config/iac_environment_defaults.json"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/iac-self-check-matrix.yml"
+      - ".github/scripts/platform-ops/observe/platform-ops_iac-self-check.py"
+      - "config/iac_provider_registry.json"
+      - "config/iac_environment_defaults.json"
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Prepare dry-run matrix
+    runs-on: ubuntu-latest
+    outputs:
+      providers: ${{ steps.matrix.outputs.providers }}
+      environment: ${{ steps.matrix.outputs.environment }}
+      project: ${{ steps.matrix.outputs.project }}
+    steps:
+      - name: Checkout toolkit
+        uses: actions/checkout@v4
+
+      - name: Enforce dry-run-only mode and build provider matrix
+        id: matrix
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run || github.event.inputs.dry_run || 'true' }}
+          INPUT_ENVIRONMENT: ${{ inputs.vault_env_path || github.event.inputs.vault_env_path || 'uat' }}
+          INPUT_PROJECT: ${{ inputs.project || github.event.inputs.project || 'svc.plus' }}
+          INPUT_PROVIDERS: ${{ inputs.cloud_providers || github.event.inputs.cloud_providers || 'aws-cloud,gcp-cloud,azure-cloud,vultr-vps,akamai-cloud' }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" && "${INPUT_DRY_RUN}" != "true" ]]; then
+            echo "::error::IAC self-check is dry-run-only; dry_run must remain true." >&2
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          registry = json.loads(Path("config/iac_provider_registry.json").read_text())
+          requested = [item.strip() for item in os.environ["INPUT_PROVIDERS"].split(",") if item.strip()]
+          providers = [
+              name for name, metadata in registry.items()
+              if metadata.get("provisioner") == "terraform"
+              and (not requested or name in requested)
+          ]
+          unknown = sorted(set(requested) - set(registry))
+          existing = sorted(
+              name for name in requested
+              if name in registry and registry[name].get("provisioner") != "terraform"
+          )
+          if unknown:
+              raise SystemExit(f"unsupported providers: {', '.join(unknown)}")
+          if existing:
+              raise SystemExit(f"existing-resource providers are excluded from Terraform self-check: {', '.join(existing)}")
+          if not providers:
+              raise SystemExit("provider matrix is empty")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"providers={json.dumps(providers, separators=(',', ':'))}\n")
+              output.write(f"environment={os.environ['INPUT_ENVIRONMENT']}\n")
+              output.write(f"project={os.environ['INPUT_PROJECT']}\n")
+          print(f"dry-run matrix: {', '.join(providers)}")
+          PY
+
+  self-check:
+    name: "${{ matrix.provider }} :: dry-run coverage"
+    needs: prepare
+    if: needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: ${{ fromJSON(needs.prepare.outputs.providers) }}
+    steps:
+      - name: Checkout toolkit
+        uses: actions/checkout@v4
+
+      - name: Checkout IAC modules
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          path: iac_modules
+
+      - name: Checkout GitOps declarations
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          path: gitops
+
+      - name: Run static provider self-check
+        env:
+          PROVIDER: ${{ matrix.provider }}
+          ENVIRONMENT: ${{ needs.prepare.outputs.environment }}
+          PROJECT: ${{ needs.prepare.outputs.project }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/platform-ops/observe/platform-ops_iac-self-check.py \
+            --registry config/iac_provider_registry.json \
+            --defaults config/iac_environment_defaults.json \
+            --iac-root iac_modules \
+            --gitops-root gitops \
+            --environment "${ENVIRONMENT}" \
+            --project "${PROJECT}" \
+            --provider "${PROVIDER}" \
+            --output-json "iac-self-check-${PROVIDER}.json" \
+            --summary-file "iac-self-check-${PROVIDER}.md"
+
+      - name: Publish provider summary
+        if: always()
+        run: |
+          if [[ -f "iac-self-check-${{ matrix.provider }}.md" ]]; then
+            cat "iac-self-check-${{ matrix.provider }}.md" >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Upload provider report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iac-self-check-${{ matrix.provider }}
+          path: |
+            iac-self-check-${{ matrix.provider }}.json
+            iac-self-check-${{ matrix.provider }}.md
+          if-no-files-found: error
+
+  summary:
+    name: IAC self-check summary
+    needs: [prepare, self-check]
+    if: ${{ always() && needs.prepare.result == 'success' && (needs.self-check.result == 'success' || needs.self-check.result == 'failure') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout toolkit
+        uses: actions/checkout@v4
+
+      - name: Download provider reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: iac-self-check-*
+          path: reports
+          merge-multiple: true
+
+      - name: Write matrix summary
+        env:
+          ENVIRONMENT: ${{ needs.prepare.outputs.environment }}
+          PROJECT: ${{ needs.prepare.outputs.project }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/platform-ops/observe/platform-ops_iac-self-check.py \
+            --aggregate-dir reports \
+            --environment "${ENVIRONMENT}" \
+            --project "${PROJECT}" \
+            >> "${GITHUB_STEP_SUMMARY}"
