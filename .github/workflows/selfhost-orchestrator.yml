@@ -559,12 +559,12 @@ jobs:
       if: >-
         ${{ steps.route.outputs.run_infrastructure == 'true' &&
         steps.route.outputs.terraform_action == 'apply' &&
-        steps.route.outputs.deployment_env == 'prod' &&
         contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
         steps.route.outputs.target_domains) }}
       env:
         CMDB_FILE: ${{ env.ENV_DIR }}/cmdb.json
-        GITOPS_XCONNECT_CONFIG: ${{ github.workspace }}/gitops/topology/${{ steps.route.outputs.deployment_env }}/selfhost/xconnect-regional-pools.yaml
+        DEPLOYMENT_ENV: ${{ steps.route.outputs.deployment_env }}
+        GITOPS_XCONNECT_CONFIG: ${{ github.workspace }}/gitops/topology/${{ steps.route.outputs.deployment_env }}/selfhost/${{ steps.route.outputs.deployment_env == 'uat' && 'xconnect-regional-pool.yaml' || 'xconnect-regional-pools.yaml' }}
       run: >-
         python3
         ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_build-agent-proxy-matrices.py
@@ -1232,7 +1232,7 @@ jobs:
         XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops-xconnect/topology/prod/selfhost/xconnect-regional-pools.yaml
         XCONNECT_CMDB_FILE: ${{ github.workspace }}/cmdb/cmdb.json
       run: |-
-        for pool in jp us hk ph; do
+        for pool in jp us sg ph; do
           XCONNECT_POOL="${pool}" ansible-playbook reconcile_xconnect_entrypoint.yml
         done
 
@@ -1681,14 +1681,14 @@ jobs:
 
   deploy_agent_proxy_non_iac:
     name: "[3] Agent Proxy non-IaC | ${{ matrix.host }}"
-    # PH is deliberately outside Terraform state. Its public address and
-    # password come from the GitOps declaration plus Vault, while the three
-    # AWS regions continue through deploy_agent_proxy's CMDB matrix above.
+    # TW and PH are deliberately outside Terraform state. Their public
+    # addresses and credentials come from the GitOps declaration plus Vault,
+    # while JP/US/SG continue through the CMDB Agent Proxy matrix above.
     needs: [provision]
     if: >-
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
-      needs.provision.outputs.deployment_env == 'prod' &&
+      contains(fromJSON('["uat","prod"]'), needs.provision.outputs.deployment_env) &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
@@ -1732,6 +1732,7 @@ jobs:
         path: gitops
         sparse-checkout-cone-mode: false
         sparse-checkout: |
+          topology/uat/selfhost/xconnect-regional-pool.yaml
           topology/prod/selfhost/xconnect-regional-pools.yaml
 
     - name: Download CMDB
@@ -1796,13 +1797,13 @@ jobs:
     - name: Resolve non-IaC node Vault path
       id: vault_path
       env:
-        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/prod/selfhost/xconnect-regional-pools.yaml
+        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/${{ needs.provision.outputs.deployment_env }}/selfhost/${{ needs.provision.outputs.deployment_env == 'uat' && 'xconnect-regional-pool.yaml' || 'xconnect-regional-pools.yaml' }}
         XCONNECT_NODE_ID: ${{ matrix.host }}
       run: >-
         python3
         ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_resolve-non-iac-agent-proxy-vault-path.py
 
-    - name: Read PH node record from Vault
+    - name: Read external Agent Proxy node record from Vault
       env:
         XCONNECT_VAULT_API_PATH: ${{ steps.vault_path.outputs.vault_api_path }}
         XCONNECT_VAULT_RESPONSE_FILE: ${{ runner.temp }}/xconnect-vault.json
@@ -1821,9 +1822,9 @@ jobs:
     - name: Render non-IaC Agent Proxy inventory
       id: bootstrap_inventory
       env:
-        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/prod/selfhost/xconnect-regional-pools.yaml
+        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/${{ needs.provision.outputs.deployment_env }}/selfhost/${{ needs.provision.outputs.deployment_env == 'uat' && 'xconnect-regional-pool.yaml' || 'xconnect-regional-pools.yaml' }}
         XCONNECT_VAULT_RESPONSE_FILE: ${{ runner.temp }}/xconnect-vault.json
-        XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/ph-agent-proxy-bootstrap-inventory.yml
+        XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/external-agent-proxy-bootstrap-inventory.yml
         XCONNECT_NODE_ID: ${{ matrix.host }}
       run: >-
         python3
@@ -1848,16 +1849,16 @@ jobs:
         SSH_PUBLIC_DEPLOY_KEY="$(ssh-keygen -y -f "${{ steps.deploy_key.outputs.path }}")"
         export SSH_PUBLIC_DEPLOY_KEY
         ansible-playbook \
-          -i "${{ runner.temp }}/ph-agent-proxy-bootstrap-inventory.yml" \
+          -i "${{ runner.temp }}/external-agent-proxy-bootstrap-inventory.yml" \
           prepare_non_iac_ssh_access.yml \
           --limit "${MATRIX_HOST}"
 
     - name: Render deploy-key inventory for non-IaC node
       id: inventory
       env:
-        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/prod/selfhost/xconnect-regional-pools.yaml
+        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/${{ needs.provision.outputs.deployment_env }}/selfhost/${{ needs.provision.outputs.deployment_env == 'uat' && 'xconnect-regional-pool.yaml' || 'xconnect-regional-pools.yaml' }}
         XCONNECT_VAULT_RESPONSE_FILE: ${{ runner.temp }}/xconnect-vault.json
-        XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/ph-agent-proxy-inventory.yml
+        XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/external-agent-proxy-inventory.yml
         XCONNECT_NODE_ID: ${{ matrix.host }}
         XCONNECT_DEPLOY_KEY_FILE: ${{ steps.deploy_key.outputs.path }}
       run: >-
@@ -1869,7 +1870,7 @@ jobs:
         VAULT_ROLE: ${{ env.VAULT_ROLE }}
         VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
         DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
-        RESTORE_INVENTORY_FILE: ${{ runner.temp }}/ph-agent-proxy-inventory.yml
+        RESTORE_INVENTORY_FILE: ${{ runner.temp }}/external-agent-proxy-inventory.yml
       run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_base_restore-caddy-certs.sh
 
     - name: Resolve Xray Exporter image
@@ -1908,7 +1909,7 @@ jobs:
         XRAY_EXPORTER_TCP_LISTEN_ADDR: 127.0.0.1:8081
         VECTOR_SNAPSHOT_URL: ""
       run: >-
-        ansible-playbook -i "${{ runner.temp }}/ph-agent-proxy-inventory.yml"
+        ansible-playbook -i "${{ runner.temp }}/external-agent-proxy-inventory.yml"
         setup-agent-proxy-domain.yml
         --limit "${MATRIX_HOST}"
         -e agent_service_hosts=agent_proxy
@@ -1922,7 +1923,7 @@ jobs:
       working-directory: playbooks
       run: >-
         ansible
-        -i "${{ runner.temp }}/ph-agent-proxy-inventory.yml"
+        -i "${{ runner.temp }}/external-agent-proxy-inventory.yml"
         "${MATRIX_HOST}"
         -m shell
         -a 'systemctl is-active --quiet caddy && systemctl is-active --quiet xray'
@@ -1939,7 +1940,7 @@ jobs:
         VECTOR_SNAPSHOT_URL: http://127.0.0.1:8686
       run: >-
         ansible-playbook
-        -i "${{ runner.temp }}/ph-agent-proxy-inventory.yml"
+        -i "${{ runner.temp }}/external-agent-proxy-inventory.yml"
         deploy_observability_agent.yml
         --limit "${MATRIX_HOST}"
         -e observability_agent_hosts=agent_proxy
