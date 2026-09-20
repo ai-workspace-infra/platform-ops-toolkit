@@ -82,6 +82,7 @@ class IacStateContractTest(unittest.TestCase):
         self.assertIn("resolve_iac_contract.py", akamai)
         self.assertIn("steps.contract.outputs.state_key", akamai)
         self.assertIn("use_lockfile = true", akamai)
+        self.assertNotIn('"endpoint = \\"${TF_STATE_ENDPOINT}\\""', akamai)
         self.assertIn("account must be a concrete account name or ID", akamai)
         self.assertIn("LINODE_TOKEN", (ROOT / "scripts" / "vault" / "bootstrap_akamai_cloud_kv.sh").read_text(encoding="utf-8"))
         self.assertIn("AKAMAI_ACCOUNT_UAT", (ROOT / "scripts" / "vault" / "bootstrap_akamai_oidc_roles.sh").read_text(encoding="utf-8"))
