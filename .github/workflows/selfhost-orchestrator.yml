@@ -1857,6 +1857,9 @@ jobs:
         XCONNECT_VAULT_RESPONSE_FILE: ${{ runner.temp }}/xconnect-vault.json
         XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/external-agent-proxy-bootstrap-inventory.yml
         XCONNECT_NODE_ID: ${{ matrix.host }}
+        # The renderer replaces this fallback with a node-scoped Vault key
+        # when ssh_private_key_b64 is present in the node record.
+        XCONNECT_DEPLOY_KEY_FILE: ${{ steps.deploy_key.outputs.path }}
       run: >-
         python3
         ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_render-non-iac-agent-proxy-inventory.py
