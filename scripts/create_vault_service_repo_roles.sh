@@ -19,6 +19,38 @@ ROLE_DIR="${VAULT_ROLE_DEFINITION_DIR:-${SCRIPT_DIR}/vault/roles}"
 
 export VAULT_ADDR="${VAULT_ADDR:-https://vault.svc.plus}"
 
+mode=apply
+akamai_env="${AKAMAI_OIDC_ENV:-all}"
+while (($# > 0)); do
+  case "$1" in
+    --apply) mode=apply ;;
+    --check) mode=check ;;
+    --env)
+      (($# >= 2)) || { echo "--env requires uat, prod, or all" >&2; exit 2; }
+      akamai_env="$2"
+      shift
+      ;;
+    -h|--help)
+      cat <<'EOF'
+Usage:
+  scripts/create_vault_service_repo_roles.sh [--apply|--check] [--env uat|prod|all]
+
+The default remains --apply. When AKAMAI_ACCOUNT_UAT and/or
+AKAMAI_ACCOUNT_PROD is provided, the matching dynamic Akamai Cloud/Linode
+GitHub OIDC role and policy are also managed.
+EOF
+      exit 0
+      ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+akamai_env="${akamai_env,,}"
+case "$akamai_env" in
+  uat|prod|all) ;;
+  *) echo "invalid Akamai environment: ${akamai_env}" >&2; exit 2 ;;
+esac
+
 if [ -z "${VAULT_TOKEN:-}" ] && ! vault token lookup >/dev/null 2>&1; then
   echo "Error: no authenticated Vault CLI session is available." >&2
   echo "  export VAULT_ADDR=https://vault.svc.plus" >&2
@@ -50,8 +82,13 @@ for policy_file in "${policy_files[@]}"; do
     echo "Invalid policy filename: ${policy_file}" >&2
     exit 1
   }
-  echo "  Writing policy ${policy_name}..."
-  vault policy write "${policy_name}" "${policy_file}"
+  if [[ "$mode" == check ]]; then
+    echo "  Checking policy ${policy_name}..."
+    vault policy read "${policy_name}" >/dev/null
+  else
+    echo "  Writing policy ${policy_name}..."
+    vault policy write "${policy_name}" "${policy_file}"
+  fi
 done
 
 echo "=== Provisioning Vault JWT roles from ${ROLE_DIR} ==="
@@ -91,10 +128,27 @@ for role_file in "${role_files[@]}"; do
     }
   done < <(jq -er '.token_policies[]' "${role_file}")
 
-  echo "  Writing role ${role_name}..."
-  jq -c 'del(.role_name, .description)' "${role_file}" |
-    vault write "auth/jwt/role/${role_name}" -
+  if [[ "$mode" == check ]]; then
+    echo "  Checking role ${role_name}..."
+    vault read "auth/jwt/role/${role_name}" >/dev/null
+  else
+    echo "  Writing role ${role_name}..."
+    jq -c 'del(.role_name, .description)' "${role_file}" |
+      vault write "auth/jwt/role/${role_name}" -
+  fi
 done
+
+if [[ -n "${AKAMAI_ACCOUNT_UAT:-}" || -n "${AKAMAI_ACCOUNT_PROD:-}" ]]; then
+  echo "=== Provisioning dynamic Akamai Cloud/Linode OIDC roles ==="
+  akamai_script="${SCRIPT_DIR}/vault/bootstrap_akamai_oidc_roles.sh"
+  if [[ "$mode" == check ]]; then
+    bash "${akamai_script}" --check --env "${akamai_env}"
+  else
+    bash "${akamai_script}" --apply --env "${akamai_env}"
+  fi
+else
+  echo "=== Skipping dynamic Akamai roles (AKAMAI_ACCOUNT_* not provided) ==="
+fi
 
 echo "=== Cleaning up deprecated roles ==="
 # GCP bootstrap roles are managed declarations and must never be removed by
