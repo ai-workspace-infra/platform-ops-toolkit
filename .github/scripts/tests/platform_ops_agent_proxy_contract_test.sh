@@ -112,6 +112,14 @@ grep -Fq 'XCONNECT_DEPLOY_KEY_FILE: ${{ steps.deploy_key.outputs.path }}' <<<"${
   echo "non-IaC inventory must receive the materialized deploy-key path" >&2
   exit 1
 }
+grep -Fq 'DEPLOYMENT_ENV: ${{ needs.provision.outputs.deployment_env }}' <<<"${non_iac_block}" || {
+  echo "non-IaC inventory must receive the deployment environment" >&2
+  exit 1
+}
+grep -Fq 'metadata' "${repo_root}/.github/scripts/platform-ops/deploy/platform-ops_deploy_render-non-iac-agent-proxy-inventory.py" || {
+  echo "non-IaC inventory must validate the GitOps environment metadata" >&2
+  exit 1
+}
 
 assert_monitor_contains "needs: [provision, deploy_base, deploy_agent_proxy, deploy_agent_proxy_non_iac]"
 assert_monitor_contains "always() && !cancelled()"

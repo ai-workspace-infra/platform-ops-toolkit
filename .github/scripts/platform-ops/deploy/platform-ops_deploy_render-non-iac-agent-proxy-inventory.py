@@ -20,12 +20,28 @@ def main() -> int:
     vault_file = Path(os.environ["XCONNECT_VAULT_RESPONSE_FILE"])
     inventory_file = Path(os.environ["XCONNECT_INVENTORY_FILE"])
     node_id = os.environ["XCONNECT_NODE_ID"]
+    deployment_env = os.environ.get("DEPLOYMENT_ENV", "").strip()
     deploy_key_file = os.environ.get("XCONNECT_DEPLOY_KEY_FILE", "").strip()
 
     topology = yaml.safe_load(topology_file.read_text(encoding="utf-8")) or {}
+    topology_env = ((topology.get("metadata") or {}).get("environment") or "").strip()
+    if deployment_env not in {"uat", "prod"}:
+        fail(f"DEPLOYMENT_ENV must be uat or prod, got {deployment_env!r}")
+    if topology_env != deployment_env:
+        fail(
+            f"GitOps topology environment {topology_env!r} does not match "
+            f"deployment environment {deployment_env!r}"
+        )
     pools = (topology.get("spec") or {}).get("pools") or []
-    if {pool.get("name") for pool in pools} != {"jp", "us", "hk", "ph"}:
-        fail("XConnect topology must declare exactly the four PROD pools: jp, us, hk, ph")
+    expected_pools = {
+        "uat": {"jp", "us", "sg", "tw"},
+        "prod": {"jp", "us", "sg", "ph", "tw"},
+    }[deployment_env]
+    if {pool.get("name") for pool in pools} != expected_pools:
+        fail(
+            f"{deployment_env.upper()} XConnect topology must declare exactly "
+            f"these pools: {sorted(expected_pools)}"
+        )
 
     selected = None
     selected_pool = None
@@ -47,6 +63,13 @@ def main() -> int:
         fail(f"legacy topology without connection_source is only accepted for the PH pool: {node_id}")
 
     domain = ((selected_pool.get("entrypoint") or {}).get("fqdn") or "").strip()
+    expected_suffix = {"uat": ".onwalk.net", "prod": ".svc.plus"}[deployment_env]
+    expected_domain = f"{selected_pool.get('name')}-xconnect{expected_suffix}"
+    if domain != expected_domain:
+        fail(
+            f"{deployment_env.upper()} pool {selected_pool.get('name')!r} must use "
+            f"{expected_domain!r}, found {domain!r}"
+        )
     vault = json.loads(vault_file.read_text(encoding="utf-8"))
     secret = ((vault.get("data") or {}).get("data") or {})
     # The regional FQDN is the stable Vault record key.  A node ID is an

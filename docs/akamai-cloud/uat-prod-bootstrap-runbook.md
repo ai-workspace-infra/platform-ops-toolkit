@@ -8,7 +8,7 @@
 | 环境 | Terraform / Akamai Cloud | Existing / Ulighthost |
 |---|---|---|
 | UAT | JP、US、SG | TW |
-| PROD | JP、US、SG | PH |
+| PROD | JP、US、SG | PH、TW |
 
 Akamai Terraform 每个环境 3 台 `g6-standard-1`：
 
@@ -32,13 +32,13 @@ Terraform 创建、销毁或 apply。
 | 环境 | 云端 Agent Proxy leg | Existing Agent Proxy leg |
 |---|---|---|
 | UAT | `akamai-cloud`，JP/US/SG，读取 Akamai state | `ulighthost`，TW |
-| PROD | 现有 `aws-cloud` 节点 + `akamai-cloud` JP/US/SG | `ulighthost`，PH |
+| PROD | 现有 `aws-cloud` 节点 + `akamai-cloud` JP/US/SG | `ulighthost`，PH、TW |
 
 PROD 的 AWS leg 使用现有 AWS state，`include_external_agent_proxy=false`，因此不会把
-PH 再次部署到 AWS leg；Akamai leg 使用 `include_external_agent_proxy=true`，才会继续
-部署 GitOps 中声明的 PH existing 节点。AWS SPOT 不属于该默认矩阵，也不会由 Daily
-Snapshot 新建。Akamai leg 的 state 只做 `init`、`validate`、`inventory` 和 Ansible
-部署，状态对象固定为：
+PH/TW 再次部署到 AWS leg；Akamai leg 使用 `include_external_agent_proxy=true`，才会
+继续部署 GitOps 中声明的 PH/TW existing 节点。AWS SPOT 不属于该默认矩阵，也不会由
+Daily Snapshot 新建。Akamai leg 的 state 只做 `init`、`validate`、`inventory` 和
+Ansible 部署，状态对象固定为：
 
 ```text
 terraform/<env>/svc.plus/akamai-cloud/<account>/xconnect/terraform.tfstate
