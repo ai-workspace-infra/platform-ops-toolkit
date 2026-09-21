@@ -178,7 +178,10 @@ def main() -> None:
             fail("testing environment max_runtime_minutes must be 60")
 
     node_records = spec.get("nodes", [])
-    nodes = {node["id"] for node in node_records}
+    node_ids = [node.get("id") for node in node_records]
+    if not node_ids or any(not node_id for node_id in node_ids) or len(node_ids) != len(set(node_ids)):
+        fail("infrastructure nodes must declare unique non-empty IDs")
+    nodes = set(node_ids)
     if new_api.get("node") not in nodes:
         fail("New API node is not declared")
     if any(not node.get("resource_ref") for node in node_records):
@@ -187,8 +190,8 @@ def main() -> None:
     instances = spec.get("cpa_instances", [])
     ids = [entry.get("id") for entry in instances]
     ports = [entry.get("port") for entry in instances]
-    expected_ids = {"cpa-codex-01", "cpa-codex-02", "cpa-claude-01", "cpa-grok-01"}
-    if set(ids) != expected_ids or len(ids) != len(set(ids)) or len(ports) != len(set(ports)):
+    declared_cpa_nodes = {node["id"] for node in node_records if node.get("role") == "cpa"}
+    if not ids or set(ids) != declared_cpa_nodes or len(ids) != len(set(ids)) or len(ports) != len(set(ports)):
         fail("CPA instance IDs and ports must be unique and non-empty")
     for instance in instances:
         if instance.get("node") not in nodes:
