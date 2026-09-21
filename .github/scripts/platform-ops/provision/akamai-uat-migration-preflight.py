@@ -94,15 +94,23 @@ def load_manifest_expectations(gitops_root: Path, iac_root: Path) -> list[dict[s
         manifest = gitops_root / relative
         if not manifest.is_file():
             raise PreflightError(f"manifest_missing:{namespace}")
-        source = manifest.read_text(encoding="utf-8")
-        if PROTECTED_SOURCE in source.casefold():
-            raise PreflightError(f"protected_source_in_manifest:{namespace}")
         try:
             global_config, _ssh_keys, hosts = generator.load_sources(str(manifest))
         except Exception as exc:  # Renderer errors can include expanded YAML values.
             raise PreflightError(f"manifest_parse_failed:{namespace}") from exc
         if len(hosts) != 1:
             raise PreflightError(f"manifest_host_count_invalid:{namespace}")
+        # The new Open Platform node legitimately serves the public
+        # observability.svc.plus endpoint after migration.  Only fail when the
+        # protected legacy source is declared as the Terraform-managed host
+        # identity; service_domains and other routing metadata are allowed to
+        # reference that endpoint.
+        managed_identity = {
+            str(hosts[0].get(key, "")).strip().casefold()
+            for key in ("name", "label", "hostname", "instance_label")
+        }
+        if PROTECTED_SOURCE.casefold() in managed_identity:
+            raise PreflightError(f"protected_source_as_managed_host:{namespace}")
         declared_namespace = str(global_config.get("state_namespace", "")).strip()
         if declared_namespace != namespace:
             raise PreflightError(f"manifest_namespace_mismatch:{namespace}")

@@ -186,6 +186,39 @@ class PreflightContractTests(unittest.TestCase):
         self.assertEqual(len(expectations), 6)
         self.assertEqual(expectations[0]["label"], "web-saas-host")
 
+    def test_protected_endpoint_is_allowed_but_protected_managed_identity_is_rejected(self) -> None:
+        class Generator:
+            protected_identity = False
+
+            @classmethod
+            def load_sources(cls, source):
+                namespace = Path(source).stem
+                host = {
+                    "name": PREFLIGHT.PROTECTED_SOURCE if cls.protected_identity and namespace == "open-platform" else namespace,
+                    "label": f"{namespace}-host",
+                    "type": "g6-standard-1",
+                    "host_vars": {"service_domains": [PREFLIGHT.PROTECTED_SOURCE]},
+                }
+                return {"state_namespace": namespace}, [], [host]
+
+            @staticmethod
+            def firewall_label(label):
+                return f"{label}-firewall"
+
+        with tempfile.TemporaryDirectory() as temporary:
+            gitops = Path(temporary)
+            manifest_dir = gitops / "resources/svc.plus/uat/akamai"
+            manifest_dir.mkdir(parents=True)
+            for namespace in PREFLIGHT.NAMESPACES:
+                (manifest_dir / f"{namespace}.yaml").write_text(
+                    f"service_domains: [{PREFLIGHT.PROTECTED_SOURCE}]\n", encoding="utf-8"
+                )
+            with patch.object(PREFLIGHT, "_load_generator", return_value=Generator()):
+                self.assertEqual(len(PREFLIGHT.load_manifest_expectations(gitops, Path("unused"))), 6)
+                Generator.protected_identity = True
+                with self.assertRaisesRegex(PREFLIGHT.PreflightError, "protected_source_as_managed_host:open-platform"):
+                    PREFLIGHT.load_manifest_expectations(gitops, Path("unused"))
+
     def test_linode_client_uses_get_only_and_allowlisted_paths(self) -> None:
         captured = []
 
