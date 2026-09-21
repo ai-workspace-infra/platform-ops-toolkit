@@ -129,6 +129,62 @@ jobs:
           bash -n .github/scripts/xconnect-lab/verify-xhttp-runtime.sh
           bash -n .github/scripts/xconnect-lab/enroll-node.sh
 
+  resolve_ai_aggregator_matrix:
+    name: Resolve AI Aggregator node matrix
+    needs: preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'apply'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_ref || 'main' }}
+          path: gitops
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build matrix from GitOps nodes
+        id: matrix
+        env:
+          GITOPS_MANIFEST: gitops/topology/uat/selfhost/ai-aggregator.yaml
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import yaml
+
+          data = yaml.safe_load(Path(os.environ['GITOPS_MANIFEST']).read_text())
+          spec = data['spec']
+          metadata = data.get('metadata', {})
+          nodes = []
+          for node in spec.get('nodes', []):
+              if node.get('role') not in {'gateway', 'cpa'}:
+                  continue
+              xconnect = node.get('xconnect', {})
+              if xconnect.get('enabled', True) is False:
+                  continue
+              overlay_ip = xconnect.get('overlay_ip')
+              if not overlay_ip:
+                  raise SystemExit(f"node {node.get('id')} is missing xconnect.overlay_ip")
+              nodes.append({
+                  'id': node['id'],
+                  'name': node.get('display_name', f"{metadata.get('name', 'ai-aggregator')}-{node['id']}"),
+                  'role': node['role'],
+                  'subsystem': metadata.get('name', 'ai-aggregator'),
+                  'overlay_ip': overlay_ip,
+              })
+          if not nodes:
+              raise SystemExit('GitOps manifest declares no enabled gateway/cpa XConnect nodes')
+          ids = [node['id'] for node in nodes]
+          if len(ids) != len(set(ids)):
+              raise SystemExit('GitOps XConnect node IDs must be unique')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write('matrix=' + json.dumps({'node': nodes}, separators=(',', ':')) + '\n')
+          print('resolved_nodes=' + ','.join(ids))
+          PY
+
   apply:
     name: UAT lab / ${{ inputs.mode }}
     needs: preflight
@@ -337,7 +393,7 @@ jobs:
 
   enroll_node_matrix:
     name: Enroll One / ${{ matrix.node.id }} (${{ matrix.node.role }})
-    needs: [preflight, apply]
+    needs: [preflight, apply, resolve_ai_aggregator_matrix]
     # `matrix` is only available after the matrix has been expanded; using it
     # in a job-level if makes GitHub reject the workflow before dispatch.
     # Selection is therefore evaluated by the first step below.
@@ -356,32 +412,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node:
-          - id: gateway-01
-            name: ai-aggregator-gateway-01
-            role: gateway
-            subsystem: ai-aggregator
-            overlay_ip: '10.77.0.10'
-          - id: cpa-codex-01
-            name: ai-aggregator-cpa-codex-01
-            role: cpa
-            subsystem: ai-aggregator
-            overlay_ip: '10.77.0.11'
-          - id: cpa-claude-01
-            name: ai-aggregator-cpa-claude-01
-            role: cpa
-            subsystem: ai-aggregator
-            overlay_ip: '10.77.0.12'
-          - id: cpa-codex-02
-            name: ai-aggregator-cpa-codex-02
-            role: cpa
-            subsystem: ai-aggregator
-            overlay_ip: '10.77.0.13'
-          - id: cpa-grok-01
-            name: ai-aggregator-cpa-grok-01
-            role: cpa
-            subsystem: ai-aggregator
-            overlay_ip: '10.77.0.14'
+        node: ${{ fromJSON(needs.resolve_ai_aggregator_matrix.outputs.matrix).node }}
     steps:
       - name: Select requested enrollment target
         id: selection

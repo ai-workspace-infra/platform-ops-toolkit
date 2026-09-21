@@ -24,16 +24,21 @@ grep -Fq 'reconcile_mesh:' "${workflow}" || {
   exit 1
 }
 
-# Validate all ai-aggregator nodes are present in the matrix
-required_nodes=(gateway-01 cpa-codex-01 cpa-claude-01 cpa-codex-02 cpa-grok-01)
-for node in "${required_nodes[@]}"; do
-  grep -Fq "id: ${node}" "${workflow}" || {
-    echo "::error::Matrix is missing required AI Aggregator node: ${node}" >&2
-    exit 1
-  }
-done
+# Validate that the matrix is resolved from GitOps rather than hard-coded.
+grep -Fq 'resolve_ai_aggregator_matrix:' "${workflow}" || {
+  echo "::error::Workflow must resolve the AI Aggregator matrix from GitOps" >&2
+  exit 1
+}
+grep -Fq 'fromJSON(needs.resolve_ai_aggregator_matrix.outputs.matrix)' "${workflow}" || {
+  echo "::error::Enrollment matrix must consume the GitOps-derived job output" >&2
+  exit 1
+}
+if grep -Eq 'id: cpa-[a-z0-9-]+' "${workflow}"; then
+  echo "::error::Workflow must not hard-code CPA node IDs" >&2
+  exit 1
+fi
 
-# Validate Python parsing of workflow matrix
+# Validate the workflow parser sees a dynamic matrix expression.
 python3 - "${workflow}" <<'PY'
 import sys
 import yaml
@@ -48,15 +53,9 @@ if not matrix_job:
 
 strategy = matrix_job.get("strategy", {})
 matrix = strategy.get("matrix", {})
-nodes = matrix.get("node", [])
-if not nodes:
-    raise SystemExit("strategy.matrix.node list is empty or missing")
-
-node_ids = {n.get("id") for n in nodes if isinstance(n, dict)}
-expected = {"gateway-01", "cpa-codex-01", "cpa-claude-01", "cpa-codex-02", "cpa-grok-01"}
-missing = expected - node_ids
-if missing:
-    raise SystemExit(f"Missing expected nodes in matrix: {missing}")
+expression = matrix.get("node")
+if not isinstance(expression, str) or "resolve_ai_aggregator_matrix.outputs.matrix" not in expression:
+    raise SystemExit("strategy.matrix.node must consume the GitOps-derived output")
 
 PY
 
