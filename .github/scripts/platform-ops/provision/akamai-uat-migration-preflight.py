@@ -266,7 +266,10 @@ def inspect_terraform_state(state_key: str, backend_env: dict[str, str]) -> dict
     """Initialize a disposable backend config and read state via terraform show -json."""
     with tempfile.TemporaryDirectory(prefix="akamai-state-read-") as temporary:
         root = Path(temporary)
-        (root / "main.tf").write_text('terraform { backend "s3" {} }\n', encoding="utf-8")
+        (root / "main.tf").write_text(
+            'terraform {\n  backend "s3" {}\n}\n',
+            encoding="utf-8",
+        )
         backend_file = root / "backend.hcl"
         backend_file.write_text(_backend_hcl(state_key, backend_env), encoding="utf-8")
         backend_file.chmod(0o600)
