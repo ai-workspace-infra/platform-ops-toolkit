@@ -65,6 +65,21 @@ def main() -> int:
             or str(facts.get("label", "")) in manifest_agent_proxy_names
         )
     ]
+    regional_namespace = os.environ.get("AGENT_PROXY_NAMESPACE", "")
+    if deployment_env == "uat" and regional_namespace in {
+        "agent-proxy-jp", "agent-proxy-us", "agent-proxy-sg"
+    }:
+        if len(iac_hosts) != 1:
+            raise SystemExit(
+                f"UAT namespace {regional_namespace} must render exactly one Akamai Agent Proxy host; "
+                f"found {len(iac_hosts)} CMDB hosts"
+            )
+        output("hosts_agent_proxy_iac", iac_hosts)
+        output("hosts_agent_proxy_non_iac", [])
+        output("agent_proxy_region_count", 1)
+        print(f"Isolated UAT Agent Proxy namespace {regional_namespace}: host={iac_hosts!r}; existing nodes excluded")
+        return 0
+
     if len(iac_hosts) != 3:
         raise SystemExit(
             f"{deployment_env.upper()} Agent Proxy IaC matrix must contain exactly JP, US, and SG; "

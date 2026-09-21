@@ -1,56 +1,48 @@
 # UAT Akamai Cloud Selfhost Profile
 
-## 默认拓扑
+UAT Akamai resources are managed through six independent Terraform namespaces.
+Do not dispatch an aggregate `all`, `selfhost`, or generic `agent-proxy` operation.
+The workflow defaults to `web-saas`; select exactly one namespace per run.
 
-UAT 的 `selfhost-orchestrator` 默认使用 `akamai-cloud` provider，并以
-`target_domains=all` 执行完整的 Selfhost profile。资源声明位于 GitOps：
-
-| 工作区 | 规格 | 用途 | GitOps 声明 |
+| Namespace | Workload | GitOps declaration | State suffix |
 | --- | --- | --- | --- |
-| `web-saas` | 2C4G (`g6-standard-2`) | Web SaaS 服务节点 | `resources/svc.plus/uat/akamai/web-saas.yaml` |
-| `open-platform` | 2C4G (`g6-standard-2`) | 迁移 `vault.svc.plus` 与 `observability.svc.plus` | `resources/svc.plus/uat/akamai/open-platform.yaml` |
-| `ai-workspace` | 2C8G (`g8-dedicated-8-2`) | AI Workspace 套件 | `resources/svc.plus/uat/akamai/ai-workspace.yaml` |
+| `web-saas` | `console-selfhost-uat.onwalk.net` full stack | `resources/svc.plus/uat/akamai/web-saas.yaml` | `web-saas` |
+| `open-platform` | New permanent host for `observability.svc.plus` and `vault.svc.plus` | `resources/svc.plus/uat/akamai/open-platform.yaml` | `open-platform` |
+| `ai-workspace` | `xworkmate-bridge` and AI Workspace suite; `sg-sin-2`, `g8-dedicated-8-4` (4C8G) | `resources/svc.plus/uat/akamai/ai-workspace.yaml` | `ai-workspace` |
+| `agent-proxy-jp` | JP Agent Proxy | `resources/svc.plus/uat/akamai/agent-proxy-jp.yaml` | `agent-proxy-jp` |
+| `agent-proxy-us` | US Agent Proxy | `resources/svc.plus/uat/akamai/agent-proxy-us.yaml` | `agent-proxy-us` |
+| `agent-proxy-sg` | SG Agent Proxy | `resources/svc.plus/uat/akamai/agent-proxy-sg.yaml` | `agent-proxy-sg` |
 
-UAT Agent Proxy 使用五区域矩阵：
-
-- Akamai Cloud/Terraform：JP、US、SG。
-- Ulighthost/existing：TW、PH。
-
-existing 节点只从统一 inventory 和 Vault 读取连接事实，不由 Terraform 创建或销毁。
-
-## 手动触发
-
-在 `selfhost-orchestrator` 中选择：
+The canonical state key for each row is:
 
 ```text
-vault_env_path: uat
-target_domains: all
-cloud_provider: akamai-cloud
-cloud_account: manbuzhe2026
-operation: plan
-include_external_agent_proxy: true
+terraform/uat/svc.plus/akamai-cloud/manbuzhe2026/<namespace>/terraform.tfstate
 ```
 
-默认 `operation` 建议先使用 `plan`。确认计划无漂移后，再按变更审批执行
-`infra` 或 `deploy`。workflow 会为该 profile 使用独立的 `selfhost` workspace 和
-S3 state key，不复用单独的 `web-saas` state：
+JP/US/SG Akamai Agent Proxy resources each have a one-host manifest and state.
+TW/PH remain Ulighthost `existing` inventory nodes; they are never created or
+destroyed through Terraform.
 
-```text
-terraform/uat/platform-ops-toolkit/akamai-cloud/manbuzhe2026/selfhost/terraform.tfstate
-```
+## Dispatch
 
-## 验证要点
+For a plan, select one of the six namespace names as `target_domains`, set
+`vault_env_path=uat`, `cloud_provider=akamai-cloud`, and
+`cloud_account=manbuzhe2026`. The route rejects aggregate selections. The
+`open-platform` namespace is permanent and normal destroy is rejected. Destruction
+of any other namespace is fail-closed until the migration acceptance gates and
+state-scope checks described in [the split migration runbook](uat-split-selfhost-migration.md)
+pass. Never use `selfhost` as a shared state.
 
-1. Akamai 组合渲染应得到 6 台 Terraform 主机：3 台 Selfhost 服务节点和 3 台
-   JP/US/SG Agent Proxy 节点。
-2. Agent Proxy 矩阵应额外得到 TW/PH 两个 Ulighthost existing 节点，总计五个区域。
-3. `open-platform` 的服务域名必须包含 `vault.svc.plus` 和
-   `observability.svc.plus`。
-4. UAT profile 不应读取或写入 PROD state，也不应执行 Ulighthost 节点的 Terraform
-   apply/destroy。
+## Migration-source boundary
 
-## 凭据边界
+The existing `ssh ubuntu@observability.svc.plus` all-in-one host is an external
+migration source and rollback point. It is not an Akamai resource: do not import it,
+add it to Terraform state, modify it, or include it in any destroy scope. Keep it
+unchanged until the new Open Platform services pass the documented health gates and
+the controlled cutover is accepted. It is not automatically destroyed afterward.
 
-Akamai Cloud 使用 `linode/linode` provider。`LINODE_TOKEN` 仍只从 Vault/OIDC
-运行时注入；GitOps 文件只包含非敏感资源参数和 SSH 公钥，不提交 API token、密码或
-私钥。
+## Credentials
+
+Akamai Cloud uses the `linode/linode` provider. `LINODE_TOKEN` is injected at runtime
+through Vault/OIDC. GitOps declarations contain only non-secret resource settings
+and public SSH keys; never commit API tokens, passwords, or private keys.

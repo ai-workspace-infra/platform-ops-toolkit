@@ -82,7 +82,7 @@ on:
       target_domains:
         description: "选择要执行的业务域 (Business Domain)"
         required: true
-        default: "all"
+        default: "web-saas"
         type: choice
         options:
         - all
@@ -91,6 +91,9 @@ on:
         - open-platform
         - infra-platform
         - agent-proxy
+        - agent-proxy-jp
+        - agent-proxy-us
+        - agent-proxy-sg
         - web-saas + agent-proxy
       cloud_provider:
         description: "云服务商（按 provider registry 选择；UAT 默认 Akamai Cloud）"
@@ -237,6 +240,7 @@ jobs:
       resource_file:            ${{ steps.route.outputs.resource_file }}
       terraform_workspace:      ${{ steps.route.outputs.terraform_workspace }}
       state_key:                ${{ steps.route.outputs.state_key }}
+      terraform_namespace:      ${{ steps.route.outputs.terraform_namespace }}
       run_infrastructure:       ${{ steps.route.outputs.run_infrastructure }}
       run_application_deploy:        ${{ steps.route.outputs.run_application_deploy }}
       target_domains:           ${{ steps.route.outputs.target_domains }}
@@ -319,6 +323,9 @@ jobs:
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/akamai/web-saas.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/akamai/open-platform.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/akamai/ai-workspace.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/akamai/agent-proxy-jp.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/akamai/agent-proxy-us.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/akamai/agent-proxy-sg.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/akamai/xconnect.yaml
 
     - name: Resolve Agent Proxy machine service origins from GitOps
@@ -608,6 +615,7 @@ jobs:
         HOSTS_MANIFEST_FILE: ${{ steps.route.outputs.env_dir }}/hosts_manifest.json
         DEPLOYMENT_ENV: ${{ steps.route.outputs.deployment_env }}
         GITOPS_XCONNECT_CONFIG: ${{ github.workspace }}/gitops/topology/${{ steps.route.outputs.deployment_env }}/selfhost/${{ steps.route.outputs.deployment_env == 'uat' && 'xconnect-regional-pool.yaml' || 'xconnect-regional-pools.yaml' }}
+        AGENT_PROXY_NAMESPACE: ${{ steps.route.outputs.terraform_namespace }}
       run: >-
         python3
         ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_build-agent-proxy-matrices.py
@@ -1551,6 +1559,8 @@ jobs:
         DATA_MIGRATION_RESULT: ${{ needs.trigger_data_migration.result }}
         DEPLOYMENT_ENV: ${{ needs.provision.outputs.deployment_env }}
         TARGET_DOMAINS: ${{ needs.provision.outputs.target_domains }}
+        TERRAFORM_NAMESPACE: ${{ needs.provision.outputs.terraform_namespace }}
+        TERRAFORM_STATE_KEY: ${{ needs.provision.outputs.state_key }}
         DEPLOY_TAG: ${{ needs.provision.outputs.deploy_tag }}
         AGENT_CONTROLLER_URL: ${{ needs.provision.outputs.agent_accounts_base_url }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_deployment-summary.sh

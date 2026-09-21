@@ -15,9 +15,11 @@ render_summary() {
   printf '| Web SaaS final status | `%s` |\n' "${WEB_SAAS_STATUS_RESULT:-unknown}"
   printf '| Agent Proxy final status | `%s` |\n' "${AGENT_PROXY_STATUS_RESULT:-unknown}"
   printf '| Data migration | `%s` |\n' "${DATA_MIGRATION_RESULT:-unknown}"
+  printf '| Terraform namespace | `%s` |\n' "${TERRAFORM_NAMESPACE:-unknown}"
   echo
   printf 'Deployment environment: `%s`\n' "${DEPLOYMENT_ENV:-unknown}"
   printf 'Target domains: `%s`\n' "${TARGET_DOMAINS:-unknown}"
+  printf 'Terraform state: `%s`\n' "${TERRAFORM_STATE_KEY:-unknown}"
   printf 'Deploy tag: `%s`\n' "${DEPLOY_TAG:-unknown}"
   printf 'Agent Proxy controller: `%s`\n' "${AGENT_CONTROLLER_URL:-not-configured}"
 }
