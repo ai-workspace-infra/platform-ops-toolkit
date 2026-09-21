@@ -228,24 +228,13 @@ jobs:
       - name: Login to Vault with GitHub OIDC
         if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate')) }}
         id: vault_login
-        env:
-          VAULT_ADDR: https://vault.svc.plus
-          VAULT_JWT_ROLE: ${{ vars.VAULT_JWT_ROLE }}
-          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
-          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-        run: |
-          set -euo pipefail
-          test -n "$VAULT_JWT_ROLE"
-          oidc_token="$(curl --fail --silent --show-error \
-            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=vault" | jq -r .value)"
-          vault_token="$(jq -n --arg role "$VAULT_JWT_ROLE" --arg jwt "$oidc_token" \
-            '{role: $role, jwt: $jwt}' | \
-            curl --fail --silent --show-error \
-              --request POST --data @- "$VAULT_ADDR/v1/auth/jwt/login" | jq -r .auth.client_token)"
-          test -n "$vault_token" && test "$vault_token" != "null"
-          echo "::add-mask::$vault_token"
-          echo "token=$vault_token" >> "$GITHUB_OUTPUT"
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: ${{ vars.VAULT_JWT_ROLE }}
+          jwtGithubAudience: vault
+          exportToken: true
       - name: Render AWS UAT resources
         env:
           TARGET_DOMAIN_BASE: onwalk.net
@@ -278,7 +267,6 @@ jobs:
         working-directory: playbooks
         env:
           VAULT_ADDR: https://vault.svc.plus
-          VAULT_TOKEN: ${{ steps.vault_login.outputs.token }}
         run: |
           ansible-playbook -i ../iac_modules/terraform-hcl-standard/aws-cloud/envs/ai-aggregator-uat/inventory.ini \
             deploy-ai-aggregator-v1.yml \
@@ -353,19 +341,13 @@ jobs:
       - name: Login to Vault with GitHub OIDC
         if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate')) }}
         id: vault_login
-        env:
-          VAULT_ADDR: https://vault.svc.plus
-          VAULT_GCP_JWT_ROLE: ${{ vars.VAULT_GCP_JWT_ROLE }}
-          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
-          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-        run: |
-          set -euo pipefail
-          test -n "$VAULT_GCP_JWT_ROLE"
-          oidc_token="$(curl --fail --silent --show-error             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN"             "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=vault" | jq -r .value)"
-          vault_token="$(jq -n --arg role "$VAULT_GCP_JWT_ROLE" --arg jwt "$oidc_token"             '{role: $role, jwt: $jwt}' |             curl --fail --silent --show-error --request POST --data @-               "$VAULT_ADDR/v1/auth/jwt/login" | jq -r .auth.client_token)"
-          test -n "$vault_token" && test "$vault_token" != "null"
-          echo "::add-mask::$vault_token"
-          echo "token=$vault_token" >> "$GITHUB_OUTPUT"
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: ${{ vars.VAULT_GCP_JWT_ROLE }}
+          jwtGithubAudience: vault
+          exportToken: true
       - name: Provision GCP UAT Spot instance
         if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate')) }}
         env:
@@ -384,7 +366,6 @@ jobs:
         working-directory: playbooks
         env:
           VAULT_ADDR: https://vault.svc.plus
-          VAULT_TOKEN: ${{ steps.vault_login.outputs.token }}
         run: |
           set -euo pipefail
           ansible-playbook -i ../iac_modules/terraform-hcl-standard/gcp-cloud/envs/ai-aggregator-uat/inventory.ini             deploy-ai-aggregator-v1.yml             -e ai_aggregator_operation=stage             -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/uat/selfhost/ai-aggregator.yaml
@@ -474,19 +455,13 @@ jobs:
           PY
       - name: Login to Vault with GitHub OIDC
         id: vault_login
-        env:
-          VAULT_ADDR: https://vault.svc.plus
-          VAULT_VPS_JWT_ROLE: ${{ vars.VAULT_VPS_JWT_ROLE }}
-          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
-          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-        run: |
-          set -euo pipefail
-          test -n "$VAULT_VPS_JWT_ROLE"
-          oidc_token="$(curl --fail --silent --show-error             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN"             "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=vault" | jq -r .value)"
-          vault_token="$(jq -n --arg role "$VAULT_VPS_JWT_ROLE" --arg jwt "$oidc_token"             '{role: $role, jwt: $jwt}' | curl --fail --silent --show-error             --request POST --data @- "$VAULT_ADDR/v1/auth/jwt/login" | jq -r .auth.client_token)"
-          test -n "$vault_token" && test "$vault_token" != "null"
-          echo "::add-mask::$vault_token"
-          echo "token=$vault_token" >> "$GITHUB_OUTPUT"
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: ${{ vars.VAULT_VPS_JWT_ROLE }}
+          jwtGithubAudience: vault
+          exportToken: true
       - name: Load VPS provider credential from Vault
         id: vps_vault
         uses: hashicorp/vault-action@v4
@@ -517,7 +492,6 @@ jobs:
         working-directory: playbooks
         env:
           VAULT_ADDR: https://vault.svc.plus
-          VAULT_TOKEN: ${{ steps.vault_login.outputs.token }}
         run: |
           ansible-playbook -i "${{ steps.contract.outputs.workdir }}/inventory.ini"             deploy-ai-aggregator-v1.yml             -e ai_aggregator_operation=stage             -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/uat/selfhost/ai-aggregator.yaml
       - name: Verify selected VPS endpoints
@@ -573,24 +547,17 @@ jobs:
           PY
       - name: Login to Vault with GitHub OIDC
         id: vault_login
-        env:
-          VAULT_ADDR: https://vault.svc.plus
-          VAULT_JWT_ROLE: ${{ vars.VAULT_JWT_ROLE }}
-          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
-          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-        run: |
-          set -euo pipefail
-          test -n "$VAULT_JWT_ROLE"
-          oidc_token="$(curl --fail --silent --show-error             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN"             "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=vault" | jq -r .value)"
-          vault_token="$(jq -n --arg role "$VAULT_JWT_ROLE" --arg jwt "$oidc_token"             '{role: $role, jwt: $jwt}' |             curl --fail --silent --show-error --request POST --data @-               "$VAULT_ADDR/v1/auth/jwt/login" | jq -r .auth.client_token)"
-          test -n "$vault_token" && test "$vault_token" != "null"
-          echo "::add-mask::$vault_token"
-          echo "token=$vault_token" >> "$GITHUB_OUTPUT"
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: ${{ vars.VAULT_JWT_ROLE }}
+          jwtGithubAudience: vault
+          exportToken: true
       - name: Deploy Prod to existing persistent nodes
         working-directory: playbooks
         env:
           VAULT_ADDR: https://vault.svc.plus
-          VAULT_TOKEN: ${{ steps.vault_login.outputs.token }}
         run: |
           ansible-playbook -i inventory.ini --limit "${{ steps.target_hosts.outputs.hosts }}" deploy-ai-aggregator-v1.yml             -e ai_aggregator_operation=${{ inputs.operation }}             -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/prod/selfhost/ai-aggregator.yaml
       - name: Verify Prod endpoints
