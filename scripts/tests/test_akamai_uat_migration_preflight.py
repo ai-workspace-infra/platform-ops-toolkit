@@ -256,15 +256,18 @@ class PreflightContractTests(unittest.TestCase):
                 self.close()
 
         def fake_open(request, timeout):
-            captured.append((request.method, request.full_url, timeout))
+            captured.append((request.method, request.full_url, timeout, request.get_header("Authorization")))
             return Response(b'{"data":[],"page":1,"pages":1,"results":0}')
 
         with patch.object(PREFLIGHT, "urlopen", side_effect=fake_open):
-            self.assertEqual(PREFLIGHT.linode_get_pages("linode/instances", "fake-token"), [])
+            self.assertEqual(PREFLIGHT.linode_get_pages("linode/instances", "  fake-token\n"), [])
         self.assertEqual(captured[0][0], "GET")
         self.assertIn("/v4/linode/instances?", captured[0][1])
+        self.assertEqual(captured[0][3], "Bearer fake-token")
         with self.assertRaises(PREFLIGHT.PreflightError):
             PREFLIGHT.linode_get_pages("linode/instances/123/delete", "fake-token")
+        with self.assertRaisesRegex(PREFLIGHT.PreflightError, "linode_token_invalid"):
+            PREFLIGHT.linode_get_pages("linode/instances", "fake\ntoken")
 
     def test_absent_and_unmanaged_statuses(self) -> None:
         expected = expected_rows()
