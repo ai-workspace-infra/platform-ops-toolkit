@@ -50,7 +50,7 @@ for required in \
   'google-github-actions/auth@v2' \
   'gcloud projects describe' \
   'Verify UAT cannot access PROD' \
-  'xworktech-open-platform-prod' \
+  'xwork-open-platform-prod' \
   'allowed_subjects' \
   'gcp_oidc_audience' \
   'WIF pool/provider create permissions will be validated by the Terraform IAM API operation.' \
@@ -71,7 +71,9 @@ for required in \
   'uses: ./.github/actions/configure-gcp-oidc' \
   'scripts/generate.py render' \
   'envs/${DEPLOY_ENV}' \
-  'backend-config="key=terraform/${{ env.DEPLOY_ENV }}/${{ steps.config.outputs.project_id }}/gcp-cloud/${{ env.GCP_ACCOUNT_ID }}/platform/terraform.tfstate"' \
+  'backend-config="key=terraform/${{ env.DEPLOY_ENV }}/${{ steps.config.outputs.project_id }}/gcp-cloud/${{ env.GCP_ACCOUNT_ID }}/${{ steps.config.outputs.state_workspace }}/terraform.tfstate"' \
+  'state_workspace="platform"' \
+  'state_workspace="$(basename "${manifest}" .yaml)"' \
   'Terraform apply' \
   'Terraform destroy'; do
   grep -Fq -- "${required}" "${gcp_iac_workflow}" || {
@@ -198,8 +200,8 @@ for required in \
   'https://token.actions.githubusercontent.com' \
   'https://iam.googleapis.com/' \
   '744119519286' \
-  'xworktech-open-platform-uat' \
-  'xworktech-open-platform-prod' \
+  'xwork-open-platform-uat' \
+  'xwork-open-platform-prod' \
   'spec.subjects' \
   'platform-ops-toolkit/#{environment}/#{account_id}/gcp-oidc-bootstrap/terraform.tfstate'; do
   grep -Fq -- "${required}" "${resolver}" || {

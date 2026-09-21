@@ -23,8 +23,8 @@ config = YAML.load_file(ENV.fetch("CONFIG_FILE"))
 spec = config.fetch("spec")
 metadata = config.fetch("metadata")
 project_by_environment = {
-  "uat" => "xworktech-open-platform-uat",
-  "prod" => "xworktech-open-platform-prod"
+  "uat" => "xwork-open-platform-uat",
+  "prod" => "xwork-open-platform-prod"
 }
 expected_project = project_by_environment.fetch(environment)
 account_id = spec["gcp_account_id"].to_s

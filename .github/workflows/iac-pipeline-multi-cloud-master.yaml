@@ -79,7 +79,7 @@ on:
       gcp_iac_ref:
         description: "Pinned iac_modules ref used when cloud_provider=gcp-cloud"
         type: string
-        default: 8b09807226d954cfc71bd68481139f23dfb5c2fc
+        default: 2ba98f30c3e4199e01eb940bb1951549fca0ae3e
       aws_region:
         description: "AWS region used only when cloud_provider=aws-cloud"
         type: string
@@ -139,7 +139,7 @@ jobs:
       vault_env_path: ${{ inputs.vault_env_path || 'uat' }}
       gcp_account_id: ${{ inputs.gcp_account_id || 'xworktech' }}
       gcp_resource_manifest: ${{ inputs.gcp_resource_manifest || '' }}
-      iac_ref: ${{ inputs.gcp_iac_ref || '8b09807226d954cfc71bd68481139f23dfb5c2fc' }}
+      iac_ref: ${{ inputs.gcp_iac_ref || '2ba98f30c3e4199e01eb940bb1951549fca0ae3e' }}
       gitops_repo_name: ${{ inputs.gitops_repo_name || 'https://github.com/ai-workspace-infra/gitops.git' }}
       gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
     secrets: inherit
