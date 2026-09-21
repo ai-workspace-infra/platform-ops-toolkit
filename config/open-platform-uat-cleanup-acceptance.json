@@ -1,0 +1,11 @@
+{
+  "environment": "uat",
+  "namespace": "open-platform",
+  "migration_complete": false,
+  "source_unchanged_through_acceptance": false,
+  "target_health_checks_passed": false,
+  "source_health_checks_passed": false,
+  "state_isolation_verified": false,
+  "backup_reference": "",
+  "acceptance_reference": ""
+}

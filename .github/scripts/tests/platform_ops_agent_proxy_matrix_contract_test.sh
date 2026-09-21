@@ -57,13 +57,46 @@ for environment, (pool_names, external_nodes) in fixtures.items():
             "DEPLOYMENT_ENV": environment,
             "GITHUB_OUTPUT": str(output),
         })
-        subprocess.run([sys.executable, str(script)], env=env, check=True, capture_output=True, text=True)
+        try:
+            subprocess.run([sys.executable, str(script)], env=env, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as error:
+            raise AssertionError(error.stderr or error.stdout) from error
         values = dict(line.rstrip("\n").split("=", 1) for line in output.read_text().splitlines())
         iac_hosts = json.loads(values["hosts_agent_proxy_iac"])
         non_iac_hosts = json.loads(values["hosts_agent_proxy_non_iac"])
         assert len(iac_hosts) == 3, (environment, iac_hosts)
         assert set(non_iac_hosts) == set(external_nodes.values()), (environment, non_iac_hosts)
         assert values["agent_proxy_region_count"] == str(len(pool_names)), (environment, values)
+
+regional_namespaces = {
+    "agent-proxy-jp": "jp-xconnect",
+    "agent-proxy-us": "us-xconnect",
+    "agent-proxy-sg": "sg-xconnect",
+}
+for namespace, host in regional_namespaces.items():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp = Path(temp_dir)
+        cmdb = temp / "cmdb.json"
+        manifest = temp / "hosts_manifest.json"
+        output = temp / "output"
+        cmdb.write_text(json.dumps({host: {"name": host, "groups": ["agent_proxy"]}}), encoding="utf-8")
+        manifest.write_text(json.dumps({"hosts": [{"name": host, "groups": ["agent_proxy"]}]}), encoding="utf-8")
+        env = os.environ.copy()
+        env.update({
+            "CMDB_FILE": str(cmdb),
+            "HOSTS_MANIFEST_FILE": str(manifest),
+            "DEPLOYMENT_ENV": "uat",
+            "AGENT_PROXY_NAMESPACE": namespace,
+            "GITHUB_OUTPUT": str(output),
+        })
+        try:
+            subprocess.run([sys.executable, str(script)], env=env, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as error:
+            raise AssertionError(error.stderr or error.stdout) from error
+        values = dict(line.rstrip("\n").split("=", 1) for line in output.read_text().splitlines())
+        assert json.loads(values["hosts_agent_proxy_iac"]) == [host], (namespace, values)
+        assert json.loads(values["hosts_agent_proxy_non_iac"]) == [], (namespace, values)
+        assert values["agent_proxy_region_count"] == "1", (namespace, values)
 
 print("platform_ops_agent_proxy_matrix_contract_test: PASS")
 PY

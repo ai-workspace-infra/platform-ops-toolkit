@@ -137,6 +137,16 @@ jobs:
               exit 1
               ;;
           esac
+          if [[ "${DEPLOY_ENV}" == uat ]]; then
+            case "${WORKSPACE}" in
+              web-saas|open-platform|ai-workspace|agent-proxy-jp|agent-proxy-us|agent-proxy-sg) ;;
+              *) echo "UAT Akamai requires one of the six isolated namespaces; aggregate/legacy workspace '${WORKSPACE}' is forbidden" >&2; exit 1 ;;
+            esac
+            if [[ "${DEPLOY_ACTION}" == destroy && "${WORKSPACE}" == open-platform ]]; then
+              echo "open-platform is a permanent UAT service namespace and cannot be destroyed" >&2
+              exit 1
+            fi
+          fi
 
       - name: Load Akamai Cloud and state credentials from Vault
         id: vault
@@ -182,6 +192,10 @@ jobs:
           manifest="${MANIFEST_INPUT:-resources/${PROJECT}/${DEPLOY_ENV}/akamai/${WORKSPACE}.yaml}"
           [[ "${manifest}" != /* && "${manifest}" != *..* ]] || { echo "invalid resource manifest path" >&2; exit 1; }
           [[ "${manifest}" == resources/*/${DEPLOY_ENV}/akamai/*.yaml ]] || { echo "manifest must be under resources/<project>/${DEPLOY_ENV}/akamai/" >&2; exit 1; }
+          if [[ "${DEPLOY_ENV}" == uat && "${manifest}" != "resources/${PROJECT}/uat/akamai/${WORKSPACE}.yaml" ]]; then
+            echo "UAT Akamai namespace must use its matching canonical one-resource manifest" >&2
+            exit 1
+          fi
           test -f "gitops/${manifest}"
           echo "path=${manifest}" >> "$GITHUB_OUTPUT"
 
@@ -230,6 +244,17 @@ jobs:
           root="iac_modules/terraform-hcl-standard/akamai-cloud/envs/${DEPLOY_ENV}"
           terraform -chdir="${root}" validate -no-color
           if [[ "${DEPLOY_ACTION}" != destroy ]]; then terraform -chdir="${root}" plan -input=false -no-color; fi
+
+      - name: Assert safe single-namespace Akamai destroy scope
+        if: ${{ inputs.deploy_action == 'destroy' }}
+        env:
+          ENV_STEPS_ROUTE_OUTPUTS_CLOUD_PROVIDER: akamai-cloud
+          ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE: ${{ inputs.workspace }}
+          ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY: ${{ steps.contract.outputs.state_key }}
+          HOSTS_MANIFEST: ${{ github.workspace }}/iac_modules/terraform-hcl-standard/akamai-cloud/envs/${{ inputs.vault_env_path }}/hosts_manifest.json
+          OPEN_PLATFORM_ACCEPTANCE_FILE: ${{ github.workspace }}/config/open-platform-uat-cleanup-acceptance.json
+        working-directory: iac_modules/terraform-hcl-standard/akamai-cloud/envs/${{ inputs.vault_env_path }}
+        run: bash "${GITHUB_WORKSPACE}/.github/scripts/platform-ops/provision/platform-ops_provision_assert-destroy-scope.sh"
 
       - name: Terraform apply or destroy
         if: ${{ inputs.deploy_action == 'apply' || inputs.deploy_action == 'destroy' }}

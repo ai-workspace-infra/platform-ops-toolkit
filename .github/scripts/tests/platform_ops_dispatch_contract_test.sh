@@ -57,14 +57,43 @@ if grep -Fq "config/resources/" <<<"${deploy_output}"; then
   exit 1
 fi
 
-uat_full_output="$(run_route env INPUT_TARGET_DOMAINS=all INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=plan INPUT_DNS_MODE=none)"
-assert_contains "${uat_full_output}" "target_domains=all"
-assert_contains "${uat_full_output}" "resource_file=uat/selfhost"
-assert_contains "${uat_full_output}" "terraform_workspace=uat-platform-ops-toolkit-akamai-cloud-manbuzhe2026-selfhost"
-assert_contains "${uat_full_output}" "state_key=terraform/uat/platform-ops-toolkit/akamai-cloud/manbuzhe2026/selfhost/terraform.tfstate"
-assert_in_output "${uat_full_output}" "open-platform.yaml"
-assert_in_output "${uat_full_output}" "ai-workspace.yaml"
-assert_in_output "${uat_full_output}" "xconnect.yaml"
+if run_route env INPUT_TARGET_DOMAINS=all INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=plan INPUT_DNS_MODE=none >/dev/null 2>&1; then
+  echo "UAT Akamai aggregate all target unexpectedly entered Terraform routing" >&2
+  exit 1
+fi
+
+namespace_state_keys=()
+for namespace in web-saas open-platform ai-workspace agent-proxy-jp agent-proxy-us agent-proxy-sg; do
+  selected_domain="${namespace}"
+  expected_domain="${namespace}"
+  if [[ "${namespace}" == agent-proxy-* ]]; then
+    expected_domain=agent-proxy
+  fi
+  routed="$(run_route env INPUT_TARGET_DOMAINS="${selected_domain}" INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=plan INPUT_DNS_MODE=none)"
+  state_key="terraform/uat/platform-ops-toolkit/akamai-cloud/manbuzhe2026/${namespace}/terraform.tfstate"
+  assert_contains "${routed}" "target_domains=${expected_domain}"
+  assert_contains "${routed}" "terraform_namespace=${namespace}"
+  assert_contains "${routed}" "terraform_workspace=uat-platform-ops-toolkit-akamai-cloud-manbuzhe2026-${namespace}"
+  assert_contains "${routed}" "state_key=${state_key}"
+  namespace_state_keys+=("${state_key}")
+done
+unique_state_key_count="$(printf '%s\n' "${namespace_state_keys[@]}" | sort -u | wc -l | tr -d ' ')"
+if [[ "${unique_state_key_count}" -ne 6 || "${#namespace_state_keys[@]}" -ne 6 ]]; then
+  echo "expected exactly six unique UAT Akamai namespace state keys" >&2
+  exit 1
+fi
+
+for aggregate in agent-proxy 'web-saas + agent-proxy'; do
+  if run_route env INPUT_TARGET_DOMAINS="${aggregate}" INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=plan INPUT_DNS_MODE=none >/dev/null 2>&1; then
+    echo "UAT Akamai aggregate target '${aggregate}' unexpectedly entered Terraform routing" >&2
+    exit 1
+  fi
+done
+
+if run_route env INPUT_TARGET_DOMAINS=open-platform INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=destroy INPUT_DNS_MODE=none >/dev/null 2>&1; then
+  echo "permanent UAT open-platform namespace unexpectedly accepted destroy" >&2
+  exit 1
+fi
 
 akamai_plan_output="$(mktemp)"
 INPUT_CLOUD_PROVIDER=akamai-cloud INPUT_INSTANCE_PLAN=2C8G GITHUB_OUTPUT="${akamai_plan_output}" \

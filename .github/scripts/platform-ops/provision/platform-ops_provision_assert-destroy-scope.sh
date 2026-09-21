@@ -51,8 +51,110 @@ managed_instances="$(
   ' <<<"${state_json}"
 )"
 
+# Akamai Cloud destroy is restricted to the labels in the current rendered
+# manifest. The legacy observability host is a retained migration source and
+# rollback point; it is never an eligible Terraform target in this workflow.
+if [[ "${ENV_STEPS_ROUTE_OUTPUTS_CLOUD_PROVIDER}" == "akamai-cloud" ]]; then
+  state_path="${ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY%/terraform.tfstate}"
+  namespace="${state_path##*/}"
+  case "${namespace}" in
+    web-saas|ai-workspace|agent-proxy-jp|agent-proxy-us|agent-proxy-sg) ;;
+    open-platform)
+      echo "::error::Refusing destroy: UAT open-platform is a permanent service node." >&2
+      exit 1
+      ;;
+    selfhost|all)
+      echo "::error::Refusing aggregate Akamai destroy namespace '${namespace}'; use one isolated namespace." >&2
+      exit 1
+      ;;
+    *)
+      echo "::error::Refusing Akamai destroy for non-allowlisted namespace '${namespace}'." >&2
+      exit 1
+      ;;
+  esac
+
+  if [[ "${ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY}" != terraform/uat/platform-ops-toolkit/akamai-cloud/*/"${namespace}"/terraform.tfstate ]]; then
+    echo "::error::Refusing Akamai UAT destroy: state key is not in the canonical five-level namespace." >&2
+    exit 1
+  fi
+
+  : "${OPEN_PLATFORM_ACCEPTANCE_FILE:=${GITHUB_WORKSPACE:-.}/config/open-platform-uat-cleanup-acceptance.json}"
+  if [[ ! -f "${OPEN_PLATFORM_ACCEPTANCE_FILE}" ]] || ! jq -e '
+      .environment == "uat" and
+      .namespace == "open-platform" and
+      .migration_complete == true and
+      .source_unchanged_through_acceptance == true and
+      .target_health_checks_passed == true and
+      .source_health_checks_passed == true and
+      .state_isolation_verified == true and
+      (.backup_reference | type == "string" and length > 0) and
+      (.acceptance_reference | type == "string" and length > 0)
+    ' "${OPEN_PLATFORM_ACCEPTANCE_FILE}" >/dev/null 2>&1; then
+    echo "::error::Refusing UAT cleanup until migration, dual-end health, source-retention and six-state isolation acceptance are recorded." >&2
+    exit 1
+  fi
+
+  : "${HOSTS_MANIFEST:=hosts_manifest.json}"
+  [[ -f "${HOSTS_MANIFEST}" ]] || {
+    echo "::error::${HOSTS_MANIFEST} is missing; render the selected profile before asserting Akamai destroy scope." >&2
+    exit 1
+  }
+  mapfile -t expected_labels < <(jq -r '.hosts[]?.label | select(. != "")' "${HOSTS_MANIFEST}")
+  mapfile -t state_labels < <(jq -r '
+    def resources: .. | objects | select(has("resources")) | .resources[];
+    [ (.values.root_module? // empty) | resources ]
+    | .[] | select(.mode == "managed" and .type == "linode_instance")
+    | .values.label // empty
+  ' <<<"${state_json}")
+  IFS=',' read -r -a protected_source_labels <<<"${PROTECTED_EXTERNAL_INSTANCE_LABELS:-observability.svc.plus}"
+
+  is_protected_source_label() {
+    local candidate="$1" protected
+    for protected in "${protected_source_labels[@]}"; do
+      [[ -n "${protected}" && "${candidate}" == "${protected}" ]] && return 0
+    done
+    return 1
+  }
+
+  for label in "${expected_labels[@]}"; do
+    if is_protected_source_label "${label}"; then
+      echo "::error::Refusing Akamai destroy: protected migration source label '${label}' is present in the Terraform manifest." >&2
+      exit 1
+    fi
+    if [[ "${label}" == *open-platform* ]]; then
+      echo "::error::Refusing Akamai destroy: permanent open-platform label '${label}' is present in the Terraform manifest." >&2
+      exit 1
+    fi
+  done
+  if [[ "${#state_labels[@]}" -ne "${managed_instances}" ]]; then
+    echo "::error::Refusing Akamai destroy: one or more managed Linode instances have no verifiable label in state." >&2
+    exit 1
+  fi
+  for label in "${state_labels[@]}"; do
+    if is_protected_source_label "${label}"; then
+      echo "::error::Refusing Akamai destroy: protected migration source '${label}' appears in Terraform state." >&2
+      exit 1
+    fi
+    if [[ "${label}" == *open-platform* ]]; then
+      echo "::error::Refusing Akamai destroy: permanent open-platform resource '${label}' appears in Terraform state." >&2
+      exit 1
+    fi
+    expected_match=false
+    for expected_label in "${expected_labels[@]}"; do
+      if [[ "${label}" == "${expected_label}" ]]; then
+        expected_match=true
+        break
+      fi
+    done
+    if [[ "${expected_match}" != true ]]; then
+      echo "::error::Refusing Akamai destroy: state instance '${label}' is outside the selected profile manifest." >&2
+      exit 1
+    fi
+  done
+fi
+
 if [[ "${managed_instances}" -gt 0 ]]; then
-  echo "Destroy scope: workspace ${ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE} manages ${managed_instances} instance(s); proceeding."
+  echo "Destroy scope: workspace ${ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE} manages ${managed_instances} verified in-profile instance(s); proceeding."
   exit 0
 fi
 
