@@ -71,7 +71,9 @@ for required in \
   'uses: ./.github/actions/configure-gcp-oidc' \
   'scripts/generate.py render' \
   'envs/${DEPLOY_ENV}' \
-  'backend-config="key=terraform/${{ env.DEPLOY_ENV }}/${{ steps.config.outputs.project_id }}/gcp-cloud/${{ env.GCP_ACCOUNT_ID }}/platform/terraform.tfstate"' \
+  'backend-config="key=terraform/${{ env.DEPLOY_ENV }}/${{ steps.config.outputs.project_id }}/gcp-cloud/${{ env.GCP_ACCOUNT_ID }}/${{ steps.config.outputs.state_workspace }}/terraform.tfstate"' \
+  'state_workspace="platform"' \
+  'state_workspace="$(basename "${manifest}" .yaml)"' \
   'Terraform apply' \
   'Terraform destroy'; do
   grep -Fq -- "${required}" "${gcp_iac_workflow}" || {

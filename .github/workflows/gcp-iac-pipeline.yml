@@ -129,11 +129,18 @@ jobs:
             uat|prod) ;;
             *) echo "::error::vault_env_path must be uat or prod" >&2; exit 1 ;;
           esac
-          if [[ -n "${GCP_RESOURCE_MANIFEST_INPUT}" ]]; then
-            manifest="${GCP_RESOURCE_MANIFEST_INPUT}"
+          default_manifest="resources/xworktech.com/${GCP_ENVIRONMENT}/gcp/open-platform-${GCP_ENVIRONMENT}.yaml"
+          manifest="${GCP_RESOURCE_MANIFEST_INPUT:-${default_manifest}}"
+          # Each manifest owns its own Terraform state workspace so a minimal
+          # manifest (e.g. spot-validation-<env>.yaml) can never plan deletes
+          # of the full platform stack. The default manifest keeps "platform".
+          if [[ "${manifest}" == "${default_manifest}" ]]; then
+            state_workspace="platform"
           else
-            manifest="resources/xworktech.com/${GCP_ENVIRONMENT}/gcp/open-platform-${GCP_ENVIRONMENT}.yaml"
+            state_workspace="$(basename "${manifest}" .yaml)"
           fi
+          [[ "${state_workspace}" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "::error::invalid state workspace: ${state_workspace}" >&2; exit 1; }
+          echo "state_workspace=${state_workspace}" >> "${GITHUB_OUTPUT}"
           [[ "${manifest}" != /* && "${manifest}" != *..* ]] || { echo "::error::manifest path must be relative and cannot contain '..'" >&2; exit 1; }
           [[ "${manifest}" == resources/*/${GCP_ENVIRONMENT}/gcp/*.yaml ]] || {
             echo "::error::manifest must be under resources/<namespace>/${GCP_ENVIRONMENT}/gcp/" >&2
@@ -198,7 +205,7 @@ jobs:
           TF_CLI_ARGS_init: >-
             -backend-config="endpoint=${{ steps.gcp_auth.outputs.state_endpoint }}"
             -backend-config="bucket=${{ steps.gcp_auth.outputs.state_bucket }}"
-            -backend-config="key=terraform/${{ env.DEPLOY_ENV }}/${{ steps.config.outputs.project_id }}/gcp-cloud/${{ env.GCP_ACCOUNT_ID }}/platform/terraform.tfstate"
+            -backend-config="key=terraform/${{ env.DEPLOY_ENV }}/${{ steps.config.outputs.project_id }}/gcp-cloud/${{ env.GCP_ACCOUNT_ID }}/${{ steps.config.outputs.state_workspace }}/terraform.tfstate"
             -backend-config="access_key=${{ steps.gcp_auth.outputs.state_access_key }}"
             -backend-config="secret_key=${{ steps.gcp_auth.outputs.state_secret_key }}"
             -backend-config="region=${{ steps.gcp_auth.outputs.state_region }}"
