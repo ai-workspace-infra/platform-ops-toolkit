@@ -87,6 +87,32 @@ class PreflightContractTests(unittest.TestCase):
         with self.assertRaises(PREFLIGHT.PreflightError):
             PREFLIGHT._aws_readonly(["s3api", "delete-object"], {})
 
+    def test_state_reader_generates_valid_multiline_s3_backend_block(self) -> None:
+        backend_env = {
+            "TF_STATE_ENDPOINT": "https://s3.us-east-1.amazonaws.com",
+            "TF_STATE_BUCKET": "example-state",
+            "TF_STATE_ACCESS_KEY": "test-access-key",
+            "TF_STATE_SECRET_KEY": "test-secret-key",
+            "TF_STATE_REGION": "us-east-1",
+        }
+
+        def terraform_call(root, args, _env):
+            if args[0] == "init":
+                self.assertEqual(
+                    (root / "main.tf").read_text(encoding="utf-8"),
+                    'terraform {\n  backend "s3" {}\n}\n',
+                )
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            return SimpleNamespace(
+                returncode=1,
+                stdout="",
+                stderr="No state file was found",
+            )
+
+        with patch.object(PREFLIGHT, "_terraform_call", side_effect=terraform_call):
+            state = PREFLIGHT.inspect_terraform_state("terraform/test.tfstate", backend_env)
+        self.assertFalse(state["present"])
+
     def test_terraform_show_json_recursively_projects_only_managed_allowlisted_fields(self) -> None:
         output = json.dumps(
             {
