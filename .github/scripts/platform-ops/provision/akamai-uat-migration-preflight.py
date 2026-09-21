@@ -462,6 +462,12 @@ def inspect_legacy_object_versions(state_key: str, env: dict[str, str]) -> dict[
 def linode_get_pages(resource_path: str, token: str) -> list[dict[str, Any]]:
     if resource_path not in {"linode/instances", "networking/firewalls"}:
         raise PreflightError("linode_endpoint_not_allowlisted")
+    # Vault values written from shell input can retain a trailing newline.
+    # Normalize only surrounding whitespace and fail closed if any control
+    # character remains inside the bearer token.
+    token = token.strip()
+    if not token or any(ord(character) < 32 or ord(character) == 127 for character in token):
+        raise PreflightError("linode_token_invalid")
     results: list[dict[str, Any]] = []
     page = 1
     while True:
