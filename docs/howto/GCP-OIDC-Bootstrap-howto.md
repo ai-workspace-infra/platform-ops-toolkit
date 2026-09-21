@@ -43,8 +43,8 @@ gcloud auth application-default login
 项目 ID 已确定：
 
 ```yaml
-UAT:  xworktech-open-platform-uat
-PROD: xworktech-open-platform-prod
+UAT:  xwork-open-platform-uat
+PROD: xwork-open-platform-prod
 ```
 
 ## 2. 获取短期 `GCP_ACCESS_TOKEN`
@@ -104,8 +104,8 @@ kv/CICD/prod/gcp-bootstrap/xworktech
 ```bash
 GCP_ENVIRONMENT=uat \
 GCP_ACCOUNT_ID=platform@xworktech.com \
-GCP_PROJECT_ID=xworktech-open-platform-uat \
-GCP_EXPECTED_PROJECT_ID=xworktech-open-platform-uat \
+GCP_PROJECT_ID=xwork-open-platform-uat \
+GCP_EXPECTED_PROJECT_ID=xwork-open-platform-uat \
 bash scripts/gcp/bootstrap_gcp_auth_kv.sh
 ```
 
@@ -120,12 +120,12 @@ export VAULT_TOKEN='<管理员token>'
 
 GCP_ENVIRONMENT=uat \
 GCP_ACCOUNT_ID=xworktech \
-GCP_PROJECT_ID=xworktech-open-platform-uat \
+GCP_PROJECT_ID=xwork-open-platform-uat \
 bash scripts/gcp/bootstrap_gcp_auth_kv.sh
 
 GCP_ENVIRONMENT=prod \
 GCP_ACCOUNT_ID=xworktech \
-GCP_PROJECT_ID=xworktech-open-platform-prod \
+GCP_PROJECT_ID=xwork-open-platform-prod \
 bash scripts/gcp/bootstrap_gcp_auth_kv.sh
 ```
 
@@ -135,7 +135,7 @@ bash scripts/gcp/bootstrap_gcp_auth_kv.sh
 GCP_ACCESS_TOKEN="$(gcloud auth application-default print-access-token)" \
 GCP_ENVIRONMENT=uat \
 GCP_ACCOUNT_ID=xworktech \
-GCP_PROJECT_ID=xworktech-open-platform-uat \
+GCP_PROJECT_ID=xwork-open-platform-uat \
 bash scripts/gcp/bootstrap_gcp_auth_kv.sh
 ```
 
@@ -161,13 +161,13 @@ ${VAULT_ADDR}/v1/kv/data/CICD/prod/gcp-bootstrap/xworktech
 ```bash
 GCP_ENVIRONMENT=uat \
 GCP_ACCOUNT_ID=xworktech \
-GCP_PROJECT_ID=xworktech-open-platform-uat \
+GCP_PROJECT_ID=xwork-open-platform-uat \
 GCP_BOOTSTRAP_ACTION=check \
 bash scripts/gcp/bootstrap_gcp_auth_kv.sh
 
 GCP_ENVIRONMENT=prod \
 GCP_ACCOUNT_ID=xworktech \
-GCP_PROJECT_ID=xworktech-open-platform-prod \
+GCP_PROJECT_ID=xwork-open-platform-prod \
 GCP_BOOTSTRAP_ACTION=check \
 bash scripts/gcp/bootstrap_gcp_auth_kv.sh
 ```
@@ -224,7 +224,7 @@ test -n "${GCP_ACCESS_TOKEN}"
 
 vault kv put -mount=kv CICD/uat/gcp-bootstrap/xworktech \
   GCP_ACCESS_TOKEN="${GCP_ACCESS_TOKEN}" \
-  GCP_PROJECT_ID=xworktech-open-platform-uat
+  GCP_PROJECT_ID=xwork-open-platform-uat
 
 unset GCP_ACCESS_TOKEN
 ```
@@ -234,7 +234,7 @@ unset GCP_ACCESS_TOKEN
 ```bash
 GCP_ENVIRONMENT=uat \
 GCP_ACCOUNT_ID=xworktech \
-GCP_PROJECT_ID=xworktech-open-platform-uat \
+GCP_PROJECT_ID=xwork-open-platform-uat \
 bash scripts/gcp/bootstrap_gcp_auth_kv.sh
 ```
 
@@ -244,7 +244,7 @@ bash scripts/gcp/bootstrap_gcp_auth_kv.sh
 vault kv get -mount=kv -format=json CICD/uat/gcp-bootstrap/xworktech |
   jq -e '.data.data |
     (.GCP_ACCESS_TOKEN | type == "string" and length > 0) and
-    (.GCP_PROJECT_ID | type == "string" and . == "xworktech-open-platform-uat")' >/dev/null &&
+    (.GCP_PROJECT_ID | type == "string" and . == "xwork-open-platform-uat")' >/dev/null &&
   echo "UAT GCP bootstrap secret: OK"
 ```
 
@@ -280,8 +280,8 @@ action:      apply
 - UAT Workload Identity Pool/Provider 创建或复用成功；
 - `github-actions-uat` Service Account 创建或复用成功；
 - `google-github-actions/auth@v2` 使用新建身份登录成功；
-- `gcloud projects describe xworktech-open-platform-uat` 成功；
-- UAT 身份访问 `xworktech-open-platform-prod` 的负向检查通过；
+- `gcloud projects describe xwork-open-platform-uat` 成功；
+- UAT 身份访问 `xwork-open-platform-prod` 的负向检查通过；
 - provider 和 Service Account 输出写入 `kv/uat/platform/oidc/xworktech`。
 
 查看运行状态和失败日志：
@@ -344,7 +344,7 @@ GCP_ACCESS_TOKEN 的 principal，不能只授予将要创建的 github-actions-u
 serviceAccount: 邮箱），再执行：
 
     export GCP_BOOTSTRAP_MEMBER="user:admin@example.com"
-    export GCP_PROJECT_ID=xworktech-open-platform-uat
+    export GCP_PROJECT_ID=xwork-open-platform-uat
 
     for role in \
       roles/iam.workloadIdentityPoolAdmin \
@@ -370,11 +370,11 @@ Service Account 私钥也不会因为 KV TTL 到期而在 GCP 中自动撤销。
 bootstrap KV 只保留以下最小字段：
 
     GCP_ACCESS_TOKEN=<短期 OAuth access token，建议 TTL 不超过 1 小时>
-    GCP_PROJECT_ID=xworktech-open-platform-uat
+    GCP_PROJECT_ID=xwork-open-platform-uat
 
 如果必须通过 HTTP API 写入，发送的只是上述字段，不是 JSON 私钥文件：
 
-    {"data":{"GCP_ACCESS_TOKEN":"<short-lived-oauth-token>","GCP_PROJECT_ID":"xworktech-open-platform-uat"}}
+    {"data":{"GCP_ACCESS_TOKEN":"<short-lived-oauth-token>","GCP_PROJECT_ID":"xwork-open-platform-uat"}}
 
 bootstrap apply 成功后，立即删除或覆盖一次性 token，并保留 Vault 审计记录：
 

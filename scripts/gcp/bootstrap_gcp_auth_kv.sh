@@ -8,8 +8,8 @@ vault_addr="${VAULT_ADDR:-https://vault.svc.plus}"
 action="${GCP_BOOTSTRAP_ACTION:-write}"
 
 case "${environment}" in
-  uat) default_project="xworktech-open-platform-uat" ;;
-  prod) default_project="xworktech-open-platform-prod" ;;
+  uat) default_project="xwork-open-platform-uat" ;;
+  prod) default_project="xwork-open-platform-prod" ;;
   *) echo "GCP_ENVIRONMENT must be uat or prod" >&2; exit 1 ;;
 esac
 [[ "${account_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._%+@-]{0,126}[A-Za-z0-9]$ ]] || {

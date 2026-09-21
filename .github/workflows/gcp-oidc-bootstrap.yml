@@ -219,7 +219,7 @@ jobs:
       - name: Verify UAT cannot access PROD
         if: ${{ inputs.action == 'apply' && inputs.environment == 'uat' }}
         run: |
-          if gcloud projects describe xworktech-open-platform-prod --format='value(projectId)' >/dev/null 2>&1; then
+          if gcloud projects describe xwork-open-platform-prod --format='value(projectId)' >/dev/null 2>&1; then
             echo "UAT GCP identity unexpectedly has access to PROD." >&2
             exit 1
           fi

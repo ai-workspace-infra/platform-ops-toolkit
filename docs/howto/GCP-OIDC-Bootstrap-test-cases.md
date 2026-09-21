@@ -13,7 +13,7 @@ token → Terraform 创建 WIF → GitHub Actions JWT + Google STS/WIF → GCP I
 ```bash
 export GCP_ACCOUNT_ID=xworktech
 export GCP_ENVIRONMENT=uat
-export GCP_PROJECT_ID=xworktech-open-platform-uat
+export GCP_PROJECT_ID=xwork-open-platform-uat
 export GITOPS_REPO=ai-workspace-infra/gitops
 ```
 
@@ -163,7 +163,7 @@ vault kv get -mount=kv -format=json uat/platform/oidc/xworktech | \
     has("gcp_workload_identity_provider") and \
     has("gcp_oidc_audience") and \
     has("deploy_service_account") and \
-    .project_id == "xworktech-open-platform-uat"' >/dev/null
+    .project_id == "xwork-open-platform-uat"' >/dev/null
 echo "UAT runtime OIDC record: OK"
 ```
 
@@ -195,7 +195,7 @@ gh run watch "${apply_run}" --exit-status
 `credentials.json`，并能执行：
 
 ```text
-gcloud projects describe xworktech-open-platform-uat
+gcloud projects describe xwork-open-platform-uat
 ```
 
 ## TC-09：Terraform state 隔离
