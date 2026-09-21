@@ -57,7 +57,7 @@ class AkamaiDestroyScopeTest(unittest.TestCase):
         }]}}}
 
     def run_guard(self, namespace, state_label):
-        state_key = f"terraform/uat/platform-ops-toolkit/akamai-cloud/manbuzhe2026/{namespace}/terraform.tfstate"
+        state_key = f"terraform/uat/svc.plus/akamai-cloud/manbuzhe2026/{namespace}/terraform.tfstate"
         env = os.environ.copy()
         env.update({
             "PATH": f"{self.root / 'bin'}:{env['PATH']}",

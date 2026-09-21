@@ -16,7 +16,7 @@ The workflow defaults to `web-saas`; select exactly one namespace per run.
 The canonical state key for each row is:
 
 ```text
-terraform/uat/platform-ops-toolkit/akamai-cloud/manbuzhe2026/<namespace>/terraform.tfstate
+terraform/uat/svc.plus/akamai-cloud/manbuzhe2026/<namespace>/terraform.tfstate
 ```
 
 JP/US/SG Akamai Agent Proxy resources each have a one-host manifest and state.

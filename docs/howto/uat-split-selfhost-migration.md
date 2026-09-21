@@ -21,12 +21,12 @@ TW/PH must remain `management_mode: existing`, `provisioner: ansible`, and
 The six Akamai UAT namespaces are exactly:
 
 ```text
-terraform/uat/platform-ops-toolkit/akamai-cloud/manbuzhe2026/web-saas/terraform.tfstate
-terraform/uat/platform-ops-toolkit/akamai-cloud/manbuzhe2026/open-platform/terraform.tfstate
-terraform/uat/platform-ops-toolkit/akamai-cloud/manbuzhe2026/ai-workspace/terraform.tfstate
-terraform/uat/platform-ops-toolkit/akamai-cloud/manbuzhe2026/agent-proxy-jp/terraform.tfstate
-terraform/uat/platform-ops-toolkit/akamai-cloud/manbuzhe2026/agent-proxy-us/terraform.tfstate
-terraform/uat/platform-ops-toolkit/akamai-cloud/manbuzhe2026/agent-proxy-sg/terraform.tfstate
+terraform/uat/svc.plus/akamai-cloud/manbuzhe2026/web-saas/terraform.tfstate
+terraform/uat/svc.plus/akamai-cloud/manbuzhe2026/open-platform/terraform.tfstate
+terraform/uat/svc.plus/akamai-cloud/manbuzhe2026/ai-workspace/terraform.tfstate
+terraform/uat/svc.plus/akamai-cloud/manbuzhe2026/agent-proxy-jp/terraform.tfstate
+terraform/uat/svc.plus/akamai-cloud/manbuzhe2026/agent-proxy-us/terraform.tfstate
+terraform/uat/svc.plus/akamai-cloud/manbuzhe2026/agent-proxy-sg/terraform.tfstate
 ```
 
 Do not use a shared `selfhost`, `all`, or generic `agent-proxy` state for UAT

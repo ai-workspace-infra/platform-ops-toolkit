@@ -70,10 +70,11 @@ for namespace in web-saas open-platform ai-workspace agent-proxy-jp agent-proxy-
     expected_domain=agent-proxy
   fi
   routed="$(run_route env INPUT_TARGET_DOMAINS="${selected_domain}" INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=plan INPUT_DNS_MODE=none)"
-  state_key="terraform/uat/platform-ops-toolkit/akamai-cloud/manbuzhe2026/${namespace}/terraform.tfstate"
+  state_key="terraform/uat/svc.plus/akamai-cloud/manbuzhe2026/${namespace}/terraform.tfstate"
   assert_contains "${routed}" "target_domains=${expected_domain}"
   assert_contains "${routed}" "terraform_namespace=${namespace}"
-  assert_contains "${routed}" "terraform_workspace=uat-platform-ops-toolkit-akamai-cloud-manbuzhe2026-${namespace}"
+  assert_contains "${routed}" "terraform_workspace=uat-svc.plus-akamai-cloud-manbuzhe2026-${namespace}"
+  assert_contains "${routed}" "terraform_project=svc.plus"
   assert_contains "${routed}" "state_key=${state_key}"
   namespace_state_keys+=("${state_key}")
 done
@@ -103,9 +104,11 @@ rm -f "${akamai_plan_output}"
 
 for provider in aws-cloud gcp-cloud azure-cloud vultr-vps akamai-cloud; do
   provider_output="$(run_route env INPUT_CLOUD_PROVIDER="${provider}" INPUT_CLOUD_ACCOUNT=primary INPUT_OPERATION=plan INPUT_DNS_MODE=none)"
+  provider_state_project=platform-ops-toolkit
+  if [[ "${provider}" == akamai-cloud ]]; then provider_state_project=svc.plus; fi
   assert_contains "${provider_output}" "cloud_provider=${provider}"
   assert_contains "${provider_output}" "provider_provisioner=terraform"
-  assert_contains "${provider_output}" "state_key=terraform/uat/platform-ops-toolkit/${provider}/primary/web-saas/terraform.tfstate"
+  assert_contains "${provider_output}" "state_key=terraform/uat/${provider_state_project}/${provider}/primary/web-saas/terraform.tfstate"
 done
 
 if run_route env INPUT_CLOUD_PROVIDER=ulighthost INPUT_OPERATION=plan INPUT_DNS_MODE=none >/dev/null 2>&1; then

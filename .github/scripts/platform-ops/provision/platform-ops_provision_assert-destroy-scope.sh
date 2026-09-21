@@ -73,7 +73,7 @@ if [[ "${ENV_STEPS_ROUTE_OUTPUTS_CLOUD_PROVIDER}" == "akamai-cloud" ]]; then
       ;;
   esac
 
-  if [[ "${ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY}" != terraform/uat/platform-ops-toolkit/akamai-cloud/*/"${namespace}"/terraform.tfstate ]]; then
+  if [[ "${ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY}" != terraform/uat/svc.plus/akamai-cloud/*/"${namespace}"/terraform.tfstate ]]; then
     echo "::error::Refusing Akamai UAT destroy: state key is not in the canonical five-level namespace." >&2
     exit 1
   fi

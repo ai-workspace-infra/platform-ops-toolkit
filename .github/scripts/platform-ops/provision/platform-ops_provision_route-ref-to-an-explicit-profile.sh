@@ -15,6 +15,8 @@ SOURCE_HOST_DEFAULT="install.svc.plus"
 SOURCE_DOMAIN_BASE_DEFAULT="svc.plus"
 TARGET_DOMAIN_BASE_DEFAULT="onwalk.net"
 STATE_PROJECT="platform-ops-toolkit"
+AKAMAI_UAT_PROJECT="svc.plus"
+state_project="${STATE_PROJECT}"
 REGISTRY_PATH="${GITHUB_WORKSPACE:-${PWD}}/config/iac_provider_registry.json"
 ENVIRONMENT_DEFAULTS_PATH="${GITHUB_WORKSPACE:-${PWD}}/config/iac_environment_defaults.json"
 
@@ -177,8 +179,10 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   
   cloud_provider="${INPUT_CLOUD_PROVIDER:-$(default_provider_for_environment "${deployment_env}")}"
   set_provider_metadata
+  state_project="${STATE_PROJECT}"
   uat_akamai_region_namespace=false
   if [[ "${deployment_env}" == "uat" && "${cloud_provider}" == "akamai-cloud" ]]; then
+    state_project="${AKAMAI_UAT_PROJECT}"
     case "${requested_target_domains}" in
       web-saas|open-platform|ai-workspace)
         terraform_namespace="${requested_target_domains}"
@@ -200,8 +204,8 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     esac
     rf="${terraform_namespace}"
     resource_file="${deployment_env}/${terraform_namespace}"
-    terraform_workspace="${deployment_env}-${STATE_PROJECT}-${cloud_provider}-${account}-${terraform_namespace}"
-    state_key="terraform/${deployment_env}/${STATE_PROJECT}/${cloud_provider}/${account}/${terraform_namespace}/terraform.tfstate"
+    terraform_workspace="${deployment_env}-${state_project}-${cloud_provider}-${account}-${terraform_namespace}"
+    state_key="terraform/${deployment_env}/${state_project}/${cloud_provider}/${account}/${terraform_namespace}/terraform.tfstate"
     if [[ "${operation:-${INPUT_OPERATION:-plan}}" == "destroy" && "${terraform_namespace}" == "open-platform" ]]; then
       echo "::error::The UAT open-platform Akamai namespace is permanent and cannot be destroyed by this workflow." >&2
       exit 1
@@ -215,8 +219,8 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   fi
   if [[ "${deployment_env}" != "uat" || "${cloud_provider}" != "akamai-cloud" ]]; then
     resource_file="${deployment_env}/${rf}"
-    terraform_workspace="${deployment_env}-${STATE_PROJECT}-${cloud_provider}-${account}-${rf}"
-    state_key="terraform/${deployment_env}/${STATE_PROJECT}/${cloud_provider}/${account}/${rf}/terraform.tfstate"
+    terraform_workspace="${deployment_env}-${state_project}-${cloud_provider}-${account}-${rf}"
+    state_key="terraform/${deployment_env}/${state_project}/${cloud_provider}/${account}/${rf}/terraform.tfstate"
   fi
   # UI 使用单一 operation。下游 job 只消费解析后的执行意图，避免在
   # workflow 中重复拼接相互矛盾的开关条件。
@@ -355,9 +359,10 @@ else
       refs/heads/main)
         deployment_env=uat; resource_file=uat/selfhost; cloud_provider="$(default_provider_for_environment uat)"
         set_provider_metadata
-        terraform_workspace="uat-${STATE_PROJECT}-${cloud_provider}-${account}-web-saas"
+        state_project="${STATE_PROJECT}"; [[ "${cloud_provider}" == "akamai-cloud" ]] && state_project="${AKAMAI_UAT_PROJECT}"
+        terraform_workspace="uat-${state_project}-${cloud_provider}-${account}-web-saas"
         resource_files_full="config/resources/uat/web-saas.yaml"
-        state_key="terraform/uat/${STATE_PROJECT}/${cloud_provider}/${account}/web-saas/terraform.tfstate"; target_domains=web-saas
+        state_key="terraform/uat/${state_project}/${cloud_provider}/${account}/web-saas/terraform.tfstate"; target_domains=web-saas
         # PR merge 后的 push 只做 IaC plan 校验，避免自动创建/变更真实资源。
         run_infrastructure=true; run_application_deploy=false
         terraform_action=plan; toolkit_action=none; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
@@ -389,9 +394,10 @@ else
       refs/heads/release/*)
         deployment_env=uat; resource_file=uat/web-saas; cloud_provider="$(default_provider_for_environment uat)"
         set_provider_metadata
-        terraform_workspace="uat-${STATE_PROJECT}-${cloud_provider}-${account}-web-saas"
+        state_project="${STATE_PROJECT}"; [[ "${cloud_provider}" == "akamai-cloud" ]] && state_project="${AKAMAI_UAT_PROJECT}"
+        terraform_workspace="uat-${state_project}-${cloud_provider}-${account}-web-saas"
         resource_files_full="config/resources/uat/web-saas.yaml"
-        state_key="terraform/uat/${STATE_PROJECT}/${cloud_provider}/${account}/web-saas/terraform.tfstate"; target_domains=web-saas
+        state_key="terraform/uat/${state_project}/${cloud_provider}/${account}/web-saas/terraform.tfstate"; target_domains=web-saas
         run_infrastructure=true; run_application_deploy=false
         terraform_action=plan; toolkit_action=none; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
     source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-uat
@@ -554,7 +560,8 @@ if [ "${run_application_deploy}" = "true" ]; then
 fi
 
 terraform_namespace="${terraform_namespace:-${rf:-${target_domains}}}"
-for key in deployment_env resource_file resource_files_full terraform_workspace state_key terraform_namespace run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider provider_tree provider_gitops_dir provider_provisioner provider_credential_mode account source_host source_domain_base target_domain_base env_suffix dns_mode deploy_tag agent_controller_url billing_service_base_url include_external_agent_proxy; do
+terraform_project="${state_project:-${STATE_PROJECT}}"
+for key in deployment_env resource_file resource_files_full terraform_workspace state_key terraform_namespace terraform_project run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider provider_tree provider_gitops_dir provider_provisioner provider_credential_mode account source_host source_domain_base target_domain_base env_suffix dns_mode deploy_tag agent_controller_url billing_service_base_url include_external_agent_proxy; do
   value="${!key:-}"
   echo "$key=$value" >> "$GITHUB_OUTPUT"
 done
