@@ -30,15 +30,23 @@ secret is written to GitOps, Actions artifacts, or the public desktop handoff.
 
 ## Workflow dispatch
 
-Run `.github/workflows/xconnect-one-uat.yaml` with:
+Run `.github/workflows/xconnect-zero-cloud.yaml` with:
 
 ```text
+deployment_profile=cloud-lab
 mode=apply
 gateway_provider=external
 external_gateway_id=gw-uat-tw-xconnect
-external_network_id=net_uat-tw-xconnect
+external_network_id=net_uat
 external_gateway_server_name=tw-xconnect.svc.plus
 ```
+
+For the existing persistent One enrollment path, select
+`deployment_profile=existing-one`, then provide `mode=dry-run` or
+`mode=apply`. That profile reuses the existing Gateway and One Vault records;
+it never creates Spot instances. The `cloud-lab` profile remains the path for
+the disposable one-hour AWS Spot validation, including the `aws-spot` Gateway
+option.
 
 The workflow then performs:
 

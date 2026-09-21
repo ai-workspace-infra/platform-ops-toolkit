@@ -7,6 +7,17 @@ the sole formal control/configuration source. Portal retains its current layout.
 
 ## Execution order
 
+The single `xconnect-zero-cloud.yaml` workflow has two explicit profiles:
+
+- `cloud-lab`: creates the disposable AWS Spot validation resources and keeps
+  the one-hour lease behavior described below.
+- `existing-one`: runs the former fixed UAT One enrollment against the
+  persistent Gateway and existing `observability.svc.plus` node. It does not
+  create or destroy cloud resources.
+
+The legacy `xconnect-one-uat.yaml` entry point was removed so the two paths
+cannot drift in Vault role claims, release defaults, or validation semantics.
+
 1. Validate immutable refs, GitOps topology, and deployed Accounts/Portal API
    boundaries. The anonymous Portal check must reach `ssr-console` and the
    actual session-aware Zero BFF, not the generic API origin.
@@ -48,6 +59,7 @@ Each deployment/verification phase is a separate GitHub Actions step.
 
 | Input | Contract |
 |---|---|
+| `deployment_profile` | `cloud-lab` for disposable AWS validation, or `existing-one` for the persistent UAT One path |
 | `mode` | `dry-run`, `apply`, or recovery `cleanup` |
 | `iac_ref` | Full reviewed commit SHA containing `vpn-overlay/xconnect-lab` |
 | `gitops_ref` | Full reviewed commit SHA containing `vpn-overlay/uat/xconnect-lab.json` |
@@ -57,6 +69,14 @@ Each deployment/verification phase is a separate GitHub Actions step.
 | `gateway_release_tag` | GitOps-pinned XConnect-Gateway version; `xconnect-gateway-linux-arm64` and `SHA256SUMS` |
 | `xray_release_tag` | GitOps-pinned official Xray ARM64 archive and digest |
 | `cleanup_run` | Cleanup only: exact `xcl-RUN_ID-ATTEMPT` |
+
+For the requested one-hour AWS ARM Spot validation, use
+`deployment_profile=cloud-lab`, `mode=apply`, and
+`gateway_provider=aws-spot`. This creates the disposable `t4g.small`
+Gateway and `t4g.micro` Linux One in the existing UAT network, runs the
+data-plane checks, and leaves the pair under the reviewed lease/observation
+window. The `existing-one` profile must not be combined with `cleanup` or the
+Spot-only inputs.
 
 Full UAT delivery is initiated through `daily-main-snapshot.yaml`, which keeps
 its daily schedule and publishes one immutable application TAG before deployment.
