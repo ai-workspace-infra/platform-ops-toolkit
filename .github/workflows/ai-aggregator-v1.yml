@@ -164,7 +164,9 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.environment == 'uat' &&
       contains(fromJSON('["provision","stage","activate"]'), inputs.operation))) }}
     runs-on: ubuntu-latest
-    environment: uat
+    # Do not attach the GitHub Environment here. Its OIDC subject becomes
+    # `repo:...:environment:uat`, while the least-privilege AWS role is
+    # intentionally trusted only for the protected main branch ref.
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
