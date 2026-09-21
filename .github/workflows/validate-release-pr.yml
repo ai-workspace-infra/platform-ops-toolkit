@@ -63,6 +63,7 @@ jobs:
         bash .github/scripts/tests/platform_ops_akamai_destroy_scope_contract_test.sh
         python3 .github/scripts/tests/platform_ops_destroy_scope_test.py
         bash .github/scripts/tests/platform_ops_agent_proxy_matrix_contract_test.sh
+        python3 .github/scripts/tests/platform_ops_akamai_namespace_workdir_contract_test.py
 
     - name: Verify production snapshot tag auto-revision
       run: bash .github/scripts/tests/daily_snapshot_prod_tag_revision_test.sh

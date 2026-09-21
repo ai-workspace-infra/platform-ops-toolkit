@@ -99,6 +99,7 @@ jobs:
       GITOPS_REF: ${{ inputs.gitops_repo_ref }}
       IAC_REF: ${{ inputs.iac_ref }}
       MANIFEST_INPUT: ${{ inputs.resource_manifest }}
+      TF_ROOT: ${{ github.workspace }}/iac_modules/terraform-hcl-standard/akamai-cloud/envs/${{ inputs.vault_env_path }}/${{ inputs.workspace }}
     steps:
       - uses: actions/checkout@v4
 
@@ -200,16 +201,20 @@ jobs:
           test -f "gitops/${manifest}"
           echo "path=${manifest}" >> "$GITHUB_OUTPUT"
 
+      - name: Prepare isolated Terraform namespace root
+        run: mkdir -p "${TF_ROOT}"
+
       - name: Render Akamai Terraform root
         env:
           GITOPS_ROOT: ${{ github.workspace }}/gitops
           TF_STATE_ENDPOINT: ${{ steps.vault.outputs.TF_STATE_ENDPOINT }}
           TF_STATE_REGION: ${{ steps.vault.outputs.TF_STATE_REGION }}
-        working-directory: iac_modules/terraform-hcl-standard/akamai-cloud
+        working-directory: ${{ env.TF_ROOT }}
         run: |
-          python3 scripts/generate.py render \
+          python3 "${GITHUB_WORKSPACE}/iac_modules/terraform-hcl-standard/akamai-cloud/scripts/generate.py" render \
             --resources "${GITHUB_WORKSPACE}/gitops/${{ steps.manifest.outputs.path }}" \
-            --workdir "envs/${DEPLOY_ENV}"
+            --workdir "${TF_ROOT}" \
+            --namespace "${WORKSPACE}"
 
       - name: Configure S3-compatible state backend
         env:
@@ -236,13 +241,13 @@ jobs:
             'skip_s3_checksum = true' \
             'use_path_style = true' \
             'use_lockfile = true' > "${backend}"
-          terraform -chdir="iac_modules/terraform-hcl-standard/akamai-cloud/envs/${DEPLOY_ENV}" init -input=false -reconfigure -backend-config="${backend}"
+          terraform -chdir="${TF_ROOT}" init -input=false -reconfigure -backend-config="${backend}"
 
       - name: Terraform validate and plan
         run: |
           set -euo pipefail
           export TF_VAR_linode_token="${LINODE_TOKEN}"
-          root="iac_modules/terraform-hcl-standard/akamai-cloud/envs/${DEPLOY_ENV}"
+          root="${TF_ROOT}"
           terraform -chdir="${root}" validate -no-color
           if [[ "${DEPLOY_ACTION}" != destroy ]]; then terraform -chdir="${root}" plan -input=false -no-color; fi
 
@@ -252,9 +257,9 @@ jobs:
           ENV_STEPS_ROUTE_OUTPUTS_CLOUD_PROVIDER: akamai-cloud
           ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE: ${{ inputs.workspace }}
           ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY: ${{ steps.contract.outputs.state_key }}
-          HOSTS_MANIFEST: ${{ github.workspace }}/iac_modules/terraform-hcl-standard/akamai-cloud/envs/${{ inputs.vault_env_path }}/hosts_manifest.json
+          HOSTS_MANIFEST: ${{ env.TF_ROOT }}/hosts_manifest.json
           OPEN_PLATFORM_ACCEPTANCE_FILE: ${{ github.workspace }}/config/open-platform-uat-cleanup-acceptance.json
-        working-directory: iac_modules/terraform-hcl-standard/akamai-cloud/envs/${{ inputs.vault_env_path }}
+        working-directory: ${{ env.TF_ROOT }}
         run: bash "${GITHUB_WORKSPACE}/.github/scripts/platform-ops/provision/platform-ops_provision_assert-destroy-scope.sh"
 
       - name: Terraform apply or destroy
@@ -262,14 +267,15 @@ jobs:
         run: |
           set -euo pipefail
           export TF_VAR_linode_token="${LINODE_TOKEN}"
-          terraform -chdir="iac_modules/terraform-hcl-standard/akamai-cloud/envs/${DEPLOY_ENV}" "${DEPLOY_ACTION}" -input=false -auto-approve
+          terraform -chdir="${TF_ROOT}" "${DEPLOY_ACTION}" -input=false -auto-approve
 
       - name: Produce CMDB after apply
         if: ${{ inputs.deploy_action == 'apply' }}
         env:
           GITOPS_ROOT: ${{ github.workspace }}/gitops
-        working-directory: iac_modules/terraform-hcl-standard/akamai-cloud
+        working-directory: ${{ env.TF_ROOT }}
         run: |
-          python3 scripts/generate.py inventory \
+          python3 "${GITHUB_WORKSPACE}/iac_modules/terraform-hcl-standard/akamai-cloud/scripts/generate.py" inventory \
             --resources "${GITHUB_WORKSPACE}/gitops/${{ steps.manifest.outputs.path }}" \
-            --workdir "envs/${DEPLOY_ENV}"
+            --workdir "${TF_ROOT}" \
+            --namespace "${WORKSPACE}"
