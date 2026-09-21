@@ -128,6 +128,7 @@ verify_role_claims() {
     --arg repository "ai-workspace-infra/platform-ops-toolkit" \
     --arg iac_workflow "ai-workspace-infra/platform-ops-toolkit/.github/workflows/akamai-cloud-iac.yml@*" \
     --arg selfhost_workflow "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-orchestrator.yml@*" \
+    --arg preflight_workflow "ai-workspace-infra/platform-ops-toolkit/.github/workflows/akamai-uat-migration-preflight.yml@*" \
     --arg expected_ref "refs/heads/main" \
     --arg expected_environment "$expected_environment" '
       def as_array: if type == "array" then . else [.] end;
@@ -137,13 +138,14 @@ verify_role_claims() {
       | (
           ($workflows | index($iac_workflow)) != null
           and ($workflows | index($selfhost_workflow)) != null
+          and ($expected_environment != "uat" or ($workflows | index($preflight_workflow)) != null)
           and ($claims.repository == $repository)
           and (($refs | index($expected_ref)) != null)
           and ($claims.environment == $expected_environment)
         )
     ' <<<"$role_json" >/dev/null; then
     echo "::error::Vault role ${role_name} was written/read, but its repository/ref/environment/job_workflow_ref claims are not the Akamai Cloud contract for ${env_name}/${account}." >&2
-    echo "::error::Required workflows: akamai-cloud-iac.yml and selfhost-orchestrator.yml; required ref: refs/heads/main; required environment: ${expected_environment}." >&2
+    echo "::error::Required workflows: akamai-cloud-iac.yml and selfhost-orchestrator.yml; UAT also requires akamai-uat-migration-preflight.yml; required ref: refs/heads/main; required environment: ${expected_environment}." >&2
     return 1
   fi
 }

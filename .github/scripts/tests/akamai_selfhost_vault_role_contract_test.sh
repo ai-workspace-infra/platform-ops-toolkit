@@ -17,6 +17,8 @@ for path in sys.argv[1:]:
     assert isinstance(refs, list), f"{path}: workflow claim must be an allowlist"
     assert any(ref.endswith("akamai-cloud-iac.yml@*") for ref in refs)
     assert any(ref.endswith("selfhost-orchestrator.yml@*") for ref in refs)
+    if data["bound_claims"]["environment"] == "uat":
+        assert any(ref.endswith("akamai-uat-migration-preflight.yml@*") for ref in refs)
 print("akamai_selfhost_vault_role_contract: PASS")
 PY
 
