@@ -97,8 +97,12 @@ terraform/uat/svc.plus/akamai-cloud/manbuzhe2026/<namespace>/terraform.tfstate
 | `agent-proxy-us` | United States Agent Proxy | Temporary; namespace-scoped cleanup allowed after acceptance |
 | `agent-proxy-sg` | Singapore Agent Proxy | Temporary; namespace-scoped cleanup allowed after acceptance |
 
-Forbidden state/workspace identifiers include `selfhost`, `all`, shared state,
-and aggregate destroy scopes.
+`selfhost` and shared aggregate state remain forbidden. The workflow UI may use
+`target_domains=all` only as a Stage A dispatch selector; it is not a Terraform
+workspace or state key. In that mode the parent orchestrator sequentially
+dispatches the six isolated namespaces below and never runs Terraform against
+an aggregate state. `deploy`, `migrate`, `deploy+migrate`, and `destroy` still
+require selecting one namespace explicitly.
 
 ## Stage A: build six isolated Terraform resources
 
@@ -133,6 +137,26 @@ For each namespace, execute only after explicit authorization:
 Every plan must contain only the selected instance and its associated
 namespace resources. A reference to another namespace, the protected source,
 an unapproved replacement, or an implicit destroy is a hard stop.
+
+### Stage A workflow fan-out
+
+Use the Selfhost Orchestrator with:
+
+```text
+vault_env_path=uat
+target_domains=all
+target_domain_base=onwalk.net
+cloud_provider=akamai-cloud
+akamai_account=<concrete account name>
+operation=plan              # review only
+operation=infra             # apply after review
+```
+
+`operation=all` is not a valid operation. `operation=plan` runs the six child
+plans in the order above. `operation=infra` runs each child apply, then runs a
+fresh plan for that same child and requires `0 add / 0 change / 0 destroy`
+before proceeding to the next namespace. A failed child stops the fan-out;
+there is no automatic destroy or rollback.
 
 Stage A acceptance:
 

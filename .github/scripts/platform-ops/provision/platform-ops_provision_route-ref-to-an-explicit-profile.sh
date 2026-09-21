@@ -181,6 +181,9 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   set_provider_metadata
   state_project="${STATE_PROJECT}"
   uat_akamai_region_namespace=false
+  akamai_matrix_mode=false
+  akamai_matrix_action=none
+  akamai_matrix_workspaces=""
   if [[ "${deployment_env}" == "uat" && "${cloud_provider}" == "akamai-cloud" ]]; then
     state_project="${AKAMAI_UAT_PROJECT}"
     case "${requested_target_domains}" in
@@ -193,8 +196,34 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
         target_domains=agent-proxy
         resource_files_full="$(resolve_gitops_resource_files "${deployment_env}" "${cloud_provider}" "${requested_target_domains}")"
         ;;
-      all|agent-proxy|'web-saas + agent-proxy'|infra-platform)
-        echo "::error::UAT Akamai resources have six isolated Terraform namespaces; aggregate target '${requested_target_domains}' is disabled. Select one workload or one agent-proxy region." >&2
+      all)
+        # Stage A is intentionally the only aggregate operation.  It fans out
+        # to six child workflows, each with its own backend key and lockfile;
+        # the parent must never render or operate a shared aggregate state.
+        operation="${INPUT_OPERATION:-plan}"
+        case "${operation}" in
+          plan) akamai_matrix_action=plan ;;
+          infra) akamai_matrix_action=apply ;;
+          *)
+            echo "::error::UAT Akamai target_domains=all is reserved for Stage A plan/infra fan-out. Select one namespace for '${operation}'." >&2
+            exit 1
+            ;;
+        esac
+        if [[ "${INPUT_TARGET_DOMAIN_BASE:-${TARGET_DOMAIN_BASE_DEFAULT}}" != "onwalk.net" ]]; then
+          echo "::error::UAT Akamai Stage A target_domains=all requires target_domain_base=onwalk.net." >&2
+          exit 1
+        fi
+        akamai_matrix_mode=true
+        akamai_matrix_workspaces="open-platform web-saas ai-workspace agent-proxy-jp agent-proxy-us agent-proxy-sg"
+        terraform_namespace=akamai-uat-matrix
+        rf=akamai-uat-matrix
+        resource_file="${deployment_env}/akamai-matrix"
+        resource_files_full=""
+        terraform_workspace=""
+        state_key=""
+        ;;
+      agent-proxy|'web-saas + agent-proxy'|infra-platform)
+        echo "::error::UAT Akamai resources have six isolated Terraform namespaces; aggregate target '${requested_target_domains}' is disabled. Select one workload or one agent-proxy region, or use target_domains=all for Stage A plan/infra fan-out." >&2
         exit 1
         ;;
       *)
@@ -202,10 +231,12 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
         exit 1
         ;;
     esac
-    rf="${terraform_namespace}"
-    resource_file="${deployment_env}/${terraform_namespace}"
-    terraform_workspace="${deployment_env}-${state_project}-${cloud_provider}-${account}-${terraform_namespace}"
-    state_key="terraform/${deployment_env}/${state_project}/${cloud_provider}/${account}/${terraform_namespace}/terraform.tfstate"
+    if [[ "${akamai_matrix_mode}" != "true" ]]; then
+      rf="${terraform_namespace}"
+      resource_file="${deployment_env}/${terraform_namespace}"
+      terraform_workspace="${deployment_env}-${state_project}-${cloud_provider}-${account}-${terraform_namespace}"
+      state_key="terraform/${deployment_env}/${state_project}/${cloud_provider}/${account}/${terraform_namespace}/terraform.tfstate"
+    fi
     if [[ "${operation:-${INPUT_OPERATION:-plan}}" == "destroy" && "${terraform_namespace}" == "open-platform" ]]; then
       echo "::error::The UAT open-platform Akamai namespace is permanent and cannot be destroyed by this workflow." >&2
       exit 1
@@ -263,6 +294,16 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
       exit 1
       ;;
   esac
+
+  if [[ "${akamai_matrix_mode:-false}" == "true" ]]; then
+    # The parent orchestrator only dispatches child workflows.  It must not
+    # run Terraform against a synthetic matrix namespace or expose a shared
+    # state key to downstream jobs.
+    run_infrastructure=false
+    run_application_deploy=false
+    terraform_action=none
+    toolkit_action=none
+  fi
 
   if [[ "${operation}" == "migrate" || "${operation}" == "deploy+migrate" ]]; then
     case "${deployment_env}:${target_domains}" in
@@ -419,7 +460,8 @@ fi
 # The route profile above still records the logical resource name for state and
 # workspace compatibility. Resolve the physical declaration only after all
 # event/ref branches have selected the final environment/provider.
-if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" || "${uat_akamai_region_namespace:-false}" != "true" ]]; then
+if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ||
+  ("${uat_akamai_region_namespace:-false}" != "true" && "${akamai_matrix_mode:-false}" != "true") ]]; then
   resource_files_full="$(resolve_gitops_resource_files "${deployment_env}" "${cloud_provider}" "${target_domains}")"
 fi
 
@@ -561,7 +603,7 @@ fi
 
 terraform_namespace="${terraform_namespace:-${rf:-${target_domains}}}"
 terraform_project="${state_project:-${STATE_PROJECT}}"
-for key in deployment_env resource_file resource_files_full terraform_workspace state_key terraform_namespace terraform_project run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider provider_tree provider_gitops_dir provider_provisioner provider_credential_mode account source_host source_domain_base target_domain_base env_suffix dns_mode deploy_tag agent_controller_url billing_service_base_url include_external_agent_proxy; do
+for key in deployment_env resource_file resource_files_full terraform_workspace state_key terraform_namespace terraform_project run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider provider_tree provider_gitops_dir provider_provisioner provider_credential_mode account source_host source_domain_base target_domain_base env_suffix dns_mode deploy_tag agent_controller_url billing_service_base_url include_external_agent_proxy akamai_matrix_mode akamai_matrix_action akamai_matrix_workspaces; do
   value="${!key:-}"
   echo "$key=$value" >> "$GITHUB_OUTPUT"
 done
