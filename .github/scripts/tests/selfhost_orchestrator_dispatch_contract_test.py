@@ -56,6 +56,8 @@ class SelfhostDispatchContractTests(unittest.TestCase):
         )
         self.assertEqual(self.inputs["cloud_provider"]["default"], "akamai-cloud")
         self.assertEqual(self.inputs["akamai_account"]["default"], "")
+        self.assertEqual(self.inputs["target_domain_base"]["default"], "onwalk.net")
+        self.assertIn("all", self.inputs["target_domains"]["options"])
 
     def test_operation_and_runtime_choices_are_explicit(self) -> None:
         self.assertEqual(

@@ -57,8 +57,28 @@ if grep -Fq "config/resources/" <<<"${deploy_output}"; then
   exit 1
 fi
 
-if run_route env INPUT_TARGET_DOMAINS=all INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=plan INPUT_DNS_MODE=none >/dev/null 2>&1; then
-  echo "UAT Akamai aggregate all target unexpectedly entered Terraform routing" >&2
+matrix_plan_output="$(run_route env INPUT_TARGET_DOMAINS=all INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=plan INPUT_DNS_MODE=none)"
+assert_contains "${matrix_plan_output}" "akamai_matrix_mode=true"
+assert_contains "${matrix_plan_output}" "akamai_matrix_action=plan"
+assert_contains "${matrix_plan_output}" "akamai_matrix_workspaces=open-platform web-saas ai-workspace agent-proxy-jp agent-proxy-us agent-proxy-sg"
+assert_contains "${matrix_plan_output}" "target_domain_base=onwalk.net"
+assert_contains "${matrix_plan_output}" "state_key="
+assert_contains "${matrix_plan_output}" "run_infrastructure=false"
+
+matrix_apply_output="$(run_route env INPUT_TARGET_DOMAINS=all INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=infra INPUT_DNS_MODE=none)"
+assert_contains "${matrix_apply_output}" "akamai_matrix_mode=true"
+assert_contains "${matrix_apply_output}" "akamai_matrix_action=apply"
+assert_contains "${matrix_apply_output}" "terraform_action=none"
+
+for matrix_operation in deploy deploy+migrate migrate destroy; do
+  if run_route env INPUT_TARGET_DOMAINS=all INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION="${matrix_operation}" INPUT_DNS_MODE=none >/dev/null 2>&1; then
+    echo "UAT Akamai target_domains=all unexpectedly accepted operation ${matrix_operation}" >&2
+    exit 1
+  fi
+done
+
+if run_route env INPUT_TARGET_DOMAINS=all INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=plan INPUT_TARGET_DOMAIN_BASE=svc.plus INPUT_DNS_MODE=none >/dev/null 2>&1; then
+  echo "UAT Akamai matrix unexpectedly accepted a non-onwalk.net target domain" >&2
   exit 1
 fi
 

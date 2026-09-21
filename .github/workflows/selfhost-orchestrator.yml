@@ -177,6 +177,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
   id-token: write
 
 concurrency:
@@ -269,6 +270,10 @@ jobs:
       agent_accounts_base_url:  ${{ steps.agent_proxy_origins.outputs.accounts_service_base_url || steps.route.outputs.agent_controller_url }}
       billing_service_base_url: ${{ steps.agent_proxy_origins.outputs.billing_service_base_url || steps.route.outputs.billing_service_base_url }}
       cloud_provider:           ${{ steps.route.outputs.cloud_provider }}
+      account:                  ${{ steps.route.outputs.account }}
+      akamai_matrix_mode:       ${{ steps.route.outputs.akamai_matrix_mode }}
+      akamai_matrix_action:     ${{ steps.route.outputs.akamai_matrix_action }}
+      akamai_matrix_workspaces: ${{ steps.route.outputs.akamai_matrix_workspaces }}
       migration_target_host:    ${{ steps.resolve_migration_target.outputs.target_host }}
       hosts:              ${{ steps.matrix.outputs.hosts         || '[]' }}
       hosts_web_saas:     ${{ steps.matrix.outputs.hosts_web_saas     || '[]' }}
@@ -660,6 +665,35 @@ jobs:
           ${{ steps.route.outputs.env_dir }}/cmdb.json
           ${{ steps.route.outputs.env_dir }}/hosts_manifest.json
           ${{ steps.route.outputs.env_dir }}/inventory.ini
+
+  # Stage A aggregate mode deliberately dispatches the existing isolated
+  # Akamai workflow once per namespace.  No Terraform command runs in the
+  # parent job, so there is no synthetic shared state or aggregate lockfile.
+  provision_akamai_uat_namespace_matrix:
+    name: "[0A] Akamai UAT namespace matrix"
+    needs: provision
+    if: >-
+      ${{ !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.provision.outputs.akamai_matrix_mode == 'true' }}
+    runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
+    steps:
+    - name: Checkout toolkit
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ needs.provision.outputs.toolkit_ref || github.sha }}
+
+    - name: Dispatch isolated Akamai namespace workflows
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ai-workspace-infra/platform-ops-toolkit
+        CHILD_WORKFLOW: akamai-cloud-iac.yml
+        DEPLOY_ACTION: ${{ needs.provision.outputs.akamai_matrix_action }}
+        ACCOUNT: ${{ needs.provision.outputs.account }}
+        GITOPS_REF: ${{ needs.provision.outputs.gitops_ref }}
+        IAC_REF: ${{ needs.provision.outputs.infra_ref }}
+        TARGET_DOMAIN_BASE: ${{ needs.provision.outputs.target_domain_base }}
+      run: .github/scripts/platform-ops/provision/platform-ops_provision_dispatch-akamai-uat-namespace-matrix.sh
 
 
 
@@ -1527,7 +1561,8 @@ jobs:
       observe_web_saas_after_dns,
       observe_agent_proxy_after_dns,
       bootstrap_stripe_catalog,
-      trigger_data_migration
+      trigger_data_migration,
+      provision_akamai_uat_namespace_matrix
     ]
     # Keep the summary alive after failed upstream jobs, but explicitly assert
     # that every declared need has produced a result. This satisfies the
@@ -1543,7 +1578,8 @@ jobs:
       needs.observe_web_saas_after_dns.result != '' &&
       needs.observe_agent_proxy_after_dns.result != '' &&
       needs.bootstrap_stripe_catalog.result != '' &&
-      needs.trigger_data_migration.result != '' }}
+      needs.trigger_data_migration.result != '' &&
+      needs.provision_akamai_uat_namespace_matrix.result != '' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     steps:
     - name: Checkout repository
@@ -1563,6 +1599,7 @@ jobs:
         AGENT_PROXY_STATUS_RESULT: ${{ needs.observe_agent_proxy_after_dns.result }}
         STRIPE_CATALOG_RESULT: ${{ needs.bootstrap_stripe_catalog.result }}
         DATA_MIGRATION_RESULT: ${{ needs.trigger_data_migration.result }}
+        AKAMAI_NAMESPACE_MATRIX_RESULT: ${{ needs.provision_akamai_uat_namespace_matrix.result }}
         DEPLOYMENT_ENV: ${{ needs.provision.outputs.deployment_env }}
         TARGET_DOMAINS: ${{ needs.provision.outputs.target_domains }}
         TERRAFORM_NAMESPACE: ${{ needs.provision.outputs.terraform_namespace }}
