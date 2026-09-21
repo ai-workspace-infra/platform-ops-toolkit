@@ -45,6 +45,11 @@ on:
         default: manifest
         type: choice
         options: [manifest, aws, gcp, vps]
+      destroy:
+        description: "Destroy ephemeral UAT resources when this dispatch finishes"
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -283,7 +288,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'activate' }}
         run: ./scripts/verify_ai_aggregator_endpoints.sh
       - name: Destroy UAT Spot resources
-        if: ${{ always() && steps.contract.outputs.workdir != '' }}
+        if: ${{ always() && steps.contract.outputs.workdir != '' && (github.event_name != 'workflow_dispatch' || inputs.destroy) }}
         run: terraform -chdir="${{ steps.contract.outputs.workdir }}" destroy -auto-approve
 
   uat-gcp-auto-deploy:
@@ -405,7 +410,7 @@ jobs:
           AI_AGGREGATOR_MANIFEST: gitops/topology/uat/selfhost/ai-aggregator.yaml
         run: ./scripts/verify_ai_aggregator_endpoints.sh
       - name: Destroy GCP UAT Spot resources
-        if: ${{ always() && steps.contract.outputs.workdir != '' }}
+        if: ${{ always() && steps.contract.outputs.workdir != '' && (github.event_name != 'workflow_dispatch' || inputs.destroy) }}
         run: terraform -chdir="${{ steps.contract.outputs.workdir }}" destroy -auto-approve
 
   uat-vps-auto-deploy:
@@ -521,7 +526,7 @@ jobs:
           AI_AGGREGATOR_MANIFEST: gitops/topology/uat/selfhost/ai-aggregator.yaml
         run: ./scripts/verify_ai_aggregator_endpoints.sh
       - name: Destroy VPS UAT resources
-        if: ${{ always() && steps.contract.outputs.workdir != '' }}
+        if: ${{ always() && steps.contract.outputs.workdir != '' && (github.event_name != 'workflow_dispatch' || inputs.destroy) }}
         env:
           VULTR_API_KEY: ${{ steps.vps_vault.outputs.VULTR_API_KEY }}
         run: terraform -chdir="${{ steps.contract.outputs.workdir }}" destroy -auto-approve
