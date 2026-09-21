@@ -8,6 +8,7 @@
 
 - [`bootstrap-vault-kv-tldr.md`](bootstrap-vault-kv-tldr.md)：路径、字段和最短执行步骤。
 - [`uat-prod-bootstrap-runbook.md`](uat-prod-bootstrap-runbook.md)：UAT/PROD Role、KV、workflow 与故障修复流程。
+- [`uat-six-namespace-migration-plan.md`](uat-six-namespace-migration-plan.md)：面向人类和代码代理的 UAT 六 namespace、阶段 A-E、迁移门禁与仓库/Project/PR 关联规范。
 - [UAT migration preflight](../howto/akamai-uat-migration-preflight.md)：只读核对 legacy state、六个 namespace、Linode 资源和后续 state retirement 门槛。
 - [`init-vault-kv.sh`](init-vault-kv.sh)：初始化 state KV，并调用仓库中已有的 Akamai token/OIDC bootstrap。
 - `scripts/vault/bootstrap_akamai_cloud_kv.sh`：只写入 Akamai provider token。
