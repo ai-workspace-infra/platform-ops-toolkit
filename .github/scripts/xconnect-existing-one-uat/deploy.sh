@@ -128,8 +128,10 @@ echo 'Stage: verify the fixed UAT One declaration'
 declaration="$GITHUB_WORKSPACE/gitops/vpn-overlay/uat/xconnect-one-nodes.yaml"
 overlay_cidr="$(awk '$1 == "cidr:" {print $2; exit}' "$declaration")"
 gateway_address="${GATEWAY_WIREGUARD_ADDRESS:-$(awk '$1 == "gateway_wireguard_address:" {print $2; exit}' "$declaration")}"
+one_loopback_port="$(awk '$1 == "xray_loopback_udp_port:" {print $2; exit}' "$declaration")"
 gateway_wireguard_ip="${gateway_address%/*}"
-[[ -n "$overlay_cidr" && -n "$gateway_address" ]] || { echo 'UAT declaration must provide overlay CIDR and Gateway WireGuard address' >&2; exit 1; }
+[[ -n "$overlay_cidr" && -n "$gateway_address" && "$one_loopback_port" =~ ^[0-9]+$ ]] || { echo 'UAT declaration must provide overlay CIDR, Gateway WireGuard address and One loopback port' >&2; exit 1; }
+(( one_loopback_port >= 1024 && one_loopback_port <= 65535 )) || { echo 'UAT One loopback port is invalid' >&2; exit 1; }
 python3 - "$gateway_address" "$overlay_cidr" <<'PY'
 import ipaddress
 import sys
@@ -334,7 +336,7 @@ if ! ANSIBLE_HOST_KEY_CHECKING=True \
     --private-key "$one_key" \
     --become-password-file "$one_become_password" \
     --ssh-common-args="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known_hosts" \
-    --extra-vars "xconnect_one_hosts=all xconnect_one_enabled=true xconnect_one_environment=uat xconnect_one_state_dir=/var/lib/xconnect-one/uat xconnect_one_binary_source=$LAB_DIR/xconnect xconnect_one_device_id=$ONE_DEVICE_ID xconnect_one_device_name=observability-uat xconnect_one_expected_network_id=$ZERO_NETWORK_ID xconnect_one_invite_file_source=$invite xconnect_one_expected_overlay_cidr=$overlay_cidr xconnect_one_expected_wireguard_interface=xconone0 xconnect_one_expected_xray_loopback_port=18080 xconnect_one_sync_interval_seconds=300 xconnect_one_install_observability=true" \
+    --extra-vars "xconnect_one_hosts=all xconnect_one_enabled=true xconnect_one_environment=uat xconnect_one_state_dir=/var/lib/xconnect-one/uat xconnect_one_binary_source=$LAB_DIR/xconnect xconnect_one_device_id=$ONE_DEVICE_ID xconnect_one_device_name=observability-uat xconnect_one_expected_network_id=$ZERO_NETWORK_ID xconnect_one_invite_file_source=$invite xconnect_one_expected_overlay_cidr=$overlay_cidr xconnect_one_expected_wireguard_interface=xconone0 xconnect_one_expected_xray_loopback_port=$one_loopback_port xconnect_one_sync_interval_seconds=300 xconnect_one_install_observability=true" \
     >"$ansible_one_log" 2>&1; then
   echo 'XConnect One Ansible deployment failed; sanitized task summary:' >&2
   perl -pe 's{xconnect://join/\S+}{xconnect://join/[REDACTED]}g; s{(?i)(password|token|private[_-]?key|secret)(\s*[:=]\s*)\S+}{$1$2[REDACTED]}g' \
