@@ -87,6 +87,7 @@ grep -Fq 'apt-get install -y -qq ca-certificates curl jq wireguard-tools' "${exi
 grep -Fq 'install -m 755 /tmp/xconnect-gateway /usr/local/bin/xconnect-gateway' "${existing_one_deploy}"
 grep -Fq 'install -m 755 /tmp/xray /usr/local/lib/xconnect-gateway/xray' "${existing_one_deploy}"
 grep -Fq 'getent group caddy' "${existing_one_deploy}"
+grep -Fq 'install -o root -g caddy -m 0640 /tmp/gateway.tls.key' "${existing_one_deploy}"
 grep -Fq 'install -d -o root -g caddy -m 0750 /run/xconnect-gateway' "${existing_one_deploy}"
 grep -Fq 'Environment=PATH=/usr/local/lib/xconnect-gateway/bin' "${existing_one_deploy}"
 grep -Fq 'Group=caddy' "${existing_one_deploy}"

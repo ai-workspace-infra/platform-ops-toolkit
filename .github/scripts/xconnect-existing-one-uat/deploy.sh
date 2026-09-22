@@ -237,8 +237,8 @@ install -m 755 /tmp/xconnect-gateway /usr/local/bin/xconnect-gateway
 install -d -m 755 /usr/local/lib/xconnect-gateway/bin
 install -m 755 /tmp/xray /usr/local/lib/xconnect-gateway/xray
 ln -sfn /usr/local/lib/xconnect-gateway/xray /usr/local/lib/xconnect-gateway/bin/xray
-install -m 644 /tmp/gateway.tls.crt /etc/xconnect-gateway/tls.crt
-install -m 600 /tmp/gateway.tls.key /etc/xconnect-gateway/tls.key
+install -o root -g caddy -m 0640 /tmp/gateway.tls.crt /etc/xconnect-gateway/tls.crt
+install -o root -g caddy -m 0640 /tmp/gateway.tls.key /etc/xconnect-gateway/tls.key
 rm -f /tmp/xconnect-gateway /tmp/xray /tmp/gateway.tls.crt /tmp/gateway.tls.key
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
