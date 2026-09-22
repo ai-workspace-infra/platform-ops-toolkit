@@ -515,10 +515,10 @@ jobs:
             kv/data/uat/xconnect-one VLESS_ID | LAB_VLESS_ID ;
             kv/data/uat/xconnect-one ZERO_SERVICE_TOKEN | ZERO_SERVICE_TOKEN ;
             kv/data/uat/xconnect-one ZERO_OWNER_EMAIL | ZERO_OWNER_EMAIL ;
-            kv/data/uat/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} host | ONE_HOST ;
-            kv/data/uat/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} user | ONE_USER ;
-            kv/data/uat/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} ssh_private_key_b64 | ONE_SSH_PRIVATE_KEY_B64 ;
-            kv/data/uat/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} sudo_password | ONE_BECOME_PASSWORD ;
+            kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} host | ONE_HOST ;
+            kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} user | ONE_USER ;
+            kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} ssh_private_key_b64 | ONE_SSH_PRIVATE_KEY_B64 ;
+            kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} sudo_password | ONE_BECOME_PASSWORD ;
             kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} host | GATEWAY_HOST ;
             kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} user | GATEWAY_USER ;
             kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} ssh_private_key_b64 | GATEWAY_SSH_PRIVATE_KEY_B64 ;
