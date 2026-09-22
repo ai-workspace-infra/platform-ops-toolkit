@@ -606,7 +606,8 @@ jobs:
           token="$(printf '%s' "$LINODE_TOKEN" | tr -d '\r\n')"
           test -n "$token"
           echo "::add-mask::$token"
-          printf 'LINODE_TOKEN<<AKAMAI_TOKEN_EOF\n%s\nAKAMAI_TOKEN_EOF\n' "$token" >> "$GITHUB_ENV"
+          printf 'LINODE_TOKEN=%s\n' "$token" >> "$GITHUB_ENV"
+          printf 'TF_VAR_linode_token=%s\n' "$token" >> "$GITHUB_ENV"
           curl --fail --silent --show-error --header "Authorization: Bearer $token" \
             https://api.linode.com/v4/profile | jq -e '.username and .email' >/dev/null
       - name: Resolve and validate Akamai manifest
@@ -653,8 +654,6 @@ jobs:
             'use_lockfile = true' > "$backend"
           terraform -chdir="$TF_ROOT" init -input=false -reconfigure -backend-config="$backend"
       - name: Provision Akamai UAT resource
-        env:
-          TF_VAR_linode_token: ${{ steps.vault.outputs.LINODE_TOKEN }}
         run: |
           set -euo pipefail
           terraform -chdir="$TF_ROOT" validate -no-color
@@ -683,8 +682,6 @@ jobs:
             -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/uat/selfhost/ai-aggregator.yaml
       - name: Destroy Akamai UAT resource
         if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.destroy) }}
-        env:
-          TF_VAR_linode_token: ${{ steps.vault.outputs.LINODE_TOKEN }}
         run: terraform -chdir="$TF_ROOT" destroy -input=false -auto-approve
 
   prod-deploy:
