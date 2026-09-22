@@ -1802,14 +1802,18 @@ jobs:
 
   deploy_agent_proxy:
     name: "[3] Agent Proxy IaC | ${{ matrix.host }}"
-    # Agent installation is parallel with the other post-bootstrap deployment
-    # jobs. Its controller may still be behind DNS at this point, so runtime
-    # configuration and service readiness are checked by the final DNS gate.
-    needs: [provision, deploy_base]
+    # UAT selfhost Agent Proxy registration targets the Web SaaS Accounts
+    # service. Wait for the Web SaaS deployment before registering agents;
+    # otherwise a fresh all-domain run races the controller and fails with a
+    # registration timeout. Standalone agent-proxy runs still proceed without
+    # this dependency because deploy_web_saas is skipped for those targets.
+    needs: [provision, deploy_base, deploy_web_saas]
     if: >-
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
+      (needs.deploy_web_saas.result == 'success' ||
+      !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
