@@ -42,6 +42,7 @@ class SelfhostDispatchContractTests(unittest.TestCase):
             "skip_stripe_catalog",
             "agent_controller_url",
             "vault_addr",
+            "xconnect_gateway_ref",
         }
         self.assertEqual(set(self.inputs), expected)
         self.assertLessEqual(len(self.inputs), 26)

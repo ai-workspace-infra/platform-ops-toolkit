@@ -176,6 +176,11 @@ on:
         description: "Vault 服务地址 (可选，覆盖默认的 https://vault.svc.plus)"
         required: false
         type: string
+      xconnect_gateway_ref:
+        description: "UAT XConnect Gateway DNS/Vault record key; other XConnect settings use the target workflow defaults"
+        required: false
+        default: "tw-xconnect.svc.plus"
+        type: string
       # 注意: 这里曾有一个 vault_token 输入作为 "JWT 异常时的兜底"。已移除。
       # workflow_dispatch 输入不脱敏且长期留在 run metadata 里, 任何有仓库读
       # 权限的人都能看到; 且 method:token 会绕过 role 上全部 bound_claims 绑定,
@@ -745,6 +750,39 @@ jobs:
         AGENT_CONTROLLER_URL: ${{ github.event.inputs.agent_controller_url || '' }}
         VAULT_ADDR: ${{ github.event.inputs.vault_addr || 'https://vault.svc.plus' }}
       run: .github/scripts/platform-ops/provision/platform-ops_provision_dispatch-selfhost-uat-namespace-matrix.sh
+
+  # target_domains=all is not complete until the UAT XConnect Zero control/data
+  # plane is reconciled. Keep this as a separate workflow so its existing-One
+  # state and Vault role remain independent from the six Akamai Terraform
+  # namespaces. The external Gateway and One records are configurable inputs;
+  # the defaults are the current UAT topology, not provider-specific logic.
+  deploy_xconnect_zero_uat:
+    name: "[0B] XConnect Zero UAT / existing One"
+    needs: [provision, provision_akamai_uat_namespace_matrix]
+    if: >-
+      ${{ !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.provision_akamai_uat_namespace_matrix.result == 'success' &&
+      needs.provision.outputs.deployment_env == 'uat' &&
+      needs.provision.outputs.target_domains == 'all' &&
+      needs.provision.outputs.run_application_deploy == 'true' &&
+      needs.provision.outputs.terraform_action == 'apply' }}
+    runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
+    steps:
+    - name: Checkout toolkit
+      uses: actions/checkout@v7
+      with:
+        ref: main
+        persist-credentials: false
+
+    - name: Dispatch and wait for XConnect Zero UAT
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ai-workspace-infra/platform-ops-toolkit
+        XCONNECT_WORKFLOW: xconnect-zero-cloud.yaml
+        XCONNECT_REF: main
+        XCONNECT_GATEWAY_REF: ${{ github.event.inputs.xconnect_gateway_ref || 'tw-xconnect.svc.plus' }}
+      run: .github/scripts/platform-ops/provision/platform-ops_provision_dispatch-xconnect-uat.sh
 
 
 
@@ -1679,7 +1717,8 @@ jobs:
       deploy_infra_platform,
       bootstrap_stripe_catalog,
       trigger_data_migration,
-      provision_akamai_uat_namespace_matrix
+      provision_akamai_uat_namespace_matrix,
+      deploy_xconnect_zero_uat
     ]
     # Keep the summary alive after failed upstream jobs, but explicitly assert
     # that every declared need has produced a result. This satisfies the
@@ -1697,7 +1736,8 @@ jobs:
       needs.deploy_infra_platform.result != '' &&
       needs.bootstrap_stripe_catalog.result != '' &&
       needs.trigger_data_migration.result != '' &&
-      needs.provision_akamai_uat_namespace_matrix.result != '' }}
+      needs.provision_akamai_uat_namespace_matrix.result != '' &&
+      needs.deploy_xconnect_zero_uat.result != '' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     steps:
     - name: Checkout repository
@@ -1719,6 +1759,7 @@ jobs:
         STRIPE_CATALOG_RESULT: ${{ needs.bootstrap_stripe_catalog.result }}
         DATA_MIGRATION_RESULT: ${{ needs.trigger_data_migration.result }}
         AKAMAI_NAMESPACE_MATRIX_RESULT: ${{ needs.provision_akamai_uat_namespace_matrix.result }}
+        XCONNECT_ZERO_UAT_RESULT: ${{ needs.deploy_xconnect_zero_uat.result }}
         DEPLOYMENT_ENV: ${{ needs.provision.outputs.deployment_env }}
         TARGET_DOMAINS: ${{ needs.provision.outputs.target_domains }}
         TERRAFORM_NAMESPACE: ${{ needs.provision.outputs.terraform_namespace }}
