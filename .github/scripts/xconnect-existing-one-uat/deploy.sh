@@ -90,7 +90,13 @@ if [[ -n "${GATEWAY_TLS_NOT_AFTER_EPOCH:-}" ]]; then
 fi
 
 : >"$known_hosts"
+if [[ -r "${HOME}/.ssh/known_hosts" ]]; then
+  cat "${HOME}/.ssh/known_hosts" >>"$known_hosts"
+fi
 for ssh_host in "$ONE_HOST" "$GATEWAY_HOST"; do
+  if ssh-keygen -F "$ssh_host" -f "$known_hosts" >/dev/null; then
+    continue
+  fi
   discovered=0
   for attempt in 1 2 3; do
     ssh-keyscan -T 10 -H "$ssh_host" >>"$known_hosts" 2>/dev/null || true
