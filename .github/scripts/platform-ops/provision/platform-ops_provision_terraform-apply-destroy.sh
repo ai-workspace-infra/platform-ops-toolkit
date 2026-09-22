@@ -1,7 +1,15 @@
 #!/bin/bash
 set -euo pipefail
 
-terraform workspace select -or-create "${ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE}"
+# S3 state keys already isolate the UAT Akamai namespaces.  The six namespace
+# states were created in Terraform's default workspace; selecting a second
+# workspace here would make an otherwise populated backend appear empty and
+# cause a duplicate create plan.  Keep the named workspace for providers whose
+# backend contract uses workspaces (for example Vultr), but never layer it on
+# top of an Akamai namespace key.
+if [[ "${ENV_STEPS_ROUTE_OUTPUTS_CLOUD_PROVIDER:-}" != "akamai-cloud" ]]; then
+  terraform workspace select -or-create "${ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE}"
+fi
 
 ACTION="${ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_ACTION}"
 case "${ACTION}" in
