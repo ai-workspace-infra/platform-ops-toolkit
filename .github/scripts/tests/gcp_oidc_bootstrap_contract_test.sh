@@ -30,7 +30,23 @@ for required in \
   'resources/xworktech.com/${{ inputs.environment }}/gcp/github-actions-oidc.yaml' \
   'hashicorp/vault-action' \
   'github-actions-platform-ops-toolkit-${{ inputs.environment }}-gcp-bootstrap-${{ steps.config.outputs.account_id }}' \
-  'kv/data/CICD/${{ inputs.environment }}/gcp-bootstrap/${{ steps.config.outputs.account_id }}' \
+  'Load GCP bootstrap credential from Vault' \
+  'secret_path="CICD/${ENVIRONMENT}/gcp-bootstrap/${ACCOUNT_ID}"' \
+  '${VAULT_ADDR}/v1/kv/data/${secret_path}' \
+  'credential_mode=auth_json' \
+  'credential_mode=token' \
+  'GCP_AUTH_JSON_EOF' \
+  'Exchange one-time GCP_AUTH_JSON for a short-lived access token' \
+  'credentials_json: ${{ steps.credential.outputs.auth_json }}' \
+  'token_format: access_token' \
+  'create_credentials_file: false' \
+  'Resolve bootstrap access token' \
+  'Revoke one-time bootstrap credential' \
+  'if: ${{ always() && inputs.action == '\''apply'\'' && steps.credential.outputs.credential_mode == '\''auth_json'\'' }}' \
+  'serviceAccounts/${SERVICE_ACCOUNT}/keys/${KEY_ID}' \
+  'serviceAccounts/${SERVICE_ACCOUNT}:disable' \
+  'oauth2.googleapis.com/revoke' \
+  'kv/metadata/CICD/${ENVIRONMENT}/gcp-bootstrap/${ACCOUNT_ID}' \
   'Verify GCP project bootstrap permissions' \
   'testIamPermissions' \
   'iam.serviceAccounts.create' \
@@ -253,6 +269,17 @@ for env in uat prod; do
   grep -Fq 'path "kv/data/CICD"' "${policy_file}"
   grep -Fq "kv/data/CICD/${env}/gcp-bootstrap/xworktech" "${policy_file}"
   grep -Fq "kv/data/${env}/platform/oidc/xworktech" "${policy_file}"
+  # The in-job revoke step (gcp-oidc-bootstrap.yml) needs to overwrite the
+  # bootstrap secret down to just GCP_PROJECT_ID and destroy every prior
+  # version once a one-time GCP_AUTH_JSON key has been used.
+  grep -Fq 'capabilities = ["read", "create", "update"]' "${policy_file}" || {
+    echo "GCP bootstrap policy must allow the workflow to overwrite its own credential after revoke: ${policy_file}" >&2
+    exit 1
+  }
+  grep -Fq 'capabilities = ["read", "delete"]' "${policy_file}" || {
+    echo "GCP bootstrap policy must allow the workflow to destroy stale credential versions after revoke: ${policy_file}" >&2
+    exit 1
+  }
   opposite_env=$([[ "${env}" == uat ]] && echo prod || echo uat)
   if grep -Eq "kv/(data|metadata)/${opposite_env}/" "${policy_file}"; then
     echo "GCP policy crosses environments: ${policy_file}" >&2
