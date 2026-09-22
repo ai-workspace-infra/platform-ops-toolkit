@@ -27,6 +27,15 @@ umask 077
 : "${OBSERVABILITY_USER:?}"
 : "${OBSERVABILITY_PASSWORD:?}"
 
+[[ "$ONE_HOST" == "observability.svc.plus" ]] || {
+  echo 'UAT existing-One target must be observability.svc.plus' >&2
+  exit 1
+}
+[[ "$ONE_USER" == "root" ]] || {
+  echo 'UAT existing-One target must use the Vault-authorized root SSH account' >&2
+  exit 1
+}
+
 mkdir -p "$LAB_DIR/releases"
 known_hosts="$LAB_DIR/known_hosts"
 one_key="$LAB_DIR/one.ssh"
@@ -105,7 +114,7 @@ network = ipaddress.ip_network(sys.argv[2], strict=False)
 if gateway.version != 4 or gateway.network.prefixlen != 32 or str(gateway) != sys.argv[1] or gateway.ip not in network:
     raise SystemExit('Gateway WireGuard address must be a canonical IPv4 /32 inside the overlay CIDR')
 PY
-grep -Fq 'gateway_ref: tw-xconnect.svc.plus' "$declaration"
+grep -Fq 'gateway_ref: ph-xconnect.svc.plus' "$declaration"
 grep -Fq 'fqdn: observability.svc.plus' "$declaration"
 grep -Fq 'lifecycle: persistent' "$declaration"
 
@@ -163,7 +172,9 @@ controller="$1"
 gateway_release="$2"
 install -d -m 700 /var/lib/xconnect-gateway /etc/xconnect-gateway
 install -m 755 /tmp/xconnect-gateway /usr/local/bin/xconnect-gateway
-install -m 755 /tmp/xray /usr/local/bin/xray
+install -d -m 755 /usr/local/lib/xconnect-gateway/bin
+install -m 755 /tmp/xray /usr/local/lib/xconnect-gateway/xray
+ln -sfn /usr/local/lib/xconnect-gateway/xray /usr/local/lib/xconnect-gateway/bin/xray
 install -m 644 /tmp/gateway.tls.crt /etc/xconnect-gateway/tls.crt
 install -m 600 /tmp/gateway.tls.key /etc/xconnect-gateway/tls.key
 rm -f /tmp/xconnect-gateway /tmp/xray /tmp/gateway.tls.crt /tmp/gateway.tls.key
@@ -182,7 +193,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/local/bin/xray run -config /var/lib/xconnect-gateway/runtime/xray.json
+Environment=PATH=/usr/local/lib/xconnect-gateway/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+ExecStart=/usr/local/lib/xconnect-gateway/xray run -config /var/lib/xconnect-gateway/runtime/xray.json
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true
@@ -214,7 +226,7 @@ UNIT
 systemctl daemon-reload
 systemctl enable xconnect-gateway-xray.service >/dev/null
 systemctl enable --now xconnect-gateway-sync.timer >/dev/null
-/usr/local/bin/xconnect-gateway diagnose >/dev/null
+PATH=/usr/local/lib/xconnect-gateway/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin /usr/local/bin/xconnect-gateway diagnose >/dev/null
 if [[ ! -s /var/lib/xconnect-gateway/state.json ]]; then
   /usr/local/bin/xconnect-gateway init --state-dir /var/lib/xconnect-gateway --controller "$controller" --gateway-id gw-uat-tw-xconnect >/var/lib/xconnect-gateway/init.log
   chmod 600 /var/lib/xconnect-gateway/init.log
@@ -290,7 +302,7 @@ fi
 
 echo 'Stage: reconcile the stable Gateway peer set'
 "${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" \
-  'sudo xconnect-gateway up --state-dir /var/lib/xconnect-gateway --tls-cert /etc/xconnect-gateway/tls.crt --tls-key /etc/xconnect-gateway/tls.key' \
+  'sudo env PATH=/usr/local/lib/xconnect-gateway/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin xconnect-gateway up --state-dir /var/lib/xconnect-gateway --tls-cert /etc/xconnect-gateway/tls.crt --tls-key /etc/xconnect-gateway/tls.key' \
   >/dev/null
 
 echo 'Stage: verify signed sync, runtime state and exact peer handshake'
