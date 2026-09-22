@@ -1,15 +1,18 @@
 # UAT persistent XConnect Gateway
 
 The UAT cloud workflow supports a persistent, non-IaC Gateway for the
-`tw-xconnect.svc.plus` entrypoint. In this mode the workflow creates only one
+`ph-xconnect.svc.plus` entrypoint. In this mode the workflow creates only one
 `t4g.micro` one-time Spot Linux One in the existing UAT network. It never
 creates, updates, or destroys the persistent Gateway host.
 
 ## Ownership
 
 ```text
-Vault:   kv/prod/ulighthost-xconnect/tw-xconnect.svc.plus
+Vault:   kv/uat/ulighthost-xconnect/ph-xconnect.svc.plus
          ├─ host / user / ssh_private_key_b64
+         └─ endpoint metadata (sensitive values remain in Vault)
+One:     kv/uat/ulighthost-xconnect/observability.svc.plus
+         ├─ host / user / ssh_private_key_b64 / sudo_password
          └─ endpoint metadata (sensitive values remain in Vault)
 TLS:     kv/CICD/domains/svc.plus
          ├─ tls_fullchain_pem_b64
@@ -17,7 +20,7 @@ TLS:     kv/CICD/domains/svc.plus
 
 GitOps:  public transport and protocol declaration only
 AWS:     one disposable t4g.micro Spot, one-hour lease
-Gateway: tw-xconnect.svc.plus, external Linux relay/service
+Gateway: ph-xconnect.svc.plus, external Linux relay/service
 ```
 
 The persistent host is outside Terraform ownership. Its Gateway state,
@@ -27,6 +30,14 @@ prints or commits the certificate or key.
 WireGuard private key, TLS private key and runtime files remain on that host.
 The workflow reads only the Vault fields required for SSH and enrollment; no
 secret is written to GitOps, Actions artifacts, or the public desktop handoff.
+
+The Gateway Xray binary is installed under
+`/usr/local/lib/xconnect-gateway/` with a dedicated systemd unit. It must not
+replace the existing Agent Proxy `/usr/local/bin/xray`, `xray.service`, or
+Caddy configuration. If both services use the same host, the public listener
+must be allocated explicitly: only one process may bind TCP 443. A shared
+Caddy `/xconnect` route is a separate runtime change and is not enabled by
+this workflow.
 
 ## Workflow dispatch
 
@@ -38,7 +49,7 @@ mode=apply
 gateway_provider=external
 external_gateway_id=gw-uat-tw-xconnect
 external_network_id=net_uat
-external_gateway_server_name=tw-xconnect.svc.plus
+external_gateway_server_name=ph-xconnect.svc.plus
 ```
 
 For the existing persistent One enrollment path, select

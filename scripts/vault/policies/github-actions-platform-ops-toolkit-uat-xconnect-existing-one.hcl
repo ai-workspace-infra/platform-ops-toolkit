@@ -4,13 +4,10 @@ path "kv/data/CICD/github-app/daily-snapshot" {
 path "kv/data/uat/xconnect-one" {
   capabilities = ["read"]
 }
-path "kv/data/prod/ulighthost-xconnect/observability.svc.plus" {
+path "kv/data/uat/ulighthost-xconnect/observability.svc.plus" {
   capabilities = ["read"]
 }
-path "kv/data/uat/ulighthost-xconnect/tw-xconnect.onwalk.net" {
-  capabilities = ["read"]
-}
-path "kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus" {
+path "kv/data/uat/ulighthost-xconnect/ph-xconnect.svc.plus" {
   capabilities = ["read"]
 }
 path "kv/data/CICD/domains/svc.plus" {
