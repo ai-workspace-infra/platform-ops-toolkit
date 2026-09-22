@@ -169,6 +169,7 @@ for env in uat prod; do
     .role_name == $role and
     .bound_claims.repository == "ai-workspace-infra/platform-ops-toolkit" and
     (.bound_claims.job_workflow_ref | tostring | contains("iac-pipeline-multi-cloud")) and
+    (.bound_claims.job_workflow_ref | index("ai-workspace-infra/platform-ops-toolkit/.github/workflows/gcp-iac-pipeline.yml@*") != null) and
     (.token_policies | index($role) != null) and
     .token_ttl == "20m" and .token_max_ttl == "20m"
   ' "${runtime_role}" >/dev/null || {
@@ -183,6 +184,11 @@ for env in uat prod; do
     exit 1
   fi
 done
+
+grep -Fq 'terraform_version: 1.10.5' "${gcp_iac_workflow}" || {
+  echo "GCP IAC workflow must use Terraform 1.10.5 or newer" >&2
+  exit 1
+}
 
 for forbidden in 'backend "gcs"' 'backend-config="prefix=' 'state_bucket }}'; do
   if grep -Fq -- "${forbidden}" "${workflow}"; then
