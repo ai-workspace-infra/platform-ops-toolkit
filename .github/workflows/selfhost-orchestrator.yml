@@ -769,6 +769,7 @@ jobs:
         method: jwt
         role: ${{ env.VAULT_ROLE }}
         jwtGithubAudience: vault
+        exportToken: true
         ignoreNotFound: true
         secrets: |
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
@@ -1229,7 +1230,9 @@ jobs:
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
       (needs.deploy_web_saas.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
-      (needs.deploy_infra_platform.result == 'success' || !contains(fromJSON('["all","infra-platform","open-platform"]'), needs.provision.outputs.target_domains)) &&
+      (needs.deploy_infra_platform.result == 'success' ||
+      needs.deploy_infra_platform.result == 'skipped' ||
+      !contains(fromJSON('["all","infra-platform","open-platform"]'), needs.provision.outputs.target_domains)) &&
       (needs.deploy_agent_proxy.result == 'success' || !contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       (needs.deploy_agent_proxy_non_iac.result == 'success' || needs.provision.outputs.hosts_agent_proxy_non_iac == '[]' || !contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       (needs.deploy_ai_workspace.result == 'success' || !contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.target_domains)) &&
@@ -1582,6 +1585,7 @@ jobs:
       switch_dns,
       observe_web_saas_after_dns,
       observe_agent_proxy_after_dns,
+      deploy_infra_platform,
       bootstrap_stripe_catalog,
       trigger_data_migration,
       provision_akamai_uat_namespace_matrix
@@ -1599,6 +1603,7 @@ jobs:
       needs.switch_dns.result != '' &&
       needs.observe_web_saas_after_dns.result != '' &&
       needs.observe_agent_proxy_after_dns.result != '' &&
+      needs.deploy_infra_platform.result != '' &&
       needs.bootstrap_stripe_catalog.result != '' &&
       needs.trigger_data_migration.result != '' &&
       needs.provision_akamai_uat_namespace_matrix.result != '' }}
@@ -1619,6 +1624,7 @@ jobs:
         DNS_UPDATE_RESULT: ${{ needs.switch_dns.result }}
         WEB_SAAS_STATUS_RESULT: ${{ needs.observe_web_saas_after_dns.result }}
         AGENT_PROXY_STATUS_RESULT: ${{ needs.observe_agent_proxy_after_dns.result }}
+        INFRA_PLATFORM_DEPLOY_RESULT: ${{ needs.deploy_infra_platform.result }}
         STRIPE_CATALOG_RESULT: ${{ needs.bootstrap_stripe_catalog.result }}
         DATA_MIGRATION_RESULT: ${{ needs.trigger_data_migration.result }}
         AKAMAI_NAMESPACE_MATRIX_RESULT: ${{ needs.provision_akamai_uat_namespace_matrix.result }}
@@ -1632,6 +1638,12 @@ jobs:
 
   deploy_infra_platform:
     name: "[2] Infra | ${{ matrix.host }}"
+    # UAT Akamai open-platform is installed by deploy_base via
+    # setup-open-platform-domain.yml. The generic pull-only CD workflow has no
+    # managed image contract for this domain and would only perform a
+    # duplicate validation/observation pass. Keep the service deployment and
+    # migration boundary in bootstrap, but skip that generic verification for
+    # the open-platform leg (including the open-platform leg of target=all).
     needs: [provision, deploy_base]
     if: >-
       ${{ !cancelled() &&
@@ -1641,6 +1653,9 @@ jobs:
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
       contains(fromJSON('["all","infra-platform","open-platform"]'), needs.provision.outputs.target_domains) &&
+      !(needs.provision.outputs.deployment_env == 'uat' &&
+      needs.provision.outputs.cloud_provider == 'akamai-cloud' &&
+      contains(fromJSON('["all","open-platform"]'), needs.provision.outputs.target_domains)) &&
       needs.provision.outputs.hosts_infra_platform != '[]' &&
       needs.provision.outputs.hosts_infra_platform != '' }}
     strategy:

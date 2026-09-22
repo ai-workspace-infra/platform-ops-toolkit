@@ -11,6 +11,7 @@ render_summary() {
   printf '| DB initialization | `%s` |\n' "${DB_INIT_RESULT:-unknown}"
   printf '| Agent Proxy deploy | `%s` |\n' "${AGENT_PROXY_DEPLOY_RESULT:-unknown}"
   printf '| Agent Proxy non-IaC deploy | `%s` |\n' "${AGENT_PROXY_NON_IAC_DEPLOY_RESULT:-unknown}"
+  printf '| Open Platform deployment/verification | `%s` |\n' "${INFRA_PLATFORM_DEPLOY_RESULT:-unknown}"
   printf '| DNS update | `%s` |\n' "${DNS_UPDATE_RESULT:-unknown}"
   printf '| Web SaaS final status | `%s` |\n' "${WEB_SAAS_STATUS_RESULT:-unknown}"
   printf '| Agent Proxy final status | `%s` |\n' "${AGENT_PROXY_STATUS_RESULT:-unknown}"
