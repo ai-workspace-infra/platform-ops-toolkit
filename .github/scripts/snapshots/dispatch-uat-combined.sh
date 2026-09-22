@@ -112,24 +112,30 @@ wait_for_serverless() {
   wait "${watch_pid}"
 }
 
-dispatch_selfhost() {
-  # UAT selfhost owns the full Akamai profile: three business nodes plus
-  # JP/US/SG Agent Proxy. TW/PH are added by the external inventory matrix.
+dispatch_selfhost_namespace() {
+  local namespace="${1:?namespace is required}"
+  local include_external="${2:?external-node flag is required}"
+  local dns_mode="${3:?dns mode is required}"
+
+  # UAT Akamai has six isolated Terraform namespaces. Dispatch one workload
+  # at a time so every run resolves its own state key and CMDB. The parent
+  # target_domains=all route is intentionally reserved for Stage A plan/infra
+  # fan-out and must not be used for application deployment.
   gh workflow run "${selfhost_workflow}" \
     --repo "${target_repo}" \
     --ref main \
     -f operation=deploy \
     -f vault_env_path=uat \
-    -f target_domains=all \
+    -f "target_domains=${namespace}" \
     -f cloud_provider=akamai-cloud \
     -f "akamai_account=${AKAMAI_ACCOUNT_UAT:-manbuzhe2026}" \
-    -f include_external_agent_proxy=true \
+    -f "include_external_agent_proxy=${include_external}" \
     -f "agent_proxy_plan=${agent_proxy_plan}" \
     -f "deploy_tag=${snapshot_tag}" \
     -f source_host=console.svc.plus \
     -f source_domain_base=svc.plus \
     -f target_domain_base=onwalk.net \
-    -f dns_mode=uat-records \
+    -f "dns_mode=${dns_mode}" \
     -f "agent_controller_url=${agent_controller_url}"
 }
 
@@ -195,7 +201,23 @@ if [[ -n "${xconnect_lab_run_url}" ]]; then
   echo "Dispatched XConnect UAT Lab for ${snapshot_tag}: ${xconnect_lab_run_url}"
 fi
 
-selfhost_run_url="$(dispatch_selfhost | tail -n 1)"
-echo "Dispatched UAT selfhost agent-proxy deploy for ${snapshot_tag}: ${selfhost_run_url}"
-echo "Agent Proxy controller: ${agent_controller_url}"
-gh run watch "${selfhost_run_url##*/}" --repo "${target_repo}" --exit-status --compact
+# Keep the deployment order explicit. open-platform is permanent, web-saas is
+# the public UAT surface, and the remaining namespaces are independently
+# disposable. The first Agent Proxy namespace owns the TW/PH external matrix;
+# the other two only reconcile their Akamai Terraform nodes.
+namespaces=(
+  "open-platform|false|none"
+  "web-saas|false|uat-records"
+  "ai-workspace|false|none"
+  "agent-proxy-jp|true|none"
+  "agent-proxy-us|false|none"
+  "agent-proxy-sg|false|none"
+)
+
+for namespace_spec in "${namespaces[@]}"; do
+  IFS='|' read -r namespace include_external dns_mode <<<"${namespace_spec}"
+  selfhost_run_url="$(dispatch_selfhost_namespace "${namespace}" "${include_external}" "${dns_mode}" | tail -n 1)"
+  echo "Dispatched UAT selfhost ${namespace} deploy for ${snapshot_tag}: ${selfhost_run_url}"
+  echo "Agent Proxy controller: ${agent_controller_url}"
+  gh run watch "${selfhost_run_url##*/}" --repo "${target_repo}" --exit-status --compact
+done

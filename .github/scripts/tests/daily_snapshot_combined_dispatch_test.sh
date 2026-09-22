@@ -28,6 +28,14 @@ fi
 if [[ "$1 $2" == "workflow run" ]]; then
   if [[ "$3" == "serverless-orchestrator.yml" ]]; then
     printf '%s\n' 'https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/1001'
+  elif [[ "$3" == "selfhost-orchestrator.yml" ]]; then
+    selfhost_id_file="${GH_LOG}.selfhost-id"
+    selfhost_id=2000
+    if [[ -f "${selfhost_id_file}" ]]; then
+      selfhost_id=$(( $(<"${selfhost_id_file}") + 1 ))
+    fi
+    printf '%s' "${selfhost_id}" >"${selfhost_id_file}"
+    printf '%s\n' "https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/${selfhost_id}"
   else
     printf '%s\n' 'https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/1002'
   fi
@@ -46,17 +54,25 @@ bash "${dispatcher}"
 
 serverless_line="$(grep -n '^workflow run serverless-orchestrator.yml ' "${workdir}/gh.log" | cut -d: -f1)"
 watch_line="$(grep -n '^run watch 1001 ' "${workdir}/gh.log" | cut -d: -f1)"
-selfhost_line="$(grep -n '^workflow run selfhost-orchestrator.yml ' "${workdir}/gh.log" | cut -d: -f1)"
+selfhost_lines="$(grep -n '^workflow run selfhost-orchestrator.yml ' "${workdir}/gh.log" | cut -d: -f1)"
 lab_line="$(grep -n '^workflow run xconnect-zero-cloud.yaml ' "${workdir}/gh.log" | cut -d: -f1)"
 
-[[ -n "${serverless_line}" && -n "${watch_line}" && -n "${lab_line}" && -n "${selfhost_line}" ]] || {
-  echo "combined dispatcher did not issue serverless, XConnect Lab, and selfhost runs with the serverless wait" >&2
+[[ -n "${serverless_line}" && -n "${watch_line}" && -n "${lab_line}" && "$(wc -l <<<"${selfhost_lines}")" -eq 6 ]] || {
+  echo "combined dispatcher did not issue serverless, XConnect Lab, and six isolated selfhost runs" >&2
   exit 1
 }
-(( serverless_line < watch_line && watch_line < lab_line && lab_line < selfhost_line )) || {
-  echo "XConnect Lab and selfhost Agent Proxy dispatch must follow successful serverless completion" >&2
+first_selfhost_line="$(head -n1 <<<"${selfhost_lines}")"
+(( serverless_line < watch_line && watch_line < lab_line && lab_line < first_selfhost_line )) || {
+  echo "XConnect Lab and isolated selfhost dispatch must follow successful serverless completion" >&2
   exit 1
 }
+
+for namespace in open-platform web-saas ai-workspace agent-proxy-jp agent-proxy-us agent-proxy-sg; do
+  grep -Fq -- "-f target_domains=${namespace}" "${workdir}/gh.log" || {
+    echo "missing selfhost namespace dispatch: ${namespace}" >&2
+    exit 1
+  }
+done
 
 grep -Fq -- '-f operation=deploy+migrate' "${workdir}/gh.log"
 grep -Fq -- '-f accounts_source_backend=supabase' "${workdir}/gh.log"
@@ -66,10 +82,12 @@ grep -Fq -- '-f tag_ref=uat-daily-build-2026.08.21-r5' "${workdir}/gh.log"
 grep -Fq -- '-f dns_mode=uat-records' "${workdir}/gh.log"
 grep -Fq -- '-f skip_stripe_catalog=true' "${workdir}/gh.log"
 grep -Fq -- '-f operation=deploy' "${workdir}/gh.log"
-grep -Fq -- '-f target_domains=all' "${workdir}/gh.log"
 grep -Fq -- '-f cloud_provider=akamai-cloud' "${workdir}/gh.log"
 grep -Fq -- '-f akamai_account=manbuzhe2026' "${workdir}/gh.log"
 grep -Fq -- '-f include_external_agent_proxy=true' "${workdir}/gh.log"
+grep -Fq -- '-f include_external_agent_proxy=false' "${workdir}/gh.log"
+grep -Fq -- '-f dns_mode=uat-records' "${workdir}/gh.log"
+grep -Fq -- '-f dns_mode=none' "${workdir}/gh.log"
 grep -Fq -- '-f agent_proxy_plan=1C2G' "${workdir}/gh.log"
 grep -Fq -- '-f deploy_tag=uat-daily-build-2026.08.21-r5' "${workdir}/gh.log"
 grep -Fq -- '-f agent_controller_url=https://accounts-serverless-uat.onwalk.net' "${workdir}/gh.log"
