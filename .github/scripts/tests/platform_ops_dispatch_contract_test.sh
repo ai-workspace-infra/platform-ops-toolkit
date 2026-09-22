@@ -134,6 +134,16 @@ done
 grep -Fq 'target_domains:$target_domains' "${matrix_deploy_script}"
 grep -Fq 'observability_endpoint:$observability_endpoint' "${matrix_deploy_script}"
 grep -Fq 'selfhost deploy run' "${matrix_deploy_script}"
+python3 - "${matrix_workflow}" <<'PY'
+from pathlib import Path
+import sys
+import yaml
+
+document = yaml.safe_load(Path(sys.argv[1]).read_text(encoding="utf-8"))
+group = document["concurrency"]["group"]
+if "github.event.inputs.target_domains" not in group:
+    raise SystemExit("selfhost concurrency group must distinguish aggregate parent and namespace child runs")
+PY
 
 if run_route env INPUT_TARGET_DOMAINS=open-platform INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=destroy INPUT_DNS_MODE=none >/dev/null 2>&1; then
   echo "permanent UAT open-platform namespace unexpectedly accepted destroy" >&2
