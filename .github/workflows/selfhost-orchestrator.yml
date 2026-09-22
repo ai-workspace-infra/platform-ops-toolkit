@@ -187,7 +187,10 @@ permissions:
   id-token: write
 
 concurrency:
-  group: deploy-env-migration-${{ github.event.inputs.vault_env_path || 'uat' }}-${{ github.event.inputs.cloud_provider || 'auto' }}-${{ github.event.inputs.cloud_account || github.event.inputs.akamai_account || 'profile' }}
+  # Aggregate UAT deployment is a parent orchestrator that dispatches child
+  # runs of this same workflow. Include target_domains so the parent `all`
+  # lock does not block its isolated namespace child lock.
+  group: deploy-env-migration-${{ github.event.inputs.vault_env_path || 'uat' }}-${{ github.event.inputs.cloud_provider || 'auto' }}-${{ github.event.inputs.cloud_account || github.event.inputs.akamai_account || 'profile' }}-${{ github.event.inputs.target_domains || 'auto' }}
   cancel-in-progress: false
 
 env:
