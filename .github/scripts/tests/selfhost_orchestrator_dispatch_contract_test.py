@@ -30,6 +30,7 @@ class SelfhostDispatchContractTests(unittest.TestCase):
             "xray_exporter_image",
             "operation",
             "target_domains",
+            "open_platform_service",
             "cloud_provider",
             "cloud_account",
             "akamai_account",
@@ -43,7 +44,7 @@ class SelfhostDispatchContractTests(unittest.TestCase):
             "vault_addr",
         }
         self.assertEqual(set(self.inputs), expected)
-        self.assertLessEqual(len(self.inputs), 25)
+        self.assertLessEqual(len(self.inputs), 26)
 
     def test_safe_defaults_and_provider_registry_choices(self) -> None:
         self.assertEqual(self.inputs["runner_type"]["default"], "ubuntu-latest")
@@ -58,6 +59,7 @@ class SelfhostDispatchContractTests(unittest.TestCase):
         self.assertEqual(self.inputs["akamai_account"]["default"], "")
         self.assertEqual(self.inputs["target_domain_base"]["default"], "onwalk.net")
         self.assertIn("all", self.inputs["target_domains"]["options"])
+        self.assertEqual(self.inputs["open_platform_service"]["default"], "all")
 
     def test_operation_and_runtime_choices_are_explicit(self) -> None:
         self.assertEqual(
