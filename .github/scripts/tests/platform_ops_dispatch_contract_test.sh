@@ -125,6 +125,9 @@ grep -Fq 'Dispatch ordered UAT selfhost namespace deployments' "${matrix_workflo
 grep -Fq 'CHILD_WORKFLOW: selfhost-orchestrator.yml' "${matrix_workflow}"
 grep -Fq 'OBSERVABILITY_ENDPOINT: ${{ github.event.inputs.observability_endpoint || '\''https://observability.svc.plus'\'' }}' "${matrix_workflow}"
 grep -Fq 'contains(fromJSON('"'"'["all","web-saas","open-platform","ai-workspace","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","agent-proxy","web-saas + agent-proxy"]'"'"'), steps.route.outputs.target_domains)' "${matrix_workflow}"
+grep -Fq 'repository: ai-workspace-lab/xworkmate-bridge' "${matrix_workflow}"
+grep -Fq 'path: xworkmate-bridge' "${matrix_workflow}"
+grep -Fq 'owner: ai-workspace-lab' "${matrix_workflow}"
 bash -n "${matrix_deploy_script}"
 for namespace in open-platform web-saas ai-workspace agent-proxy-jp agent-proxy-us agent-proxy-sg; do
   grep -Fq "\"${namespace}|" "${matrix_deploy_script}" || {
