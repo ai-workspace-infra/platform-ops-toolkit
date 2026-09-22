@@ -70,7 +70,13 @@ assert_contains "${matrix_apply_output}" "akamai_matrix_mode=true"
 assert_contains "${matrix_apply_output}" "akamai_matrix_action=apply"
 assert_contains "${matrix_apply_output}" "terraform_action=none"
 
-for matrix_operation in deploy deploy+migrate migrate destroy; do
+matrix_deploy_output="$(run_route env INPUT_TARGET_DOMAINS=all INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=deploy INPUT_DNS_MODE=none)"
+assert_contains "${matrix_deploy_output}" "akamai_matrix_mode=true"
+assert_contains "${matrix_deploy_output}" "akamai_matrix_action=deploy"
+assert_contains "${matrix_deploy_output}" "terraform_action=none"
+assert_contains "${matrix_deploy_output}" "run_application_deploy=false"
+
+for matrix_operation in deploy+migrate migrate destroy; do
   if run_route env INPUT_TARGET_DOMAINS=all INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION="${matrix_operation}" INPUT_DNS_MODE=none >/dev/null 2>&1; then
     echo "UAT Akamai target_domains=all unexpectedly accepted operation ${matrix_operation}" >&2
     exit 1
@@ -112,6 +118,32 @@ for aggregate in agent-proxy 'web-saas + agent-proxy'; do
     exit 1
   fi
 done
+
+matrix_workflow="${repo_root}/.github/workflows/selfhost-orchestrator.yml"
+matrix_deploy_script="${repo_root}/.github/scripts/platform-ops/provision/platform-ops_provision_dispatch-selfhost-uat-namespace-matrix.sh"
+grep -Fq 'Dispatch ordered UAT selfhost namespace deployments' "${matrix_workflow}"
+grep -Fq 'CHILD_WORKFLOW: selfhost-orchestrator.yml' "${matrix_workflow}"
+grep -Fq 'OBSERVABILITY_ENDPOINT: ${{ github.event.inputs.observability_endpoint || '\''https://observability.svc.plus'\'' }}' "${matrix_workflow}"
+bash -n "${matrix_deploy_script}"
+for namespace in open-platform web-saas ai-workspace agent-proxy-jp agent-proxy-us agent-proxy-sg; do
+  grep -Fq "\"${namespace}|" "${matrix_deploy_script}" || {
+    echo "ordered UAT dispatcher must include namespace ${namespace}" >&2
+    exit 1
+  }
+done
+grep -Fq 'target_domains:$target_domains' "${matrix_deploy_script}"
+grep -Fq 'observability_endpoint:$observability_endpoint' "${matrix_deploy_script}"
+grep -Fq 'selfhost deploy run' "${matrix_deploy_script}"
+python3 - "${matrix_workflow}" <<'PY'
+from pathlib import Path
+import sys
+import yaml
+
+document = yaml.safe_load(Path(sys.argv[1]).read_text(encoding="utf-8"))
+group = document["concurrency"]["group"]
+if "github.event.inputs.target_domains" not in group:
+    raise SystemExit("selfhost concurrency group must distinguish aggregate parent and namespace child runs")
+PY
 
 if run_route env INPUT_TARGET_DOMAINS=open-platform INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=destroy INPUT_DNS_MODE=none >/dev/null 2>&1; then
   echo "permanent UAT open-platform namespace unexpectedly accepted destroy" >&2
