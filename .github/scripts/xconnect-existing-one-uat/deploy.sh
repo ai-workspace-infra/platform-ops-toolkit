@@ -278,6 +278,45 @@ UNIT
 systemctl daemon-reload
 systemctl enable xconnect-gateway-xray.service >/dev/null
 systemctl enable --now xconnect-gateway-sync.timer >/dev/null
+python3 - <<'PY'
+from pathlib import Path
+
+path = Path("/etc/caddy/Caddyfile")
+text = path.read_text()
+start = "    # BEGIN XCONNECT GATEWAY\n"
+end = "    # END XCONNECT GATEWAY\n"
+block = """    # BEGIN XCONNECT GATEWAY
+    @xconnect {
+        path /xconnect /xconnect/*
+    }
+
+    @xconnect_root path /xconnect
+    rewrite @xconnect_root /xconnect/
+
+    handle @xconnect {
+        uri query -x_padding
+        reverse_proxy unix//run/xconnect-gateway/xray.sock {
+            transport http {
+                versions h2c 2
+            }
+        }
+    }
+    # END XCONNECT GATEWAY
+
+"""
+if start in text:
+    before, rest = text.split(start, 1)
+    _, after = rest.split(end, 1)
+    text = before + block + after
+else:
+    marker = "    # Fallback/Default site content\n"
+    if marker not in text:
+        raise SystemExit("shared Caddy fallback marker not found")
+    text = text.replace(marker, block + marker, 1)
+path.write_text(text)
+PY
+caddy validate --config /etc/caddy/Caddyfile >/dev/null
+systemctl reload caddy.service
 PATH=/usr/local/lib/xconnect-gateway/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin /usr/local/bin/xconnect-gateway diagnose >/dev/null
 if [[ ! -s /var/lib/xconnect-gateway/state.json ]]; then
   /usr/local/bin/xconnect-gateway init --state-dir /var/lib/xconnect-gateway --controller "$controller" --gateway-id gw-uat-tw-xconnect >/var/lib/xconnect-gateway/init.log
@@ -363,9 +402,17 @@ if ! ANSIBLE_HOST_KEY_CHECKING=True \
 fi
 
 echo 'Stage: reconcile the stable Gateway peer set'
-"${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" \
-  'sudo env PATH=/usr/local/lib/xconnect-gateway/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin xconnect-gateway up --state-dir /var/lib/xconnect-gateway --tls-cert /etc/xconnect-gateway/tls.crt --tls-key /etc/xconnect-gateway/tls.key' \
-  >/dev/null
+gateway_reconciled=0
+for attempt in 1 2 3; do
+  if "${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" \
+    'sudo env PATH=/usr/local/lib/xconnect-gateway/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin xconnect-gateway up --state-dir /var/lib/xconnect-gateway --tls-cert /etc/xconnect-gateway/tls.crt --tls-key /etc/xconnect-gateway/tls.key' \
+    >/dev/null; then
+    gateway_reconciled=1
+    break
+  fi
+  (( attempt < 3 )) && sleep $((attempt * 3))
+done
+(( gateway_reconciled == 1 )) || { echo 'Gateway peer reconciliation failed after three attempts' >&2; exit 1; }
 
 echo 'Stage: verify signed sync, runtime state and exact peer handshake'
 status="$(one_sudo 'xconnect status --state-dir /var/lib/xconnect-one/uat')"
