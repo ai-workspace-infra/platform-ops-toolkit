@@ -136,6 +136,13 @@ for namespace in open-platform web-saas ai-workspace agent-proxy-jp agent-proxy-
     exit 1
   }
 done
+grep -Fq '"open-platform|false|none|2C4G"' "${matrix_deploy_script}"
+grep -Fq '"web-saas|false|${DNS_MODE}|2C4G"' "${matrix_deploy_script}"
+grep -Fq '"ai-workspace|false|none|4C8G"' "${matrix_deploy_script}"
+grep -Fq '"agent-proxy-jp|false|none|1C2G"' "${matrix_deploy_script}"
+grep -Fq '"agent-proxy-us|false|none|1C2G"' "${matrix_deploy_script}"
+grep -Fq '"agent-proxy-sg|${INCLUDE_EXTERNAL_AGENT_PROXY}|none|1C2G"' "${matrix_deploy_script}"
+grep -Fq 'namespace_plan' "${matrix_deploy_script}"
 grep -Fq 'target_domains:$target_domains' "${matrix_deploy_script}"
 grep -Fq 'observability_endpoint:$observability_endpoint' "${matrix_deploy_script}"
 grep -Fq 'selfhost deploy run' "${matrix_deploy_script}"

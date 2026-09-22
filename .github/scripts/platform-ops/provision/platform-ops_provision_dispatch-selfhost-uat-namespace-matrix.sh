@@ -57,6 +57,7 @@ dispatch_and_wait() {
   local namespace="${1:?namespace is required}"
   local include_external="${2:?external-node flag is required}"
   local child_dns_mode="${3:?dns mode is required}"
+  local namespace_plan="${4:?namespace plan is required}"
   local dispatch_started run_id="" payload
 
   dispatch_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -77,7 +78,7 @@ dispatch_and_wait() {
     --arg cloud_account "${ACCOUNT}" \
     --arg akamai_account "${ACCOUNT}" \
     --arg include_external_agent_proxy "${include_external}" \
-    --arg instance_plan "${INSTANCE_PLAN}" \
+    --arg instance_plan "${namespace_plan}" \
     --arg agent_proxy_plan "${AGENT_PROXY_PLAN}" \
     --arg dns_mode "${child_dns_mode}" \
     --arg vault_env_path uat \
@@ -137,18 +138,18 @@ dispatch_and_wait() {
 # The final Agent Proxy child owns the TW/PH external-node pass so those nodes
 # are configured once after all Akamai Terraform namespaces are healthy.
 namespaces=(
-  "open-platform|false|none"
-  "web-saas|false|${DNS_MODE}"
-  "ai-workspace|false|none"
-  "agent-proxy-jp|false|none"
-  "agent-proxy-us|false|none"
-  "agent-proxy-sg|${INCLUDE_EXTERNAL_AGENT_PROXY}|none"
+  "open-platform|false|none|2C4G"
+  "web-saas|false|${DNS_MODE}|2C4G"
+  "ai-workspace|false|none|4C8G"
+  "agent-proxy-jp|false|none|1C2G"
+  "agent-proxy-us|false|none|1C2G"
+  "agent-proxy-sg|${INCLUDE_EXTERNAL_AGENT_PROXY}|none|1C2G"
 )
 
 for namespace_spec in "${namespaces[@]}"; do
-  IFS='|' read -r namespace include_external child_dns_mode <<<"${namespace_spec}"
-  echo "::group::UAT Akamai namespace ${namespace} (deploy)"
-  dispatch_and_wait "${namespace}" "${include_external}" "${child_dns_mode}"
+  IFS='|' read -r namespace include_external child_dns_mode namespace_plan <<<"${namespace_spec}"
+  echo "::group::UAT Akamai namespace ${namespace} (deploy, ${namespace_plan})"
+  dispatch_and_wait "${namespace}" "${include_external}" "${child_dns_mode}" "${namespace_plan}"
   echo "::endgroup::"
 done
 
