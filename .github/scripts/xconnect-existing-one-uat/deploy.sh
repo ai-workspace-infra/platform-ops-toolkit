@@ -375,11 +375,38 @@ print(urlunparse(parsed._replace(query=urlencode(query, doseq=True))))
 }
 
 gateway_credential_present="$("${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" 'sudo jq -r ".device_credential.credential // empty" /var/lib/xconnect-gateway/state.json')"
-if [[ -z "$gateway_credential_present" ]]; then
+gateway_reenroll=0
+if [[ -n "$gateway_credential_present" ]]; then
+  # Do not replace a credential merely because the control plane is briefly
+  # unavailable. A 401 is the explicit stale/orphaned-credential signal after
+  # a UAT Accounts reset; every other sync error remains a hard failure.
+  if ! gateway_session_probe="$("${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" \
+      'sudo env PATH=/usr/local/lib/xconnect-gateway/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin xconnect-gateway sync --state-dir /var/lib/xconnect-gateway --tls-cert /etc/xconnect-gateway/tls.crt --tls-key /etc/xconnect-gateway/tls.key' 2>&1)"; then
+    if grep -Fq 'Zero API returned HTTP 401' <<<"$gateway_session_probe"; then
+      echo 'Stage: rotate an orphaned stable Gateway credential after explicit Zero 401'
+      gateway_reenroll=1
+    else
+      echo 'Stable Gateway credential preflight failed without an explicit 401; refusing credential replacement' >&2
+      exit 1
+    fi
+  fi
+fi
+if [[ -z "$gateway_credential_present" || "$gateway_reenroll" == 1 ]]; then
   issue_invite gateway gw-uat-tw-xconnect "$gateway_invite"
   gateway_copy "$gateway_invite" "$GATEWAY_USER@$GATEWAY_HOST:/tmp/xconnect-gateway.invite" >/dev/null
-  "${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" sudo bash -s -- <<'GATEWAY_ENROLL'
+  "${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" sudo bash -s -- "$gateway_reenroll" <<'GATEWAY_ENROLL'
 set -euo pipefail
+reenroll="$1"
+if [[ "$reenroll" == 1 ]]; then
+  # Preserve the pinned Gateway WireGuard key while dropping only the stale
+  # authentication/session material. The Accounts exchange atomically revokes
+  # the old credential before issuing the replacement.
+  tmp_state="$(mktemp /var/lib/xconnect-gateway/.state.json.XXXXXX)"
+  jq 'del(.device_credential, .signing_keys, .enrollment_token, .enrollment_expires_at, .applied_config_id, .applied_generation)' \
+    /var/lib/xconnect-gateway/state.json >"$tmp_state"
+  install -m 600 "$tmp_state" /var/lib/xconnect-gateway/state.json
+  rm -f "$tmp_state"
+fi
 install -m 600 /tmp/xconnect-gateway.invite /var/lib/xconnect-gateway/join-uri
 /usr/local/bin/xconnect-gateway join --state-dir /var/lib/xconnect-gateway --gateway-id gw-uat-tw-xconnect "$(cat /var/lib/xconnect-gateway/join-uri)"
 rm -f /tmp/xconnect-gateway.invite /var/lib/xconnect-gateway/join-uri
