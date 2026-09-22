@@ -102,6 +102,7 @@ if grep -Fq '.credential.credential' "${existing_one_deploy}"; then
 fi
 grep -Fq 'gateway_ssh=(sshpass -e ssh' "${existing_one_deploy}"
 grep -Fq 'gateway_scp=(sshpass -e scp' "${existing_one_deploy}"
+grep -Fq 'Gateway SCP upload failed after three attempts' "${existing_one_deploy}"
 grep -Fq 'ONE_BECOME_PASSWORD' "${existing_one_deploy}"
 grep -Fq -- '--become-password-file "$one_become_password"' "${existing_one_deploy}"
 grep -Fq 'one_sudo()' "${existing_one_deploy}"

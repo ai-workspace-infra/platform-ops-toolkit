@@ -118,6 +118,18 @@ export SSHPASS="$GATEWAY_SSH_PASSWORD"
 gateway_ssh=(sshpass -e ssh -o BatchMode=no -o PreferredAuthentications=password "${SSH_COMMON[@]}")
 gateway_scp=(sshpass -e scp -o BatchMode=no -o PreferredAuthentications=password "${SSH_COMMON[@]}")
 
+gateway_copy() {
+  local attempt
+  for attempt in 1 2 3; do
+    if "${gateway_scp[@]}" "$@"; then
+      return 0
+    fi
+    (( attempt < 3 )) && sleep $((attempt * 3))
+  done
+  echo 'Gateway SCP upload failed after three attempts' >&2
+  return 1
+}
+
 one_sudo() {
   local command="$1"
   printf '%s\n' "$ONE_BECOME_PASSWORD" | \
@@ -190,7 +202,7 @@ xray_actual="$(sha256sum "$LAB_DIR/releases/$xray_asset" | awk '{print $1}')"
 unzip -p "$LAB_DIR/releases/$xray_asset" xray > "$xray_binary" || { echo 'Xray release archive is missing xray' >&2; exit 1; }
 chmod 755 "$xray_binary"
 
-"${gateway_scp[@]}" "$gateway_binary" "$xray_binary" "$gateway_tls_cert" "$gateway_tls_key" \
+gateway_copy "$gateway_binary" "$xray_binary" "$gateway_tls_cert" "$gateway_tls_key" \
   "$GATEWAY_USER@$GATEWAY_HOST:/tmp/" >/dev/null
 "${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" sudo bash -s -- "$ZERO_ACCOUNTS_API_URL" "$GATEWAY_RELEASE_TAG" <<'GATEWAY_RUNTIME_BOOTSTRAP'
 set -euo pipefail
@@ -312,7 +324,7 @@ print(urlunparse(parsed._replace(query=urlencode(query, doseq=True))))
 gateway_credential_present="$("${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" 'sudo jq -r ".device_credential.credential // empty" /var/lib/xconnect-gateway/state.json')"
 if [[ -z "$gateway_credential_present" ]]; then
   issue_invite gateway gw-uat-tw-xconnect "$gateway_invite"
-  "${gateway_scp[@]}" "$gateway_invite" "$GATEWAY_USER@$GATEWAY_HOST:/tmp/xconnect-gateway.invite" >/dev/null
+  gateway_copy "$gateway_invite" "$GATEWAY_USER@$GATEWAY_HOST:/tmp/xconnect-gateway.invite" >/dev/null
   "${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" sudo bash -s -- <<'GATEWAY_ENROLL'
 set -euo pipefail
 install -m 600 /tmp/xconnect-gateway.invite /var/lib/xconnect-gateway/join-uri
