@@ -14,6 +14,7 @@ umask 077
 : "${LAB_VLESS_ID:?}"
 : "${ZERO_NETWORK_ID:?}"
 : "${ONE_DEVICE_ID:?}"
+: "${ONE_SERVER_NAME:?}"
 : "${ONE_HOST:?}"
 : "${ONE_USER:?}"
 : "${ONE_SSH_PRIVATE_KEY_B64:?}"
@@ -27,10 +28,13 @@ umask 077
 : "${OBSERVABILITY_USER:?}"
 : "${OBSERVABILITY_PASSWORD:?}"
 
-[[ "$ONE_HOST" == "observability.svc.plus" ]] || {
-  echo 'UAT existing-One target must be observability.svc.plus' >&2
-  exit 1
-}
+if [[ "$ONE_HOST" != "$ONE_SERVER_NAME" ]]; then
+  mapfile -t one_server_ipv4 < <(getent ahostsv4 "$ONE_SERVER_NAME" | awk '{print $1}' | sort -u)
+  printf '%s\n' "${one_server_ipv4[@]}" | grep -Fxq "$ONE_HOST" || {
+    echo 'UAT existing-One SSH target does not match the authorized server name' >&2
+    exit 1
+  }
+fi
 [[ "$ONE_USER" == "root" ]] || {
   echo 'UAT existing-One target must use the Vault-authorized root SSH account' >&2
   exit 1
