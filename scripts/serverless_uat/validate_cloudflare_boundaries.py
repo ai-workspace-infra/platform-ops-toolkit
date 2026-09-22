@@ -9,6 +9,12 @@ import sys
 from pathlib import Path
 
 
+PRODUCTION_PLATFORM_ORIGINS = frozenset({
+    "https://svc.plus",
+    "https://xworktech.com",
+})
+
+
 def canonical_console_host(environment: str) -> str:
     return "console.svc.plus" if environment == "prod" else f"console-{environment}.onwalk.net"
 
@@ -41,6 +47,20 @@ def validate_data_topology(data: dict[str, object]) -> None:
         raise SystemExit("GitOps runtime data must define a migration topology")
     if migration.get("strategy") != "async" or migration.get("single_writer") is not True:
         raise SystemExit("GitOps runtime migration must reserve async DTS with single_writer=true")
+
+
+def validate_platform_origin(environment: str, zone: str, website: dict[str, object]) -> None:
+    """Validate the public marketing origin without coupling it to the console origin."""
+    platform_origin = website.get("platform_origin")
+    if environment == "prod":
+        if platform_origin not in PRODUCTION_PLATFORM_ORIGINS:
+            allowed = ", ".join(sorted(PRODUCTION_PLATFORM_ORIGINS))
+            raise SystemExit(f"website.platform_origin must be one of: {allowed}")
+        return
+
+    expected = f"https://console.{zone}"
+    if platform_origin != expected:
+        raise SystemExit(f"website.platform_origin must be {expected}")
 
 
 def main() -> int:
@@ -148,11 +168,7 @@ def main() -> int:
             raise SystemExit("website.hosts must belong to website.zone_name")
         if set(hosts) & set(console_aliases):
             raise SystemExit("website hosts must not be full Console aliases")
-        expected_platform_origin = (
-            "https://svc.plus" if environment == "prod" else f"https://console.{zone}"
-        )
-        if website.get("platform_origin") != expected_platform_origin:
-            raise SystemExit(f"website.platform_origin must be {expected_platform_origin}")
+        validate_platform_origin(environment, zone, website)
     required_router_fields = {"worker_name", "host", "pages_origin", "api_origin", "static_prefixes", "bindings"}
     missing_router_fields = required_router_fields - set(frontend_router)
     if missing_router_fields:
