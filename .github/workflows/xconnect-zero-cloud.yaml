@@ -21,12 +21,12 @@ on:
         description: Advanced override - reviewed gitops commit SHA
         type: string
         required: false
-        default: '6050f627ea7bc26887c79966a70f6706bd2f63c3'
+        default: 'fbf78214efdc718802ffc9d170b457fa07fed8f0'
       playbooks_ref:
         description: Advanced override - reviewed playbooks commit SHA
         type: string
         required: false
-        default: 'e19008202b74c03a649c367a7f4c408a67c12aea'
+        default: 'dae04558c6c3d86a9a12158cca6ef3b2fc9bc43f'
       cli_release_tag:
         description: Advanced override - XConnect-One GitHub Release tag
         type: string
@@ -36,7 +36,7 @@ on:
         description: Advanced override - XConnect-Gateway GitHub Release tag
         type: string
         required: false
-        default: 'v0.1.8'
+        default: 'v0.1.10'
       xray_release_tag:
         description: Advanced override - XTLS/Xray-core Release tag
         type: string
@@ -222,10 +222,10 @@ jobs:
     env:
       MODE: ${{ inputs.mode }}
       IAC_REF: ${{ inputs.iac_ref || '2ba98f30c3e4199e01eb940bb1951549fca0ae3e' }}
-      GITOPS_REF: ${{ inputs.gitops_ref || 'acbc88faf6072c14dc55c14c2cd601d3693e065e' }}
-      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'e19008202b74c03a649c367a7f4c408a67c12aea' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || 'fbf78214efdc718802ffc9d170b457fa07fed8f0' }}
+      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'dae04558c6c3d86a9a12158cca6ef3b2fc9bc43f' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
-      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.8' }}
+      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.10' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
       GATEWAY_PROVIDER: ${{ inputs.gateway_provider || 'external' }}
       EXTERNAL_GATEWAY_ID: ${{ inputs.external_gateway_id || 'gw-uat-tw-xconnect' }}
@@ -428,10 +428,10 @@ jobs:
     env:
       XCONNECT_VAULT_ROLE: github-actions-platform-ops-toolkit-uat-xconnect-existing-one
       MODE: ${{ inputs.mode }}
-      GITOPS_REF: ${{ inputs.gitops_ref || 'acbc88faf6072c14dc55c14c2cd601d3693e065e' }}
-      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'e3af025a3776c860bfbbd4ff25a76cdc29e6f0da' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || 'fbf78214efdc718802ffc9d170b457fa07fed8f0' }}
+      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'dae04558c6c3d86a9a12158cca6ef3b2fc9bc43f' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
-      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.8' }}
+      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.10' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
       ZERO_NETWORK_ID: ${{ inputs.network_id || 'net_uat' }}
       ONE_DEVICE_ID: observability-uat
@@ -538,7 +538,7 @@ jobs:
           LAB_DIR: ${{ runner.temp }}/xconnect-existing-one
           GITHUB_WORKSPACE: ${{ github.workspace }}
           CLI_RELEASE_TOKEN: ${{ steps.artifact-token.outputs.token }}
-          GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.8' }}
+          GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.10' }}
           XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
           ZERO_ACCOUNTS_API_URL: https://accounts-uat.onwalk.net
           LAB_VLESS_ID: ${{ steps.runtime.outputs.LAB_VLESS_ID }}
@@ -571,8 +571,8 @@ jobs:
     timeout-minutes: 30
     env:
       MODE: ${{ inputs.mode }}
-      GITOPS_REF: ${{ inputs.gitops_ref || 'acbc88faf6072c14dc55c14c2cd601d3693e065e' }}
-      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'e19008202b74c03a649c367a7f4c408a67c12aea' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || 'fbf78214efdc718802ffc9d170b457fa07fed8f0' }}
+      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'dae04558c6c3d86a9a12158cca6ef3b2fc9bc43f' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
       GATEWAY_PROVIDER: ${{ inputs.gateway_provider || 'external' }}
       EXTERNAL_GATEWAY_ID: ${{ inputs.external_gateway_id || 'gw-uat-tw-xconnect' }}
@@ -740,10 +740,10 @@ jobs:
     env:
       MODE: cleanup
       IAC_REF: ${{ inputs.iac_ref || '2ba98f30c3e4199e01eb940bb1951549fca0ae3e' }}
-      GITOPS_REF: ${{ inputs.gitops_ref || 'acbc88faf6072c14dc55c14c2cd601d3693e065e' }}
-      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'e19008202b74c03a649c367a7f4c408a67c12aea' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || 'fbf78214efdc718802ffc9d170b457fa07fed8f0' }}
+      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'dae04558c6c3d86a9a12158cca6ef3b2fc9bc43f' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
-      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.8' }}
+      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.10' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
       GATEWAY_PROVIDER: ${{ inputs.gateway_provider || 'external' }}
       EXTERNAL_GATEWAY_ID: ${{ inputs.external_gateway_id || 'gw-uat-tw-xconnect' }}
