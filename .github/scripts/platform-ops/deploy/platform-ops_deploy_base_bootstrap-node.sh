@@ -39,6 +39,29 @@ if [[ -z "${playbook}" ]]; then
   exit 1
 fi
 
+# Open Platform is composed of independently deployable service units. Keep
+# the complete entry point as the default, while allowing the orchestrator to
+# run Vault, IAM, or Observability separately on the same Terraform namespace.
+if [[ "${playbook}" == "setup-open-platform-domain.yml" ]]; then
+  case "${OPEN_PLATFORM_SERVICE:-all}" in
+    all)
+      ;;
+    vault)
+      playbook=deploy_vault_domain.yml
+      ;;
+    iam)
+      playbook=deploy_iam_domain.yml
+      ;;
+    observability)
+      playbook=deploy_observability_domain.yml
+      ;;
+    *)
+      echo "Unsupported OPEN_PLATFORM_SERVICE=${OPEN_PLATFORM_SERVICE}; expected all, vault, iam, or observability" >&2
+      exit 1
+      ;;
+  esac
+fi
+
 if [[ "${playbook}" == "setup-agent-proxy-domain.yml" ]]; then
   # Native agent-proxy delivery must happen after Web SaaS is healthy.  The
   # agent generates its Xray configs only after it can register with Accounts;
