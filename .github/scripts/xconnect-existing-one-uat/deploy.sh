@@ -181,6 +181,11 @@ rm -f /tmp/xconnect-gateway /tmp/xray /tmp/gateway.tls.crt /tmp/gateway.tls.key
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq ca-certificates curl jq wireguard-tools >/dev/null
+getent group caddy >/dev/null || {
+  echo 'Shared Gateway frontend requires the Agent Proxy caddy group' >&2
+  exit 1
+}
+install -d -o root -g caddy -m 0750 /run/xconnect-gateway
 install -d -m 755 /etc/sysctl.d
 printf '%s\n' 'net.ipv4.ip_forward = 1' > /etc/sysctl.d/99-xconnect-gateway-forwarding.conf
 sysctl -q -p /etc/sysctl.d/99-xconnect-gateway-forwarding.conf
@@ -193,6 +198,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
+Group=caddy
+RuntimeDirectory=xconnect-gateway
+RuntimeDirectoryMode=0750
 Environment=PATH=/usr/local/lib/xconnect-gateway/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 ExecStart=/usr/local/lib/xconnect-gateway/xray run -config /var/lib/xconnect-gateway/runtime/xray.json
 Restart=on-failure
