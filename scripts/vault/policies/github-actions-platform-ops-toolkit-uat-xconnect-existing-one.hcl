@@ -7,7 +7,7 @@ path "kv/data/uat/xconnect-one" {
 path "kv/data/prod/ulighthost-xconnect/observability.svc.plus" {
   capabilities = ["read"]
 }
-path "kv/data/uat/ulighthost-xconnect/*" {
+path "kv/data/prod/ulighthost-xconnect/*" {
   capabilities = ["read"]
 }
 path "kv/data/CICD/domains/svc.plus" {

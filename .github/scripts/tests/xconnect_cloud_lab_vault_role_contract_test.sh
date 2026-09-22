@@ -36,10 +36,10 @@ grep -Fq '"job_workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/w
 grep -Fq '"token_policies":' "${existing_one_role}"
 grep -Fq 'path "kv/data/prod/ulighthost-xconnect/observability.svc.plus"' "${existing_one_policy}"
 grep -Fq 'kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} host | ONE_HOST' "${workflow}"
-grep -Fq 'kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} SSH_PASSWORD | GATEWAY_SSH_PASSWORD' "${workflow}"
-grep -Fq 'GATEWAY_HOST: ${{ env.GATEWAY_SERVER_NAME }}' "${workflow}"
-grep -Fq 'GATEWAY_USER: root' "${workflow}"
-grep -Fq 'path "kv/data/uat/ulighthost-xconnect/*"' "${existing_one_policy}"
+grep -Fq 'kv/data/prod/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} ssh_private_key_b64 | GATEWAY_SSH_PRIVATE_KEY_B64' "${workflow}"
+grep -Fq 'GATEWAY_HOST: ${{ steps.runtime.outputs.GATEWAY_HOST }}' "${workflow}"
+grep -Fq 'GATEWAY_USER: ${{ steps.runtime.outputs.GATEWAY_USER }}' "${workflow}"
+grep -Fq 'path "kv/data/prod/ulighthost-xconnect/*"' "${existing_one_policy}"
 grep -Fq 'path "kv/data/CICD/domains/svc.plus"' "${existing_one_policy}"
 
 if grep -Fq '"${WF_PREFIX}/xconnect-cloud-lab.yml@*"' "${roles}"; then
@@ -88,6 +88,8 @@ grep -Fq 'apt-get install -y -qq ca-certificates curl jq wireguard-tools' "${exi
 grep -Fq 'install -m 755 /tmp/xconnect-gateway /usr/local/bin/xconnect-gateway' "${existing_one_deploy}"
 grep -Fq 'install -m 755 /tmp/xray /usr/local/lib/xconnect-gateway/xray' "${existing_one_deploy}"
 grep -Fq 'getent group caddy' "${existing_one_deploy}"
+grep -Fq 'install -d -o root -g caddy -m 0750 /etc/xconnect-gateway' "${existing_one_deploy}"
+grep -Fq 'install -o root -g caddy -m 0640 /tmp/gateway.tls.key' "${existing_one_deploy}"
 grep -Fq 'install -d -o root -g caddy -m 0750 /run/xconnect-gateway' "${existing_one_deploy}"
 grep -Fq 'Environment=PATH=/usr/local/lib/xconnect-gateway/bin' "${existing_one_deploy}"
 grep -Fq 'Group=caddy' "${existing_one_deploy}"
@@ -95,6 +97,14 @@ grep -Fq 'RuntimeDirectory=xconnect-gateway' "${existing_one_deploy}"
 grep -Fq 'xconnect-gateway init --state-dir /var/lib/xconnect-gateway' "${existing_one_deploy}"
 grep -Fq 'xconnect-gateway join --state-dir /var/lib/xconnect-gateway' "${existing_one_deploy}"
 grep -Fq 'xconnect-gateway up --state-dir /var/lib/xconnect-gateway' "${existing_one_deploy}"
+grep -Fq 'reconcile-stable-owner' "${existing_one_deploy}"
+grep -Fq 'Stable UAT Gateway ownership reconciliation passed' "${existing_one_deploy}"
+grep -Fq 'an invisible Gateway is not a valid result' "${existing_one_deploy}"
+grep -Fq 'Zero API returned HTTP 401' "${existing_one_deploy}"
+grep -Fq 'rotate an orphaned stable Gateway credential' "${existing_one_deploy}"
+grep -Fq 'del(.device_credential, .signing_keys, .enrollment_token' "${existing_one_deploy}"
+grep -Fq '.controller = $controller' "${existing_one_deploy}"
+grep -Fq 'A previously interrupted recovery can leave the credential empty' "${existing_one_deploy}"
 grep -Fq 'systemctl enable --now xconnect-gateway-sync.timer' "${existing_one_deploy}"
 grep -Fq '.device_credential.credential' "${existing_one_deploy}"
 if grep -Fq '.credential.credential' "${existing_one_deploy}"; then
@@ -104,8 +114,13 @@ fi
 grep -Fq 'gateway_ssh=(sshpass -e ssh' "${existing_one_deploy}"
 grep -Fq 'gateway_scp=(sshpass -e scp' "${existing_one_deploy}"
 grep -Fq 'Gateway SCP upload failed after three attempts' "${existing_one_deploy}"
-grep -Fq '# BEGIN XCONNECT GATEWAY' "${existing_one_deploy}"
+grep -Fq 'Managed by XConnect Zero UAT reconciliation' "${existing_one_deploy}"
 grep -Fq 'reverse_proxy unix//run/xconnect-gateway/xray.sock' "${existing_one_deploy}"
+grep -Fq '/etc/caddy/conf.d/xconnect-gateway.caddy' "${existing_one_deploy}"
+if grep -Fq 'shared Caddy fallback marker not found' "${existing_one_deploy}"; then
+  echo 'Gateway deployment must not depend on an Agent Proxy Caddy fallback marker' >&2
+  exit 1
+fi
 grep -Fq 'Gateway peer reconciliation failed after three attempts' "${existing_one_deploy}"
 grep -Fq 'ONE_BECOME_PASSWORD' "${existing_one_deploy}"
 grep -Fq -- '--become-password-file "$one_become_password"' "${existing_one_deploy}"

@@ -21,7 +21,8 @@ umask 077
 : "${ONE_BECOME_PASSWORD:?}"
 : "${GATEWAY_HOST:?}"
 : "${GATEWAY_USER:?}"
-: "${GATEWAY_SSH_PASSWORD:?}"
+: "${GATEWAY_SSH_PASSWORD:=}"
+: "${GATEWAY_SSH_PRIVATE_KEY_B64:=}"
 : "${GATEWAY_TLS_CERT_B64:?}"
 : "${GATEWAY_TLS_KEY_B64:?}"
 : "${GATEWAY_SERVER_NAME:?}"
@@ -71,6 +72,10 @@ cleanup() {
 trap cleanup EXIT
 
 printf '%s' "$ONE_SSH_PRIVATE_KEY_B64" | base64 --decode >"$one_key"
+if [[ -n "$GATEWAY_SSH_PRIVATE_KEY_B64" ]]; then
+  printf '%s' "$GATEWAY_SSH_PRIVATE_KEY_B64" | base64 --decode >"$gateway_key"
+  chmod 600 "$gateway_key"
+fi
 printf '%s\n' "$ONE_BECOME_PASSWORD" >"$one_become_password"
 printf 'X-Service-Token: %s\nContent-Type: application/json\n' "$ZERO_SERVICE_TOKEN" >"$zero_header"
 printf '%s' "$GATEWAY_TLS_CERT_B64" | base64 --decode >"$gateway_tls_cert"
@@ -120,9 +125,17 @@ SSH_COMMON=(
   -o ServerAliveCountMax=4
 )
 one_ssh=(ssh -o BatchMode=yes -i "$one_key" "${SSH_COMMON[@]}")
-export SSHPASS="$GATEWAY_SSH_PASSWORD"
-gateway_ssh=(sshpass -e ssh -o BatchMode=no -o PreferredAuthentications=password "${SSH_COMMON[@]}")
-gateway_scp=(sshpass -e scp -o BatchMode=no -o PreferredAuthentications=password "${SSH_COMMON[@]}")
+if [[ -n "$GATEWAY_SSH_PRIVATE_KEY_B64" ]]; then
+  gateway_ssh=(ssh -o BatchMode=yes -i "$gateway_key" "${SSH_COMMON[@]}")
+  gateway_scp=(scp -o BatchMode=yes -i "$gateway_key" "${SSH_COMMON[@]}")
+elif [[ -n "$GATEWAY_SSH_PASSWORD" ]]; then
+  export SSHPASS="$GATEWAY_SSH_PASSWORD"
+  gateway_ssh=(sshpass -e ssh -o BatchMode=no -o PreferredAuthentications=password "${SSH_COMMON[@]}")
+  gateway_scp=(sshpass -e scp -o BatchMode=no -o PreferredAuthentications=password "${SSH_COMMON[@]}")
+else
+  echo 'one of GATEWAY_SSH_PRIVATE_KEY_B64 or GATEWAY_SSH_PASSWORD is required' >&2
+  exit 1
+fi
 
 gateway_copy() {
   local attempt
@@ -214,17 +227,23 @@ chmod 755 "$xray_binary"
 
 gateway_copy "$gateway_binary" "$xray_binary" "$gateway_tls_cert" "$gateway_tls_key" \
   "$GATEWAY_USER@$GATEWAY_HOST:/tmp/" >/dev/null
-"${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" sudo bash -s -- "$ZERO_ACCOUNTS_API_URL" "$GATEWAY_RELEASE_TAG" <<'GATEWAY_RUNTIME_BOOTSTRAP'
+"${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" sudo bash -s -- "$ZERO_ACCOUNTS_API_URL" "$GATEWAY_RELEASE_TAG" "$GATEWAY_SERVER_NAME" <<'GATEWAY_RUNTIME_BOOTSTRAP'
 set -euo pipefail
 controller="$1"
 gateway_release="$2"
-install -d -m 700 /var/lib/xconnect-gateway /etc/xconnect-gateway
+gateway_server_name="$3"
+[[ "$gateway_server_name" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] || {
+  echo "Invalid Gateway server name" >&2
+  exit 1
+}
+install -d -m 700 /var/lib/xconnect-gateway
+install -d -o root -g caddy -m 0750 /etc/xconnect-gateway
 install -m 755 /tmp/xconnect-gateway /usr/local/bin/xconnect-gateway
 install -d -m 755 /usr/local/lib/xconnect-gateway/bin
 install -m 755 /tmp/xray /usr/local/lib/xconnect-gateway/xray
 ln -sfn /usr/local/lib/xconnect-gateway/xray /usr/local/lib/xconnect-gateway/bin/xray
-install -m 644 /tmp/gateway.tls.crt /etc/xconnect-gateway/tls.crt
-install -m 600 /tmp/gateway.tls.key /etc/xconnect-gateway/tls.key
+install -o root -g caddy -m 0640 /tmp/gateway.tls.crt /etc/xconnect-gateway/tls.crt
+install -o root -g caddy -m 0640 /tmp/gateway.tls.key /etc/xconnect-gateway/tls.key
 rm -f /tmp/xconnect-gateway /tmp/xray /tmp/gateway.tls.crt /tmp/gateway.tls.key
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
@@ -282,14 +301,13 @@ UNIT
 systemctl daemon-reload
 systemctl enable xconnect-gateway-xray.service >/dev/null
 systemctl enable --now xconnect-gateway-sync.timer >/dev/null
-python3 - <<'PY'
-from pathlib import Path
+install -d -m 755 /etc/caddy/conf.d
+cat > /etc/caddy/conf.d/xconnect-gateway.caddy <<CADDY
+# Managed by XConnect Zero UAT reconciliation.  This dedicated site coexists
+# with Agent Proxy virtual hosts without modifying their Xray socket or routes.
+${gateway_server_name} {
+    tls /etc/xconnect-gateway/tls.crt /etc/xconnect-gateway/tls.key
 
-path = Path("/etc/caddy/Caddyfile")
-text = path.read_text()
-start = "    # BEGIN XCONNECT GATEWAY\n"
-end = "    # END XCONNECT GATEWAY\n"
-block = """    # BEGIN XCONNECT GATEWAY
     @xconnect {
         path /xconnect /xconnect/*
     }
@@ -305,20 +323,10 @@ block = """    # BEGIN XCONNECT GATEWAY
             }
         }
     }
-    # END XCONNECT GATEWAY
 
-"""
-if start in text:
-    before, rest = text.split(start, 1)
-    _, after = rest.split(end, 1)
-    text = before + block + after
-else:
-    marker = "    # Fallback/Default site content\n"
-    if marker not in text:
-        raise SystemExit("shared Caddy fallback marker not found")
-    text = text.replace(marker, block + marker, 1)
-path.write_text(text)
-PY
+    respond "XConnect Gateway"
+}
+CADDY
 caddy validate --config /etc/caddy/Caddyfile >/dev/null
 systemctl reload caddy.service
 PATH=/usr/local/lib/xconnect-gateway/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin /usr/local/bin/xconnect-gateway diagnose >/dev/null
@@ -370,12 +378,84 @@ print(urlunparse(parsed._replace(query=urlencode(query, doseq=True))))
   chmod 600 "$destination"
 }
 
+# This profile uses the fixed externally managed UAT Gateway. A previous run
+# can have created the network under a different Accounts owner even though the
+# runtime remains healthy. Reconcile only this fully pinned identity before
+# issuing invites, so the Portal owner projection matches the UAT deployment.
+# Never treat this as best effort: an invisible Gateway is not a valid result.
+reconcile_stable_gateway_owner() {
+  [[ "$ZERO_NETWORK_ID" == "net_uat" ]] || {
+    echo 'Stable Gateway ownership reconciliation is restricted to net_uat' >&2
+    exit 1
+  }
+  [[ "$GATEWAY_SERVER_NAME" == "tw-xconnect.svc.plus" ]] || {
+    echo 'Stable Gateway ownership reconciliation requires tw-xconnect.svc.plus' >&2
+    exit 1
+  }
+
+  local request="$LAB_DIR/stable-gateway-reconcile-request.json"
+  local response="$LAB_DIR/stable-gateway-reconcile-response.json"
+  local status
+  jq -n --arg owner "$ZERO_OWNER_EMAIL" \
+    '{environment:"uat",network_id:"net_uat",gateway_id:"gw-uat-tw-xconnect",gateway_endpoint_host:"tw-xconnect.svc.plus",owner_email:$owner}' \
+    >"$request"
+  status="$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+    --config <(printf 'header = @%s\n' "$zero_header") \
+    --data-binary "@$request" "$ZERO_ACCOUNTS_API_URL/api/internal/overlay/gateways/reconcile-stable-owner" || true)"
+  [[ "$status" == "200" ]] || {
+    echo "Stable UAT Gateway ownership reconciliation failed: HTTP $status" >&2
+    exit 1
+  }
+  jq -e '(.environment == "uat" and .network_id == "net_uat" and .gateway_id == "gw-uat-tw-xconnect" and .gateway_endpoint_host == "tw-xconnect.svc.plus" and (.owner_reconciled | type) == "boolean")' \
+    "$response" >/dev/null || {
+      echo 'Stable UAT Gateway ownership reconciliation returned an invalid response' >&2
+      exit 1
+    }
+  echo 'Stable UAT Gateway ownership reconciliation passed'
+}
+
 gateway_credential_present="$("${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" 'sudo jq -r ".device_credential.credential // empty" /var/lib/xconnect-gateway/state.json')"
-if [[ -z "$gateway_credential_present" ]]; then
+gateway_reenroll=0
+if [[ -n "$gateway_credential_present" ]]; then
+  # Do not replace a credential merely because the control plane is briefly
+  # unavailable. A 401 is the explicit stale/orphaned-credential signal after
+  # a UAT Accounts reset; every other sync error remains a hard failure.
+  if ! gateway_session_probe="$("${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" \
+      'sudo env PATH=/usr/local/lib/xconnect-gateway/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin xconnect-gateway sync --state-dir /var/lib/xconnect-gateway --tls-cert /etc/xconnect-gateway/tls.crt --tls-key /etc/xconnect-gateway/tls.key' 2>&1)"; then
+    if grep -Fq 'Zero API returned HTTP 401' <<<"$gateway_session_probe"; then
+      echo 'Stage: rotate an orphaned stable Gateway credential after explicit Zero 401'
+      gateway_reenroll=1
+    else
+      echo 'Stable Gateway credential preflight failed without an explicit 401; refusing credential replacement' >&2
+      exit 1
+    fi
+  fi
+fi
+reconcile_stable_gateway_owner
+if [[ -z "$gateway_credential_present" || "$gateway_reenroll" == 1 ]]; then
   issue_invite gateway gw-uat-tw-xconnect "$gateway_invite"
   gateway_copy "$gateway_invite" "$GATEWAY_USER@$GATEWAY_HOST:/tmp/xconnect-gateway.invite" >/dev/null
-  "${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" sudo bash -s -- <<'GATEWAY_ENROLL'
+  "${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" sudo bash -s -- "$gateway_reenroll" "$ZERO_ACCOUNTS_API_URL" <<'GATEWAY_ENROLL'
 set -euo pipefail
+reenroll="$1"
+controller="$2"
+tmp_state="$(mktemp /var/lib/xconnect-gateway/.state.json.XXXXXX)"
+if [[ "$reenroll" == 1 ]]; then
+  # Preserve the pinned Gateway WireGuard key while dropping only the stale
+  # authentication/session material. The Accounts exchange atomically revokes
+  # the old credential before issuing the replacement.
+  jq --arg controller "$controller" '.controller = $controller | del(.device_credential, .signing_keys, .enrollment_token, .enrollment_expires_at, .applied_config_id, .applied_generation)' \
+    /var/lib/xconnect-gateway/state.json >"$tmp_state"
+else
+  # A previously interrupted recovery can leave the credential empty while
+  # retaining the legacy controller URL. Align it before join: the Gateway
+  # validates the invitation controller against this state even without a
+  # credential. Keep its WireGuard identity and all other local state intact.
+  jq --arg controller "$controller" '.controller = $controller' \
+    /var/lib/xconnect-gateway/state.json >"$tmp_state"
+fi
+install -m 600 "$tmp_state" /var/lib/xconnect-gateway/state.json
+rm -f "$tmp_state"
 install -m 600 /tmp/xconnect-gateway.invite /var/lib/xconnect-gateway/join-uri
 /usr/local/bin/xconnect-gateway join --state-dir /var/lib/xconnect-gateway --gateway-id gw-uat-tw-xconnect "$(cat /var/lib/xconnect-gateway/join-uri)"
 rm -f /tmp/xconnect-gateway.invite /var/lib/xconnect-gateway/join-uri

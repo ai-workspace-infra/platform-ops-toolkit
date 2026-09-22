@@ -130,7 +130,15 @@ for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
       website_headers="${probe_root}/website.headers"
       website_status="$(curl --silent --show-error --dump-header "${website_headers}" --output /dev/null --write-out '%{http_code}' --max-time 20 "https://${website_host}${platform_path}" || true)"
       website_location="$(awk 'tolower($1) == "location:" {sub(/\r$/, "", $2); print $2}' "${website_headers}" | tail -1)"
-      if [[ "${website_status}" != 302 || "${website_location}" != "${platform_origin}${platform_path}" ]]; then
+      if [[ "${platform_path}" == /ai-workspace* ]]; then
+        # Public workspace services stay on the requesting brand domain. Keep
+        # this legacy query in the probe so retired trial links are verified
+        # as same-origin public pages rather than as platform redirects.
+        if [[ "${website_status}" != 200 || -n "${website_location}" ]]; then
+          echo "Website public workspace boundary failed: ${website_host}${platform_path} HTTP ${website_status} Location=${website_location}" >&2
+          aliases_ready=false
+        fi
+      elif [[ "${website_status}" != 302 || "${website_location}" != "${platform_origin}${platform_path}" ]]; then
         echo "Website platform boundary failed: ${website_host}${platform_path} HTTP ${website_status} Location=${website_location}" >&2
         aliases_ready=false
       fi
