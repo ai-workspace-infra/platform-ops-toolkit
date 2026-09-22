@@ -34,4 +34,20 @@ grep -Fq 'XConnect Zero Signing configuration must include both' "${deploy_scrip
   exit 1
 }
 
+# The UAT shared-node contract is explicit and deployment-scoped: Accounts
+# signs a Gateway config for the private Xray Unix socket behind shared Caddy,
+# while PROD keeps the direct-TLS default until it opts in independently.
+grep -Fq 'if [[ "${DEPLOY_ENV}" == "uat" ]]; then' "${deploy_script}" || {
+  echo "Cloud Run accounts must scope shared Caddy Gateway frontend to UAT" >&2
+  exit 1
+}
+grep -Fq 'XCONNECT_GATEWAY_XRAY_FRONTEND=${XCONNECT_GATEWAY_XRAY_FRONTEND:-caddy-unix-h2c}' "${deploy_script}" || {
+  echo "UAT Accounts must receive the caddy-unix-h2c Gateway frontend contract" >&2
+  exit 1
+}
+grep -Fq 'XCONNECT_GATEWAY_XRAY_LISTEN_SOCKET=${XCONNECT_GATEWAY_XRAY_LISTEN_SOCKET:-/run/xconnect-gateway/xray.sock}' "${deploy_script}" || {
+  echo "UAT Accounts must receive the Gateway Unix socket contract" >&2
+  exit 1
+}
+
 echo "cloudrun_xconnect_zero_signing_contract_test: PASS"
