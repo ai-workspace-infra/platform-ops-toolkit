@@ -21,7 +21,7 @@ on:
         description: Advanced override - reviewed gitops commit SHA
         type: string
         required: false
-        default: '25726bb2ec2e02de2d50391c9afcd7a99107e153'
+        default: '28430b835c4275eea1921aa7fd98c96dbc2c50ef'
       playbooks_ref:
         description: Advanced override - reviewed playbooks commit SHA
         type: string
@@ -69,15 +69,15 @@ on:
         required: false
         default: 'net_uat'
       one_vault_key:
-        description: Existing UAT One Vault record key under uat/ulighthost-xconnect
+        description: Existing UAT One Vault record key under prod/ulighthost-xconnect
         type: string
         required: false
         default: 'observability.svc.plus'
       gateway_vault_key:
-        description: Stable UAT Gateway Vault record key under uat/ulighthost-xconnect
+        description: Stable UAT Gateway Vault record key under prod/ulighthost-xconnect
         type: string
         required: false
-        default: 'ph-xconnect.svc.plus'
+        default: 'tw-xconnect.svc.plus'
       gateway_wireguard_address:
         description: Optional Gateway WireGuard IPv4 /32 override inside the GitOps overlay CIDR
         type: string
@@ -222,7 +222,7 @@ jobs:
     env:
       MODE: ${{ inputs.mode }}
       IAC_REF: ${{ inputs.iac_ref || '2ba98f30c3e4199e01eb940bb1951549fca0ae3e' }}
-      GITOPS_REF: ${{ inputs.gitops_ref || '25726bb2ec2e02de2d50391c9afcd7a99107e153' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || '28430b835c4275eea1921aa7fd98c96dbc2c50ef' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'b652f3fba1dddc2c968b2249c35ff5bc8c1d3a68' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.10' }}
@@ -428,7 +428,7 @@ jobs:
     env:
       XCONNECT_VAULT_ROLE: github-actions-platform-ops-toolkit-uat-xconnect-existing-one
       MODE: ${{ inputs.mode }}
-      GITOPS_REF: ${{ inputs.gitops_ref || '25726bb2ec2e02de2d50391c9afcd7a99107e153' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || '28430b835c4275eea1921aa7fd98c96dbc2c50ef' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'b652f3fba1dddc2c968b2249c35ff5bc8c1d3a68' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.10' }}
@@ -436,8 +436,8 @@ jobs:
       ZERO_NETWORK_ID: ${{ inputs.network_id || 'net_uat' }}
       ONE_DEVICE_ID: observability-uat
       ONE_VAULT_KEY: ${{ inputs.one_vault_key || 'observability.svc.plus' }}
-      GATEWAY_VAULT_KEY: ${{ inputs.gateway_vault_key || 'ph-xconnect.svc.plus' }}
-      GATEWAY_SERVER_NAME: ph-xconnect.svc.plus
+      GATEWAY_VAULT_KEY: ${{ inputs.gateway_vault_key || 'tw-xconnect.svc.plus' }}
+      GATEWAY_SERVER_NAME: tw-xconnect.svc.plus
       GATEWAY_WIREGUARD_ADDRESS: ${{ inputs.gateway_wireguard_address }}
       SSH_DEBUG_INGRESS_CIDRS: ${{ inputs.ssh_debug_ingress_cidrs || '35.79.83.48/32' }}
     steps:
@@ -497,7 +497,7 @@ jobs:
       - name: Verify fixed UAT One declaration
         run: |
           declaration=gitops/vpn-overlay/uat/xconnect-one-nodes.yaml
-          grep -Fq 'gateway_ref: ph-xconnect.svc.plus' "$declaration"
+          grep -Fq 'gateway_ref: tw-xconnect.svc.plus' "$declaration"
           grep -Fq 'fqdn: observability.svc.plus' "$declaration"
           grep -Fq 'lifecycle: persistent' "$declaration"
           grep -Fq 'deployment: enabled' "$declaration"
@@ -519,7 +519,9 @@ jobs:
             kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} user | ONE_USER ;
             kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} ssh_private_key_b64 | ONE_SSH_PRIVATE_KEY_B64 ;
             kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} sudo_password | ONE_BECOME_PASSWORD ;
-            kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} SSH_PASSWORD | GATEWAY_SSH_PASSWORD ;
+            kv/data/prod/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} host | GATEWAY_HOST ;
+            kv/data/prod/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} user | GATEWAY_USER ;
+            kv/data/prod/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} ssh_private_key_b64 | GATEWAY_SSH_PRIVATE_KEY_B64 ;
             kv/data/CICD/domains/svc.plus tls_fullchain_pem_b64 | GATEWAY_TLS_CERT_B64 ;
             kv/data/CICD/domains/svc.plus tls_key_pem_b64 | GATEWAY_TLS_KEY_B64 ;
             kv/data/CICD/domains/svc.plus not_after_epoch | GATEWAY_TLS_NOT_AFTER_EPOCH ;
@@ -552,13 +554,13 @@ jobs:
           ONE_USER: ${{ steps.runtime.outputs.ONE_USER }}
           ONE_SSH_PRIVATE_KEY_B64: ${{ steps.runtime.outputs.ONE_SSH_PRIVATE_KEY_B64 }}
           ONE_BECOME_PASSWORD: ${{ steps.runtime.outputs.ONE_BECOME_PASSWORD }}
-          GATEWAY_HOST: ${{ env.GATEWAY_SERVER_NAME }}
-          GATEWAY_USER: root
-          GATEWAY_SSH_PASSWORD: ${{ steps.runtime.outputs.GATEWAY_SSH_PASSWORD }}
+          GATEWAY_HOST: ${{ steps.runtime.outputs.GATEWAY_HOST }}
+          GATEWAY_USER: ${{ steps.runtime.outputs.GATEWAY_USER }}
+          GATEWAY_SSH_PRIVATE_KEY_B64: ${{ steps.runtime.outputs.GATEWAY_SSH_PRIVATE_KEY_B64 }}
           GATEWAY_TLS_CERT_B64: ${{ steps.runtime.outputs.GATEWAY_TLS_CERT_B64 }}
           GATEWAY_TLS_KEY_B64: ${{ steps.runtime.outputs.GATEWAY_TLS_KEY_B64 }}
           GATEWAY_TLS_NOT_AFTER_EPOCH: ${{ steps.runtime.outputs.GATEWAY_TLS_NOT_AFTER_EPOCH }}
-          GATEWAY_SERVER_NAME: ph-xconnect.svc.plus
+          GATEWAY_SERVER_NAME: tw-xconnect.svc.plus
           OBSERVABILITY_USER: ${{ steps.runtime.outputs.OBSERVABILITY_USER }}
           OBSERVABILITY_PASSWORD: ${{ steps.runtime.outputs.OBSERVABILITY_PASSWORD }}
         run: bash .github/scripts/xconnect-existing-one-uat/deploy.sh
@@ -574,7 +576,7 @@ jobs:
     timeout-minutes: 30
     env:
       MODE: ${{ inputs.mode }}
-      GITOPS_REF: ${{ inputs.gitops_ref || '25726bb2ec2e02de2d50391c9afcd7a99107e153' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || '28430b835c4275eea1921aa7fd98c96dbc2c50ef' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'b652f3fba1dddc2c968b2249c35ff5bc8c1d3a68' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
       GATEWAY_PROVIDER: ${{ inputs.gateway_provider || 'external' }}
@@ -743,7 +745,7 @@ jobs:
     env:
       MODE: cleanup
       IAC_REF: ${{ inputs.iac_ref || '2ba98f30c3e4199e01eb940bb1951549fca0ae3e' }}
-      GITOPS_REF: ${{ inputs.gitops_ref || '25726bb2ec2e02de2d50391c9afcd7a99107e153' }}
+      GITOPS_REF: ${{ inputs.gitops_ref || '28430b835c4275eea1921aa7fd98c96dbc2c50ef' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'b652f3fba1dddc2c968b2249c35ff5bc8c1d3a68' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.10' }}
