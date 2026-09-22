@@ -271,10 +271,10 @@ jobs:
           PY
           )"
           IFS=$'\t' read -r key_name key_resource_id <<< "$key_metadata"
-          if ! terraform -chdir="${{ steps.contract.outputs.workdir }}" state list | grep -Fxq "aws_key_pair.${key_resource_id}" &&
-             aws ec2 describe-key-pairs --key-names "$key_name" >/dev/null 2>&1; then
+          if ! terraform -chdir="${{ steps.contract.outputs.workdir }}" state list | grep -Fxq "aws_key_pair.${key_resource_id}"; then
             terraform -chdir="${{ steps.contract.outputs.workdir }}" import -input=false \
-              "aws_key_pair.${key_resource_id}" "$key_name"
+              "aws_key_pair.${key_resource_id}" "$key_name" || \
+              echo "No pre-existing contract SSH key found; Terraform will create it."
           fi
           terraform -chdir="${{ steps.contract.outputs.workdir }}" validate
           terraform -chdir="${{ steps.contract.outputs.workdir }}" apply -auto-approve
