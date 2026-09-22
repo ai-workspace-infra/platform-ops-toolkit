@@ -70,6 +70,16 @@ on:
         required: false
         default: true
         type: boolean
+      cloud_run_service:
+        description: 'Optional single Cloud Run service to deploy; empty deploys the backend service set'
+        required: false
+        default: ''
+        type: choice
+        options:
+          - ''
+          - accounts
+          - content-service
+          - billing-service
       skip_stripe_catalog:
         description: 'Skip optional Stripe catalog synchronization without blocking core deployment'
         required: false
@@ -288,10 +298,7 @@ jobs:
       # replacement revision becomes ready.
       max-parallel: 1
       matrix:
-        service:
-          - accounts
-          - content-service
-          - billing-service
+        service: ${{ fromJSON(inputs.cloud_run_service != '' && format('["{0}"]', inputs.cloud_run_service) || '["accounts","content-service","billing-service"]') }}
     steps:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
