@@ -15,7 +15,7 @@ def fail(message: str) -> None:
     raise SystemExit(f"manifest validation failed: {message}")
 
 
-SUPPORTED_UAT_PROVIDERS = {"aws", "gcp", "vps", "vultr-vps"}
+SUPPORTED_UAT_PROVIDERS = {"aws", "gcp", "vps", "vultr-vps", "akamai-cloud"}
 
 
 def iter_strings(value):
@@ -93,9 +93,13 @@ def main() -> None:
     if env == "uat":
         provider = infrastructure.get("provider")
         if provider not in SUPPORTED_UAT_PROVIDERS or infrastructure.get("provisioner") != "terraform":
-            fail("UAT infrastructure must select aws, gcp, or vps with the Terraform adapter")
-        if infrastructure.get("lifecycle") != "ephemeral" or not infrastructure.get("spot_instance"):
-            fail("UAT infrastructure must be ephemeral Spot resources")
+            fail("UAT infrastructure must select a supported Terraform provider")
+        if infrastructure.get("lifecycle") != "ephemeral":
+            fail("UAT infrastructure must be ephemeral")
+        if provider == "akamai-cloud" and infrastructure.get("spot_instance"):
+            fail("Akamai UAT does not support the Spot contract; use workflow_dispatch destroy")
+        if provider != "akamai-cloud" and not infrastructure.get("spot_instance"):
+            fail("AWS/GCP/VPS UAT infrastructure must use Spot resources")
         if infrastructure.get("max_runtime_minutes") != 60:
             fail("UAT infrastructure max_runtime_minutes must be 60")
         if infrastructure.get("destroy_policy") != "always_after_pipeline":
@@ -109,6 +113,16 @@ def main() -> None:
             fail("PROD infrastructure destroy policy must be never")
     if not contract.get("repository") or not contract.get("path") or contract.get("ref") != "main":
         fail("infrastructure.resource_contract must pin repository, path, and ref")
+    if infrastructure.get("provider") == "akamai-cloud":
+        manifests = contract.get("manifests", [])
+        if not isinstance(manifests, list) or not manifests:
+            fail("Akamai UAT must declare one resource manifest per isolated state namespace")
+        declared_nodes = {node.get("id") for node in spec.get("nodes", [])}
+        declared_manifest_nodes = {item.get("node") for item in manifests}
+        if declared_manifest_nodes != declared_nodes:
+            fail("Akamai resource manifests must cover every declared aggregator node")
+        if any(not item.get("workspace") or not item.get("path") for item in manifests):
+            fail("Akamai resource manifests require workspace and path")
 
     new_api = spec.get("new_api", {})
     if new_api.get("bind_address") not in {"127.0.0.1", "::1"}:
@@ -172,7 +186,10 @@ def main() -> None:
             fail("testing environment provider must match infrastructure.provider")
         if test_env.get("architecture") not in {"arm64", "amd64"}:
             fail("testing environment architecture must be arm64 or amd64")
-        if not test_env.get("spot_instance"):
+        if infrastructure.get("provider") == "akamai-cloud":
+            if test_env.get("spot_instance"):
+                fail("Akamai testing environment cannot declare spot_instance: true")
+        elif not test_env.get("spot_instance"):
             fail("testing environment must use spot instances (spot_instance: true)")
         if test_env.get("max_runtime_minutes") != 60:
             fail("testing environment max_runtime_minutes must be 60")
@@ -226,8 +243,12 @@ def main() -> None:
         for node in node_records:
             if node.get("provider") != infrastructure.get("provider") or node.get("lifecycle") != "ephemeral":
                 fail("UAT aggregator nodes must match the selected provider and be ephemeral")
-            if not node.get("spot_instance") or node.get("max_runtime_minutes") != 60:
-                fail("UAT aggregator nodes must use 60-minute Spot lifecycle")
+            if node.get("max_runtime_minutes") != 60:
+                fail("UAT aggregator nodes must use a 60-minute lifecycle")
+            if infrastructure.get("provider") == "akamai-cloud" and node.get("spot_instance"):
+                fail("Akamai UAT nodes cannot declare spot_instance: true")
+            if infrastructure.get("provider") != "akamai-cloud" and not node.get("spot_instance"):
+                fail("AWS/GCP/VPS UAT nodes must use Spot lifecycle")
     elif env == "prod":
         for node in node_records:
             if node.get("lifecycle") != "persistent" or node.get("provider") != "existing":
