@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: "plan validates; provision creates Spot nodes; stage injects Gateway secrets; activate starts services"
+        description: "plan validates; provision creates ephemeral nodes; stage injects Gateway secrets; activate starts services"
         required: true
         default: plan
         type: choice
@@ -44,7 +44,7 @@ on:
         required: true
         default: manifest
         type: choice
-        options: [manifest, aws, gcp, vps]
+        options: [manifest, aws, gcp, vps, akamai-cloud]
       destroy:
         description: "Destroy ephemeral UAT resources when this dispatch finishes"
         required: true
@@ -99,6 +99,7 @@ jobs:
     outputs:
       provider: ${{ steps.provider.outputs.provider }}
       environment: ${{ steps.provider.outputs.environment }}
+      akamai_matrix: ${{ steps.provider.outputs.akamai_matrix }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -114,6 +115,7 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           import os
+          import json
           from pathlib import Path
           import yaml
 
@@ -125,10 +127,22 @@ jobs:
           requested = os.environ['REQUESTED_PROVIDER']
           if requested != 'manifest' and requested != adapter:
               raise SystemExit(f'provider override {requested!r} does not match GitOps declaration {selected!r}')
-          if selected not in {'aws', 'gcp', 'vps', 'vultr-vps', 'existing'}:
+          if selected not in {'aws', 'gcp', 'vps', 'vultr-vps', 'akamai-cloud', 'existing'}:
               raise SystemExit(f'unsupported provider adapter: {selected}')
+          contract = data['spec']['infrastructure'].get('resource_contract', {})
+          entries = []
+          for raw_entry in contract.get('manifests', []) if adapter == 'akamai-cloud' else []:
+              entry = dict(raw_entry)
+              entry.setdefault('account', contract.get('account', ''))
+              entries.append(entry)
+          akamai_matrix = {'include': entries}
+          if adapter == 'akamai-cloud' and not akamai_matrix['include']:
+              raise SystemExit('Akamai provider requires resource_contract.manifests')
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
               output.write(f'provider={adapter}\nenvironment={environment}\n')
+              output.write('akamai_matrix<<AI_AGGREGATOR_MATRIX\n')
+              output.write(json.dumps(akamai_matrix, separators=(',', ':')) + '\n')
+              output.write('AI_AGGREGATOR_MATRIX\n')
           print(f'provider={adapter} environment={environment}')
   plan:
     needs: [validate, resolve-provider]
@@ -523,6 +537,154 @@ jobs:
         env:
           VULTR_API_KEY: ${{ steps.vps_vault.outputs.VULTR_API_KEY }}
         run: terraform -chdir="${{ steps.contract.outputs.workdir }}" destroy -auto-approve
+
+  uat-akamai-auto-deploy:
+    needs: [validate, resolve-provider]
+    if: >-
+      ${{ needs.resolve-provider.outputs.provider == 'akamai-cloud' &&
+      github.event_name == 'workflow_dispatch' && inputs.environment == 'uat' &&
+      contains(fromJSON('["provision","stage","activate"]'), inputs.operation) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve-provider.outputs.akamai_matrix) }}
+    env:
+      AKAMAI_ACCOUNT: ${{ matrix.account }}
+      AKAMAI_WORKSPACE: ${{ matrix.workspace }}
+      AKAMAI_MANIFEST: ${{ matrix.path }}
+      TF_ROOT: ${{ github.workspace }}/iac_modules/terraform-hcl-standard/akamai-cloud/envs/uat/${{ matrix.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_ref || 'main' }}
+          path: gitops
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: main
+          path: iac_modules
+          sparse-checkout: |
+            terraform-hcl-standard
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ inputs.playbooks_ref || 'main' }}
+          path: playbooks
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.10.5'
+      - name: Install Akamai render and Ansible dependencies
+        run: pip install --quiet pyyaml jinja2 ansible-core
+      - name: Login to Vault with GitHub OIDC
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-uat-akamai-oidc-bootstrap-${{ env.AKAMAI_ACCOUNT }}
+          jwtGithubAudience: vault
+          exportToken: false
+          secrets: |
+            kv/data/CICD/uat/akamai-cloud/${{ env.AKAMAI_ACCOUNT }} LINODE_TOKEN | LINODE_TOKEN ;
+            kv/data/CICD/uat/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
+            kv/data/CICD/uat/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
+            kv/data/CICD/uat/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+            kv/data/CICD/uat/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+            kv/data/CICD/uat/iac_state TF_STATE_REGION | TF_STATE_REGION
+      - name: Validate Akamai provider token
+        env:
+          LINODE_TOKEN: ${{ steps.vault.outputs.LINODE_TOKEN }}
+        run: |
+          set -euo pipefail
+          token="$(printf '%s' "$LINODE_TOKEN" | tr -d '\r\n')"
+          test -n "$token"
+          echo "::add-mask::$token"
+          printf 'LINODE_TOKEN<<AKAMAI_TOKEN_EOF\n%s\nAKAMAI_TOKEN_EOF\n' "$token" >> "$GITHUB_ENV"
+          curl --fail --silent --show-error --header "Authorization: Bearer $token" \
+            https://api.linode.com/v4/profile | jq -e '.username and .email' >/dev/null
+      - name: Resolve and validate Akamai manifest
+        run: |
+          set -euo pipefail
+          case "$AKAMAI_MANIFEST" in
+            resources/svc.plus/uat/akamai/*.yaml) ;;
+            *) echo "invalid Akamai resource manifest path" >&2; exit 1 ;;
+          esac
+          test -f "gitops/$AKAMAI_MANIFEST"
+          mkdir -p "$TF_ROOT"
+      - name: Render Akamai Terraform root
+        env:
+          GITOPS_ROOT: ${{ github.workspace }}/gitops
+          TF_STATE_ENDPOINT: ${{ steps.vault.outputs.TF_STATE_ENDPOINT }}
+          TF_STATE_REGION: ${{ steps.vault.outputs.TF_STATE_REGION }}
+        run: |
+          python3 iac_modules/terraform-hcl-standard/akamai-cloud/scripts/generate.py render \
+            --resources "${GITHUB_WORKSPACE}/gitops/${AKAMAI_MANIFEST}" \
+            --workdir "$TF_ROOT" --namespace "$AKAMAI_WORKSPACE"
+      - name: Configure Akamai state backend
+        env:
+          TF_STATE_ENDPOINT: ${{ steps.vault.outputs.TF_STATE_ENDPOINT }}
+          TF_STATE_BUCKET: ${{ steps.vault.outputs.TF_STATE_BUCKET }}
+          TF_STATE_ACCESS_KEY: ${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}
+          TF_STATE_SECRET_KEY: ${{ steps.vault.outputs.TF_STATE_SECRET_KEY }}
+          TF_STATE_REGION: ${{ steps.vault.outputs.TF_STATE_REGION }}
+        run: |
+          set -euo pipefail
+          umask 077
+          backend="$RUNNER_TEMP/akamai-backend.hcl"
+          printf '%s\n' \
+            "bucket = \"$TF_STATE_BUCKET\"" \
+            "key = \"terraform/uat/svc.plus/akamai-cloud/$AKAMAI_ACCOUNT/$AKAMAI_WORKSPACE/terraform.tfstate\"" \
+            "region = \"$TF_STATE_REGION\"" \
+            "access_key = \"$TF_STATE_ACCESS_KEY\"" \
+            "secret_key = \"$TF_STATE_SECRET_KEY\"" \
+            'skip_credentials_validation = true' \
+            'skip_region_validation = true' \
+            'skip_requesting_account_id = true' \
+            'skip_metadata_api_check = true' \
+            'skip_s3_checksum = true' \
+            'use_path_style = true' \
+            'use_lockfile = true' > "$backend"
+          terraform -chdir="$TF_ROOT" init -input=false -reconfigure -backend-config="$backend"
+      - name: Provision Akamai UAT resource
+        env:
+          TF_VAR_linode_token: ${{ steps.vault.outputs.LINODE_TOKEN }}
+        run: |
+          set -euo pipefail
+          terraform -chdir="$TF_ROOT" validate -no-color
+          terraform -chdir="$TF_ROOT" plan -input=false -no-color
+          terraform -chdir="$TF_ROOT" apply -input=false -auto-approve
+          python3 iac_modules/terraform-hcl-standard/akamai-cloud/scripts/generate.py inventory \
+            --resources "${GITHUB_WORKSPACE}/gitops/${AKAMAI_MANIFEST}" \
+            --workdir "$TF_ROOT" --namespace "$AKAMAI_WORKSPACE"
+      - name: Deploy AI Desktop CodeAgent role on CPA node
+        if: ${{ (inputs.operation == 'stage' || inputs.operation == 'activate') && matrix.role == 'cpa' }}
+        working-directory: playbooks
+        run: |
+          ansible-playbook -i "$TF_ROOT/inventory.ini" deploy_ai_desktop.yml \
+            --limit ai_aggregator_cpa \
+            -e ai_desktop_cpa_codeagent=true \
+            -e ai_desktop_remote_enabled=false \
+            -e ai_desktop_manage_user=false
+      - name: Stage or activate aggregator service on selected node
+        if: ${{ inputs.operation == 'stage' || inputs.operation == 'activate' }}
+        working-directory: playbooks
+        env:
+          VAULT_ADDR: https://vault.svc.plus
+        run: |
+          ansible-playbook -i "$TF_ROOT/inventory.ini" deploy-ai-aggregator-v1.yml \
+            -e ai_aggregator_operation=${{ inputs.operation }} \
+            -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/uat/selfhost/ai-aggregator.yaml
+      - name: Destroy Akamai UAT resource
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.destroy) }}
+        env:
+          TF_VAR_linode_token: ${{ steps.vault.outputs.LINODE_TOKEN }}
+        run: terraform -chdir="$TF_ROOT" destroy -input=false -auto-approve
 
   prod-deploy:
     needs: [validate, resolve-provider]
