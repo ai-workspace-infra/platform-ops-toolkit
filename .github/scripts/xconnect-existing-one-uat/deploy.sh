@@ -394,15 +394,16 @@ fi
 if [[ -z "$gateway_credential_present" || "$gateway_reenroll" == 1 ]]; then
   issue_invite gateway gw-uat-tw-xconnect "$gateway_invite"
   gateway_copy "$gateway_invite" "$GATEWAY_USER@$GATEWAY_HOST:/tmp/xconnect-gateway.invite" >/dev/null
-  "${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" sudo bash -s -- "$gateway_reenroll" <<'GATEWAY_ENROLL'
+  "${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" sudo bash -s -- "$gateway_reenroll" "$ZERO_ACCOUNTS_API_URL" <<'GATEWAY_ENROLL'
 set -euo pipefail
 reenroll="$1"
+controller="$2"
 if [[ "$reenroll" == 1 ]]; then
   # Preserve the pinned Gateway WireGuard key while dropping only the stale
   # authentication/session material. The Accounts exchange atomically revokes
   # the old credential before issuing the replacement.
   tmp_state="$(mktemp /var/lib/xconnect-gateway/.state.json.XXXXXX)"
-  jq 'del(.device_credential, .signing_keys, .enrollment_token, .enrollment_expires_at, .applied_config_id, .applied_generation)' \
+  jq --arg controller "$controller" '.controller = $controller | del(.device_credential, .signing_keys, .enrollment_token, .enrollment_expires_at, .applied_config_id, .applied_generation)' \
     /var/lib/xconnect-gateway/state.json >"$tmp_state"
   install -m 600 "$tmp_state" /var/lib/xconnect-gateway/state.json
   rm -f "$tmp_state"
