@@ -105,6 +105,7 @@ grep -Fq 'ONE_BECOME_PASSWORD' "${existing_one_deploy}"
 grep -Fq -- '--become-password-file "$one_become_password"' "${existing_one_deploy}"
 grep -Fq 'one_sudo()' "${existing_one_deploy}"
 grep -Fq 'ONE_HOST" != "$ONE_SERVER_NAME' "${existing_one_deploy}"
+grep -Fq 'ONE_USER" == "root" || "$ONE_USER" == "ubuntu' "${existing_one_deploy}"
 grep -Fq 'ONE_USER" == "root' "${existing_one_deploy}"
 grep -Fq 'sudo -S -p' "${existing_one_deploy}"
 if grep -Fq 'scp "${gateway_ssh[@]}' "${existing_one_deploy}"; then
