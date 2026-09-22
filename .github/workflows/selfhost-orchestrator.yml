@@ -317,7 +317,7 @@ jobs:
         ${{ (steps.route.outputs.run_infrastructure == 'true' ||
         steps.route.outputs.run_application_deploy == 'true' ||
         steps.route.outputs.toolkit_action == 'migrate') &&
-        contains(fromJSON('["all","web-saas","open-platform","agent-proxy","web-saas + agent-proxy"]'),
+        contains(fromJSON('["all","web-saas","open-platform","ai-workspace","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","agent-proxy","web-saas + agent-proxy"]'),
         steps.route.outputs.target_domains) }}
       uses: actions/checkout@v7
       with:
