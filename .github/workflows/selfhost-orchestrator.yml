@@ -2090,6 +2090,16 @@ jobs:
         -m shell
         -a 'systemctl is-active --quiet caddy && systemctl is-active --quiet xray'
 
+    - name: Validate central observability endpoint for non-IaC node
+      env:
+        OBSERVABILITY_ENDPOINT: ${{ github.event.inputs.observability_endpoint || 'https://observability.svc.plus' }}
+      run: |
+        set -euo pipefail
+        case "${OBSERVABILITY_ENDPOINT}" in
+          http://*|https://*) ;;
+          *) echo "::error::OBSERVABILITY_ENDPOINT must be an HTTP(S) URL." >&2; exit 1 ;;
+        esac
+
     - name: Deploy Observability Agent for non-IaC Agent Proxy
       working-directory: playbooks
       env:
@@ -2100,6 +2110,7 @@ jobs:
         VECTOR_BILLING_INGEST_ADDRESS: 127.0.0.1:8686
         VECTOR_BILLING_INGEST_URL: ${{ format('{0}/v1/ingest/snapshots', needs.provision.outputs.billing_service_base_url) }}
         VECTOR_SNAPSHOT_URL: http://127.0.0.1:8686
+        OBSERVABILITY_ENDPOINT: ${{ github.event.inputs.observability_endpoint || 'https://observability.svc.plus' }}
       run: >-
         ansible-playbook
         -i "${{ runner.temp }}/external-agent-proxy-inventory.yml"
@@ -2214,6 +2225,16 @@ jobs:
         wait_for_ssh: 'true'
         install_ansible: 'true'
 
+    - name: Validate central observability endpoint
+      env:
+        OBSERVABILITY_ENDPOINT: ${{ github.event.inputs.observability_endpoint || 'https://observability.svc.plus' }}
+      run: |
+        set -euo pipefail
+        case "${OBSERVABILITY_ENDPOINT}" in
+          http://*|https://*) ;;
+          *) echo "::error::OBSERVABILITY_ENDPOINT must be an HTTP(S) URL." >&2; exit 1 ;;
+        esac
+
     - name: Deploy Observability Agent
       working-directory: playbooks
       env:
@@ -2232,6 +2253,7 @@ jobs:
         VECTOR_BILLING_INGEST_ADDRESS: 127.0.0.1:8686
         VECTOR_BILLING_INGEST_URL: ${{ format('{0}/v1/ingest/snapshots', needs.provision.outputs.billing_service_base_url) }}
         VECTOR_SNAPSHOT_URL: ${{ contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && 'http://127.0.0.1:8686' || '' }}
+        OBSERVABILITY_ENDPOINT: ${{ github.event.inputs.observability_endpoint || 'https://observability.svc.plus' }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_monitor_agent.sh
 
     - name: Verify Xray to Billing ingest chain
