@@ -420,9 +420,10 @@ def main():
         "SUPABASE_CONNECT_URI": database_uri,
         "INTERNAL_SERVICE_TOKEN": internal_service_token,
         "KNOWLEDGE_REPO_PATH": knowledge_repo_path,
-        "KNOWLEDGE_REPO_URL": runtime_secrets.get(
-            "KNOWLEDGE_REPO_URL", "https://github.com/ai-workspace-services/knowledge.git"
-        ),
+        # Production content must follow the managed knowledge repository. Do
+        # not allow a stale Vault value to silently switch the public site to
+        # the legacy repository.
+        "KNOWLEDGE_REPO_URL": "https://github.com/ai-workspace-services/knowledge.git",
         "KNOWLEDGE_REPO_REF": runtime_secrets.get("KNOWLEDGE_REPO_REF", "main"),
         "ROOT_BOOTSTRAP_EMAIL": cicd_secrets.get(
             "ROOT_BOOTSTRAP_EMAIL", "admin@svc.plus"
