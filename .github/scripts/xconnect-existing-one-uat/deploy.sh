@@ -223,10 +223,15 @@ chmod 755 "$xray_binary"
 
 gateway_copy "$gateway_binary" "$xray_binary" "$gateway_tls_cert" "$gateway_tls_key" \
   "$GATEWAY_USER@$GATEWAY_HOST:/tmp/" >/dev/null
-"${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" sudo bash -s -- "$ZERO_ACCOUNTS_API_URL" "$GATEWAY_RELEASE_TAG" <<'GATEWAY_RUNTIME_BOOTSTRAP'
+"${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" sudo bash -s -- "$ZERO_ACCOUNTS_API_URL" "$GATEWAY_RELEASE_TAG" "$GATEWAY_SERVER_NAME" <<'GATEWAY_RUNTIME_BOOTSTRAP'
 set -euo pipefail
 controller="$1"
 gateway_release="$2"
+gateway_server_name="$3"
+[[ "$gateway_server_name" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] || {
+  echo "Invalid Gateway server name" >&2
+  exit 1
+}
 install -d -m 700 /var/lib/xconnect-gateway /etc/xconnect-gateway
 install -m 755 /tmp/xconnect-gateway /usr/local/bin/xconnect-gateway
 install -d -m 755 /usr/local/lib/xconnect-gateway/bin
@@ -291,14 +296,13 @@ UNIT
 systemctl daemon-reload
 systemctl enable xconnect-gateway-xray.service >/dev/null
 systemctl enable --now xconnect-gateway-sync.timer >/dev/null
-python3 - <<'PY'
-from pathlib import Path
+install -d -m 755 /etc/caddy/conf.d
+cat > /etc/caddy/conf.d/xconnect-gateway.caddy <<CADDY
+# Managed by XConnect Zero UAT reconciliation.  This dedicated site coexists
+# with Agent Proxy virtual hosts without modifying their Xray socket or routes.
+${gateway_server_name} {
+    tls /etc/xconnect-gateway/tls.crt /etc/xconnect-gateway/tls.key
 
-path = Path("/etc/caddy/Caddyfile")
-text = path.read_text()
-start = "    # BEGIN XCONNECT GATEWAY\n"
-end = "    # END XCONNECT GATEWAY\n"
-block = """    # BEGIN XCONNECT GATEWAY
     @xconnect {
         path /xconnect /xconnect/*
     }
@@ -314,20 +318,10 @@ block = """    # BEGIN XCONNECT GATEWAY
             }
         }
     }
-    # END XCONNECT GATEWAY
 
-"""
-if start in text:
-    before, rest = text.split(start, 1)
-    _, after = rest.split(end, 1)
-    text = before + block + after
-else:
-    marker = "    # Fallback/Default site content\n"
-    if marker not in text:
-        raise SystemExit("shared Caddy fallback marker not found")
-    text = text.replace(marker, block + marker, 1)
-path.write_text(text)
-PY
+    respond "XConnect Gateway"
+}
+CADDY
 caddy validate --config /etc/caddy/Caddyfile >/dev/null
 systemctl reload caddy.service
 PATH=/usr/local/lib/xconnect-gateway/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin /usr/local/bin/xconnect-gateway diagnose >/dev/null
