@@ -437,7 +437,7 @@ jobs:
       ONE_DEVICE_ID: observability-uat
       ONE_VAULT_KEY: ${{ inputs.one_vault_key || 'observability.svc.plus' }}
       GATEWAY_VAULT_KEY: ${{ inputs.gateway_vault_key || 'tw-xconnect.svc.plus' }}
-      GATEWAY_SERVER_NAME: tw-xconnect.svc.plus
+      GATEWAY_SERVER_NAME: ${{ inputs.external_gateway_server_name || 'tw-xconnect.svc.plus' }}
       GATEWAY_WIREGUARD_ADDRESS: ${{ inputs.gateway_wireguard_address }}
       SSH_DEBUG_INGRESS_CIDRS: ${{ inputs.ssh_debug_ingress_cidrs || '35.79.83.48/32' }}
     steps:
@@ -497,7 +497,8 @@ jobs:
       - name: Verify fixed UAT One declaration
         run: |
           declaration=gitops/vpn-overlay/uat/xconnect-one-nodes.yaml
-          grep -Fq 'gateway_ref: tw-xconnect.svc.plus' "$declaration"
+          gateway_ref="$(awk '$1 == "gateway_ref:" {print $2; exit}' "$declaration")"
+          [[ -n "$gateway_ref" && "$gateway_ref" == "$GATEWAY_SERVER_NAME" ]]
           grep -Fq 'fqdn: observability.svc.plus' "$declaration"
           grep -Fq 'lifecycle: persistent' "$declaration"
           grep -Fq 'deployment: enabled' "$declaration"
@@ -560,7 +561,7 @@ jobs:
           GATEWAY_TLS_CERT_B64: ${{ steps.runtime.outputs.GATEWAY_TLS_CERT_B64 }}
           GATEWAY_TLS_KEY_B64: ${{ steps.runtime.outputs.GATEWAY_TLS_KEY_B64 }}
           GATEWAY_TLS_NOT_AFTER_EPOCH: ${{ steps.runtime.outputs.GATEWAY_TLS_NOT_AFTER_EPOCH }}
-          GATEWAY_SERVER_NAME: tw-xconnect.svc.plus
+          GATEWAY_SERVER_NAME: ${{ inputs.external_gateway_server_name || 'tw-xconnect.svc.plus' }}
           OBSERVABILITY_USER: ${{ steps.runtime.outputs.OBSERVABILITY_USER }}
           OBSERVABILITY_PASSWORD: ${{ steps.runtime.outputs.OBSERVABILITY_PASSWORD }}
         run: bash .github/scripts/xconnect-existing-one-uat/deploy.sh

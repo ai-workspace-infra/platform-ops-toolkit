@@ -39,7 +39,7 @@ grep -Fq 'kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} host | ONE_H
 grep -Fq 'kv/data/prod/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} ssh_private_key_b64 | GATEWAY_SSH_PRIVATE_KEY_B64' "${workflow}"
 grep -Fq 'GATEWAY_HOST: ${{ steps.runtime.outputs.GATEWAY_HOST }}' "${workflow}"
 grep -Fq 'GATEWAY_USER: ${{ steps.runtime.outputs.GATEWAY_USER }}' "${workflow}"
-grep -Fq 'path "kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus"' "${existing_one_policy}"
+grep -Fq 'path "kv/data/prod/ulighthost-xconnect/*"' "${existing_one_policy}"
 grep -Fq 'path "kv/data/CICD/domains/svc.plus"' "${existing_one_policy}"
 
 if grep -Fq '"${WF_PREFIX}/xconnect-cloud-lab.yml@*"' "${roles}"; then
@@ -75,6 +75,7 @@ grep -Fq 'xconnect-gateway init' "${gateway}"
 grep -Fq 'kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }}' "${workflow}"
 grep -Fq 'kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} sudo_password | ONE_BECOME_PASSWORD' "${workflow}"
 grep -Fq "default: 'tw-xconnect.svc.plus'" "${workflow}"
+grep -Fq 'GATEWAY_SERVER_NAME: ${{ inputs.external_gateway_server_name || '\''tw-xconnect.svc.plus'\'' }}' "${workflow}"
 grep -Fq 'kv/data/CICD/domains/svc.plus tls_fullchain_pem_b64' "${workflow}"
 grep -Fq 'kv/data/CICD/domains/svc.plus tls_key_pem_b64' "${workflow}"
 grep -Fq 'GATEWAY_TLS_CERT_B64' "${workflow}"
