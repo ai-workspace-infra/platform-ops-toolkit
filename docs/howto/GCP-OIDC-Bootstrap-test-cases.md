@@ -205,8 +205,9 @@ UAT 与 PROD 必须使用不同 canonical key：
 ```text
 platform-ops-toolkit/uat/xworktech/gcp-oidc-bootstrap/terraform.tfstate
 platform-ops-toolkit/prod/xworktech/gcp-oidc-bootstrap/terraform.tfstate
-platform-ops-toolkit/uat/xworktech/gcp-platform/terraform.tfstate
-platform-ops-toolkit/prod/xworktech/gcp-platform/terraform.tfstate
+terraform/uat/xwork-open-platform-uat/gcp-cloud/xworktech/platform/terraform.tfstate
+terraform/prod/xwork-open-platform-prod/gcp-cloud/xworktech/platform/terraform.tfstate
+terraform/uat/xwork-open-platform-uat/gcp-cloud/xworktech/spot-validation-uat/terraform.tfstate
 ```
 
 检查 workflow 使用了 environment/project/cloud/account/workspace 分段，并包含
@@ -242,6 +243,20 @@ bash .github/scripts/tests/gcp_oidc_bootstrap_contract_test.sh
 
 AWS bootstrap/IAC 不应被 GCP 修改；如需要确认 AWS 实际链路，应使用原有 AWS
 OIDC workflow 和其既有 test case，不把 GCP token 或 Vault role 复用到 AWS。
+
+## 2026-09-22 UAT 真实 E2E 证据
+
+- Bootstrap apply：[run 35686936941](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/35686936941) 成功创建 WIF Pool、GitHub provider、`github-actions-uat` Service Account 和 IAM 绑定，并通过新 WIF 身份 smoke test。
+- Bootstrap 凭据已当场吊销并销毁 Vault 历史版本；`kv/CICD/uat/gcp-bootstrap/xworktech` 只保留 `GCP_PROJECT_ID=xwork-open-platform-uat`。
+- Runtime KV `kv/uat/platform/oidc/xworktech` 只包含 `gcp_workload_identity_provider`、`gcp_oidc_audience`、`deploy_service_account`、`project_id`，不包含 token、JSON key 或 private key。
+- Runtime Spot apply：[run 35690778118](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/35690778118) 全程使用 GitHub OIDC → Vault JWT role → Google WIF；实例 `oidc-spot-validation-uat` 在 `asia-east1-a` 创建成功并验证为 `SPOT`。
+- Spot 模块设置 `max_run_duration=3600`、`instance_termination_action=DELETE`，验证实例最多运行一小时；独立 state workspace 为 `spot-validation-uat`。
+
+本次真实执行暴露并修复了三个此前静态测试未发现的问题：
+
+1. Bootstrap 未启用 `cloudresourcemanager.googleapis.com`，导致新 WIF 身份无法执行项目 smoke test（iac_modules #326）。
+2. Vault runtime role 将实际的 `gcp-iac-pipeline.yml` 错写为 `.yaml`，导致 JWT `job_workflow_ref` 被拒绝（platform-ops-toolkit #892）。
+3. Spot 模块同时使用 `provisioning_model=SPOT` 和 `preemptible=false`；现已改为一致的 Spot 调度并增加一小时原生生命周期（iac_modules #327、platform-ops-toolkit #893）。
 
 ## 失败处理
 
