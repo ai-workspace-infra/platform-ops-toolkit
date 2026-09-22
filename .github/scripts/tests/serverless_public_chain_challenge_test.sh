@@ -50,10 +50,15 @@ if [[ "${url}" == "https://accounts-cloudflare-prod.onwalk.net/api/auth/oauth/lo
   status=307
   headers=$'HTTP/2 307\r\nLocation: https://github.com/login/oauth/authorize?client_id=test\r\n\r\n'
 fi
-if [[ "${url}" == https://www.xworktech.com/login || "${url}" == https://xworktech.com/login || "${url}" == https://www.xworktech.com/ai-workspace* || "${url}" == https://xworktech.com/ai-workspace* ]]; then
+if [[ "${url}" == https://www.xworktech.com/login || "${url}" == https://xworktech.com/login ]]; then
   status=302
   path="/${url#*://*/}"
   headers="$(printf 'HTTP/2 302\r\nLocation: %s%s\r\n' "${WEBSITE_DEST:-https://svc.plus}" "${path}")"
+fi
+if [[ "${url}" == https://www.xworktech.com/ai-workspace* || "${url}" == https://xworktech.com/ai-workspace* ]]; then
+  # Public workspace services remain on the requesting brand domain.
+  status=200
+  headers=$'HTTP/2 200\r\n\r\n'
 fi
 if [[ "${dump_header}" == "-" ]]; then
   printf '%s' "${headers}"
