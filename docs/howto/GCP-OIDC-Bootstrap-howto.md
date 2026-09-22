@@ -164,8 +164,29 @@ GCP_BOOTSTRAP_ACTION=check GCP_ENVIRONMENT=uat GCP_ACCOUNT_ID=xworktech \
 GCP_PROJECT_ID=xwork-open-platform-uat bash scripts/gcp/bootstrap_gcp_auth_kv.sh --auth-json
 ```
 
-bootstrap 成功后必须吊销（workflow 的吊销步骤失败时也用它兜底）：删除 key、禁用
-`gcp-bootstrap-<env>`、删除该 Vault 路径的全部版本，仅重新写回 `GCP_PROJECT_ID`：
+写完之后正常触发 **GCP OIDC Bootstrap** workflow（`environment=uat`，`action=apply`）即可——workflow
+会自动识别 Vault 里存的是 `GCP_AUTH_JSON`，在内存中把它换成短期 access token（`google-github-actions/auth@v2`，
+`create_credentials_file: false`，全程不落盘），用这个 token 完成 WIF Pool/Provider/deploy SA 的创建，
+**apply 成功、还没跑后续验证步骤之前**就在同一个 Job 内自动吊销这份启动凭据：删除 key、禁用
+`gcp-bootstrap-<env>`、显式吊销换出的 access token、销毁该 Vault 路径的全部历史版本，仅重新写回
+`GCP_PROJECT_ID`。之后的所有步骤（WIF 自检、UAT/PROD 隔离校验、写入 runtime OIDC 记录）都只用刚创建的
+runtime WIF 身份，不再依赖这份一次性凭据。
+
+**前提：Vault Policy 需要先放开写权限。** 这个自动吊销需要 workflow 的 JWT role 对
+`kv/data/CICD/<env>/gcp-bootstrap/xworktech` 有 `create`/`update`、对
+`kv/metadata/CICD/<env>/gcp-bootstrap/xworktech` 有 `delete`（历史上这个角色只有 `read`，因为
+workflow 以前只读不写）。声明已经在 `scripts/vault/policies/github-actions-platform-ops-toolkit-<env>-gcp-bootstrap-xworktech.hcl`
+里更新，合并后需要 Vault 管理员用管理员 token 同步一次：
+
+```bash
+export VAULT_ADDR=https://vault.svc.plus
+bash scripts/create_vault_service_repo_roles.sh --apply --env uat
+bash scripts/create_vault_service_repo_roles.sh --apply --env prod
+```
+
+在同步这个 Policy 之前跑 `--auth-json` bootstrap，GCP 侧的 key 删除 / SA 禁用仍然会成功（那是用刚换出的
+access token 直接调用 GCP API，不依赖这个 Policy），但 Vault 侧的清理会失败并在 workflow 日志里打印
+`::warning::`，提示改用下面的手动兜底命令：
 
 ```bash
 GCP_BOOTSTRAP_ACTION=revoke GCP_ENVIRONMENT=uat GCP_ACCOUNT_ID=xworktech \

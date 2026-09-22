@@ -5,10 +5,10 @@ path "kv/metadata/CICD" {
   capabilities = ["read"]
 }
 path "kv/data/CICD/uat/gcp-bootstrap/xworktech" {
-  capabilities = ["read"]
+  capabilities = ["read", "create", "update"]
 }
 path "kv/metadata/CICD/uat/gcp-bootstrap/xworktech" {
-  capabilities = ["read"]
+  capabilities = ["read", "delete"]
 }
 path "kv/data/CICD/uat/iac_state" {
   capabilities = ["read"]
