@@ -58,7 +58,18 @@ dispatch_and_wait() {
   local include_external="${2:?external-node flag is required}"
   local child_dns_mode="${3:?dns mode is required}"
   local namespace_plan="${4:?namespace plan is required}"
+  local child_agent_controller_url="${AGENT_CONTROLLER_URL}"
   local dispatch_started run_id="" payload
+
+  # The default selfhost Accounts vanity host can resolve to the newly created
+  # web node before its public TLS listener is reachable from Akamai regions.
+  # UAT already has a GitOps-managed Serverless Accounts controller, and the
+  # child workflow resolves its machine API origin from the GitOps Cloud Run
+  # declaration. Keep an explicit dispatch override authoritative.
+  if [[ -z "${child_agent_controller_url}" && "${namespace}" == agent-proxy-* ]]; then
+    child_agent_controller_url="https://accounts-serverless-uat.onwalk.net"
+    echo "${namespace}: using the GitOps UAT Serverless Accounts controller"
+  fi
 
   dispatch_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   payload="$(jq -n \
@@ -83,7 +94,7 @@ dispatch_and_wait() {
     --arg dns_mode "${child_dns_mode}" \
     --arg vault_env_path uat \
     --arg skip_stripe_catalog "${SKIP_STRIPE_CATALOG}" \
-    --arg agent_controller_url "${AGENT_CONTROLLER_URL}" \
+    --arg agent_controller_url "${child_agent_controller_url}" \
     --arg vault_addr "${VAULT_ADDR}" \
     '{ref:"main", inputs:{
       runner_type:$runner_type,
