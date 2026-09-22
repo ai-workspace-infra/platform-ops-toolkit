@@ -788,6 +788,42 @@ jobs:
         ref: ${{ needs.provision.outputs.playbooks_ref }}
         path: playbooks
 
+    # The AI Workspace playbook builds the Hermes ACP adapter from the
+    # sibling xworkmate-bridge checkout when the prebuilt bridge override is
+    # not enabled. Keep this source checkout scoped to AI Workspace runs so
+    # other domains do not gain an unnecessary cross-repository dependency.
+    - name: Load GitHub App private key for AI Workspace source
+      if: ${{ contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.target_domains) }}
+      id: xworkmate-vault
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        method: jwt
+        role: ${{ env.VAULT_ROLE }}
+        jwtGithubAudience: vault
+        secrets: |
+          kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
+
+    - name: Create GitHub App installation token for AI Workspace source
+      if: ${{ contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.target_domains) }}
+      id: xworkmate-app-token
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: Iv23liNwStpQIiXajhpb
+        private-key: ${{ steps.xworkmate-vault.outputs.APP_PRIVATE_KEY }}
+        owner: ai-workspace-lab
+        repositories: xworkmate-bridge
+        permission-contents: read
+
+    - name: Checkout AI Workspace bridge source
+      if: ${{ contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.target_domains) }}
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-lab/xworkmate-bridge
+        ref: ${{ github.event.inputs.source_ref || 'main' }}
+        token: ${{ steps.xworkmate-app-token.outputs.token }}
+        path: xworkmate-bridge
+
     - name: Download CMDB
       uses: actions/download-artifact@v8
       with:
