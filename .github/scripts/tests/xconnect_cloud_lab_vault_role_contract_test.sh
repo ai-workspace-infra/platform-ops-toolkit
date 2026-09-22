@@ -103,8 +103,13 @@ fi
 grep -Fq 'gateway_ssh=(sshpass -e ssh' "${existing_one_deploy}"
 grep -Fq 'gateway_scp=(sshpass -e scp' "${existing_one_deploy}"
 grep -Fq 'Gateway SCP upload failed after three attempts' "${existing_one_deploy}"
-grep -Fq '# BEGIN XCONNECT GATEWAY' "${existing_one_deploy}"
+grep -Fq 'Managed by XConnect Zero UAT reconciliation' "${existing_one_deploy}"
 grep -Fq 'reverse_proxy unix//run/xconnect-gateway/xray.sock' "${existing_one_deploy}"
+grep -Fq '/etc/caddy/conf.d/xconnect-gateway.caddy' "${existing_one_deploy}"
+if grep -Fq 'shared Caddy fallback marker not found' "${existing_one_deploy}"; then
+  echo 'Gateway deployment must not depend on an Agent Proxy Caddy fallback marker' >&2
+  exit 1
+fi
 grep -Fq 'Gateway peer reconciliation failed after three attempts' "${existing_one_deploy}"
 grep -Fq 'ONE_BECOME_PASSWORD' "${existing_one_deploy}"
 grep -Fq -- '--become-password-file "$one_become_password"' "${existing_one_deploy}"
