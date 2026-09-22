@@ -16,6 +16,7 @@ render_summary() {
   printf '| Web SaaS final status | `%s` |\n' "${WEB_SAAS_STATUS_RESULT:-unknown}"
   printf '| Agent Proxy final status | `%s` |\n' "${AGENT_PROXY_STATUS_RESULT:-unknown}"
   printf '| Data migration | `%s` |\n' "${DATA_MIGRATION_RESULT:-unknown}"
+  printf '| XConnect Zero UAT | `%s` |\n' "${XCONNECT_ZERO_UAT_RESULT:-unknown}"
   printf '| Terraform namespace | `%s` |\n' "${TERRAFORM_NAMESPACE:-unknown}"
   echo
   printf 'Deployment environment: `%s`\n' "${DEPLOYMENT_ENV:-unknown}"
@@ -29,4 +30,10 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   render_summary | tee -a "${GITHUB_STEP_SUMMARY}"
 else
   render_summary
+fi
+
+if [[ "${DEPLOYMENT_ENV:-}" == "uat" && "${TARGET_DOMAINS:-}" == "all" &&
+      "${XCONNECT_ZERO_UAT_RESULT:-}" != "success" ]]; then
+  echo "::error::UAT target_domains=all requires a successful XConnect Zero UAT run" >&2
+  exit 1
 fi
