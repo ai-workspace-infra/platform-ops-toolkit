@@ -609,6 +609,14 @@ for key in deployment_env resource_file resource_files_full terraform_workspace 
 done
 
 echo "vps_root=infra/iac_modules/terraform-hcl-standard/${provider_tree}" >> "$GITHUB_OUTPUT"
-echo "env_dir=infra/iac_modules/terraform-hcl-standard/${provider_tree}/envs/platform-ops-toolkit" >> "$GITHUB_OUTPUT"
+terraform_workdir="envs/platform-ops-toolkit"
+if [[ "${deployment_env}" == "uat" && "${cloud_provider}" == "akamai-cloud" && "${akamai_matrix_mode:-false}" != "true" ]]; then
+  # Akamai UAT has one Terraform root per namespace. The generator rejects
+  # the historical shared directory because it would make six state locks
+  # look like one workdir and can overwrite generated files between runs.
+  terraform_workdir="${terraform_workdir}/${terraform_namespace}"
+fi
+echo "terraform_workdir=${terraform_workdir}" >> "$GITHUB_OUTPUT"
+echo "env_dir=infra/iac_modules/terraform-hcl-standard/${provider_tree}/${terraform_workdir}" >> "$GITHUB_OUTPUT"
 
 echo "vault_env_path=${deployment_env}" >> "$GITHUB_OUTPUT"
