@@ -547,6 +547,7 @@ jobs:
           ZERO_SERVICE_TOKEN: ${{ steps.runtime.outputs.ZERO_SERVICE_TOKEN }}
           ZERO_OWNER_EMAIL: ${{ steps.runtime.outputs.ZERO_OWNER_EMAIL }}
           ONE_DEVICE_ID: observability-uat
+          ONE_SERVER_NAME: observability.svc.plus
           ONE_HOST: ${{ steps.runtime.outputs.ONE_HOST }}
           ONE_USER: ${{ steps.runtime.outputs.ONE_USER }}
           ONE_SSH_PRIVATE_KEY_B64: ${{ steps.runtime.outputs.ONE_SSH_PRIVATE_KEY_B64 }}
