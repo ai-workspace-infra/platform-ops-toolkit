@@ -374,6 +374,42 @@ print(urlunparse(parsed._replace(query=urlencode(query, doseq=True))))
   chmod 600 "$destination"
 }
 
+# This profile uses the fixed externally managed UAT Gateway. A previous run
+# can have created the network under a different Accounts owner even though the
+# runtime remains healthy. Reconcile only this fully pinned identity before
+# issuing invites, so the Portal owner projection matches the UAT deployment.
+# Never treat this as best effort: an invisible Gateway is not a valid result.
+reconcile_stable_gateway_owner() {
+  [[ "$ZERO_NETWORK_ID" == "net_uat" ]] || {
+    echo 'Stable Gateway ownership reconciliation is restricted to net_uat' >&2
+    exit 1
+  }
+  [[ "$GATEWAY_SERVER_NAME" == "tw-xconnect.svc.plus" ]] || {
+    echo 'Stable Gateway ownership reconciliation requires tw-xconnect.svc.plus' >&2
+    exit 1
+  }
+
+  local request="$LAB_DIR/stable-gateway-reconcile-request.json"
+  local response="$LAB_DIR/stable-gateway-reconcile-response.json"
+  local status
+  jq -n --arg owner "$ZERO_OWNER_EMAIL" \
+    '{environment:"uat",network_id:"net_uat",gateway_id:"gw-uat-tw-xconnect",gateway_endpoint_host:"tw-xconnect.svc.plus",owner_email:$owner}' \
+    >"$request"
+  status="$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+    --config <(printf 'header = @%s\n' "$zero_header") \
+    --data-binary "@$request" "$ZERO_ACCOUNTS_API_URL/api/internal/overlay/gateways/reconcile-stable-owner" || true)"
+  [[ "$status" == "200" ]] || {
+    echo "Stable UAT Gateway ownership reconciliation failed: HTTP $status" >&2
+    exit 1
+  }
+  jq -e '(.environment == "uat" and .network_id == "net_uat" and .gateway_id == "gw-uat-tw-xconnect" and .gateway_endpoint_host == "tw-xconnect.svc.plus" and (.owner_reconciled | type) == "boolean")' \
+    "$response" >/dev/null || {
+      echo 'Stable UAT Gateway ownership reconciliation returned an invalid response' >&2
+      exit 1
+    }
+  echo 'Stable UAT Gateway ownership reconciliation passed'
+}
+
 gateway_credential_present="$("${gateway_ssh[@]}" "$GATEWAY_USER@$GATEWAY_HOST" 'sudo jq -r ".device_credential.credential // empty" /var/lib/xconnect-gateway/state.json')"
 gateway_reenroll=0
 if [[ -n "$gateway_credential_present" ]]; then
@@ -391,6 +427,7 @@ if [[ -n "$gateway_credential_present" ]]; then
     fi
   fi
 fi
+reconcile_stable_gateway_owner
 if [[ -z "$gateway_credential_present" || "$gateway_reenroll" == 1 ]]; then
   issue_invite gateway gw-uat-tw-xconnect "$gateway_invite"
   gateway_copy "$gateway_invite" "$GATEWAY_USER@$GATEWAY_HOST:/tmp/xconnect-gateway.invite" >/dev/null
