@@ -36,7 +36,7 @@ on:
         description: Advanced override - XConnect-Gateway GitHub Release tag
         type: string
         required: false
-        default: 'v0.1.10'
+        default: 'v0.1.11'
       xray_release_tag:
         description: Advanced override - XTLS/Xray-core Release tag
         type: string
@@ -225,7 +225,7 @@ jobs:
       GITOPS_REF: ${{ inputs.gitops_ref || '28430b835c4275eea1921aa7fd98c96dbc2c50ef' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'b652f3fba1dddc2c968b2249c35ff5bc8c1d3a68' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
-      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.10' }}
+      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.11' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
       GATEWAY_PROVIDER: ${{ inputs.gateway_provider || 'external' }}
       EXTERNAL_GATEWAY_ID: ${{ inputs.external_gateway_id || 'gw-uat-tw-xconnect' }}
@@ -431,7 +431,7 @@ jobs:
       GITOPS_REF: ${{ inputs.gitops_ref || '28430b835c4275eea1921aa7fd98c96dbc2c50ef' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'b652f3fba1dddc2c968b2249c35ff5bc8c1d3a68' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
-      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.10' }}
+      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.11' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
       ZERO_NETWORK_ID: ${{ inputs.network_id || 'net_uat' }}
       ONE_DEVICE_ID: observability-uat
@@ -540,7 +540,7 @@ jobs:
           LAB_DIR: ${{ runner.temp }}/xconnect-existing-one
           GITHUB_WORKSPACE: ${{ github.workspace }}
           CLI_RELEASE_TOKEN: ${{ steps.artifact-token.outputs.token }}
-          GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.10' }}
+          GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.11' }}
           XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
           # POST enrollment must target the Accounts service directly until the
           # hybrid edge route supports safe POST failover.
@@ -748,7 +748,7 @@ jobs:
       GITOPS_REF: ${{ inputs.gitops_ref || '28430b835c4275eea1921aa7fd98c96dbc2c50ef' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'b652f3fba1dddc2c968b2249c35ff5bc8c1d3a68' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
-      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.10' }}
+      GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.11' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
       GATEWAY_PROVIDER: ${{ inputs.gateway_provider || 'external' }}
       EXTERNAL_GATEWAY_ID: ${{ inputs.external_gateway_id || 'gw-uat-tw-xconnect' }}
