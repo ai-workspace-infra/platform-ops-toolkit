@@ -292,7 +292,17 @@ issue_invite() {
   jq -e --arg network "$ZERO_NETWORK_ID" --arg device "$device" --arg expected_role "$role" \
     '.network.id == $network and .invite.network_id == $network and .invite.device_id == $device and .invite.role == $expected_role and .invite.platform == "linux" and .invite.remaining_uses == 1' \
     "$response" >/dev/null || { echo "Formal Zero $role invitation binding mismatch" >&2; exit 1; }
-  jq -er '.join_uri' "$response" >"$destination"
+  jq -er '.join_uri' "$response" | python3 -c '
+import sys
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+
+join_uri = sys.stdin.read().strip()
+controller = sys.argv[1]
+parsed = urlparse(join_uri)
+query = parse_qs(parsed.query, keep_blank_values=True)
+query["controller"] = [controller]
+print(urlunparse(parsed._replace(query=urlencode(query, doseq=True))))
+' "$ZERO_ACCOUNTS_API_URL" >"$destination"
   grep -Eq '^xconnect://join/' "$destination"
   chmod 600 "$destination"
 }

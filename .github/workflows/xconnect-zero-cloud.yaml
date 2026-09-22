@@ -540,7 +540,9 @@ jobs:
           CLI_RELEASE_TOKEN: ${{ steps.artifact-token.outputs.token }}
           GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.10' }}
           XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
-          ZERO_ACCOUNTS_API_URL: https://accounts-uat.onwalk.net
+          # POST enrollment must target the Accounts service directly until the
+          # hybrid edge route supports safe POST failover.
+          ZERO_ACCOUNTS_API_URL: https://uat-accounts-1004637461064.asia-northeast1.run.app
           LAB_VLESS_ID: ${{ steps.runtime.outputs.LAB_VLESS_ID }}
           ZERO_SERVICE_TOKEN: ${{ steps.runtime.outputs.ZERO_SERVICE_TOKEN }}
           ZERO_OWNER_EMAIL: ${{ steps.runtime.outputs.ZERO_OWNER_EMAIL }}
