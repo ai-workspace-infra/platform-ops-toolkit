@@ -35,8 +35,8 @@ if [[ "$ONE_HOST" != "$ONE_SERVER_NAME" ]]; then
     exit 1
   }
 fi
-[[ "$ONE_USER" == "root" ]] || {
-  echo 'UAT existing-One target must use the Vault-authorized root SSH account' >&2
+[[ "$ONE_USER" == "root" || "$ONE_USER" == "ubuntu" ]] || {
+  echo 'UAT existing-One target must use an authorized administrative SSH account' >&2
   exit 1
 }
 
