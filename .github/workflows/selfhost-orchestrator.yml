@@ -248,6 +248,7 @@ jobs:
       terraform_workspace:      ${{ steps.route.outputs.terraform_workspace }}
       state_key:                ${{ steps.route.outputs.state_key }}
       terraform_namespace:      ${{ steps.route.outputs.terraform_namespace }}
+      terraform_workdir:        ${{ steps.route.outputs.terraform_workdir }}
       run_infrastructure:       ${{ steps.route.outputs.run_infrastructure }}
       run_application_deploy:        ${{ steps.route.outputs.run_application_deploy }}
       target_domains:           ${{ steps.route.outputs.target_domains }}
@@ -533,7 +534,19 @@ jobs:
         TARGET_DOMAIN_BASE: ${{ steps.route.outputs.target_domain_base }}
         AGENT_PROXY_PLAN_API: ${{ steps.plan.outputs.agent_api }}
         # TF_STATE_* and AWS_* already in env via "Export Terraform credentials"
-      run: python3 scripts/generate.py render --resources ${{ steps.route.outputs.resource_files_full }} --workdir envs/platform-ops-toolkit
+      run: |
+        if [[ "${{ steps.route.outputs.cloud_provider }}" == "akamai-cloud" &&
+              "${{ steps.route.outputs.deployment_env }}" == "uat" &&
+              "${{ steps.route.outputs.terraform_namespace }}" != "all" ]]; then
+          python3 scripts/generate.py render \
+            --resources "${{ steps.route.outputs.resource_files_full }}" \
+            --workdir "${{ steps.route.outputs.terraform_workdir }}" \
+            --namespace "${{ steps.route.outputs.terraform_namespace }}"
+        else
+          python3 scripts/generate.py render \
+            --resources "${{ steps.route.outputs.resource_files_full }}" \
+            --workdir "${{ steps.route.outputs.terraform_workdir }}"
+        fi
 
     - name: Terraform init
       if: steps.route.outputs.run_infrastructure == 'true'
@@ -584,7 +597,7 @@ jobs:
         INSTANCE_PLAN_API: ${{ steps.plan.outputs.api }}
         AGENT_PROXY_PLAN_API: ${{ steps.plan.outputs.agent_api }}
         # AWS_* from GITHUB_ENV
-      run: python3 scripts/generate.py inventory --resources ${{ steps.route.outputs.resource_files_full }} --workdir envs/platform-ops-toolkit
+      run: python3 scripts/generate.py inventory --resources ${{ steps.route.outputs.resource_files_full }} --workdir ${{ steps.route.outputs.terraform_workdir }}
 
     - name: Verify AWS EC2 boot health
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.terraform_action == 'apply' && steps.route.outputs.cloud_provider == 'aws-cloud'

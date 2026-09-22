@@ -96,6 +96,8 @@ for namespace in web-saas open-platform ai-workspace agent-proxy-jp agent-proxy-
   assert_contains "${routed}" "terraform_workspace=uat-svc.plus-akamai-cloud-manbuzhe2026-${namespace}"
   assert_contains "${routed}" "terraform_project=svc.plus"
   assert_contains "${routed}" "state_key=${state_key}"
+  assert_contains "${routed}" "terraform_workdir=envs/platform-ops-toolkit/${namespace}"
+  assert_contains "${routed}" "env_dir=infra/iac_modules/terraform-hcl-standard/akamai-cloud/envs/platform-ops-toolkit/${namespace}"
   namespace_state_keys+=("${state_key}")
 done
 unique_state_key_count="$(printf '%s\n' "${namespace_state_keys[@]}" | sort -u | wc -l | tr -d ' ')"
