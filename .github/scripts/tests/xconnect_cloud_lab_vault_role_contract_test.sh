@@ -100,6 +100,7 @@ grep -Fq 'Zero API returned HTTP 401' "${existing_one_deploy}"
 grep -Fq 'rotate an orphaned stable Gateway credential' "${existing_one_deploy}"
 grep -Fq 'del(.device_credential, .signing_keys, .enrollment_token' "${existing_one_deploy}"
 grep -Fq '.controller = $controller' "${existing_one_deploy}"
+grep -Fq 'A previously interrupted recovery can leave the credential empty' "${existing_one_deploy}"
 grep -Fq 'systemctl enable --now xconnect-gateway-sync.timer' "${existing_one_deploy}"
 grep -Fq '.device_credential.credential' "${existing_one_deploy}"
 if grep -Fq '.credential.credential' "${existing_one_deploy}"; then

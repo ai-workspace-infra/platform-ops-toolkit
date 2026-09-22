@@ -398,16 +398,23 @@ if [[ -z "$gateway_credential_present" || "$gateway_reenroll" == 1 ]]; then
 set -euo pipefail
 reenroll="$1"
 controller="$2"
+tmp_state="$(mktemp /var/lib/xconnect-gateway/.state.json.XXXXXX)"
 if [[ "$reenroll" == 1 ]]; then
   # Preserve the pinned Gateway WireGuard key while dropping only the stale
   # authentication/session material. The Accounts exchange atomically revokes
   # the old credential before issuing the replacement.
-  tmp_state="$(mktemp /var/lib/xconnect-gateway/.state.json.XXXXXX)"
   jq --arg controller "$controller" '.controller = $controller | del(.device_credential, .signing_keys, .enrollment_token, .enrollment_expires_at, .applied_config_id, .applied_generation)' \
     /var/lib/xconnect-gateway/state.json >"$tmp_state"
-  install -m 600 "$tmp_state" /var/lib/xconnect-gateway/state.json
-  rm -f "$tmp_state"
+else
+  # A previously interrupted recovery can leave the credential empty while
+  # retaining the legacy controller URL. Align it before join: the Gateway
+  # validates the invitation controller against this state even without a
+  # credential. Keep its WireGuard identity and all other local state intact.
+  jq --arg controller "$controller" '.controller = $controller' \
+    /var/lib/xconnect-gateway/state.json >"$tmp_state"
 fi
+install -m 600 "$tmp_state" /var/lib/xconnect-gateway/state.json
+rm -f "$tmp_state"
 install -m 600 /tmp/xconnect-gateway.invite /var/lib/xconnect-gateway/join-uri
 /usr/local/bin/xconnect-gateway join --state-dir /var/lib/xconnect-gateway --gateway-id gw-uat-tw-xconnect "$(cat /var/lib/xconnect-gateway/join-uri)"
 rm -f /tmp/xconnect-gateway.invite /var/lib/xconnect-gateway/join-uri
