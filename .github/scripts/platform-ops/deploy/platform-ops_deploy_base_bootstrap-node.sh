@@ -79,7 +79,7 @@ extra_args=()
 # cut over during bootstrap. Keep VAULT_ADDR public for Vault KV/database
 # credential reads, but make the Vault role's service health and CLI calls use
 # the local listener until the migration cutover.
-if [[ "${playbook}" == "setup-open-platform-domain.yml" && -n "${OPEN_PLATFORM_LOCAL_VAULT_ADDR:-}" ]]; then
+if [[ "${playbook}" == "setup-open-platform-domain.yml" || "${playbook}" == "deploy_vault_domain.yml" ]] && [[ -n "${OPEN_PLATFORM_LOCAL_VAULT_ADDR:-}" ]]; then
   extra_args+=( -e "vault_admin_addr=${OPEN_PLATFORM_LOCAL_VAULT_ADDR}" )
 fi
 
