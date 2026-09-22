@@ -21,7 +21,8 @@ umask 077
 : "${ONE_BECOME_PASSWORD:?}"
 : "${GATEWAY_HOST:?}"
 : "${GATEWAY_USER:?}"
-: "${GATEWAY_SSH_PASSWORD:?}"
+: "${GATEWAY_SSH_PASSWORD:=}"
+: "${GATEWAY_SSH_PRIVATE_KEY_B64:=}"
 : "${GATEWAY_TLS_CERT_B64:?}"
 : "${GATEWAY_TLS_KEY_B64:?}"
 : "${GATEWAY_SERVER_NAME:?}"
@@ -71,6 +72,10 @@ cleanup() {
 trap cleanup EXIT
 
 printf '%s' "$ONE_SSH_PRIVATE_KEY_B64" | base64 --decode >"$one_key"
+if [[ -n "$GATEWAY_SSH_PRIVATE_KEY_B64" ]]; then
+  printf '%s' "$GATEWAY_SSH_PRIVATE_KEY_B64" | base64 --decode >"$gateway_key"
+  chmod 600 "$gateway_key"
+fi
 printf '%s\n' "$ONE_BECOME_PASSWORD" >"$one_become_password"
 printf 'X-Service-Token: %s\nContent-Type: application/json\n' "$ZERO_SERVICE_TOKEN" >"$zero_header"
 printf '%s' "$GATEWAY_TLS_CERT_B64" | base64 --decode >"$gateway_tls_cert"
@@ -120,9 +125,17 @@ SSH_COMMON=(
   -o ServerAliveCountMax=4
 )
 one_ssh=(ssh -o BatchMode=yes -i "$one_key" "${SSH_COMMON[@]}")
-export SSHPASS="$GATEWAY_SSH_PASSWORD"
-gateway_ssh=(sshpass -e ssh -o BatchMode=no -o PreferredAuthentications=password "${SSH_COMMON[@]}")
-gateway_scp=(sshpass -e scp -o BatchMode=no -o PreferredAuthentications=password "${SSH_COMMON[@]}")
+if [[ -n "$GATEWAY_SSH_PRIVATE_KEY_B64" ]]; then
+  gateway_ssh=(ssh -o BatchMode=yes -i "$gateway_key" "${SSH_COMMON[@]}")
+  gateway_scp=(scp -o BatchMode=yes -i "$gateway_key" "${SSH_COMMON[@]}")
+elif [[ -n "$GATEWAY_SSH_PASSWORD" ]]; then
+  export SSHPASS="$GATEWAY_SSH_PASSWORD"
+  gateway_ssh=(sshpass -e ssh -o BatchMode=no -o PreferredAuthentications=password "${SSH_COMMON[@]}")
+  gateway_scp=(sshpass -e scp -o BatchMode=no -o PreferredAuthentications=password "${SSH_COMMON[@]}")
+else
+  echo 'one of GATEWAY_SSH_PRIVATE_KEY_B64 or GATEWAY_SSH_PASSWORD is required' >&2
+  exit 1
+fi
 
 gateway_copy() {
   local attempt
@@ -158,7 +171,7 @@ network = ipaddress.ip_network(sys.argv[2], strict=False)
 if gateway.version != 4 or gateway.network.prefixlen != 32 or str(gateway) != sys.argv[1] or gateway.ip not in network:
     raise SystemExit('Gateway WireGuard address must be a canonical IPv4 /32 inside the overlay CIDR')
 PY
-grep -Fq 'gateway_ref: ph-xconnect.svc.plus' "$declaration"
+grep -Fq "gateway_ref: $GATEWAY_SERVER_NAME" "$declaration"
 grep -Fq 'fqdn: observability.svc.plus' "$declaration"
 grep -Fq 'lifecycle: persistent' "$declaration"
 
