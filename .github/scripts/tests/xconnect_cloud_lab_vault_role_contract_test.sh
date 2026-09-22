@@ -36,9 +36,9 @@ grep -Fq '"job_workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/w
 grep -Fq '"token_policies":' "${existing_one_role}"
 grep -Fq 'path "kv/data/prod/ulighthost-xconnect/observability.svc.plus"' "${existing_one_policy}"
 grep -Fq 'kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} host | ONE_HOST' "${workflow}"
-grep -Fq 'kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} public_ipv4 | GATEWAY_HOST' "${workflow}"
-grep -Fq 'kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} ansible_user | GATEWAY_USER' "${workflow}"
 grep -Fq 'kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} SSH_PASSWORD | GATEWAY_SSH_PASSWORD' "${workflow}"
+grep -Fq 'GATEWAY_HOST: ${{ env.GATEWAY_SERVER_NAME }}' "${workflow}"
+grep -Fq 'GATEWAY_USER: root' "${workflow}"
 grep -Fq 'path "kv/data/uat/ulighthost-xconnect/ph-xconnect.svc.plus"' "${existing_one_policy}"
 grep -Fq 'path "kv/data/CICD/domains/svc.plus"' "${existing_one_policy}"
 
