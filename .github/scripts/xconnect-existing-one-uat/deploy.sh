@@ -158,7 +158,11 @@ network = ipaddress.ip_network(sys.argv[2], strict=False)
 if gateway.version != 4 or gateway.network.prefixlen != 32 or str(gateway) != sys.argv[1] or gateway.ip not in network:
     raise SystemExit('Gateway WireGuard address must be a canonical IPv4 /32 inside the overlay CIDR')
 PY
-grep -Fq 'gateway_ref: ph-xconnect.svc.plus' "$declaration"
+gateway_ref="$(awk '$1 == "gateway_ref:" {print $2; exit}' "$declaration")"
+[[ -n "$gateway_ref" && "$gateway_ref" == "$GATEWAY_SERVER_NAME" ]] || {
+  echo "UAT Gateway declaration (${gateway_ref:-missing}) does not match configured Gateway ${GATEWAY_SERVER_NAME}" >&2
+  exit 1
+}
 grep -Fq 'fqdn: observability.svc.plus' "$declaration"
 grep -Fq 'lifecycle: persistent' "$declaration"
 
