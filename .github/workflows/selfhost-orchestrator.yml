@@ -95,6 +95,12 @@ on:
         - agent-proxy-us
         - agent-proxy-sg
         - web-saas + agent-proxy
+      open_platform_service:
+        description: "open-platform 独立服务单元；all=Vault+IAM+Observability，单项可独立重跑"
+        required: true
+        default: "all"
+        type: choice
+        options: [all, vault, iam, observability]
       cloud_provider:
         description: "云服务商（按 provider registry 选择；UAT 默认 Akamai Cloud；UCloud/Ulighthost existing 由 external adapter 处理）"
         required: true
@@ -857,6 +863,15 @@ jobs:
           needs.provision.outputs.deployment_env == 'uat' &&
           needs.provision.outputs.cloud_provider == 'akamai-cloud' &&
           'http://127.0.0.1:8200' || '' }}
+        OPEN_PLATFORM_SERVICE: ${{ github.event.inputs.open_platform_service || 'all' }}
+        # The explicit deployment-only mode permits a fresh IAM unit to start
+        # before environment-scoped business secrets are migrated. Normal
+        # service deployments keep strict Vault secret validation.
+        OPEN_PLATFORM_DEPLOY_ONLY: >-
+          ${{ needs.provision.outputs.target_domains == 'open-platform' &&
+          needs.provision.outputs.deployment_env == 'uat' &&
+          needs.provision.outputs.cloud_provider == 'akamai-cloud' &&
+          'true' || 'false' }}
         # The inherited VAULT_TOKEN authenticates to the external CI/CD Vault
         # for KV reads. A fresh local Vault must generate and persist its own
         # root token instead of treating that external token as local admin.
