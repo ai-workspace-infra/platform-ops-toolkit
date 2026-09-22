@@ -857,6 +857,14 @@ jobs:
           needs.provision.outputs.deployment_env == 'uat' &&
           needs.provision.outputs.cloud_provider == 'akamai-cloud' &&
           'http://127.0.0.1:8200' || '' }}
+        # The inherited VAULT_TOKEN authenticates to the external CI/CD Vault
+        # for KV reads. A fresh local Vault must generate and persist its own
+        # root token instead of treating that external token as local admin.
+        VAULT_BOOTSTRAP_GENERATE_ROOT_TOKEN: >-
+          ${{ needs.provision.outputs.target_domains == 'open-platform' &&
+          needs.provision.outputs.deployment_env == 'uat' &&
+          needs.provision.outputs.cloud_provider == 'akamai-cloud' &&
+          'true' || 'false' }}
         # vault-action exportToken: true writes VAULT_TOKEN to GITHUB_ENV.
         # Do not overwrite it with the non-existent vault_token output.
         # MATRIX_HOST / ANSIBLE_HOST_KEY_CHECKING / ANSIBLE_SSH_ARGS / TARGET_DOMAIN_BASE from job env
