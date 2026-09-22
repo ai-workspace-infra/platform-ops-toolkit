@@ -94,6 +94,15 @@ for svc in "${SERVICES[@]}"; do
       else
         echo "==> [Cloud Run] XConnect Zero Signing is not configured; deploying accounts without it."
       fi
+      # UAT's stable Gateway shares the host's public Caddy :443 listener.
+      # Keep this deployment-only override explicit: PROD remains on the
+      # standalone direct-TLS Gateway contract unless it opts in separately.
+      if [[ "${DEPLOY_ENV}" == "uat" ]]; then
+        env_vars+=(
+          "XCONNECT_GATEWAY_XRAY_FRONTEND=${XCONNECT_GATEWAY_XRAY_FRONTEND:-caddy-unix-h2c}"
+          "XCONNECT_GATEWAY_XRAY_LISTEN_SOCKET=${XCONNECT_GATEWAY_XRAY_LISTEN_SOCKET:-/run/xconnect-gateway/xray.sock}"
+        )
+      fi
       # Browser origins the accounts CORS middleware must accept, derived by the
       # orchestrator from the GitOps console host. Without it gin-contrib/cors
       # aborts every browser login with an empty 403 that the portal can only
