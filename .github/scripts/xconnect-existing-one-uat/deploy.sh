@@ -232,7 +232,8 @@ gateway_server_name="$3"
   echo "Invalid Gateway server name" >&2
   exit 1
 }
-install -d -m 700 /var/lib/xconnect-gateway /etc/xconnect-gateway
+install -d -m 700 /var/lib/xconnect-gateway
+install -d -o root -g caddy -m 0750 /etc/xconnect-gateway
 install -m 755 /tmp/xconnect-gateway /usr/local/bin/xconnect-gateway
 install -d -m 755 /usr/local/lib/xconnect-gateway/bin
 install -m 755 /tmp/xray /usr/local/lib/xconnect-gateway/xray
