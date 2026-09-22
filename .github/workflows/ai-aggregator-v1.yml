@@ -257,6 +257,25 @@ jobs:
           # the runner so no state bucket contract is required for this flow.
           rm -f "${{ steps.contract.outputs.workdir }}/backend.tf"
           terraform -chdir="${{ steps.contract.outputs.workdir }}" init -backend=false
+          key_metadata="$(python3 - "${{ steps.contract.outputs.resources }}" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+          import yaml
+
+          source = re.sub(r"\{\{.*?\}\}", "placeholder", Path(sys.argv[1]).read_text())
+          data = yaml.safe_load(source)
+          key_name = data['ssh_keys'][0]['name']
+          tf_id = re.sub(r'[^0-9a-zA-Z_]', '_', str(key_name))
+          print(f'{key_name}\t{tf_id}')
+          PY
+          )"
+          IFS=$'\t' read -r key_name key_resource_id <<< "$key_metadata"
+          if ! terraform -chdir="${{ steps.contract.outputs.workdir }}" state list | grep -Fxq "aws_key_pair.${key_resource_id}" &&
+             aws ec2 describe-key-pairs --key-names "$key_name" >/dev/null 2>&1; then
+            terraform -chdir="${{ steps.contract.outputs.workdir }}" import -input=false \
+              "aws_key_pair.${key_resource_id}" "$key_name"
+          fi
           terraform -chdir="${{ steps.contract.outputs.workdir }}" validate
           terraform -chdir="${{ steps.contract.outputs.workdir }}" apply -auto-approve
           python3 iac_modules/terraform-hcl-standard/aws-cloud/scripts/generate.py inventory \
