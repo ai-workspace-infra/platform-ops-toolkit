@@ -20,7 +20,7 @@ umask 077
 : "${ONE_BECOME_PASSWORD:?}"
 : "${GATEWAY_HOST:?}"
 : "${GATEWAY_USER:?}"
-: "${GATEWAY_SSH_PRIVATE_KEY_B64:?}"
+: "${GATEWAY_SSH_PASSWORD:?}"
 : "${GATEWAY_TLS_CERT_B64:?}"
 : "${GATEWAY_TLS_KEY_B64:?}"
 : "${GATEWAY_SERVER_NAME:?}"
@@ -68,11 +68,10 @@ trap cleanup EXIT
 
 printf '%s' "$ONE_SSH_PRIVATE_KEY_B64" | base64 --decode >"$one_key"
 printf '%s\n' "$ONE_BECOME_PASSWORD" >"$one_become_password"
-printf '%s' "$GATEWAY_SSH_PRIVATE_KEY_B64" | base64 --decode >"$gateway_key"
 printf 'X-Service-Token: %s\nContent-Type: application/json\n' "$ZERO_SERVICE_TOKEN" >"$zero_header"
 printf '%s' "$GATEWAY_TLS_CERT_B64" | base64 --decode >"$gateway_tls_cert"
 printf '%s' "$GATEWAY_TLS_KEY_B64" | base64 --decode >"$gateway_tls_key"
-chmod 600 "$one_key" "$one_become_password" "$gateway_key" "$gateway_tls_cert" "$gateway_tls_key" "$zero_header"
+chmod 600 "$one_key" "$one_become_password" "$gateway_tls_cert" "$gateway_tls_key" "$zero_header"
 
 openssl x509 -in "$gateway_tls_cert" -noout >/dev/null
 openssl pkey -in "$gateway_tls_key" -noout >/dev/null
@@ -89,10 +88,11 @@ fi
 ssh-keyscan -H "$ONE_HOST" "$GATEWAY_HOST" >"$known_hosts" 2>/dev/null
 test -s "$known_hosts" || { echo 'SSH host key discovery failed' >&2; exit 1; }
 
-SSH_COMMON=(-o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$known_hosts")
-one_ssh=(ssh -i "$one_key" "${SSH_COMMON[@]}")
-gateway_ssh=(ssh -i "$gateway_key" "${SSH_COMMON[@]}")
-gateway_scp=(scp -i "$gateway_key" "${SSH_COMMON[@]}")
+SSH_COMMON=(-o ConnectTimeout=15 -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$known_hosts")
+one_ssh=(ssh -o BatchMode=yes -i "$one_key" "${SSH_COMMON[@]}")
+export SSHPASS="$GATEWAY_SSH_PASSWORD"
+gateway_ssh=(sshpass -e ssh -o BatchMode=no -o PreferredAuthentications=password "${SSH_COMMON[@]}")
+gateway_scp=(sshpass -e scp -o BatchMode=no -o PreferredAuthentications=password "${SSH_COMMON[@]}")
 
 one_sudo() {
   local command="$1"

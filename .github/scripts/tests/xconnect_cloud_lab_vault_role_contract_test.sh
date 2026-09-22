@@ -36,7 +36,9 @@ grep -Fq '"job_workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/w
 grep -Fq '"token_policies":' "${existing_one_role}"
 grep -Fq 'path "kv/data/prod/ulighthost-xconnect/observability.svc.plus"' "${existing_one_policy}"
 grep -Fq 'kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} host | ONE_HOST' "${workflow}"
-grep -Fq 'kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} host | GATEWAY_HOST' "${workflow}"
+grep -Fq 'kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} public_ipv4 | GATEWAY_HOST' "${workflow}"
+grep -Fq 'kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} ansible_user | GATEWAY_USER' "${workflow}"
+grep -Fq 'kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} SSH_PASSWORD | GATEWAY_SSH_PASSWORD' "${workflow}"
 grep -Fq 'path "kv/data/uat/ulighthost-xconnect/ph-xconnect.svc.plus"' "${existing_one_policy}"
 grep -Fq 'path "kv/data/CICD/domains/svc.plus"' "${existing_one_policy}"
 
@@ -95,7 +97,8 @@ if grep -Fq '.credential.credential' "${existing_one_deploy}"; then
   echo 'Gateway state checks must use the current device_credential field' >&2
   exit 1
 fi
-grep -Fq 'gateway_scp=(scp -i "$gateway_key"' "${existing_one_deploy}"
+grep -Fq 'gateway_ssh=(sshpass -e ssh' "${existing_one_deploy}"
+grep -Fq 'gateway_scp=(sshpass -e scp' "${existing_one_deploy}"
 grep -Fq 'ONE_BECOME_PASSWORD' "${existing_one_deploy}"
 grep -Fq -- '--become-password-file "$one_become_password"' "${existing_one_deploy}"
 grep -Fq 'one_sudo()' "${existing_one_deploy}"

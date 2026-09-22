@@ -519,9 +519,9 @@ jobs:
             kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} user | ONE_USER ;
             kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} ssh_private_key_b64 | ONE_SSH_PRIVATE_KEY_B64 ;
             kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} sudo_password | ONE_BECOME_PASSWORD ;
-            kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} host | GATEWAY_HOST ;
-            kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} user | GATEWAY_USER ;
-            kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} ssh_private_key_b64 | GATEWAY_SSH_PRIVATE_KEY_B64 ;
+            kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} public_ipv4 | GATEWAY_HOST ;
+            kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} ansible_user | GATEWAY_USER ;
+            kv/data/uat/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} SSH_PASSWORD | GATEWAY_SSH_PASSWORD ;
             kv/data/CICD/domains/svc.plus tls_fullchain_pem_b64 | GATEWAY_TLS_CERT_B64 ;
             kv/data/CICD/domains/svc.plus tls_key_pem_b64 | GATEWAY_TLS_KEY_B64 ;
             kv/data/CICD/domains/svc.plus not_after_epoch | GATEWAY_TLS_NOT_AFTER_EPOCH ;
@@ -530,6 +530,8 @@ jobs:
       - name: Install Ansible controller
         if: inputs.mode == 'apply'
         run: |
+          sudo apt-get update
+          sudo apt-get install -y sshpass
           python3 -m pip install --user 'ansible-core==2.17.7'
           echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
       - name: Enroll existing Linux One and verify UAT data plane
@@ -551,7 +553,7 @@ jobs:
           ONE_BECOME_PASSWORD: ${{ steps.runtime.outputs.ONE_BECOME_PASSWORD }}
           GATEWAY_HOST: ${{ steps.runtime.outputs.GATEWAY_HOST }}
           GATEWAY_USER: ${{ steps.runtime.outputs.GATEWAY_USER }}
-          GATEWAY_SSH_PRIVATE_KEY_B64: ${{ steps.runtime.outputs.GATEWAY_SSH_PRIVATE_KEY_B64 }}
+          GATEWAY_SSH_PASSWORD: ${{ steps.runtime.outputs.GATEWAY_SSH_PASSWORD }}
           GATEWAY_TLS_CERT_B64: ${{ steps.runtime.outputs.GATEWAY_TLS_CERT_B64 }}
           GATEWAY_TLS_KEY_B64: ${{ steps.runtime.outputs.GATEWAY_TLS_KEY_B64 }}
           GATEWAY_TLS_NOT_AFTER_EPOCH: ${{ steps.runtime.outputs.GATEWAY_TLS_NOT_AFTER_EPOCH }}
