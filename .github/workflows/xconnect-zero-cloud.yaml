@@ -16,17 +16,17 @@ on:
         description: Advanced override - reviewed iac_modules commit SHA
         type: string
         required: false
-        default: '9dd120ee027ea999b41d15b80ead20878c1ff468'
+        default: '2ba98f30c3e4199e01eb940bb1951549fca0ae3e'
       gitops_ref:
         description: Advanced override - reviewed gitops commit SHA
         type: string
         required: false
-        default: 'b7d52fa0c0183e47d0bf342b487a1511c4cb453c'
+        default: '6050f627ea7bc26887c79966a70f6706bd2f63c3'
       playbooks_ref:
         description: Advanced override - reviewed playbooks commit SHA
         type: string
         required: false
-        default: '0f319649a8634523fe7e2d18ae2a22639ef2a97d'
+        default: 'e19008202b74c03a649c367a7f4c408a67c12aea'
       cli_release_tag:
         description: Advanced override - XConnect-One GitHub Release tag
         type: string
@@ -158,7 +158,7 @@ jobs:
   resolve_ai_aggregator_matrix:
     name: Resolve AI Aggregator node matrix
     needs: preflight
-    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'apply'
+    if: github.event_name == 'workflow_dispatch' && inputs.deployment_profile == 'cloud-lab' && inputs.mode == 'apply'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -170,6 +170,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install matrix parser
+        run: python3 -m pip install --disable-pip-version-check 'PyYAML==6.0.2'
       - name: Build matrix from GitOps nodes
         id: matrix
         env:
@@ -219,9 +221,9 @@ jobs:
     timeout-minutes: 90
     env:
       MODE: ${{ inputs.mode }}
-      IAC_REF: ${{ inputs.iac_ref || '9dd120ee027ea999b41d15b80ead20878c1ff468' }}
+      IAC_REF: ${{ inputs.iac_ref || '2ba98f30c3e4199e01eb940bb1951549fca0ae3e' }}
       GITOPS_REF: ${{ inputs.gitops_ref || 'acbc88faf6072c14dc55c14c2cd601d3693e065e' }}
-      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '0f319649a8634523fe7e2d18ae2a22639ef2a97d' }}
+      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'e19008202b74c03a649c367a7f4c408a67c12aea' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.8' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
@@ -570,7 +572,7 @@ jobs:
     env:
       MODE: ${{ inputs.mode }}
       GITOPS_REF: ${{ inputs.gitops_ref || 'acbc88faf6072c14dc55c14c2cd601d3693e065e' }}
-      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '0f319649a8634523fe7e2d18ae2a22639ef2a97d' }}
+      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'e19008202b74c03a649c367a7f4c408a67c12aea' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
       GATEWAY_PROVIDER: ${{ inputs.gateway_provider || 'external' }}
       EXTERNAL_GATEWAY_ID: ${{ inputs.external_gateway_id || 'gw-uat-tw-xconnect' }}
@@ -737,9 +739,9 @@ jobs:
     timeout-minutes: 45
     env:
       MODE: cleanup
-      IAC_REF: ${{ inputs.iac_ref || '9dd120ee027ea999b41d15b80ead20878c1ff468' }}
+      IAC_REF: ${{ inputs.iac_ref || '2ba98f30c3e4199e01eb940bb1951549fca0ae3e' }}
       GITOPS_REF: ${{ inputs.gitops_ref || 'acbc88faf6072c14dc55c14c2cd601d3693e065e' }}
-      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '0f319649a8634523fe7e2d18ae2a22639ef2a97d' }}
+      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || 'e19008202b74c03a649c367a7f4c408a67c12aea' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.8' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
