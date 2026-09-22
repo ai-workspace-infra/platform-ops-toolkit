@@ -89,10 +89,30 @@ if [[ -n "${GATEWAY_TLS_NOT_AFTER_EPOCH:-}" ]]; then
   (( GATEWAY_TLS_NOT_AFTER_EPOCH > $(date +%s) + 86400 )) || { echo 'Gateway TLS certificate expires within 24 hours' >&2; exit 1; }
 fi
 
-ssh-keyscan -H "$ONE_HOST" "$GATEWAY_HOST" >"$known_hosts" 2>/dev/null
-test -s "$known_hosts" || { echo 'SSH host key discovery failed' >&2; exit 1; }
+: >"$known_hosts"
+for ssh_host in "$ONE_HOST" "$GATEWAY_HOST"; do
+  discovered=0
+  for attempt in 1 2 3; do
+    ssh-keyscan -T 10 -H "$ssh_host" >>"$known_hosts" 2>/dev/null || true
+    if ssh-keygen -F "$ssh_host" -f "$known_hosts" >/dev/null; then
+      discovered=1
+      break
+    fi
+    sleep 2
+  done
+  (( discovered == 1 )) || { echo "SSH host key discovery failed for $ssh_host" >&2; exit 1; }
+done
 
-SSH_COMMON=(-o ConnectTimeout=15 -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$known_hosts")
+SSH_COMMON=(
+  -o ConnectTimeout=15
+  -o StrictHostKeyChecking=yes
+  -o "UserKnownHostsFile=$known_hosts"
+  -o ControlMaster=auto
+  -o ControlPersist=600
+  -o ControlPath=/tmp/xconnect-%C
+  -o ServerAliveInterval=15
+  -o ServerAliveCountMax=4
+)
 one_ssh=(ssh -o BatchMode=yes -i "$one_key" "${SSH_COMMON[@]}")
 export SSHPASS="$GATEWAY_SSH_PASSWORD"
 gateway_ssh=(sshpass -e ssh -o BatchMode=no -o PreferredAuthentications=password "${SSH_COMMON[@]}")

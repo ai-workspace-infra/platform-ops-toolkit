@@ -106,6 +106,9 @@ grep -Fq -- '--become-password-file "$one_become_password"' "${existing_one_depl
 grep -Fq 'one_sudo()' "${existing_one_deploy}"
 grep -Fq 'ONE_HOST" != "$ONE_SERVER_NAME' "${existing_one_deploy}"
 grep -Fq 'ONE_USER" == "root" || "$ONE_USER" == "ubuntu' "${existing_one_deploy}"
+grep -Fq 'ssh-keygen -F "$ssh_host" -f "$known_hosts"' "${existing_one_deploy}"
+grep -Fq 'ControlMaster=auto' "${existing_one_deploy}"
+grep -Fq 'ControlPath=/tmp/xconnect-%C' "${existing_one_deploy}"
 grep -Fq 'ONE_USER" == "root' "${existing_one_deploy}"
 grep -Fq 'sudo -S -p' "${existing_one_deploy}"
 if grep -Fq 'scp "${gateway_ssh[@]}' "${existing_one_deploy}"; then
