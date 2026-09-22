@@ -178,7 +178,17 @@ done
 for required in \
   'GCP_ACCOUNT_ID is required' \
   'CICD/${environment}/gcp-bootstrap/${account_id}' \
-  'GCP_BOOTSTRAP_ACTION must be write or check' \
+  'GCP_BOOTSTRAP_ACTION must be write, check or revoke' \
+  '--auth-json' \
+  'iam.disableServiceAccountKeyCreation' \
+  'gcp-bootstrap-${environment}' \
+  'roles/iam.workloadIdentityPoolAdmin' \
+  'roles/iam.serviceAccountAdmin' \
+  'roles/resourcemanager.projectIamAdmin' \
+  'roles/serviceusage.serviceUsageAdmin' \
+  'service-accounts keys delete' \
+  'vault kv metadata delete' \
+  'kv/metadata/${secret_path}' \
   'gcloud auth application-default print-access-token' \
   'GCP_PROJECT_ID does not match GCP_ENVIRONMENT' \
   'GCP_EXPECTED_PROJECT_ID is required for non-xworktech accounts'; do
@@ -186,6 +196,13 @@ for required in \
     echo "GCP Vault KV helper missing contract: ${required}" >&2
     exit 1
   }
+done
+
+for forbidden in 'roles/owner' 'roles/editor'; do
+  if grep -Fq -- "${forbidden}" "${kv_helper}"; then
+    echo "GCP bootstrap credential helper must not grant ${forbidden}" >&2
+    exit 1
+  fi
 done
 
 for forbidden in 'credentials.json' 'service_account_key'; do

@@ -139,6 +139,45 @@ GCP_PROJECT_ID=xwork-open-platform-uat \
 bash scripts/gcp/bootstrap_gcp_auth_kv.sh
 ```
 
+### 一次性 Admin SA key（`--auth-json`）
+
+Init 阶段也可以使用一次性的 Service Account key 代替短期 token（Epic #804「凭据分层约定」）。
+由项目 Owner 在本机执行，脚本会：
+
+1. 检查 `iam.disableServiceAccountKeyCreation`；组织默认强制时直接失败，并打印项目级临时例外与恢复命令。
+2. 创建或重新启用 `gcp-bootstrap-<env>` Service Account，只授予
+   `roles/iam.workloadIdentityPoolAdmin`、`roles/iam.serviceAccountAdmin`、
+   `roles/resourcemanager.projectIamAdmin`、`roles/serviceusage.serviceUsageAdmin`（不授予 Owner/Editor）。
+3. 在 `umask 077` 的临时目录生成 key，校验 `type/project_id/client_email` 后写入 Vault，随即删除本地文件。
+4. Vault 中只保留一种启动凭据：`GCP_AUTH_JSON`、`GCP_PROJECT_ID`、`GCP_BOOTSTRAP_SERVICE_ACCOUNT`、
+   `GCP_AUTH_KEY_ID`（原有 `GCP_ACCESS_TOKEN` 会被替换掉）。
+
+```bash
+export VAULT_ADDR=https://vault.svc.plus   # 且已 vault login 或设置 VAULT_TOKEN
+gcloud config set account <项目 Owner>
+
+GCP_ENVIRONMENT=uat GCP_ACCOUNT_ID=xworktech GCP_PROJECT_ID=xwork-open-platform-uat \
+bash scripts/gcp/bootstrap_gcp_auth_kv.sh --auth-json
+
+# 不暴露内容地检查
+GCP_BOOTSTRAP_ACTION=check GCP_ENVIRONMENT=uat GCP_ACCOUNT_ID=xworktech \
+GCP_PROJECT_ID=xwork-open-platform-uat bash scripts/gcp/bootstrap_gcp_auth_kv.sh --auth-json
+```
+
+bootstrap 成功后必须吊销（workflow 的吊销步骤失败时也用它兜底）：删除 key、禁用
+`gcp-bootstrap-<env>`、删除该 Vault 路径的全部版本，仅重新写回 `GCP_PROJECT_ID`：
+
+```bash
+GCP_BOOTSTRAP_ACTION=revoke GCP_ENVIRONMENT=uat GCP_ACCOUNT_ID=xworktech \
+GCP_PROJECT_ID=xwork-open-platform-uat bash scripts/gcp/bootstrap_gcp_auth_kv.sh
+
+# 若为签发 key 临时放开了组织策略，恢复组织默认
+gcloud org-policies delete iam.disableServiceAccountKeyCreation --project=xwork-open-platform-uat
+```
+
+日常 IaC 流水线从不读取 `kv/CICD/<env>/gcp-bootstrap/...`，只使用
+GitHub OIDC → Vault JWT role → Google WIF（见 6.9）。
+
 KV v2 的 CLI 逻辑路径是 `kv/CICD/...`；HTTP API 和 Vault policy 路径包含 `/data/`。
 详见 [Vault KV v2 官方文档](https://developer.hashicorp.com/vault/docs/secrets/kv/kv-v2)。
 

@@ -1,5 +1,30 @@
 #!/usr/bin/env bash
+# Writes the one-time GCP bootstrap credential for gcp-oidc-bootstrap.yml into
+# Vault kv/CICD/<env>/gcp-bootstrap/<account>.
+#
+#   default (token mode)  GCP_ACCESS_TOKEN: short-lived admin OAuth token from
+#                         the caller's ADC. No org policy change required.
+#   --auth-json           GCP_AUTH_JSON: key of a dedicated gcp-bootstrap-<env>
+#                         service account with the four bootstrap roles only.
+#                         Requires iam.disableServiceAccountKeyCreation to be
+#                         lifted for the target project; the key is one-time and
+#                         must be revoked after bootstrap (action=revoke, or the
+#                         workflow's own revoke step).
+#
+# GCP_BOOTSTRAP_ACTION: write (default) | check | revoke
+# Daily IaC pipelines never read this path; they use GitHub OIDC -> Vault JWT
+# role -> Google WIF only.
 set -euo pipefail
+
+credential_mode="token"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --auth-json) credential_mode="auth_json" ;;
+    -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
+    *) echo "unknown argument: $1 (supported: --auth-json)" >&2; exit 1 ;;
+  esac
+  shift
+done
 
 environment="${GCP_ENVIRONMENT:?GCP_ENVIRONMENT is required (uat or prod)}"
 account_id="${GCP_ACCOUNT_ID:?GCP_ACCOUNT_ID is required}"
@@ -90,8 +115,138 @@ vault_write_json() {
   fi
 }
 
-case "${action}" in
-  check)
+bootstrap_sa_id="gcp-bootstrap-${environment}"
+bootstrap_sa_email="${bootstrap_sa_id}@${project_id}.iam.gserviceaccount.com"
+# Exactly the permissions the bootstrap preflight and Terraform need; never
+# Owner/Editor. Keep in sync with GCP-OIDC-Bootstrap-howto.md.
+bootstrap_roles=(
+  roles/iam.workloadIdentityPoolAdmin
+  roles/iam.serviceAccountAdmin
+  roles/resourcemanager.projectIamAdmin
+  roles/serviceusage.serviceUsageAdmin
+)
+
+require_gcloud() {
+  command -v gcloud >/dev/null 2>&1 || { echo "gcloud is required for --auth-json" >&2; exit 1; }
+  gcloud projects describe "${project_id}" --format='value(projectId)' >/dev/null 2>&1 || {
+    echo "Active gcloud account cannot access project ${project_id}" >&2
+    exit 1
+  }
+}
+
+vault_delete_all_versions() {
+  if [[ -n "${VAULT_TOKEN:-}" ]]; then
+    curl --fail --silent --show-error --request DELETE \
+      --header "X-Vault-Token: ${VAULT_TOKEN}" \
+      "${vault_addr%/}/v1/kv/metadata/${secret_path}" >/dev/null
+  else
+    vault_cli_session_available || {
+      echo "Vault authentication is required: set VAULT_TOKEN or run 'vault login'" >&2
+      exit 1
+    }
+    VAULT_ADDR="${vault_addr}" vault kv metadata delete -mount=kv "${secret_path}" >/dev/null
+  fi
+}
+
+# Fails fast with remediation when the org-wide key creation ban applies.
+preflight_key_creation_policy() {
+  local policy enforced
+  if ! policy="$(gcloud org-policies describe iam.disableServiceAccountKeyCreation \
+      --project="${project_id}" --effective --format=json 2>/dev/null)"; then
+    echo "warning: could not read effective org policy; key creation may still be denied" >&2
+    return 0
+  fi
+  enforced="$(jq -r '[.spec.rules[]?.enforce] | any' <<<"${policy}")"
+  if [[ "${enforced}" == "true" ]]; then
+    cat >&2 <<EOF
+iam.disableServiceAccountKeyCreation is enforced for ${project_id}.
+--auth-json needs a temporary project-level exception (requires roles/orgpolicy.policyAdmin):
+
+  cat > /tmp/allow-sa-key.yaml <<'YAML'
+  name: projects/${project_id}/policies/iam.disableServiceAccountKeyCreation
+  spec:
+    rules:
+    - enforce: false
+  YAML
+  gcloud org-policies set-policy /tmp/allow-sa-key.yaml
+
+Restore the org default after bootstrap and revoke:
+  gcloud org-policies delete iam.disableServiceAccountKeyCreation --project=${project_id}
+
+Or run without --auth-json to use a short-lived admin token (no policy change).
+EOF
+    exit 1
+  fi
+}
+
+ensure_bootstrap_service_account() {
+  if gcloud iam service-accounts describe "${bootstrap_sa_email}" --project="${project_id}" >/dev/null 2>&1; then
+    gcloud iam service-accounts enable "${bootstrap_sa_email}" --project="${project_id}" --quiet >/dev/null
+  else
+    gcloud iam service-accounts create "${bootstrap_sa_id}" --project="${project_id}" \
+      --display-name="GCP OIDC bootstrap (${environment}, one-time)" \
+      --description="One-time bootstrap identity for gcp-oidc-bootstrap.yml; key revoked after use" >/dev/null
+  fi
+  local role
+  for role in "${bootstrap_roles[@]}"; do
+    gcloud projects add-iam-policy-binding "${project_id}" \
+      --member="serviceAccount:${bootstrap_sa_email}" --role="${role}" \
+      --condition=None --quiet >/dev/null
+  done
+}
+
+write_auth_json() {
+  require_gcloud
+  preflight_key_creation_policy
+  ensure_bootstrap_service_account
+
+  local key_dir key_file key_id
+  key_dir="$(mktemp -d "${TMPDIR:-/tmp}/gcp-bootstrap-key.XXXXXX")"
+  chmod 700 "${key_dir}"
+  key_file="${key_dir}/key.json"
+  trap 'rm -rf "${key_dir}"' EXIT
+  ( umask 077 && gcloud iam service-accounts keys create "${key_file}" \
+      --iam-account="${bootstrap_sa_email}" --project="${project_id}" --quiet >/dev/null )
+
+  jq -e --arg project "${project_id}" --arg email "${bootstrap_sa_email}" \
+    '.type == "service_account" and .project_id == $project and .client_email == $email' \
+    "${key_file}" >/dev/null || { echo "Generated key does not match ${bootstrap_sa_email}" >&2; exit 1; }
+  key_id="$(jq -r '.private_key_id' "${key_file}")"
+
+  # kv put replaces the whole secret: any previous GCP_ACCESS_TOKEN is dropped
+  # so exactly one bootstrap credential exists at a time.
+  jq -n --rawfile auth "${key_file}" --arg project "${project_id}" \
+    --arg sa "${bootstrap_sa_email}" --arg key_id "${key_id}" \
+    '{data:{GCP_AUTH_JSON:($auth|fromjson|tojson),GCP_PROJECT_ID:$project,
+            GCP_BOOTSTRAP_SERVICE_ACCOUNT:$sa,GCP_AUTH_KEY_ID:$key_id}}' |
+    vault_write_json
+  rm -rf "${key_dir}"
+  trap - EXIT
+  echo "${secret_path}: GCP_AUTH_JSON written (service account ${bootstrap_sa_email}, key ${key_id})"
+  echo "Revoke after bootstrap: GCP_BOOTSTRAP_ACTION=revoke $0"
+}
+
+revoke_auth_json() {
+  require_gcloud
+  local current sa key_id
+  current="$(vault_read_json)"
+  sa="$(jq -r '.data.data.GCP_BOOTSTRAP_SERVICE_ACCOUNT // empty' <<<"${current}")"
+  key_id="$(jq -r '.data.data.GCP_AUTH_KEY_ID // empty' <<<"${current}")"
+  sa="${sa:-${bootstrap_sa_email}}"
+  if [[ -n "${key_id}" ]]; then
+    gcloud iam service-accounts keys delete "${key_id}" --iam-account="${sa}" \
+      --project="${project_id}" --quiet >/dev/null 2>&1 || echo "key ${key_id} already absent"
+  fi
+  gcloud iam service-accounts disable "${sa}" --project="${project_id}" --quiet >/dev/null 2>&1 ||
+    echo "service account ${sa} already disabled or absent"
+  # Destroy every version that ever held the key, then keep only the project ID.
+  vault_delete_all_versions
+  jq -n --arg project "${project_id}" '{data:{GCP_PROJECT_ID:$project}}' | vault_write_json
+  echo "${secret_path}: bootstrap credential revoked (key ${key_id:-n/a}, ${sa} disabled)"
+}
+
+case "${action}:${credential_mode}" in
+  check:token)
     vault_read_json |
       jq -e --arg project "${project_id}" \
         '.data.data |
@@ -100,7 +255,16 @@ case "${action}" in
         >/dev/null
     echo "${secret_path}: OK"
     ;;
-  write)
+  check:auth_json)
+    vault_read_json |
+      jq -e --arg project "${project_id}" \
+        '.data.data |
+         (.GCP_AUTH_JSON | type == "string" and (fromjson | .type == "service_account" and .project_id == $project)) and
+         (.GCP_PROJECT_ID | type == "string" and . == $project)' \
+        >/dev/null
+    echo "${secret_path}: OK (GCP_AUTH_JSON)"
+    ;;
+  write:token)
     access_token="${GCP_ACCESS_TOKEN:-}"
     if [ -z "${access_token}" ]; then
       command -v gcloud >/dev/null 2>&1 || { echo "gcloud is required when GCP_ACCESS_TOKEN is unset" >&2; exit 1; }
@@ -116,8 +280,14 @@ case "${action}" in
     unset access_token GCP_ACCESS_TOKEN
     echo "${secret_path}: written"
     ;;
+  write:auth_json)
+    write_auth_json
+    ;;
+  revoke:*)
+    revoke_auth_json
+    ;;
   *)
-    echo "GCP_BOOTSTRAP_ACTION must be write or check" >&2
+    echo "GCP_BOOTSTRAP_ACTION must be write, check or revoke" >&2
     exit 1
     ;;
 esac
