@@ -48,8 +48,19 @@ if [[ "${playbook}" == "setup-agent-proxy-domain.yml" ]]; then
   exit 0
 fi
 
-echo "Bootstrapping ${MATRIX_HOST} with ${playbook}"
+# The bootstrap script can add playbook-specific extra vars without changing
+# the common command path.
 extra_args=()
+
+# UAT open-platform is a new host whose public Vault DNS is deliberately not
+# cut over during bootstrap. Keep VAULT_ADDR public for Vault KV/database
+# credential reads, but make the Vault role's service health and CLI calls use
+# the local listener until the migration cutover.
+if [[ "${playbook}" == "setup-open-platform-domain.yml" && -n "${OPEN_PLATFORM_LOCAL_VAULT_ADDR:-}" ]]; then
+  extra_args+=( -e "vault_admin_addr=${OPEN_PLATFORM_LOCAL_VAULT_ADDR}" )
+fi
+
+echo "Bootstrapping ${MATRIX_HOST} with ${playbook}"
 if [[ "${playbook}" == "setup-agent-proxy-domain.yml" ]]; then
   # The agent-proxy domain is native systemd, and its generated CMDB group is
   # agent_proxy. Build the exact requested repository tag on the host; a

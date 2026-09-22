@@ -848,16 +848,14 @@ jobs:
       working-directory: playbooks
       env:
         # The new UAT open-platform VPS is bootstrapped before DNS cutover.
-        # Keep Vault OIDC/KV reads on the public endpoint in the preceding
-        # vault-action step, but make the Vault playbook validate the service
-        # locally on the new host. Otherwise vault.svc.plus still resolves to
-        # the protected legacy node and the migration bootstrap fails with
-        # connection refused even though the new Vault process is running.
-        VAULT_ADDR: >-
+        # Keep VAULT_ADDR public here so create_databases_and_users can read
+        # kv/data/uat/databases, while the bootstrap helper passes the Vault
+        # service health/CLI address as an Ansible extra var locally.
+        OPEN_PLATFORM_LOCAL_VAULT_ADDR: >-
           ${{ needs.provision.outputs.target_domains == 'open-platform' &&
           needs.provision.outputs.deployment_env == 'uat' &&
           needs.provision.outputs.cloud_provider == 'akamai-cloud' &&
-          'http://127.0.0.1:8200' || env.VAULT_ADDR }}
+          'http://127.0.0.1:8200' || '' }}
         # vault-action exportToken: true writes VAULT_TOKEN to GITHUB_ENV.
         # Do not overwrite it with the non-existent vault_token output.
         # MATRIX_HOST / ANSIBLE_HOST_KEY_CHECKING / ANSIBLE_SSH_ARGS / TARGET_DOMAIN_BASE from job env
