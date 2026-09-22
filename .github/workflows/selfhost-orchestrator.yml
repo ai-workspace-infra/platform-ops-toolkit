@@ -685,9 +685,11 @@ jobs:
           ${{ steps.route.outputs.env_dir }}/hosts_manifest.json
           ${{ steps.route.outputs.env_dir }}/inventory.ini
 
-  # Stage A aggregate mode deliberately dispatches the existing isolated
-  # Akamai workflow once per namespace.  No Terraform command runs in the
-  # parent job, so there is no synthetic shared state or aggregate lockfile.
+  # Aggregate UAT mode deliberately dispatches one child workflow per
+  # namespace. No Terraform command runs in the parent job, so there is no
+  # synthetic shared state or aggregate lockfile. The plan/infra path uses the
+  # isolated Akamai IaC child; deploy uses the complete selfhost child so each
+  # namespace performs Terraform and its matching business deployment in order.
   provision_akamai_uat_namespace_matrix:
     name: "[0A] Akamai UAT namespace matrix"
     needs: provision
@@ -703,6 +705,7 @@ jobs:
         ref: ${{ needs.provision.outputs.toolkit_ref || github.sha }}
 
     - name: Dispatch isolated Akamai namespace workflows
+      if: needs.provision.outputs.akamai_matrix_action != 'deploy'
       env:
         GH_TOKEN: ${{ github.token }}
         GH_REPO: ai-workspace-infra/platform-ops-toolkit
@@ -713,6 +716,32 @@ jobs:
         IAC_REF: ${{ needs.provision.outputs.infra_ref }}
         TARGET_DOMAIN_BASE: ${{ needs.provision.outputs.target_domain_base }}
       run: .github/scripts/platform-ops/provision/platform-ops_provision_dispatch-akamai-uat-namespace-matrix.sh
+
+    - name: Dispatch ordered UAT selfhost namespace deployments
+      if: needs.provision.outputs.akamai_matrix_action == 'deploy'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ai-workspace-infra/platform-ops-toolkit
+        CHILD_WORKFLOW: selfhost-orchestrator.yml
+        RUNNER_TYPE: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
+        ACCOUNT: ${{ needs.provision.outputs.account }}
+        DEPLOY_TAG: ${{ needs.provision.outputs.deploy_tag }}
+        SOURCE_REF: ${{ needs.provision.outputs.toolkit_ref || 'main' }}
+        OFFLINE_MODE: ${{ needs.provision.outputs.offline_mode || 'off' }}
+        SOURCE_HOST: ${{ needs.provision.outputs.source_host }}
+        SOURCE_DOMAIN_BASE: ${{ needs.provision.outputs.source_domain_base }}
+        TARGET_DOMAIN_BASE: ${{ needs.provision.outputs.target_domain_base }}
+        OBSERVABILITY_ENDPOINT: ${{ github.event.inputs.observability_endpoint || 'https://observability.svc.plus' }}
+        XRAY_EXPORTER_IMAGE: ${{ github.event.inputs.xray_exporter_image || '' }}
+        INCLUDE_EXTERNAL_AGENT_PROXY: ${{ needs.provision.outputs.include_external_agent_proxy || 'true' }}
+        INSTANCE_PLAN: ${{ github.event.inputs.instance_plan || '2C4G' }}
+        AGENT_PROXY_PLAN: ${{ github.event.inputs.agent_proxy_plan || '1C2G' }}
+        DNS_MODE: ${{ github.event.inputs.dns_mode || 'none' }}
+        OPEN_PLATFORM_SERVICE: ${{ github.event.inputs.open_platform_service || 'all' }}
+        SKIP_STRIPE_CATALOG: ${{ github.event.inputs.skip_stripe_catalog || 'false' }}
+        AGENT_CONTROLLER_URL: ${{ github.event.inputs.agent_controller_url || '' }}
+        VAULT_ADDR: ${{ github.event.inputs.vault_addr || 'https://vault.svc.plus' }}
+      run: .github/scripts/platform-ops/provision/platform-ops_provision_dispatch-selfhost-uat-namespace-matrix.sh
 
 
 

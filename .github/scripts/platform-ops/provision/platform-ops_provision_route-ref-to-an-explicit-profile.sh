@@ -197,15 +197,18 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
         resource_files_full="$(resolve_gitops_resource_files "${deployment_env}" "${cloud_provider}" "${requested_target_domains}")"
         ;;
       all)
-        # Stage A is intentionally the only aggregate operation.  It fans out
-        # to six child workflows, each with its own backend key and lockfile;
-        # the parent must never render or operate a shared aggregate state.
+        # Aggregate UAT Akamai operations always fan out to six child
+        # workflows, each with its own backend key and lockfile. The parent
+        # must never render or operate a shared aggregate state. `deploy` is
+        # a complete ordered child deployment; `plan`/`infra` remain the
+        # Stage A Terraform-only fan-out modes.
         operation="${INPUT_OPERATION:-plan}"
         case "${operation}" in
           plan) akamai_matrix_action=plan ;;
           infra) akamai_matrix_action=apply ;;
+          deploy) akamai_matrix_action=deploy ;;
           *)
-            echo "::error::UAT Akamai target_domains=all is reserved for Stage A plan/infra fan-out. Select one namespace for '${operation}'." >&2
+            echo "::error::UAT Akamai target_domains=all supports only plan, infra, or deploy fan-out. Select one namespace for '${operation}'." >&2
             exit 1
             ;;
         esac
