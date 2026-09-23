@@ -19,6 +19,7 @@ agent_controller_url="${AGENT_CONTROLLER_URL:-https://accounts-serverless-uat.on
 agent_proxy_plan="${AGENT_PROXY_PLAN:-1C2G}"
 skip_stripe_catalog="${SKIP_STRIPE_CATALOG:-false}"
 enable_migration="${ENABLE_MIGRATION:-true}"
+apply_accounts_schema_migration="${APPLY_ACCOUNTS_SCHEMA_MIGRATION:-false}"
 accounts_source_backend="${ACCOUNTS_SOURCE_BACKEND:-supabase}"
 serverless_operation="${SERVERLESS_OPERATION:-}"
 wait_timeout_seconds="${UAT_SERVERLESS_WAIT_TIMEOUT_SECONDS:-3600}"
@@ -70,6 +71,20 @@ dispatch_serverless() {
     fi
   fi
 
+  local -a schema_args=()
+  if [[ "${apply_accounts_schema_migration}" == "true" ]]; then
+    if [[ "${enable_migration}" != "false" || "${op}" != "deploy" ]]; then
+      echo "::error::UAT schema migration requires operation=deploy and enable_migration=false." >&2
+      return 2
+    fi
+    schema_args=(
+      -f apply_accounts_schema_migration=true
+      -f "accounts_schema_expected_version=${ACCOUNTS_SCHEMA_EXPECTED_VERSION:?Expected schema version is required}"
+      -f "accounts_schema_target_version=${ACCOUNTS_SCHEMA_TARGET_VERSION:?Target schema version is required}"
+      -f "accounts_schema_sha256=${ACCOUNTS_SCHEMA_SHA256:?Migration SHA-256 is required}"
+    )
+  fi
+
   gh workflow run "${serverless_workflow}" \
     --repo "${target_repo}" \
     --ref main \
@@ -83,7 +98,8 @@ dispatch_serverless() {
     -f "skip_stripe_catalog=${skip_stripe_catalog}" \
     -f dns_mode=uat-records \
     -f supabase_target_existing_strategy=accounts_merge \
-    -f supabase_target_confirm_replace=false
+    -f supabase_target_confirm_replace=false \
+    "${schema_args[@]}"
 }
 
 wait_for_serverless() {

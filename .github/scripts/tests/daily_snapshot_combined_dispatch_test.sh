@@ -126,6 +126,27 @@ bash "${dispatcher}"
 
 grep -Fq -- 'workflow run serverless-orchestrator.yml --repo ai-workspace-infra/platform-ops-toolkit --ref main -f operation=deploy' "${workdir}/gh-uat-no-migration.log"
 
+# A reviewed schema migration is separate from the PROD-to-UAT data merge.
+GH_LOG="${workdir}/gh-uat-schema.log" \
+PATH="${workdir}:${PATH}" \
+GH_TOKEN=test-token \
+SNAPSHOT_TAG=uat-daily-build-2026.08.21-r5 \
+ENABLE_MIGRATION=false \
+APPLY_ACCOUNTS_SCHEMA_MIGRATION=true \
+ACCOUNTS_SCHEMA_EXPECTED_VERSION=2026091401 \
+ACCOUNTS_SCHEMA_TARGET_VERSION=2026092301 \
+ACCOUNTS_SCHEMA_SHA256="$(printf 'a%.0s' {1..64})" \
+UAT_SERVERLESS_WAIT_TIMEOUT_SECONDS=30 \
+UAT_SERVERLESS_WAIT_INTERVAL_SECONDS=1 \
+bash "${dispatcher}" >/dev/null
+grep -Fq -- '-f apply_accounts_schema_migration=true' "${workdir}/gh-uat-schema.log"
+grep -Fq -- '-f accounts_schema_target_version=2026092301' "${workdir}/gh-uat-schema.log"
+grep -Fq -- '-f operation=deploy' "${workdir}/gh-uat-schema.log"
+if grep -Fq -- '-f operation=deploy+migrate' "${workdir}/gh-uat-schema.log"; then
+  echo 'Schema-only UAT dispatch must not trigger data merge.' >&2
+  exit 1
+fi
+
 # Test PROD dispatch with default migration (dispatches operation=upgrade)
 prod_dispatcher="${repo_root}/.github/scripts/snapshots/dispatch-prod-combined.sh"
 GH_LOG="${workdir}/gh-prod-default.log" \
