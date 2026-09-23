@@ -13,14 +13,17 @@ grep -Fq 'PROTECTED_EXTERNAL_INSTANCE_LABELS:-observability.svc.plus' "${scope_s
 grep -Fq 'protected migration source' "${scope_script}"
 grep -Fq 'outside the selected profile manifest' "${scope_script}"
 grep -Fq '.values.label // empty' "${scope_script}"
-grep -Fq 'open-platform is a permanent service node' "${scope_script}"
+grep -Fq 'if [[ "${namespace}" == "open-platform" ]]' "${scope_script}"
 grep -Fq 'aggregate Akamai destroy namespace' "${scope_script}"
 grep -Fq 'Refusing UAT cleanup until migration, dual-end health' "${scope_script}"
 grep -Fq 'state_isolation_verified == true' "${scope_script}"
 grep -Fq 'terraform/uat/svc.plus/akamai-cloud/*/' "${scope_script}"
 grep -Fq 'UAT Akamai requires one of the six isolated namespaces' "${akamai_workflow}"
 grep -Fq 'UAT Akamai state contract requires GitOps project svc.plus' "${akamai_workflow}"
-grep -Fq 'permanent UAT service namespace and cannot be destroyed' "${akamai_workflow}"
+if grep -Fq 'permanent UAT service namespace and cannot be destroyed' "${akamai_workflow}"; then
+  echo 'open-platform destroy must be guarded by the scope acceptance contract, not rejected at input validation' >&2
+  exit 1
+fi
 grep -Fq 'Assert safe single-namespace Akamai destroy scope' "${akamai_workflow}"
 
 bash -n "${scope_script}"
