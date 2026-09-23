@@ -65,6 +65,11 @@ on:
         required: false
         default: false
         type: boolean
+      adopt_accounts_baseline:
+        description: 'UAT only: adopt the reviewed expand-only Accounts baseline before Cloud Run deployment'
+        required: false
+        default: false
+        type: boolean
       accounts_schema_expected_version:
         description: 'UAT current schema_migrations version before applying the change'
         required: false
@@ -208,6 +213,7 @@ jobs:
           DEPLOY_CLOUD_RUN: ${{ inputs.deploy_cloud_run }}
           SERVERLESS_DNS_MODE: ${{ inputs.dns_mode || 'none' }}
           APPLY_ACCOUNTS_SCHEMA_MIGRATION: ${{ inputs.apply_accounts_schema_migration || false }}
+          ADOPT_ACCOUNTS_BASELINE: ${{ inputs.adopt_accounts_baseline || false }}
           ACCOUNTS_SCHEMA_EXPECTED_VERSION: ${{ inputs.accounts_schema_expected_version }}
           ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
           ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}
@@ -340,8 +346,42 @@ jobs:
           TARGET_DSN: ${{ steps.vault.outputs.TARGET_DSN }}
           PROJECT_REF: ${{ steps.vault.outputs.PROJECT_REF }}
 
+  uat_accounts_baseline:
+    name: Supabase / Accounts expand-only baseline
+    needs: [preflight, supabase]
+    if: ${{ always() && needs.preflight.result == 'success' && needs.supabase.result == 'success' && inputs.adopt_accounts_baseline == true && inputs.vault_env_path == 'uat' && inputs.operation == 'deploy' }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: uat-accounts-schema
+      cancel-in-progress: false
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Load UAT Supabase database identity and connection
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-uat
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/uat/serverless/supabase DATABASE_SESSION_POOLER_URL | TARGET_DSN ;
+            kv/data/uat/serverless/supabase PROJECT_REF | PROJECT_REF ;
+
+      - name: Adopt reviewed UAT Accounts baseline
+        run: ./.github/scripts/serverless/adopt_accounts_uat_baseline.sh
+        env:
+          VAULT_ENV_PATH: uat
+          TARGET_DSN: ${{ steps.vault.outputs.TARGET_DSN }}
+          PROJECT_REF: ${{ steps.vault.outputs.PROJECT_REF }}
+
   uat_accounts_schema_migration:
     name: Supabase / Accounts additive schema migration
+    concurrency:
+      group: uat-accounts-schema
+      cancel-in-progress: false
     needs: [preflight, supabase]
     if: ${{ always() && needs.preflight.result == 'success' && needs.supabase.result == 'success' && inputs.apply_accounts_schema_migration == true && inputs.vault_env_path == 'uat' && inputs.operation == 'deploy' }}
     runs-on: ubuntu-latest
@@ -387,8 +427,8 @@ jobs:
 
   cloud_run:
     name: Cloud Run / ${{ matrix.service }}
-    needs: [preflight, uat_accounts_schema_migration]
-    if: ${{ always() && needs.preflight.result == 'success' && (!inputs.apply_accounts_schema_migration || needs.uat_accounts_schema_migration.result == 'success') && contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloud_run == true }}
+    needs: [preflight, uat_accounts_baseline, uat_accounts_schema_migration]
+    if: ${{ always() && needs.preflight.result == 'success' && (!inputs.adopt_accounts_baseline || needs.uat_accounts_baseline.result == 'success') && (!inputs.apply_accounts_schema_migration || needs.uat_accounts_schema_migration.result == 'success') && contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloud_run == true }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -1104,11 +1144,12 @@ jobs:
 
   verify:
     name: Verify / Summary
-    needs: [preflight, supabase, uat_accounts_schema_migration, cloud_run, cloudflare_ssr, frontend_router, edge_gateway, static_pages, serverless_domains, trigger_data_migration, stripe_catalog]
+    needs: [preflight, supabase, uat_accounts_baseline, uat_accounts_schema_migration, cloud_run, cloudflare_ssr, frontend_router, edge_gateway, static_pages, serverless_domains, trigger_data_migration, stripe_catalog]
     if: >-
       ${{ always() && needs.preflight.result == 'success' &&
       contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
       needs.supabase.result != 'cancelled' &&
+      (!inputs.adopt_accounts_baseline || needs.uat_accounts_baseline.result == 'success') &&
       (!inputs.apply_accounts_schema_migration || needs.uat_accounts_schema_migration.result == 'success') &&
       needs.cloud_run.result != 'cancelled' &&
       needs.cloudflare_ssr.result != 'cancelled' &&

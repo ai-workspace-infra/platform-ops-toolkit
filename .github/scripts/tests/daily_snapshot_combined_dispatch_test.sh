@@ -74,7 +74,11 @@ for namespace in open-platform web-saas ai-workspace agent-proxy-jp agent-proxy-
   }
 done
 
-grep -Fq -- '-f operation=deploy+migrate' "${workdir}/gh.log"
+grep -Fq -- '-f operation=deploy' "${workdir}/gh.log"
+if grep -Fq -- '-f operation=deploy+migrate' "${workdir}/gh.log"; then
+  echo 'Default UAT snapshot must not sync PROD data.' >&2
+  exit 1
+fi
 grep -Fq -- '-f accounts_source_backend=supabase' "${workdir}/gh.log"
 grep -Fq -- '-f target_domains=web-saas' "${workdir}/gh.log"
 grep -Fq -- '-f vault_env_path=uat' "${workdir}/gh.log"
@@ -125,6 +129,34 @@ UAT_SERVERLESS_WAIT_INTERVAL_SECONDS=1 \
 bash "${dispatcher}"
 
 grep -Fq -- 'workflow run serverless-orchestrator.yml --repo ai-workspace-infra/platform-ops-toolkit --ref main -f operation=deploy' "${workdir}/gh-uat-no-migration.log"
+
+# PROD→UAT data sync is a separate, explicit opt-in.
+GH_LOG="${workdir}/gh-uat-explicit-migration.log" \
+PATH="${workdir}:${PATH}" \
+GH_TOKEN=test-token \
+SNAPSHOT_TAG=uat-daily-build-2026.08.21-r5 \
+ENABLE_MIGRATION=true \
+UAT_SERVERLESS_WAIT_TIMEOUT_SECONDS=30 \
+UAT_SERVERLESS_WAIT_INTERVAL_SECONDS=1 \
+bash "${dispatcher}" >/dev/null
+grep -Fq -- '-f operation=deploy+migrate' "${workdir}/gh-uat-explicit-migration.log"
+
+# One-time baseline adoption is part of a deploy, never a PROD data sync.
+GH_LOG="${workdir}/gh-uat-baseline.log" \
+PATH="${workdir}:${PATH}" \
+GH_TOKEN=test-token \
+SNAPSHOT_TAG=uat-daily-build-2026.08.21-r5 \
+ENABLE_MIGRATION=false \
+ADOPT_ACCOUNTS_BASELINE=true \
+UAT_SERVERLESS_WAIT_TIMEOUT_SECONDS=30 \
+UAT_SERVERLESS_WAIT_INTERVAL_SECONDS=1 \
+bash "${dispatcher}" >/dev/null
+grep -Fq -- '-f adopt_accounts_baseline=true' "${workdir}/gh-uat-baseline.log"
+grep -Fq -- '-f operation=deploy' "${workdir}/gh-uat-baseline.log"
+if grep -Fq -- '-f operation=deploy+migrate' "${workdir}/gh-uat-baseline.log"; then
+  echo 'UAT baseline adoption must not sync PROD data.' >&2
+  exit 1
+fi
 
 # A reviewed schema migration is separate from the PROD-to-UAT data merge.
 GH_LOG="${workdir}/gh-uat-schema.log" \

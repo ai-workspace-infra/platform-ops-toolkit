@@ -44,8 +44,14 @@ on:
         default: ''
         type: string
       enable_migration:
-        description: "可选：是否触发数据迁移（UAT 默认 true 并单向拉取 PROD Supabase；PROD 默认 false，需显式开启）"
+        description: "可选：是否显式触发 PROD→UAT 单向数据迁移；默认 false，不随日常发版同步"
         required: false
+        default: false
+        type: boolean
+      adopt_accounts_baseline:
+        description: "仅 UAT 一次性：原地补齐旧版订阅字段并接入迁移版本表；必须关闭数据迁移"
+        required: false
+        default: false
         type: boolean
       apply_accounts_schema_migration:
         description: "仅 UAT：在部署前执行 Accounts tag 中的单个增量 schema 迁移；必须关闭数据迁移"
@@ -91,6 +97,7 @@ jobs:
           SNAPSHOT_REPOS: ${{ inputs.repositories }}
           SNAPSHOT_SOURCE_REF: ${{ inputs.snapshot_source_ref }}
           APPLY_ACCOUNTS_SCHEMA_MIGRATION: ${{ inputs.apply_accounts_schema_migration || false }}
+          ADOPT_ACCOUNTS_BASELINE: ${{ inputs.adopt_accounts_baseline || false }}
           ENABLE_MIGRATION: ${{ inputs.enable_migration }}
           ACCOUNTS_SCHEMA_EXPECTED_VERSION: ${{ inputs.accounts_schema_expected_version }}
           ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
@@ -328,6 +335,7 @@ jobs:
           XCONNECT_GATEWAY_RELEASE_TAG: ${{ inputs.xconnect_gateway_release_tag }}
           ENABLE_MIGRATION: ${{ inputs.enable_migration }}
           APPLY_ACCOUNTS_SCHEMA_MIGRATION: ${{ inputs.apply_accounts_schema_migration || false }}
+          ADOPT_ACCOUNTS_BASELINE: ${{ inputs.adopt_accounts_baseline || false }}
           ACCOUNTS_SCHEMA_EXPECTED_VERSION: ${{ inputs.accounts_schema_expected_version }}
           ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
           ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}

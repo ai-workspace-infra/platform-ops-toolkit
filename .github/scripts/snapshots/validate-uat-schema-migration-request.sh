@@ -2,9 +2,27 @@
 set -euo pipefail
 
 apply_schema="${APPLY_ACCOUNTS_SCHEMA_MIGRATION:-false}"
+adopt_baseline="${ADOPT_ACCOUNTS_BASELINE:-false}"
 expected="${ACCOUNTS_SCHEMA_EXPECTED_VERSION:-}"
 target="${ACCOUNTS_SCHEMA_TARGET_VERSION:-}"
 checksum="${ACCOUNTS_SCHEMA_SHA256:-}"
+
+case "${adopt_baseline}" in
+  false) ;;
+  true)
+    if [[ "${apply_schema}" != "false" || -n "${expected}${target}${checksum}" ]]; then
+      echo "::error::UAT baseline adoption cannot be combined with another schema migration." >&2
+      exit 2
+    fi
+    if [[ "${DEPLOY_ENV:-}" != "uat" || -n "${SNAPSHOT_REPOS:-}" || -n "${SNAPSHOT_SOURCE_REF:-}" || "${ENABLE_MIGRATION:-}" != "false" ]]; then
+      echo "::error::UAT baseline adoption requires a full main snapshot with data migration disabled." >&2
+      exit 2
+    fi
+    echo "Validated UAT expand-only Accounts baseline adoption."
+    exit 0
+    ;;
+  *) echo "::error::ADOPT_ACCOUNTS_BASELINE must be true or false." >&2; exit 2 ;;
+esac
 
 case "${apply_schema}" in
   false)

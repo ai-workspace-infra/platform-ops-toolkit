@@ -18,8 +18,9 @@ xconnect_gateway_release_override="${XCONNECT_GATEWAY_RELEASE_TAG:-}"
 agent_controller_url="${AGENT_CONTROLLER_URL:-https://accounts-serverless-uat.onwalk.net}"
 agent_proxy_plan="${AGENT_PROXY_PLAN:-1C2G}"
 skip_stripe_catalog="${SKIP_STRIPE_CATALOG:-false}"
-enable_migration="${ENABLE_MIGRATION:-true}"
+enable_migration="${ENABLE_MIGRATION:-false}"
 apply_accounts_schema_migration="${APPLY_ACCOUNTS_SCHEMA_MIGRATION:-false}"
+adopt_accounts_baseline="${ADOPT_ACCOUNTS_BASELINE:-false}"
 accounts_source_backend="${ACCOUNTS_SOURCE_BACKEND:-supabase}"
 serverless_operation="${SERVERLESS_OPERATION:-}"
 wait_timeout_seconds="${UAT_SERVERLESS_WAIT_TIMEOUT_SECONDS:-3600}"
@@ -60,8 +61,8 @@ done
 export GH_TOKEN="${gh_token}"
 
 dispatch_serverless() {
-  # UAT defaults to one-way migration from PROD Supabase to UAT Supabase (deploy+migrate).
-  # If migration is disabled or an operation is explicitly passed, honor the override.
+  # UAT deployments do not sync PROD data by default. An explicit
+  # enable_migration=true is required for a one-way data merge.
   local op="${serverless_operation}"
   if [[ -z "${op}" ]]; then
     if [[ "${enable_migration}" == "true" ]]; then
@@ -72,6 +73,13 @@ dispatch_serverless() {
   fi
 
   local -a schema_args=()
+  if [[ "${adopt_accounts_baseline}" == "true" ]]; then
+    if [[ "${apply_accounts_schema_migration}" != "false" || "${enable_migration}" != "false" || "${op}" != "deploy" ]]; then
+      echo "::error::UAT baseline adoption requires operation=deploy without another migration." >&2
+      return 2
+    fi
+    schema_args=(-f adopt_accounts_baseline=true)
+  fi
   if [[ "${apply_accounts_schema_migration}" == "true" ]]; then
     if [[ "${enable_migration}" != "false" || "${op}" != "deploy" ]]; then
       echo "::error::UAT schema migration requires operation=deploy and enable_migration=false." >&2
