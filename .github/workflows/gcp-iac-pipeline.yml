@@ -312,3 +312,52 @@ jobs:
             exit 1
           }
           echo "Spot instance verified: ${INSTANCE_NAME} (${INSTANCE_ZONE})"
+
+      - name: Verify declared Vault VM instances are running
+        if: ${{ env.DEPLOY_ACTION == 'apply' }}
+        env:
+          PROJECT_ID: ${{ steps.config.outputs.project_id }}
+          GCP_WORKDIR: ${{ env.GCP_IAC_DIR }}/envs/${{ env.DEPLOY_ENV }}
+        run: |
+          set -euo pipefail
+          resources_manifest="${GCP_WORKDIR}/resources_manifest.json"
+          test -s "${resources_manifest}" || {
+            echo "::error::Rendered GCP resources manifest is missing: ${resources_manifest}" >&2
+            exit 1
+          }
+
+          node_count="$(jq '.vault_nodes | length' "${resources_manifest}")"
+          if [[ "${node_count}" == 0 ]]; then
+            echo 'No Vault VMs are declared; skipping Vault VM runtime verification.'
+            exit 0
+          fi
+
+          while IFS= read -r node; do
+            name="$(jq -r '.name' <<<"${node}")"
+            zone="$(jq -r '.zone' <<<"${node}")"
+            wants_public_ip="$(jq -r '.public_ip // false' <<<"${node}")"
+            [[ "${name}" =~ ^[a-z][a-z0-9-]{0,61}[a-z0-9]$ ]] || {
+              echo "::error::Invalid Vault VM name in rendered manifest: ${name}" >&2
+              exit 1
+            }
+            [[ "${zone}" =~ ^[a-z]+-[a-z0-9]+-[a-z]$ ]] || {
+              echo "::error::Invalid Vault VM zone in rendered manifest: ${zone}" >&2
+              exit 1
+            }
+
+            instance="$(gcloud compute instances describe "${name}" \
+              --project="${PROJECT_ID}" --zone="${zone}" --format=json)"
+            status="$(jq -r '.status // empty' <<<"${instance}")"
+            [[ "${status}" == RUNNING ]] || {
+              echo "::error::Vault VM ${name} is not RUNNING (status=${status:-missing})" >&2
+              exit 1
+            }
+            if [[ "${wants_public_ip}" == true ]]; then
+              public_ip="$(jq -r '[.networkInterfaces[]?.accessConfigs[]?.natIP // empty] | first // empty' <<<"${instance}")"
+              [[ "${public_ip}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || {
+                echo "::error::Vault VM ${name} is missing its declared public IPv4 address" >&2
+                exit 1
+              }
+            fi
+            echo "Vault VM runtime verified: ${name} (${zone}, RUNNING, public_ip=${wants_public_ip})"
+          done < <(jq -c '.vault_nodes[]' "${resources_manifest}")

@@ -161,6 +161,9 @@ jobs:
     - name: Verify GCP OIDC bootstrap and shared Vault IaC contract
       run: bash .github/scripts/tests/gcp_oidc_bootstrap_contract_test.sh
 
+    - name: Verify GCP Vault VM runtime verification contract
+      run: bash .github/scripts/tests/gcp_vault_node_runtime_contract_test.sh
+
     - name: Verify shared GCP Vault prerequisite scripts
       run: bash scripts/tests/shared_gcp_vault_prerequisites_contract_test.sh
 
