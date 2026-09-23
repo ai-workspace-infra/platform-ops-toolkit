@@ -18,6 +18,8 @@ case "$*" in
   *"to_regclass('public.overlay_registrations')"*) printf 't\n' ;;
   *"transport_kind"*) printf '4\n' ;;
   *"unnest(ARRAY"*) printf 'bridge_credentials_active_user_tenant_uk=true,bridge_credentials_user_tenant_idx=true,overlay_registrations_identity_pending_idx=true,overlay_registrations_network_created_idx=true,overlay_registrations_network_pending_idx=true,overlay_registrations_owner_created_idx=true\n' ;;
+  *"wireguard_public_key_fingerprint"*) printf '7\n' ;;
+  *"GREATEST(reltuples::bigint"*) printf '3\n' ;;
   *"information_schema.columns"*) printf '0\n' ;;
   *) exit 1 ;;
 esac
@@ -41,6 +43,10 @@ output="$(env "${base[@]}" bash "${probe}")"
 }
 [[ "${output}" == *'prior migration indexes: bridge_credentials_active_user_tenant_uk=true'* && "${output}" == *'overlay_registrations_owner_created_idx=true'* ]] || {
   echo 'Read-only UAT schema probe did not report prior migration index presence.' >&2
+  exit 1
+}
+[[ "${output}" == *'overlay registration index prerequisites: columns=7/7, estimated_rows=3'* ]] || {
+  echo 'Read-only UAT schema probe did not report overlay index prerequisites.' >&2
   exit 1
 }
 output="$(env "${base[@]}" TARGET_DSN=postgres://postgres.abcdefghijklmnopqrst:placeholder@aws-0-test.pooler.supabase.com:5432/postgres bash "${probe}")"
