@@ -895,12 +895,14 @@ jobs:
 
   serverless_domains:
     name: Cloudflare / custom domains and public CORS chain
-    needs: [preflight, supabase, cloud_run, cloudflare_ssr, frontend_router, edge_gateway, static_pages]
+    needs: [preflight, supabase, uat_accounts_baseline, uat_accounts_schema_migration, cloud_run, cloudflare_ssr, frontend_router, edge_gateway, static_pages]
     if: >-
       ${{ always() && needs.preflight.result == 'success' &&
       contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
       inputs.deploy_cloudflare == true &&
       (needs.supabase.result == 'success' || needs.supabase.result == 'failure' || needs.supabase.result == 'skipped') &&
+      (!inputs.adopt_accounts_baseline || needs.uat_accounts_baseline.result == 'success') &&
+      (!inputs.apply_accounts_schema_migration || needs.uat_accounts_schema_migration.result == 'success') &&
       (needs.cloud_run.result == 'success' || needs.cloud_run.result == 'skipped') &&
       (needs.cloudflare_ssr.result == 'success' || needs.cloudflare_ssr.result == 'skipped') &&
       (needs.frontend_router.result == 'success' || needs.frontend_router.result == 'skipped') &&
@@ -975,11 +977,13 @@ jobs:
 
   trigger_data_migration:
     name: Data Migration / Supabase
-    needs: [preflight, supabase, cloud_run, cloudflare_ssr, frontend_router, edge_gateway, static_pages, serverless_domains]
+    needs: [preflight, supabase, uat_accounts_baseline, uat_accounts_schema_migration, cloud_run, cloudflare_ssr, frontend_router, edge_gateway, static_pages, serverless_domains]
     if: >-
       ${{ always() && !cancelled() &&
       needs.preflight.result == 'success' &&
       contains(fromJSON('["migrate","deploy+migrate"]'), inputs.operation) &&
+      (!inputs.adopt_accounts_baseline || needs.uat_accounts_baseline.result == 'success') &&
+      (!inputs.apply_accounts_schema_migration || needs.uat_accounts_schema_migration.result == 'success') &&
       (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') &&
       (needs.cloud_run.result == 'success' || needs.cloud_run.result == 'skipped') &&
       (needs.cloudflare_ssr.result == 'success' || needs.cloudflare_ssr.result == 'skipped') &&
@@ -1015,11 +1019,13 @@ jobs:
     # deployment failed for that condition; retain the job log for the
     # follow-up run with a non-interactive service credential.
     continue-on-error: true
-    needs: [preflight, supabase, cloud_run, serverless_domains]
+    needs: [preflight, supabase, uat_accounts_baseline, uat_accounts_schema_migration, cloud_run, serverless_domains]
     if: >-
       ${{ always() && !cancelled() &&
       needs.preflight.result == 'success' &&
       contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
+      (!inputs.adopt_accounts_baseline || needs.uat_accounts_baseline.result == 'success') &&
+      (!inputs.apply_accounts_schema_migration || needs.uat_accounts_schema_migration.result == 'success') &&
       inputs.deploy_cloud_run == true &&
       inputs.skip_stripe_catalog != true &&
       inputs.deploy_cloudflare == true &&

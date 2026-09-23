@@ -102,6 +102,8 @@ if static_pages_needs != ["preflight", "cloudflare_ssr"]:
 expected_readiness_needs = {
     "preflight",
     "supabase",
+    "uat_accounts_baseline",
+    "uat_accounts_schema_migration",
     "cloud_run",
     "cloudflare_ssr",
     "frontend_router",
@@ -114,6 +116,23 @@ if actual_readiness_needs != expected_readiness_needs:
         "serverless_domains must be the single readiness fan-in; "
         f"got {sorted(actual_readiness_needs)!r}"
     )
+for gate in (
+    "!inputs.adopt_accounts_baseline || needs.uat_accounts_baseline.result == 'success'",
+    "!inputs.apply_accounts_schema_migration || needs.uat_accounts_schema_migration.result == 'success'",
+):
+    if gate not in jobs["serverless_domains"].get("if", ""):
+        raise SystemExit(f"serverless_domains must be blocked when a requested schema step fails: {gate}")
+for downstream in ("trigger_data_migration", "stripe_catalog"):
+    needs = set(jobs[downstream].get("needs", []))
+    if not {"uat_accounts_baseline", "uat_accounts_schema_migration"}.issubset(needs):
+        raise SystemExit(f"{downstream} must depend on requested Accounts schema steps")
+    condition = jobs[downstream].get("if", "")
+    for gate in (
+        "!inputs.adopt_accounts_baseline || needs.uat_accounts_baseline.result == 'success'",
+        "!inputs.apply_accounts_schema_migration || needs.uat_accounts_schema_migration.result == 'success'",
+    ):
+        if gate not in condition:
+            raise SystemExit(f"{downstream} must be blocked when a requested schema step fails: {gate}")
 
 if jobs["serverless_domains"].get("concurrency", {}).get("group") != "public-dns-${{ inputs.vault_env_path || 'uat' }}":
     raise SystemExit("serverless_domains must serialize public DNS ownership per environment")
