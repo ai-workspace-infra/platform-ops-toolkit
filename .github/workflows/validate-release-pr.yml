@@ -8,6 +8,43 @@ permissions:
   contents: read
 
 jobs:
+  uat-schema-sentinel-postgres17:
+    name: UAT schema sentinel / PostgreSQL 17 integration
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Checkout immutable Accounts PR #170 baseline and migration
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-services/accounts
+          ref: 9ebd21c134f9b98f47c848f99a154f503c6b59ce
+          path: accounts
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install --yes postgresql-client
+
+      - name: Verify full-row sentinel against PostgreSQL 17
+        run: bash .github/scripts/tests/uat_accounts_schema_sentinel_postgres17_test.sh
+        env:
+          ACCOUNTS_REPO_ROOT: ${{ github.workspace }}/accounts
+          TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+
   sec-qa-gate:
     name: Sec QA Gate (gitleaks)
     runs-on: ubuntu-latest
@@ -82,6 +119,7 @@ jobs:
         bash .github/scripts/tests/uat_accounts_schema_migration_contract_test.sh
         bash .github/scripts/tests/uat_accounts_schema_apply_test.sh
         bash .github/scripts/tests/uat_accounts_schema_probe_test.sh
+        bash .github/scripts/tests/uat_accounts_durable_checkpoint_test.sh
 
     - name: Verify daily snapshot installation preflight
       run: bash .github/scripts/tests/daily_snapshot_installation_access_test.sh
