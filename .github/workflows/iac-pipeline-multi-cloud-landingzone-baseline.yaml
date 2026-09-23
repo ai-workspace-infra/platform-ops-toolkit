@@ -63,7 +63,7 @@ on:
       gcp_iac_ref:
         description: "Pinned iac_modules ref used for GCP"
         type: string
-        default: 2ba98f30c3e4199e01eb940bb1951549fca0ae3e
+        default: ca46a49497366921b95a7b95b56b86c6d2c98224
       aws_region:
         description: "AWS region used only when cloud_provider=aws-cloud"
         type: string
@@ -116,7 +116,7 @@ on:
       gcp_iac_ref:
         type: string
         required: false
-        default: 2ba98f30c3e4199e01eb940bb1951549fca0ae3e
+        default: ca46a49497366921b95a7b95b56b86c6d2c98224
       aws_region:
         type: string
         required: false
@@ -264,7 +264,7 @@ jobs:
       vault_env_path: ${{ inputs.vault_env_path || github.event.inputs.vault_env_path || 'uat' }}
       gcp_account_id: ${{ inputs.gcp_account_id || github.event.inputs.gcp_account_id || 'xworktech' }}
       gcp_resource_manifest: ${{ inputs.gcp_resource_manifest || github.event.inputs.gcp_resource_manifest || '' }}
-      iac_ref: ${{ inputs.gcp_iac_ref || github.event.inputs.gcp_iac_ref || '2ba98f30c3e4199e01eb940bb1951549fca0ae3e' }}
+      iac_ref: ${{ inputs.gcp_iac_ref || github.event.inputs.gcp_iac_ref || 'ca46a49497366921b95a7b95b56b86c6d2c98224' }}
       gitops_repo_name: ${{ inputs.gitops_repo_name || github.event.inputs.gitops_repo_name || 'https://github.com/ai-workspace-infra/gitops.git' }}
       gitops_repo_ref: ${{ inputs.gitops_repo_ref || github.event.inputs.gitops_repo_ref || 'main' }}
     secrets: inherit
