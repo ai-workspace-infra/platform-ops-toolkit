@@ -766,7 +766,9 @@ jobs:
       needs.provision.outputs.deployment_env == 'uat' &&
       needs.provision.outputs.target_domains == 'all' &&
       needs.provision.outputs.run_application_deploy == 'true' &&
-      needs.provision.outputs.terraform_action == 'apply' }}
+      (needs.provision.outputs.terraform_action == 'apply' ||
+      (needs.provision.outputs.akamai_matrix_mode == 'true' &&
+      needs.provision.outputs.akamai_matrix_action == 'deploy')) }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     steps:
     - name: Checkout toolkit
