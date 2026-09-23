@@ -10,6 +10,7 @@ deploy_cloudflare="${DEPLOY_CLOUDFLARE:-false}"
 deploy_cloud_run="${DEPLOY_CLOUD_RUN:-false}"
 serverless_dns_mode="${SERVERLESS_DNS_MODE:-none}"
 apply_schema="${APPLY_ACCOUNTS_SCHEMA_MIGRATION:-false}"
+adopt_baseline="${ADOPT_ACCOUNTS_BASELINE:-false}"
 schema_expected="${ACCOUNTS_SCHEMA_EXPECTED_VERSION:-}"
 schema_target="${ACCOUNTS_SCHEMA_TARGET_VERSION:-}"
 schema_sha256="${ACCOUNTS_SCHEMA_SHA256:-}"
@@ -18,12 +19,23 @@ probe_schema="${PROBE_ACCOUNTS_SCHEMA:-false}"
 case "${probe_schema}" in
   false) ;;
   true)
-    if [[ "${environment}" != "uat" || "${operation}" != "plan" || "${apply_schema}" != "false" ]]; then
+    if [[ "${environment}" != "uat" || "${operation}" != "plan" || "${apply_schema}" != "false" || "${adopt_baseline}" != "false" ]]; then
       echo "Accounts schema probe requires UAT operation=plan without an apply request" >&2
       exit 2
     fi
     ;;
   *) echo "PROBE_ACCOUNTS_SCHEMA must be true or false" >&2; exit 2 ;;
+esac
+
+case "${adopt_baseline}" in
+  false) ;;
+  true)
+    if [[ "${environment}" != "uat" || "${operation}" != "deploy" || "${deploy_cloud_run}" != "true" || "${apply_schema}" != "false" || "${probe_schema}" != "false" ]]; then
+      echo "Accounts baseline adoption requires UAT operation=deploy with Cloud Run enabled and no other schema request" >&2
+      exit 2
+    fi
+    ;;
+  *) echo "ADOPT_ACCOUNTS_BASELINE must be true or false" >&2; exit 2 ;;
 esac
 
 case "${apply_schema}" in
@@ -34,7 +46,7 @@ case "${apply_schema}" in
     fi
     ;;
   true)
-    if [[ "${environment}" != "uat" || "${operation}" != "deploy" || "${deploy_cloud_run}" != "true" ]]; then
+    if [[ "${environment}" != "uat" || "${operation}" != "deploy" || "${deploy_cloud_run}" != "true" || "${adopt_baseline}" != "false" ]]; then
       echo "Accounts schema migration requires UAT operation=deploy with Cloud Run enabled" >&2
       exit 2
     fi
