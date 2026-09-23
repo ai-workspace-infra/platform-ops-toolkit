@@ -55,17 +55,26 @@ class IacStateContractTest(unittest.TestCase):
         self.assertEqual(contract["terraform_tree"], None)
         self.assertIsNone(contract["state_key"])
 
+    def test_ucloud_uses_standard_terraform_contract(self):
+        contract = self.resolve("ucloud")
+        self.assertEqual(contract["provisioner"], "terraform")
+        self.assertEqual(contract["terraform_tree"], "ucloud")
+        self.assertEqual(
+            contract["state_key"],
+            "terraform/uat/svc.plus/ucloud/primary/web/terraform.tfstate",
+        )
+
     def test_external_inventory_requires_existing_contract_and_strips_secrets(self):
         with tempfile.TemporaryDirectory() as directory:
             temp = Path(directory)
-            manifest = temp / "ucloud.yaml"
+            manifest = temp / "ulighthost.yaml"
             manifest.write_text(
                 "global:\n  management_mode: existing\n  provisioner: ansible\n  lifecycle: external\nhosts:\n  - name: edge-a\n    ip: 203.0.113.4\n    api_token: must-not-be-recorded\n",
                 encoding="utf-8",
             )
             inventory, run = temp / "inventory.json", temp / "run.json"
             subprocess.run(
-                [sys.executable, str(WRITER), "--manifest", str(manifest), "--provider", "ucloud", "--environment", "uat", "--project", "svc.plus", "--account", "primary", "--workspace", "edge", "--inventory-output", str(inventory), "--run-output", str(run)],
+                [sys.executable, str(WRITER), "--manifest", str(manifest), "--provider", "ulighthost", "--environment", "uat", "--project", "svc.plus", "--account", "primary", "--workspace", "edge", "--inventory-output", str(inventory), "--run-output", str(run)],
                 check=True,
             )
             record = json.loads(inventory.read_text(encoding="utf-8"))
@@ -75,6 +84,7 @@ class IacStateContractTest(unittest.TestCase):
     def test_workflow_adapters_keep_provider_credentials_and_state_separate(self):
         akamai = (ROOT / ".github" / "workflows" / "akamai-cloud-iac.yml").read_text(encoding="utf-8")
         external = (ROOT / ".github" / "workflows" / "external-inventory-state.yml").read_text(encoding="utf-8")
+        ucloud = (ROOT / ".github" / "workflows" / "ucloud-iac.yml").read_text(encoding="utf-8")
         self.assertIn("TF_VAR_linode_token", akamai)
         self.assertIn("CICD/${{ inputs.vault_env_path }}/akamai-cloud/${{ inputs.account }}", akamai)
         self.assertNotIn("account_alias", akamai)
@@ -88,6 +98,10 @@ class IacStateContractTest(unittest.TestCase):
         self.assertIn("AKAMAI_ACCOUNT_UAT", (ROOT / "scripts" / "vault" / "bootstrap_akamai_oidc_roles.sh").read_text(encoding="utf-8"))
         self.assertNotIn("hashicorp/setup-terraform", external)
         self.assertNotIn("terraform -chdir", external)
+        self.assertIn("options: [ulighthost]", external)
+        self.assertIn("TF_VAR_ucloud_private_key", ucloud)
+        self.assertIn("kv/data/CICD/${{ inputs.vault_env_path }}/ucloud/${{ inputs.account }}", ucloud)
+        self.assertIn("terraform -chdir", ucloud)
 
 
 if __name__ == "__main__":

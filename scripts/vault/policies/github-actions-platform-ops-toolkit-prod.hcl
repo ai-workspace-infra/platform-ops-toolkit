@@ -40,6 +40,12 @@ path "kv/data/CICD/prod/iac_state" {
 path "kv/metadata/CICD/prod/iac_state" {
   capabilities = ["read"]
 }
+path "kv/data/CICD/prod/ucloud/*" {
+  capabilities = ["read"]
+}
+path "kv/metadata/CICD/prod/ucloud/*" {
+  capabilities = ["list", "read"]
+}
 path "kv/data/WEB_SAAS" {
   capabilities = ["read"]
 }

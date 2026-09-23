@@ -30,10 +30,10 @@
     "credential_mode": "vault-linode-token"
   },
   "ucloud": {
-    "provisioner": "existing",
+    "provisioner": "terraform",
     "gitops_provider": "ucloud",
-    "terraform_tree": null,
-    "credential_mode": "vault-existing-host-facts"
+    "terraform_tree": "ucloud",
+    "credential_mode": "vault-ucloud-api-key"
   },
   "ulighthost": {
     "provisioner": "existing",

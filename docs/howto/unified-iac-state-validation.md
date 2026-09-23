@@ -49,7 +49,8 @@ bash .github/scripts/tests/xconnect_cloud_lab_vault_role_contract_test.sh
 | TC-01 | registry 包含 AWS/GCP/Azure/Vultr/Akamai/UCloud/Ulighthost | 7 个 provider，分类准确 |
 | TC-02 | Terraform provider 生成五级 state key | 包含 env/project/cloud/account/workspace |
 | TC-03 | `akamai-cloud` 路由到 `linode/linode` | 读取 `LINODE_TOKEN`，不读取 Cloudflare token |
-| TC-04 | UCloud/Ulighthost adapter | `provisioner=existing`，无 Terraform tree/state |
+| TC-04 | ULightHost adapter | `provisioner=existing`，无 Terraform tree/state |
+| TC-04a | UCloud UHost adapter | `provisioner=terraform`，tree 为 `ucloud`，生成五级 state key |
 | TC-05 | existing inventory 脱敏 | token/password/private key 不出现在 JSON |
 | TC-06 | GCP/AWS/Vultr/Akamai workflow | `TF_STATE_*` 只从 `<env>/iac_state` 读取 |
 | TC-07 | backend lock | backend 声明包含 `use_lockfile=true` |
@@ -80,9 +81,9 @@ export VAULT_ADDR=https://vault.svc.plus
 
 预期：
 
-- `sit` 只能读取 `kv/data/CICD/sit` 与 `kv/data/CICD/sit/iac_state`；
-- `uat` 只能读取 `kv/data/CICD/uat` 与 `kv/data/CICD/uat/iac_state`；
-- `prod` 只能读取 `kv/data/CICD/prod` 与 `kv/data/CICD/prod/iac_state`；
+- `sit` 只能读取 `kv/data/CICD/sit`、`kv/data/CICD/sit/iac_state` 与对应的 `ucloud/*`；
+- `uat` 只能读取 `kv/data/CICD/uat`、`kv/data/CICD/uat/iac_state` 与对应的 `ucloud/*`；
+- `prod` 只能读取 `kv/data/CICD/prod`、`kv/data/CICD/prod/iac_state` 与对应的 `ucloud/*`；
 - 没有跨环境 state path、`kv/data/CICD/*` 通配符或写权限。
 
 如果返回 `403`，说明线上 role 尚未部署仓库中的新增 policy；这不是允许回退到旧
@@ -133,13 +134,13 @@ state 参数另行写入 `kv/CICD/<env>/iac_state`。`primary`、`default` 和 `
 
 不得用生产资源做故障注入；只使用空测试 workspace 或明确的 UAT 资源组。
 
-## Existing provider 验证
+## ULightHost Existing provider 验证
 
 执行：
 
 ```bash
 python3 scripts/iac/resolve_iac_contract.py \
-  --environment uat --project svc.plus --provider ucloud \
+  --environment uat --project svc.plus --provider ulighthost \
   --account primary --workspace platform
 ```
 
@@ -147,11 +148,21 @@ python3 scripts/iac/resolve_iac_contract.py \
 external inventory workflow，确认只生成：
 
 ```text
-inventory/uat/svc.plus/ucloud/primary/platform.json
-runs/uat/svc.plus/ucloud/primary/platform/<run-id>.json
+inventory/uat/svc.plus/ulighthost/primary/platform.json
+runs/uat/svc.plus/ulighthost/primary/platform/<run-id>.json
 ```
 
 日志中不得出现 Terraform `init`、`plan`、`apply` 或 `destroy`。
+
+UCloud UHost uses the Terraform workflow and canonical state key:
+
+```text
+terraform/uat/svc.plus/ucloud/<project-id>/platform/terraform.tfstate
+```
+
+Its provider credentials come from
+`kv/data/CICD/uat/ucloud/<project-id>`; it must not be sent to the external
+inventory workflow.
 
 ## 迁移验收
 

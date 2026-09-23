@@ -40,6 +40,12 @@ path "kv/data/CICD/sit/iac_state" {
 path "kv/metadata/CICD/sit/iac_state" {
   capabilities = ["read"]
 }
+path "kv/data/CICD/sit/ucloud/*" {
+  capabilities = ["read"]
+}
+path "kv/metadata/CICD/sit/ucloud/*" {
+  capabilities = ["list", "read"]
+}
 path "kv/data/sit/*" {
   capabilities = ["create", "read", "update", "delete", "list"]
 }
