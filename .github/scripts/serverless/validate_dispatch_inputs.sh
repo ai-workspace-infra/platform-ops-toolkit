@@ -13,6 +13,18 @@ apply_schema="${APPLY_ACCOUNTS_SCHEMA_MIGRATION:-false}"
 schema_expected="${ACCOUNTS_SCHEMA_EXPECTED_VERSION:-}"
 schema_target="${ACCOUNTS_SCHEMA_TARGET_VERSION:-}"
 schema_sha256="${ACCOUNTS_SCHEMA_SHA256:-}"
+probe_schema="${PROBE_ACCOUNTS_SCHEMA:-false}"
+
+case "${probe_schema}" in
+  false) ;;
+  true)
+    if [[ "${environment}" != "uat" || "${operation}" != "plan" || "${apply_schema}" != "false" ]]; then
+      echo "Accounts schema probe requires UAT operation=plan without an apply request" >&2
+      exit 2
+    fi
+    ;;
+  *) echo "PROBE_ACCOUNTS_SCHEMA must be true or false" >&2; exit 2 ;;
+esac
 
 case "${apply_schema}" in
   false)

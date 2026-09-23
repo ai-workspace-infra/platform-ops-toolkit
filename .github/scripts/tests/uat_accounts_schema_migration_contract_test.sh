@@ -53,4 +53,11 @@ reject env "${valid_serverless[@]}" VAULT_ENV_PATH=prod bash "${serverless_valid
 reject env "${valid_serverless[@]}" OPERATION=deploy+migrate bash "${serverless_validator}"
 reject env "${valid_serverless[@]}" DEPLOY_CLOUD_RUN=false bash "${serverless_validator}"
 
+env VAULT_ENV_PATH=uat OPERATION=plan PROBE_ACCOUNTS_SCHEMA=true \
+  bash "${serverless_validator}" >/dev/null
+reject env VAULT_ENV_PATH=prod OPERATION=plan PROBE_ACCOUNTS_SCHEMA=true \
+  bash "${serverless_validator}"
+reject env VAULT_ENV_PATH=uat OPERATION=deploy PROBE_ACCOUNTS_SCHEMA=true \
+  TAG_REF=uat-daily-build-2026.09.23-r1 bash "${serverless_validator}"
+
 echo "UAT Accounts schema migration dispatch contract passed."

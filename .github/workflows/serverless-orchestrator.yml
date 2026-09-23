@@ -77,6 +77,11 @@ on:
         description: 'Expected SHA-256 of the target Accounts .up.sql migration'
         required: false
         type: string
+      probe_accounts_schema:
+        description: 'UAT plan only: inspect schema_migrations version and lifecycle readiness without changes'
+        required: false
+        default: false
+        type: boolean
       deploy_cloudflare:
         description: 'Deploy Cloudflare SSR Workers, edge gateway, and Pages static assets'
         required: false
@@ -206,6 +211,7 @@ jobs:
           ACCOUNTS_SCHEMA_EXPECTED_VERSION: ${{ inputs.accounts_schema_expected_version }}
           ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
           ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}
+          PROBE_ACCOUNTS_SCHEMA: ${{ inputs.probe_accounts_schema || false }}
 
   supabase:
     name: Supabase / xworktech
@@ -305,6 +311,34 @@ jobs:
           INITIALIZE_SUPABASE: 'true'
           VERIFY_SUPABASE: 'true'
           ACCOUNT_SCHEMA_FILE: ${{ github.workspace }}/accounts/sql/schema.sql
+
+  uat_accounts_schema_probe:
+    name: Supabase / Accounts schema read-only probe
+    needs: preflight
+    if: ${{ inputs.probe_accounts_schema == true && inputs.operation == 'plan' && inputs.vault_env_path == 'uat' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Load UAT Supabase database identity and connection
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-uat
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/uat/serverless/supabase DATABASE_SESSION_POOLER_URL | TARGET_DSN ;
+            kv/data/uat/serverless/supabase PROJECT_REF | PROJECT_REF ;
+
+      - name: Inspect UAT Accounts schema without writes
+        run: ./.github/scripts/serverless/probe_accounts_schema.sh
+        env:
+          VAULT_ENV_PATH: uat
+          TARGET_DSN: ${{ steps.vault.outputs.TARGET_DSN }}
+          PROJECT_REF: ${{ steps.vault.outputs.PROJECT_REF }}
 
   uat_accounts_schema_migration:
     name: Supabase / Accounts additive schema migration
