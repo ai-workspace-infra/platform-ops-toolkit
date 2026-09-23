@@ -44,9 +44,16 @@ if schema_migration.get("needs") != ["preflight", "supabase"]:
     raise SystemExit("UAT schema migration must follow successful Supabase readiness/checkpoint")
 if "inputs.apply_accounts_schema_migration == true" not in schema_migration.get("if", ""):
     raise SystemExit("UAT schema migration must be explicitly opt-in")
+baseline = jobs["uat_accounts_baseline"]
+if baseline.get("needs") != ["preflight", "supabase"]:
+    raise SystemExit("UAT baseline adoption must follow successful Supabase readiness/checkpoint")
+if "inputs.adopt_accounts_baseline == true" not in baseline.get("if", ""):
+    raise SystemExit("UAT baseline adoption must be explicitly opt-in")
 cloud_run = jobs["cloud_run"]
-if cloud_run.get("needs") != ["preflight", "uat_accounts_schema_migration"]:
-    raise SystemExit("Cloud Run must wait for the optional schema migration result")
+if cloud_run.get("needs") != ["preflight", "uat_accounts_baseline", "uat_accounts_schema_migration"]:
+    raise SystemExit("Cloud Run must wait for optional baseline and schema migration results")
+if "needs.uat_accounts_baseline.result == 'success'" not in cloud_run.get("if", ""):
+    raise SystemExit("Cloud Run must fail closed when requested baseline adoption fails")
 if "needs.uat_accounts_schema_migration.result == 'success'" not in cloud_run.get("if", ""):
     raise SystemExit("Cloud Run must fail closed when a requested schema migration fails")
 
