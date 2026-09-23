@@ -34,7 +34,7 @@ on:
         description: Pinned iac_modules ref used for this run.
         type: string
         required: false
-        default: 0db72bf7e934c55222f66db78694335158ea94d1
+        default: e704fecffdbbf072e0540c66f7a9b6b07da179cf
       gcp_resource_manifest:
         description: Optional manifest path inside GitOps; environment is validated against vault_env_path.
         type: string
@@ -63,7 +63,7 @@ on:
       iac_ref:
         type: string
         required: false
-        default: 0db72bf7e934c55222f66db78694335158ea94d1
+        default: e704fecffdbbf072e0540c66f7a9b6b07da179cf
       gcp_resource_manifest:
         type: string
         required: false
@@ -89,7 +89,7 @@ jobs:
       GCP_ACCOUNT_ID: ${{ inputs.gcp_account_id }}
       GITOPS_REPO_NAME: ${{ inputs.gitops_repo_name || 'https://github.com/ai-workspace-infra/gitops.git' }}
       GITOPS_REPO_REF: ${{ inputs.gitops_repo_ref || 'main' }}
-      IAC_REF: ${{ inputs.iac_ref || '0db72bf7e934c55222f66db78694335158ea94d1' }}
+      IAC_REF: ${{ inputs.iac_ref || 'e704fecffdbbf072e0540c66f7a9b6b07da179cf' }}
       GCP_RESOURCE_MANIFEST_INPUT: ${{ inputs.gcp_resource_manifest || '' }}
       GCP_IAC_DIR: iac_modules/terraform-hcl-standard/gcp-cloud
 
@@ -132,16 +132,6 @@ jobs:
           esac
           default_manifest="resources/xworktech.com/${GCP_ENVIRONMENT}/gcp/open-platform-${GCP_ENVIRONMENT}.yaml"
           manifest="${GCP_RESOURCE_MANIFEST_INPUT:-${default_manifest}}"
-          # Each manifest owns its own Terraform state workspace so a minimal
-          # manifest (e.g. spot-validation-<env>.yaml) can never plan deletes
-          # of the full platform stack. The default manifest keeps "platform".
-          if [[ "${manifest}" == "${default_manifest}" ]]; then
-            state_workspace="platform"
-          else
-            state_workspace="$(basename "${manifest}" .yaml)"
-          fi
-          [[ "${state_workspace}" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "::error::invalid state workspace: ${state_workspace}" >&2; exit 1; }
-          echo "state_workspace=${state_workspace}" >> "${GITHUB_OUTPUT}"
           [[ "${manifest}" != /* && "${manifest}" != *..* ]] || { echo "::error::manifest path must be relative and cannot contain '..'" >&2; exit 1; }
           [[ "${manifest}" == resources/*/${GCP_ENVIRONMENT}/gcp/*.yaml ]] || {
             echo "::error::manifest must be under resources/<namespace>/${GCP_ENVIRONMENT}/gcp/" >&2
@@ -153,16 +143,41 @@ jobs:
           require "json"
           manifest = ENV.fetch("GCP_MANIFEST")
           doc = YAML.load_file(File.join("gitops", manifest))
-          global = doc.fetch("global")
           environment = ENV.fetch("GCP_ENVIRONMENT")
-          abort "manifest environment mismatch" unless global.fetch("environment") == environment
-          project_id = global.fetch("project_id").to_s
+          account_id = ENV.fetch("GCP_ACCOUNT_ID")
+          if doc["kind"] == "GCPWorkloadNamespace"
+            metadata = doc.fetch("metadata")
+            spec = doc.fetch("spec")
+            abort "manifest environment mismatch" unless metadata.fetch("environment") == environment
+            abort "manifest provider must be gcp" unless metadata.fetch("provider") == "gcp"
+            abort "manifest account mismatch" unless spec.fetch("gcp_account_id") == account_id
+            project_id = spec.fetch("project_id").to_s
+            organization_id = spec.fetch("organization_id").to_s
+            state_workspace = spec.fetch("workspace").to_s
+            state_namespace = spec.fetch("state_namespace").to_s
+            abort "workspace/state_namespace/metadata.name must match" unless state_workspace == state_namespace && state_workspace == metadata.fetch("name")
+            state_key = spec.fetch("state").fetch("key").to_s
+            expected_key = "terraform/#{environment}/#{project_id}/gcp-cloud/#{account_id}/#{state_workspace}/terraform.tfstate"
+            abort "manifest state key mismatch" unless state_key == expected_key
+            resources = spec.fetch("resources", {})
+            spot = Array(resources["spot_vms"]).first
+          else
+            global = doc.fetch("global")
+            abort "manifest environment mismatch" unless global.fetch("environment") == environment
+            project_id = global.fetch("project_id").to_s
+            organization_id = global.fetch("organization_id").to_s
+            state_workspace = manifest == "resources/xworktech.com/#{environment}/gcp/open-platform-#{environment}.yaml" ? "platform" : File.basename(manifest, ".yaml")
+            state_key = "terraform/#{environment}/#{project_id}/gcp-cloud/#{account_id}/#{state_workspace}/terraform.tfstate"
+            spot = Array(doc["spot_vms"]).first
+          end
           abort "invalid GCP project_id" unless project_id.match?(/\A[a-z][a-z0-9-]{4,28}[a-z0-9]\z/)
-          abort "unexpected GCP organization_id" unless global.fetch("organization_id").to_s == "744119519286"
-          spot = Array(doc["spot_vms"]).first
+          abort "unexpected GCP organization_id" unless organization_id == "744119519286"
+          abort "invalid state workspace" unless state_workspace.match?(/\A[a-z0-9][a-z0-9-]*\z/)
           File.open(ENV.fetch("GITHUB_OUTPUT"), "a") do |io|
             io.puts "manifest=#{manifest}"
             io.puts "project_id=#{project_id}"
+            io.puts "state_workspace=#{state_workspace}"
+            io.puts "state_key=#{state_key}"
             io.puts "spot_instance_name=#{spot&.fetch("name", "")}" 
             io.puts "spot_instance_zone=#{spot&.fetch("zone", "")}" 
           end
@@ -174,6 +189,17 @@ jobs:
         with:
           environment: ${{ env.DEPLOY_ENV }}
           account_id: ${{ env.GCP_ACCOUNT_ID }}
+
+      - name: Verify manifest project matches Vault OIDC identity
+        env:
+          DECLARED_PROJECT_ID: ${{ steps.config.outputs.project_id }}
+          AUTHENTICATED_PROJECT_ID: ${{ steps.gcp_auth.outputs.project_id }}
+        run: |
+          set -euo pipefail
+          test "${DECLARED_PROJECT_ID}" = "${AUTHENTICATED_PROJECT_ID}" || {
+            echo "::error::GitOps project_id does not match the environment/account-scoped Vault OIDC identity" >&2
+            exit 1
+          }
 
       - name: Render GitOps manifest into Terraform
         working-directory: ${{ env.GCP_IAC_DIR }}
@@ -206,7 +232,7 @@ jobs:
           TF_CLI_ARGS_init: >-
             -backend-config="endpoint=${{ steps.gcp_auth.outputs.state_endpoint }}"
             -backend-config="bucket=${{ steps.gcp_auth.outputs.state_bucket }}"
-            -backend-config="key=terraform/${{ env.DEPLOY_ENV }}/${{ steps.config.outputs.project_id }}/gcp-cloud/${{ env.GCP_ACCOUNT_ID }}/${{ steps.config.outputs.state_workspace }}/terraform.tfstate"
+            -backend-config="key=${{ steps.config.outputs.state_key }}"
             -backend-config="access_key=${{ steps.gcp_auth.outputs.state_access_key }}"
             -backend-config="secret_key=${{ steps.gcp_auth.outputs.state_secret_key }}"
             -backend-config="region=${{ steps.gcp_auth.outputs.state_region }}"

@@ -1,0 +1,108 @@
+name: GCP UAT Workload Sequence
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_action:
+        description: Terraform operation applied to each isolated workload state.
+        type: choice
+        required: true
+        default: plan
+        options: [plan, apply, destroy]
+      gcp_account_id:
+        description: GCP account identifier used by the Vault JWT/WIF role.
+        type: string
+        required: true
+        default: xworktech
+      gitops_repo_ref:
+        description: GitOps branch, tag, or commit containing the declarations.
+        type: string
+        required: true
+        default: main
+      iac_ref:
+        description: Pinned iac_modules ref containing the GCP renderer.
+        type: string
+        required: true
+        default: e704fecffdbbf072e0540c66f7a9b6b07da179cf
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  open-platform:
+    name: open-platform
+    uses: ./.github/workflows/gcp-iac-pipeline.yml
+    with:
+      deploy_action: ${{ inputs.deploy_action }}
+      vault_env_path: uat
+      gcp_account_id: ${{ inputs.gcp_account_id }}
+      gcp_resource_manifest: resources/xworktech.com/uat/gcp/open-platform-workload.yaml
+      gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
+      iac_ref: ${{ inputs.iac_ref }}
+    secrets: inherit
+
+  web-saas:
+    name: web-saas
+    needs: open-platform
+    uses: ./.github/workflows/gcp-iac-pipeline.yml
+    with:
+      deploy_action: ${{ inputs.deploy_action }}
+      vault_env_path: uat
+      gcp_account_id: ${{ inputs.gcp_account_id }}
+      gcp_resource_manifest: resources/xworktech.com/uat/gcp/web-saas-workload.yaml
+      gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
+      iac_ref: ${{ inputs.iac_ref }}
+    secrets: inherit
+
+  ai-workspace:
+    name: ai-workspace
+    needs: web-saas
+    uses: ./.github/workflows/gcp-iac-pipeline.yml
+    with:
+      deploy_action: ${{ inputs.deploy_action }}
+      vault_env_path: uat
+      gcp_account_id: ${{ inputs.gcp_account_id }}
+      gcp_resource_manifest: resources/xworktech.com/uat/gcp/ai-workspace-workload.yaml
+      gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
+      iac_ref: ${{ inputs.iac_ref }}
+    secrets: inherit
+
+  agent-proxy-jp:
+    name: agent-proxy-jp
+    needs: ai-workspace
+    uses: ./.github/workflows/gcp-iac-pipeline.yml
+    with:
+      deploy_action: ${{ inputs.deploy_action }}
+      vault_env_path: uat
+      gcp_account_id: ${{ inputs.gcp_account_id }}
+      gcp_resource_manifest: resources/xworktech.com/uat/gcp/agent-proxy-jp-workload.yaml
+      gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
+      iac_ref: ${{ inputs.iac_ref }}
+    secrets: inherit
+
+  agent-proxy-us:
+    name: agent-proxy-us
+    needs: agent-proxy-jp
+    uses: ./.github/workflows/gcp-iac-pipeline.yml
+    with:
+      deploy_action: ${{ inputs.deploy_action }}
+      vault_env_path: uat
+      gcp_account_id: ${{ inputs.gcp_account_id }}
+      gcp_resource_manifest: resources/xworktech.com/uat/gcp/agent-proxy-us-workload.yaml
+      gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
+      iac_ref: ${{ inputs.iac_ref }}
+    secrets: inherit
+
+  agent-proxy-sg:
+    name: agent-proxy-sg
+    needs: agent-proxy-us
+    uses: ./.github/workflows/gcp-iac-pipeline.yml
+    with:
+      deploy_action: ${{ inputs.deploy_action }}
+      vault_env_path: uat
+      gcp_account_id: ${{ inputs.gcp_account_id }}
+      gcp_resource_manifest: resources/xworktech.com/uat/gcp/agent-proxy-sg-workload.yaml
+      gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
+      iac_ref: ${{ inputs.iac_ref }}
+    secrets: inherit
