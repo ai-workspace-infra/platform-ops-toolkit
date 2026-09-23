@@ -26,7 +26,7 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-environment="${GCP_ENVIRONMENT:?GCP_ENVIRONMENT is required (uat or prod)}"
+environment="${GCP_ENVIRONMENT:?GCP_ENVIRONMENT is required (uat, prod, or shared)}"
 account_id="${GCP_ACCOUNT_ID:?GCP_ACCOUNT_ID is required}"
 project_id="${GCP_PROJECT_ID:?GCP_PROJECT_ID is required}"
 vault_addr="${VAULT_ADDR:-https://vault.svc.plus}"
@@ -35,8 +35,17 @@ action="${GCP_BOOTSTRAP_ACTION:-write}"
 case "${environment}" in
   uat) default_project="xwork-open-platform-uat" ;;
   prod) default_project="xwork-open-platform-prod" ;;
-  *) echo "GCP_ENVIRONMENT must be uat or prod" >&2; exit 1 ;;
+  shared) default_project="open-platform-prod" ;;
+  *) echo "GCP_ENVIRONMENT must be uat, prod, or shared" >&2; exit 1 ;;
 esac
+if [[ "${environment}" == shared && "${account_id}" != "open-platform-prod" ]]; then
+  echo "shared GCP bootstrap requires GCP_ACCOUNT_ID=open-platform-prod" >&2
+  exit 1
+fi
+if [[ "${environment}" == shared && "${credential_mode}" == auth_json ]]; then
+  echo "shared GCP bootstrap accepts only a short-lived GCP_ACCESS_TOKEN; long-lived SA keys are disabled" >&2
+  exit 1
+fi
 [[ "${account_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._%+@-]{0,126}[A-Za-z0-9]$ ]] || {
   echo "GCP_ACCOUNT_ID must be a stable name or email-like identifier without '/'" >&2
   exit 1
@@ -56,7 +65,9 @@ command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
 # allow a caller to write one account's bootstrap token under another target.
 expected_project="${GCP_EXPECTED_PROJECT_ID:-}"
 if [[ -z "${expected_project}" ]]; then
-  if [[ "${account_id}" == "xworktech" ]]; then
+  if [[ "${environment}" == shared && "${account_id}" == "open-platform-prod" ]]; then
+    expected_project="open-platform-prod"
+  elif [[ "${account_id}" == "xworktech" ]]; then
     expected_project="${default_project}"
   else
     echo "GCP_EXPECTED_PROJECT_ID is required for non-xworktech accounts" >&2
@@ -245,6 +256,27 @@ revoke_auth_json() {
   echo "${secret_path}: bootstrap credential revoked (key ${key_id:-n/a}, ${sa} disabled)"
 }
 
+revoke_access_token() {
+  local current access_token
+  current="$(vault_read_json)"
+  access_token="$(jq -r '.data.data.GCP_ACCESS_TOKEN // empty' <<<"${current}")"
+  if [[ -n "${access_token}" ]]; then
+    export GCP_REVOKE_ACCESS_TOKEN="${access_token}"
+    if jq -rn '"token=" + (env.GCP_REVOKE_ACCESS_TOKEN | @uri)' |
+      curl --fail --silent --show-error --request POST \
+        --header 'Content-Type: application/x-www-form-urlencoded' \
+        --data-binary @- "https://oauth2.googleapis.com/revoke" >/dev/null; then
+      echo "GCP access token revoked."
+    else
+      echo "warning: token revocation endpoint failed; the token will expire naturally" >&2
+    fi
+    unset GCP_REVOKE_ACCESS_TOKEN access_token
+  fi
+  vault_delete_all_versions
+  jq -n --arg project "${project_id}" '{data:{GCP_PROJECT_ID:$project}}' | vault_write_json
+  echo "${secret_path}: token removed; only GCP_PROJECT_ID remains"
+}
+
 case "${action}:${credential_mode}" in
   check:token)
     vault_read_json |
@@ -284,7 +316,15 @@ case "${action}:${credential_mode}" in
     write_auth_json
     ;;
   revoke:*)
-    revoke_auth_json
+    current_secret="$(vault_read_json)"
+    if jq -e '.data.data.GCP_AUTH_JSON | type == "string" and length > 0' <<<"${current_secret}" >/dev/null; then
+      revoke_auth_json
+    elif jq -e '.data.data.GCP_ACCESS_TOKEN | type == "string" and length > 0' <<<"${current_secret}" >/dev/null; then
+      revoke_access_token
+    else
+      echo "${secret_path}: no bootstrap credential is present; nothing to revoke" >&2
+      exit 1
+    fi
     ;;
   *)
     echo "GCP_BOOTSTRAP_ACTION must be write, check or revoke" >&2
