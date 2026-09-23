@@ -230,6 +230,14 @@ if [[ "${DRY_RUN}" == "true" ]]; then
   exit 0
 fi
 
+if grep -qE '^Import preview: users inserted=0 updated=0 ' <<<"${preview_output}" &&
+   grep -qE '^Identities inserted=0 updated=0 deleted=0$' <<<"${preview_output}" &&
+   grep -qE '^Sessions inserted=0 updated=0 deleted=0$' <<<"${preview_output}"; then
+  echo "[3/4] PROD→UAT Accounts source and target already converged; no UAT writes or credential-containing backup needed."
+  echo "[4/4] Accounts merge completed as a verified no-op."
+  exit 0
+fi
+
 echo "[3/4] Backing up existing Supabase public schema/data before merge..."
 target_pg_dump "${BACKUP_FILE}" \
   --schema=public \
