@@ -146,6 +146,8 @@ jobs:
             kv/data/CICD/${{ inputs.vault_env_path }}/ucloud/${{ inputs.account }} UCLOUD_PRIVATE_KEY | UCLOUD_PRIVATE_KEY ;
             kv/data/CICD/${{ inputs.vault_env_path }}/ucloud/${{ inputs.account }} UCLOUD_PROJECT_ID | UCLOUD_PROJECT_ID ;
             kv/data/CICD/${{ inputs.vault_env_path }}/ucloud/${{ inputs.account }} UCLOUD_REGION | UCLOUD_REGION ;
+            kv/data/CICD/${{ inputs.vault_env_path }}/ucloud/${{ inputs.account }} UCLOUD_SECURITY_GROUP_ID | UCLOUD_SECURITY_GROUP_ID ;
+            kv/data/CICD/${{ inputs.vault_env_path }}/ucloud/${{ inputs.account }} UCLOUD_KEY_PAIR_ID | UCLOUD_KEY_PAIR_ID ;
             kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
             kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
             kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
@@ -157,10 +159,13 @@ jobs:
           UCLOUD_PUBLIC_KEY: ${{ steps.vault.outputs.UCLOUD_PUBLIC_KEY }}
           UCLOUD_PRIVATE_KEY: ${{ steps.vault.outputs.UCLOUD_PRIVATE_KEY }}
           UCLOUD_PROJECT_ID: ${{ steps.vault.outputs.UCLOUD_PROJECT_ID }}
+          UCLOUD_SECURITY_GROUP_ID: ${{ steps.vault.outputs.UCLOUD_SECURITY_GROUP_ID }}
+          UCLOUD_KEY_PAIR_ID: ${{ steps.vault.outputs.UCLOUD_KEY_PAIR_ID }}
         run: |
           set -euo pipefail
           [[ -n "${UCLOUD_PUBLIC_KEY}" && -n "${UCLOUD_PRIVATE_KEY}" ]] || { echo 'UCloud API credentials are empty' >&2; exit 1; }
           [[ "${UCLOUD_PROJECT_ID}" == "${ACCOUNT}" ]] || { echo 'Vault UCloud project ID does not match account path' >&2; exit 1; }
+          [[ -n "${UCLOUD_SECURITY_GROUP_ID}" && -n "${UCLOUD_KEY_PAIR_ID}" ]] || { echo 'UCloud bootstrap Job outputs are missing from Vault' >&2; exit 1; }
 
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -215,6 +220,8 @@ jobs:
           TF_VAR_ucloud_private_key: ${{ steps.vault.outputs.UCLOUD_PRIVATE_KEY }}
           TF_VAR_ucloud_project_id: ${{ steps.vault.outputs.UCLOUD_PROJECT_ID }}
           TF_VAR_ucloud_region: ${{ steps.vault.outputs.UCLOUD_REGION }}
+          TF_VAR_ucloud_bootstrap_security_group_id: ${{ steps.vault.outputs.UCLOUD_SECURITY_GROUP_ID }}
+          TF_VAR_ucloud_bootstrap_key_pair_id: ${{ steps.vault.outputs.UCLOUD_KEY_PAIR_ID }}
         run: |
           set -euo pipefail
           terraform -chdir="${TF_ROOT}" validate -no-color
@@ -227,6 +234,8 @@ jobs:
           TF_VAR_ucloud_private_key: ${{ steps.vault.outputs.UCLOUD_PRIVATE_KEY }}
           TF_VAR_ucloud_project_id: ${{ steps.vault.outputs.UCLOUD_PROJECT_ID }}
           TF_VAR_ucloud_region: ${{ steps.vault.outputs.UCLOUD_REGION }}
+          TF_VAR_ucloud_bootstrap_security_group_id: ${{ steps.vault.outputs.UCLOUD_SECURITY_GROUP_ID }}
+          TF_VAR_ucloud_bootstrap_key_pair_id: ${{ steps.vault.outputs.UCLOUD_KEY_PAIR_ID }}
         run: terraform -chdir="${TF_ROOT}" "${DEPLOY_ACTION}" -input=false -auto-approve
 
       - name: Produce UCloud inventory after apply
