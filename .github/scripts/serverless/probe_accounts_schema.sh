@@ -9,21 +9,24 @@ command -v python3 >/dev/null || fail "Python 3 is required."
 
 if ! python3 - <<'PY'
 import os
+import sys
 from urllib.parse import parse_qs, unquote, urlsplit
 
 try:
     url = urlsplit(os.environ["TARGET_DSN"])
-    valid = (
-        url.scheme in {"postgres", "postgresql"}
-        and unquote(url.username or "") == "postgres." + os.environ["PROJECT_REF"]
-        and (url.hostname or "").endswith(".pooler.supabase.com")
-        and url.port == 5432
-        and url.path == "/postgres"
-        and parse_qs(url.query).get("sslmode", [""])[0] in {"require", "verify-ca", "verify-full"}
-    )
+    checks = {
+        "scheme": url.scheme in {"postgres", "postgresql"},
+        "project_user": unquote(url.username or "") == "postgres." + os.environ["PROJECT_REF"],
+        "session_pooler_host": (url.hostname or "").endswith(".pooler.supabase.com"),
+        "port_5432": url.port == 5432,
+        "database_postgres": url.path == "/postgres",
+        "tls_mode": parse_qs(url.query).get("sslmode", [""])[0] in {"require", "verify-ca", "verify-full"},
+    }
 except (KeyError, ValueError):
-    valid = False
-raise SystemExit(0 if valid else 1)
+    checks = {"url_parse": False}
+if not all(checks.values()):
+    print("UAT target format checks: " + ", ".join(f"{key}={value}" for key, value in checks.items()), file=sys.stderr)
+    raise SystemExit(1)
 PY
 then
   fail "Target connection does not match the UAT Supabase session pooler project."
