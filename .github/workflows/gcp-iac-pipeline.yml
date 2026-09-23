@@ -34,7 +34,7 @@ on:
         description: Pinned iac_modules ref used for this run.
         type: string
         required: false
-        default: e704fecffdbbf072e0540c66f7a9b6b07da179cf
+        default: 54e9f7ed2782f1d30befda6a70615168bcc44921
       gcp_resource_manifest:
         description: Optional manifest path inside GitOps; environment is validated against vault_env_path.
         type: string
@@ -63,7 +63,7 @@ on:
       iac_ref:
         type: string
         required: false
-        default: e704fecffdbbf072e0540c66f7a9b6b07da179cf
+        default: 54e9f7ed2782f1d30befda6a70615168bcc44921
       gcp_resource_manifest:
         type: string
         required: false
@@ -89,7 +89,7 @@ jobs:
       GCP_ACCOUNT_ID: ${{ inputs.gcp_account_id }}
       GITOPS_REPO_NAME: ${{ inputs.gitops_repo_name || 'https://github.com/ai-workspace-infra/gitops.git' }}
       GITOPS_REPO_REF: ${{ inputs.gitops_repo_ref || 'main' }}
-      IAC_REF: ${{ inputs.iac_ref || 'e704fecffdbbf072e0540c66f7a9b6b07da179cf' }}
+      IAC_REF: ${{ inputs.iac_ref || '54e9f7ed2782f1d30befda6a70615168bcc44921' }}
       GCP_RESOURCE_MANIFEST_INPUT: ${{ inputs.gcp_resource_manifest || '' }}
       GCP_IAC_DIR: iac_modules/terraform-hcl-standard/gcp-cloud
 
