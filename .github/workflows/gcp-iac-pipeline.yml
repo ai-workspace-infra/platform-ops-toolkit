@@ -241,7 +241,7 @@ jobs:
             --arg project_id "${PROJECT_ID}" \
             --arg service_account "${DEPLOY_SERVICE_ACCOUNT}" \
             --arg provider "${WORKLOAD_IDENTITY_PROVIDER}" \
-            '{project_id:$project_id, deploy_service_account:$service_account, workload_identity_provider:$provider}' \
+            '{bootstrap_project_id:$project_id, project_id:$project_id, deploy_service_account:$service_account, workload_identity_provider:$provider}' \
             > "${RUNTIME_VARS}"
 
       - name: Terraform init with shared state backend

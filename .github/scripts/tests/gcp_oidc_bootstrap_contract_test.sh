@@ -282,6 +282,12 @@ for required in 'cloud_provider:' 'options: [gcp-cloud]' 'options: [plan, apply]
   }
 done
 
+gcp_iac_workflow="${repo_root}/.github/workflows/gcp-iac-pipeline.yml"
+grep -Fq '{bootstrap_project_id:$project_id, project_id:$project_id,' "${gcp_iac_workflow}" || {
+  echo "GCP IaC runtime variables must set bootstrap_project_id for the Google provider" >&2
+  exit 1
+}
+
 for required in 'scripts/vault/policies' 'scripts/vault/roles' 'vault policy write' 'auth/jwt/role/'; do
   grep -Fq -- "${required}" "${vault_roles}" || {
     echo "Vault role orchestration contract missing: ${required}" >&2
