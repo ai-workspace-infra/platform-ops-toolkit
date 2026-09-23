@@ -1,4 +1,4 @@
-# Manually unseal Vault cluster nodes
+# Manually unseal shared Vault cluster nodes
 
 Vault unseal is an operator task and is deliberately outside GitHub Actions.
 The IaC pipeline may provision hosts and their network, but it must never read
@@ -29,7 +29,7 @@ approved access path. Do not enable public SSH only to install this helper.
 
 ## Node networking
 
-`vault-prod-0` hosts the PROD XConnect Gateway. `vault-prod-1` and
+`vault-prod-0` hosts the shared XConnect Gateway. `vault-prod-1` and
 `vault-prod-2` are XConnect One members; they may reach the Gateway through NAT
 egress or from their own public IPs. The only public inbound port is TCP 443
 for the Caddy TLS entry `vault.svc.plus`. Vault 8200, SSH, monitoring, and

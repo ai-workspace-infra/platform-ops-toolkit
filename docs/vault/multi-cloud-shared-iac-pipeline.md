@@ -1,9 +1,12 @@
-# Provider-neutral Vault PROD IaC pipeline design
+# Provider-neutral shared Vault IaC pipeline design
 
-## Target topology
+## Shared service topology
 
-The production Vault Raft cluster has three stable logical node identities;
-cloud/provider is an implementation detail declared per node:
+`vault.svc.plus` is one shared service owned by GCP project
+[`open-platform-prod`](https://console.cloud.google.com/welcome/new?project=open-platform-prod).
+It is not split into UAT and PROD Vault clusters. The three node identifiers
+below describe members of the same Raft cluster; the `prod` substring in their
+current names is not an environment boundary:
 
 | Node | XConnect role | Connectivity |
 | --- | --- | --- |
@@ -15,6 +18,11 @@ Nodes may be placed on any supported VPS/cloud provider and need not share one
 provider. If a member has a public IP, firewall policy still denies public SSH
 and Vault API access. A Gateway behind NAT needs an inbound mapping or an
 outbound relay/rendezvous; NAT egress alone cannot make a listener reachable.
+For any node deployed in GCP, the GitOps project must be exactly
+`open-platform-prod`. If a node is deliberately placed on another provider, its
+actual resource belongs to that provider/account; GitOps records it as a member
+of this shared service rather than implying it is physically inside the GCP
+project.
 
 The only public inbound port is TCP `443`. The stable client endpoint is
 `vault.svc.plus` served by Caddy with valid TLS:
@@ -34,6 +42,7 @@ weakening Caddy/Vault TLS routing, or the Gateway must establish an outbound
 tunnel to an approved relay. Do not open another inbound port as a workaround.
 Members may use NAT egress or their own public IP to reach this 443 entry; in
 both cases, a public source address is not trusted by itself.
+
 If Caddy is co-located on `vault-prod-0`, that host becomes a single failure
 point for both the XConnect Gateway and public TLS entry even while the other
 two Raft voters remain healthy. To avoid that, use redundant Caddy ingress
@@ -56,9 +65,10 @@ The dedicated GitHub Actions workflow should orchestrate IaC only:
    only through its supported short-lived OIDC/WIF/STS mechanism and gets an
    isolated state key. A single provider's OIDC identity must not be reused
    across unrelated accounts.
-4. `plan` all provider workspaces and summarize them before any apply. Apply
-   requires protected GitHub Environment `prod` approval and must not offer an
-   implicit destroy path.
+4. `plan` all provider workspaces and summarize them before any apply. Changes
+   to this shared production service require a protected approval gate; that
+   gate is an authorization control, not a separate Vault environment. The
+   workflow must not offer an implicit destroy path.
 5. IaC may install host prerequisites only through reviewed, non-secret
    bootstrap data. It must not initialize/unseal Vault, access the root token,
    or handle unseal shares.
@@ -66,27 +76,29 @@ The dedicated GitHub Actions workflow should orchestrate IaC only:
 Suggested state key shape:
 
 ```text
-terraform/prod/<cloud-project-or-account>/<provider>/<account>/<vault-node>/terraform.tfstate
+terraform/shared/<cloud-project-or-account>/<provider>/<account>/<vault-node>/terraform.tfstate
 ```
 
-This prevents two providers or nodes from sharing a state object. Secrets such
-as provider credentials, XConnect enrollment material, and state backend
-credentials remain in Vault KV and are read only by provider-scoped Vault JWT
-roles. Non-sensitive topology belongs in GitOps.
+All nodes share one cluster/service identity namespace, while provider/account
+and node state remain isolated. For GCP, `open-platform-prod` is fixed as the
+project; no UAT GCP project may be substituted. Provider credentials, XConnect
+enrollment material, and state backend credentials remain in Vault KV and are
+read only by provider-scoped Vault JWT roles. Non-sensitive topology belongs
+in GitOps.
 
 ## Capability gap before implementation/use
 
 The existing toolkit multi-cloud master accepts one `cloud_provider` per run;
 it does not yet derive a per-node provider matrix from a single cluster
 manifest. The GCP pipeline is also provider-specific. Therefore neither is yet
-the required provider-neutral Vault service pipeline. Implementation needs:
+the required provider-neutral shared-service pipeline. Implementation needs:
 
 - a provider-neutral GitOps cluster schema plus provider-specific resource
   declarations;
-- renderer/workflow support for per-node provider, account, and state;
+- renderer/workflow support for per-node provider, account, and shared state;
 - a reviewed provider allowlist and isolated Vault JWT/WIF role per provider;
-- a gateway reachability/firewall contract allowing only inbound TCP 443,
-  never Vault API, SSH, monitoring, or standalone XConnect ports publicly;
+- a firewall contract allowing only public TCP 443 and denying public Vault
+  API, SSH, monitoring, and standalone XConnect ports;
 - Caddy TLS certificate/renewal, private upstream, and ingress health/failover
   declarations for `vault.svc.plus`;
 - CI fixtures covering same-provider and mixed-provider three-node plans.
