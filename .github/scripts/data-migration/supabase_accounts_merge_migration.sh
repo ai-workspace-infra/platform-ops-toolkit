@@ -14,6 +14,7 @@ DRY_RUN="${SUPABASE_METADATA_DRY_RUN:-true}"
 MODE="${SUPABASE_MIGRATION_MODE:-metadata_and_data}"
 CONNECTION_MODE="${SUPABASE_TARGET_CONNECTION_MODE:-session_pooler}"
 SOURCE_BACKEND="${SUPABASE_SOURCE_BACKEND:-supabase}"
+[[ "${VAULT_ENV_PATH:-}" == "uat" ]] || { echo "ERROR: Accounts merge target must be UAT." >&2; exit 1; }
 SOURCE_DSN="${SUPABASE_SOURCE_DSN:-}"
 SOURCE_SSH_HOST="${SUPABASE_SOURCE_TUNNEL_HOST:-}"
 SOURCE_SSH_USER="${SUPABASE_SOURCE_SSH_USER:-root}"
@@ -211,8 +212,17 @@ merge_args=(
   --dry-run
   --merge
   --merge-strategy timestamp
+  --preserve-existing-users
+  --skip-sessions
 )
-"${MIGRATECTL_BIN}" "${merge_args[@]}"
+preview_output="$("${MIGRATECTL_BIN}" "${merge_args[@]}" 2>&1)" || { echo "ERROR: Accounts merge dry-run failed; inspect target/source compatibility privately." >&2; exit 1; }
+echo "${preview_output}" | grep -E '^(Import preview:|Identities |Sessions |Conflicts )' || true
+if ! grep -qE '^Import preview: users inserted=[0-9]+ updated=0 ' <<<"${preview_output}" ||
+   ! grep -qE '^Identities inserted=[0-9]+ updated=[0-9]+ deleted=0$' <<<"${preview_output}" ||
+   ! grep -qE '^Sessions inserted=0 updated=0 deleted=0$' <<<"${preview_output}"; then
+  echo "ERROR: Accounts merge preview would change existing user profiles, delete identities, or import sessions." >&2
+  exit 1
+fi
 
 if [[ "${DRY_RUN}" == "true" ]]; then
   echo "[3/4] DRY_RUN=true; no Supabase data writes executed."
@@ -237,8 +247,11 @@ merge_args=(
   --regenerate-user-uuids
   --merge
   --merge-strategy timestamp
+  --preserve-existing-users
+  --skip-sessions
 )
-"${MIGRATECTL_BIN}" "${merge_args[@]}"
+apply_output="$("${MIGRATECTL_BIN}" "${merge_args[@]}" 2>&1)" || { echo "ERROR: Accounts merge failed; UAT backup is retained for recovery." >&2; exit 1; }
+echo "${apply_output}" | grep -E '^(Import applied:|Identities |Sessions |Conflicts )' || true
 
 echo "[4/4] Verifying Accounts merge convergence..."
 verify_output="$("${MIGRATECTL_BIN}" import \
@@ -247,8 +260,10 @@ verify_output="$("${MIGRATECTL_BIN}" import \
   --regenerate-user-uuids \
   --dry-run \
   --merge \
-  --merge-strategy timestamp 2>&1)"
-echo "${verify_output}"
+  --merge-strategy timestamp \
+  --preserve-existing-users \
+  --skip-sessions 2>&1)"
+echo "${verify_output}" | grep -E '^(Import preview:|Identities |Sessions |Conflicts )' || true
 if ! grep -qE 'users inserted=0 updated=0' <<<"${verify_output}" ||
    ! grep -qE 'Identities inserted=0 updated=0' <<<"${verify_output}" ||
    ! grep -qE 'Sessions inserted=0 updated=0' <<<"${verify_output}"; then
