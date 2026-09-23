@@ -10,7 +10,13 @@ printf 'module account\n\ngo 1.23\n' >"${workdir}/accounts/go.mod"
 printf '%s\n' '-- reviewed additive test migration' 'ALTER TABLE public.users ADD COLUMN IF NOT EXISTS test_marker TEXT;' \
   >"${workdir}/accounts/sql/migrations/2026092301_test_marker.up.sql"
 
-printf '%s\n' '#!/usr/bin/env bash' '[[ "$1" == *"sslmode=require"* ]] || exit 3' 'if [[ -e "${TEST_APPLIED_MARKER}" ]]; then printf "2026092301:false\\n"; else printf "2026091401:false\\n"; fi' \
+printf '%s\n' '#!/usr/bin/env bash' \
+  '[[ "$*" == *"sslmode=require"* ]] || exit 3' \
+  'case "$*" in' \
+  '  *"information_schema.columns"*) printf "%s\\n" "${TEST_SCHEMA_PROBE:-4:1:4}" ;;' \
+  '  *"string_agg"*) if [[ -e "${TEST_APPLIED_MARKER}" ]]; then printf "%s\\n" "${TEST_USER_SENTINEL:-2:0123456789abcdef0123456789abcdef}"; else printf "2:0123456789abcdef0123456789abcdef\\n"; fi ;;' \
+  '  *) if [[ -e "${TEST_APPLIED_MARKER}" ]]; then printf "2026092301:false\\n"; else printf "2026091401:false\\n"; fi ;;' \
+  'esac' \
   >"${workdir}/bin/psql"
 printf '%s\n' '#!/usr/bin/env bash' '[[ "$*" == *"sslmode=require"* ]] || exit 3' 'touch "${TEST_APPLIED_MARKER}"' >"${workdir}/bin/go"
 chmod +x "${workdir}/bin/psql" "${workdir}/bin/go"
@@ -31,6 +37,7 @@ common=(
   ACCOUNTS_SCHEMA_EXPECTED_VERSION=2026091401
   ACCOUNTS_SCHEMA_TARGET_VERSION=2026092301
   "ACCOUNTS_SCHEMA_SHA256=${checksum}"
+  RELEASE_CHECKPOINT_VERIFIED=true
   "TEST_APPLIED_MARKER=${workdir}/applied"
 )
 
@@ -50,10 +57,32 @@ reject_without_apply() {
 }
 
 reject_without_apply env "${common[@]}" VAULT_ENV_PATH=prod bash "${apply_script}"
+reject_without_apply env "${common[@]}" RELEASE_CHECKPOINT_VERIFIED=false bash "${apply_script}"
 reject_without_apply env "${common[@]}" ACCOUNTS_SCHEMA_SHA256="$(printf 'a%.0s' {1..64})" bash "${apply_script}"
 reject_without_apply env "${common[@]}" TARGET_DSN=postgres://postgres.abcdefghijklmnopqrst:placeholder@aws-0-test.pooler.supabase.com:6543/postgres bash "${apply_script}"
 reject_without_apply env "${common[@]}" TARGET_DSN=postgres://postgres.abcdefghijklmnopqrst:placeholder@aws-0-test.pooler.supabase.com:5432/postgres?sslmode=disable bash "${apply_script}"
 printf '%s\n' '-- another pending migration' >"${workdir}/accounts/sql/migrations/2026092401_other.up.sql"
 reject_without_apply env "${common[@]}" bash "${apply_script}"
+rm -f "${workdir}/accounts/sql/migrations/2026092401_other.up.sql"
+
+reject_without_apply env "${common[@]}" TEST_SCHEMA_PROBE=4:0:4 bash "${apply_script}"
+rm -f "${workdir}/applied"
+if env "${common[@]}" TEST_USER_SENTINEL=3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa bash "${apply_script}" >/dev/null 2>&1; then
+  echo 'Migration did not fail when the post-migration user/subscription sentinel changed.' >&2
+  exit 1
+fi
+[[ -e "${workdir}/applied" ]] || { echo 'Expected the post-migration sentinel check to run after migration.' >&2; exit 1; }
+rm -f "${workdir}/applied"
+
+if output="$(env "${common[@]}" bash "${apply_script}" 2>&1)"; then
+  :
+else
+  echo "Expected a clean migration test run: ${output}" >&2
+  exit 1
+fi
+[[ "${output}" != *"placeholder"* && "${output}" != *"postgres://"* ]] || {
+  echo 'Migration logs exposed a DSN value.' >&2
+  exit 1
+}
 
 echo 'UAT Accounts schema apply guard passed.'

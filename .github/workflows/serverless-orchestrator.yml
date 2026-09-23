@@ -222,6 +222,8 @@ jobs:
   supabase:
     name: Supabase / xworktech
     needs: preflight
+    outputs:
+      durable_checkpoint_verified: ${{ steps.checkpoint.outputs.durable_checkpoint_verified }}
     # Deployment paths verify the existing Supabase service before Cloud Run
     # and migration start. Schema initialization is a separate manual workflow.
     if: ${{ contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) }}
@@ -262,6 +264,7 @@ jobs:
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/supabase DATABASE_SESSION_POOLER_URL | TARGET_DSN ;
 
       - name: Create release checkpoint before deployment
+        id: checkpoint
         run: ./.github/scripts/database/create_release_checkpoint.sh
         env:
           RELEASE_TAG: ${{ inputs.tag_ref || github.sha }}
@@ -269,13 +272,14 @@ jobs:
           DATABASE_ENV: ${{ inputs.vault_env_path || 'uat' }}
           TARGET_DSN: ${{ steps.vault_checkpoint.outputs.TARGET_DSN }}
           GIT_SHA: ${{ github.sha }}
+          REQUIRE_DURABLE_CHECKPOINT: ${{ inputs.apply_accounts_schema_migration || false }}
 
-      - name: Upload release checkpoint artifact
+      - name: Upload non-sensitive checkpoint manifest
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: database-checkpoint-${{ inputs.vault_env_path || 'uat' }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/database-checkpoints/
+          name: database-checkpoint-manifest-${{ inputs.vault_env_path || 'uat' }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/database-checkpoints/**/manifest.json
           if-no-files-found: ignore
           retention-days: 7
 
@@ -424,6 +428,7 @@ jobs:
           ACCOUNTS_SCHEMA_EXPECTED_VERSION: ${{ inputs.accounts_schema_expected_version }}
           ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
           ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}
+          RELEASE_CHECKPOINT_VERIFIED: ${{ needs.supabase.outputs.durable_checkpoint_verified || 'false' }}
 
   cloud_run:
     name: Cloud Run / ${{ matrix.service }}

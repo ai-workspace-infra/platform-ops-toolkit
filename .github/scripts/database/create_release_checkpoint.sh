@@ -18,13 +18,15 @@ S3_PREFIX="${S3_PREFIX:-database-checkpoints}"
 S3_ENDPOINT="${S3_ENDPOINT:-}"
 S3_REGION="${S3_REGION:-us-east-1}"
 ENCRYPTION_PASS="${BACKUP_ENCRYPTION_PASS:-}"
+REQUIRE_DURABLE_CHECKPOINT="${REQUIRE_DURABLE_CHECKPOINT:-false}"
 TARGET_DSN="${SUPABASE_TARGET_DSN:-${TARGET_DSN:-}}"
 CONTAINER_NAME="${VPS_CONTAINER_NAME:-postgresql-svc-plus}"
 WARM_LOCAL_DIR="/var/backups/checkpoints/${RELEASE_TAG}"
 LEDGER_TABLE="public.system_release_checkpoints"
 
-redact_dsn() {
-  printf '%s' "$1" | sed -E 's#(://[^:/@]+):[^@]*@#\1:***@#'
+[[ "${REQUIRE_DURABLE_CHECKPOINT}" == "true" || "${REQUIRE_DURABLE_CHECKPOINT}" == "false" ]] || {
+  echo "ERROR: REQUIRE_DURABLE_CHECKPOINT must be true or false." >&2
+  exit 2
 }
 
 dump_supabase_public_schema() {
@@ -32,7 +34,7 @@ dump_supabase_public_schema() {
   local client_major
   local server_major
   client_major="$(pg_dump --version | awk '{print $3}' | cut -d. -f1)"
-  server_major="$(psql "${TARGET_DSN}" -Atqc "select current_setting('server_version_num')::int / 10000" | tr -d '[:space:]')"
+  server_major="$(psql "${TARGET_DSN}" -Atqc "select current_setting('server_version_num')::int / 10000" 2>/dev/null | tr -d '[:space:]')"
 
   if [[ -n "${server_major}" && "${client_major}" != "${server_major}" ]]; then
     if ! command -v docker >/dev/null 2>&1; then
@@ -45,7 +47,7 @@ dump_supabase_public_schema() {
       --no-owner \
       --no-privileges \
       --no-publications \
-      --no-subscriptions >"${output_file}"
+      --no-subscriptions >"${output_file}" 2>/dev/null
     return
   fi
 
@@ -55,7 +57,7 @@ dump_supabase_public_schema() {
     --no-privileges \
     --no-publications \
     --no-subscriptions \
-    --file="${output_file}"
+    --file="${output_file}" 2>/dev/null
 }
 
 mkdir -p "${CHECKPOINT_DIR}"
@@ -137,7 +139,23 @@ checkpoint_supabase() {
     exit 1
   fi
 
-  echo "  target: $(redact_dsn "${TARGET_DSN}")"
+  if [[ "${REQUIRE_DURABLE_CHECKPOINT}" == "true" ]]; then
+    [[ "${DATABASE_ENV}" == "uat" && "${RELEASE_TAG}" =~ ^(uat-)?daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}-r[1-9][0-9]*$ ]] || {
+      echo "ERROR: Durable schema-migration checkpoints are restricted to immutable UAT snapshot tags." >&2
+      exit 1
+    }
+    [[ -n "${S3_BUCKET}" && -n "${AWS_ACCESS_KEY_ID:-}" && -n "${AWS_SECRET_ACCESS_KEY:-}" ]] || {
+      echo "ERROR: Durable UAT checkpoint preflight requires configured remote object storage credentials." >&2
+      exit 1
+    }
+    [[ -n "${ENCRYPTION_PASS}" ]] || {
+      echo "ERROR: Durable UAT checkpoint preflight requires the configured backup encryption secret." >&2
+      exit 1
+    }
+    command -v aws >/dev/null 2>&1 || { echo "ERROR: AWS CLI is required to verify the remote checkpoint." >&2; exit 1; }
+  fi
+
+  echo "  target: Supabase connection format validated (connection details suppressed)"
   echo "  release_tag: ${RELEASE_TAG} (env=${DATABASE_ENV})"
 
   echo "  verifying / ensuring in-db ledger table..."
@@ -171,7 +189,23 @@ checkpoint_supabase() {
   local final_s3_uri=""
   if upload_to_s3_if_configured "${final_artifact}" "${s3_uri}"; then
     final_s3_uri="${s3_uri}"
+    if [[ "${REQUIRE_DURABLE_CHECKPOINT}" == "true" ]]; then
+      local head_result
+      local object_size
+      local s3_opts=()
+      [[ -z "${S3_ENDPOINT}" ]] || s3_opts+=(--endpoint-url "${S3_ENDPOINT}")
+      object_size="$(aws s3api head-object --bucket "${S3_BUCKET}" --key "${s3_uri#s3://${S3_BUCKET}/}" --query ContentLength --output text "${s3_opts[@]}" 2>/dev/null)" || {
+        echo "ERROR: Remote UAT checkpoint object could not be verified." >&2
+        exit 1
+      }
+      [[ "${object_size}" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: Verified UAT checkpoint object is empty or invalid." >&2; exit 1; }
+      [[ "${final_artifact}" == *.enc ]] || { echo "ERROR: Durable UAT checkpoint must be encrypted before upload." >&2; exit 1; }
+    fi
   else
+    [[ "${REQUIRE_DURABLE_CHECKPOINT}" != "true" ]] || {
+      echo "ERROR: Durable UAT checkpoint upload failed; migration is blocked." >&2
+      exit 1
+    }
     echo "  S3 credentials not supplied; checkpoint preserved locally at ${final_artifact}"
   fi
 
@@ -195,6 +229,10 @@ EOF
 
   echo "  recording checkpoint into ledger..."
   record_ledger_entry "${TARGET_DSN}" "${final_s3_uri}" "${final_artifact}" "${schema_hash}" "checkpointed" "postgres"
+
+  if [[ "${REQUIRE_DURABLE_CHECKPOINT}" == "true" && -n "${GITHUB_OUTPUT:-}" ]]; then
+    printf 'durable_checkpoint_verified=true\n' >>"${GITHUB_OUTPUT}"
+  fi
 
   rm -f "${raw_sql}"
   echo "Supabase release checkpoint completed successfully for tag ${RELEASE_TAG}."
