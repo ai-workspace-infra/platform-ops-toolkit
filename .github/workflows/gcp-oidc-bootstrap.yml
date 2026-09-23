@@ -342,6 +342,33 @@ jobs:
             echo "::warning::GCP key is revoked and the service account is disabled, but this workflow's Vault role (github-actions-platform-ops-toolkit-${ENVIRONMENT}-gcp-bootstrap-${ACCOUNT_ID}) lacks update/delete on kv/CICD/${ENVIRONMENT}/gcp-bootstrap/${ACCOUNT_ID}. GCP_AUTH_JSON is still stored in Vault (the key itself is already dead). Run scripts/create_vault_service_repo_roles.sh --apply with an admin Vault token to sync the widened policy, then purge the stale secret manually: GCP_BOOTSTRAP_ACTION=revoke GCP_ENVIRONMENT=${ENVIRONMENT} GCP_ACCOUNT_ID=${ACCOUNT_ID} GCP_PROJECT_ID=${PROJECT_ID} bash scripts/gcp/bootstrap_gcp_auth_kv.sh"
           fi
 
+      - name: Revoke and scrub short-lived GCP bootstrap access token
+        if: ${{ always() && inputs.action == 'apply' && steps.credential.outputs.credential_mode == 'token' && steps.token.outputs.access_token != '' }}
+        env:
+          ACCESS_TOKEN: ${{ steps.token.outputs.access_token }}
+          VAULT_ADDR: https://vault.svc.plus
+          VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          ACCOUNT_ID: ${{ steps.config.outputs.account_id }}
+          PROJECT_ID: ${{ steps.config.outputs.project_id }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --request POST \
+            --header 'Content-Type: application/x-www-form-urlencoded' \
+            --data-urlencode "token=${ACCESS_TOKEN}" \
+            https://oauth2.googleapis.com/revoke >/dev/null 2>&1 || \
+            echo "::warning::access token revocation endpoint failed; the token will expire naturally"
+          secret_path="CICD/${ENVIRONMENT}/gcp-bootstrap/${ACCOUNT_ID}"
+          curl --fail --silent --show-error --request DELETE \
+            --header "X-Vault-Token: ${VAULT_TOKEN}" \
+            "${VAULT_ADDR}/v1/kv/metadata/${secret_path}"
+          payload="$(jq -n --arg project "${PROJECT_ID}" '{data:{GCP_PROJECT_ID:$project}}')"
+          curl --fail --silent --show-error --request POST \
+            --header "X-Vault-Token: ${VAULT_TOKEN}" \
+            --header 'Content-Type: application/json' \
+            --data "${payload}" "${VAULT_ADDR}/v1/kv/data/${secret_path}"
+          echo "Short-lived bootstrap token revoked and removed from Vault; project ID retained."
+
       - name: Authenticate with bootstrapped GCP WIF
         if: ${{ inputs.action == 'apply' }}
         uses: google-github-actions/auth@v2
