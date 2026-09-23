@@ -58,11 +58,7 @@ if [[ "${ENV_STEPS_ROUTE_OUTPUTS_CLOUD_PROVIDER}" == "akamai-cloud" ]]; then
   state_path="${ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY%/terraform.tfstate}"
   namespace="${state_path##*/}"
   case "${namespace}" in
-    web-saas|ai-workspace|agent-proxy-jp|agent-proxy-us|agent-proxy-sg) ;;
-    open-platform)
-      echo "::error::Refusing destroy: UAT open-platform is a permanent service node." >&2
-      exit 1
-      ;;
+    web-saas|open-platform|ai-workspace|agent-proxy-jp|agent-proxy-us|agent-proxy-sg) ;;
     selfhost|all)
       echo "::error::Refusing aggregate Akamai destroy namespace '${namespace}'; use one isolated namespace." >&2
       exit 1
@@ -78,20 +74,22 @@ if [[ "${ENV_STEPS_ROUTE_OUTPUTS_CLOUD_PROVIDER}" == "akamai-cloud" ]]; then
     exit 1
   fi
 
-  : "${OPEN_PLATFORM_ACCEPTANCE_FILE:=${GITHUB_WORKSPACE:-.}/config/open-platform-uat-cleanup-acceptance.json}"
-  if [[ ! -f "${OPEN_PLATFORM_ACCEPTANCE_FILE}" ]] || ! jq -e '
-      .environment == "uat" and
-      .namespace == "open-platform" and
-      .migration_complete == true and
-      .source_unchanged_through_acceptance == true and
-      .target_health_checks_passed == true and
-      .source_health_checks_passed == true and
-      .state_isolation_verified == true and
-      (.backup_reference | type == "string" and length > 0) and
-      (.acceptance_reference | type == "string" and length > 0)
-    ' "${OPEN_PLATFORM_ACCEPTANCE_FILE}" >/dev/null 2>&1; then
-    echo "::error::Refusing UAT cleanup until migration, dual-end health, source-retention and six-state isolation acceptance are recorded." >&2
-    exit 1
+  if [[ "${namespace}" == "open-platform" ]]; then
+    : "${OPEN_PLATFORM_ACCEPTANCE_FILE:=${GITHUB_WORKSPACE:-.}/config/open-platform-uat-cleanup-acceptance.json}"
+    if [[ ! -f "${OPEN_PLATFORM_ACCEPTANCE_FILE}" ]] || ! jq -e '
+        .environment == "uat" and
+        .namespace == "open-platform" and
+        .migration_complete == true and
+        .source_unchanged_through_acceptance == true and
+        .target_health_checks_passed == true and
+        .source_health_checks_passed == true and
+        .state_isolation_verified == true and
+        (.backup_reference | type == "string" and length > 0) and
+        (.acceptance_reference | type == "string" and length > 0)
+      ' "${OPEN_PLATFORM_ACCEPTANCE_FILE}" >/dev/null 2>&1; then
+      echo "::error::Refusing UAT cleanup until migration, dual-end health, source-retention and six-state isolation acceptance are recorded." >&2
+      exit 1
+    fi
   fi
 
   : "${HOSTS_MANIFEST:=hosts_manifest.json}"
@@ -121,7 +119,7 @@ if [[ "${ENV_STEPS_ROUTE_OUTPUTS_CLOUD_PROVIDER}" == "akamai-cloud" ]]; then
       echo "::error::Refusing Akamai destroy: protected migration source label '${label}' is present in the Terraform manifest." >&2
       exit 1
     fi
-    if [[ "${label}" == *open-platform* ]]; then
+    if [[ "${namespace}" != "open-platform" && "${label}" == *open-platform* ]]; then
       echo "::error::Refusing Akamai destroy: permanent open-platform label '${label}' is present in the Terraform manifest." >&2
       exit 1
     fi
@@ -135,7 +133,7 @@ if [[ "${ENV_STEPS_ROUTE_OUTPUTS_CLOUD_PROVIDER}" == "akamai-cloud" ]]; then
       echo "::error::Refusing Akamai destroy: protected migration source '${label}' appears in Terraform state." >&2
       exit 1
     fi
-    if [[ "${label}" == *open-platform* ]]; then
+    if [[ "${namespace}" != "open-platform" && "${label}" == *open-platform* ]]; then
       echo "::error::Refusing Akamai destroy: permanent open-platform resource '${label}' appears in Terraform state." >&2
       exit 1
     fi

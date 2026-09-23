@@ -144,10 +144,6 @@ jobs:
               web-saas|open-platform|ai-workspace|agent-proxy-jp|agent-proxy-us|agent-proxy-sg|ai-aggregator-gateway|ai-aggregator-cpa-codex-01|ai-aggregator-cpa-codex-02|ai-aggregator-cpa-claude-01|ai-aggregator-cpa-grok-01) ;;
               *) echo "UAT Akamai requires one of the six isolated namespaces; aggregate/legacy workspace '${WORKSPACE}' is forbidden" >&2; exit 1 ;;
             esac
-            if [[ "${DEPLOY_ACTION}" == destroy && "${WORKSPACE}" == open-platform ]]; then
-              echo "open-platform is a permanent UAT service namespace and cannot be destroyed" >&2
-              exit 1
-            fi
           fi
 
       - name: Load Akamai Cloud and state credentials from Vault
