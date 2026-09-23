@@ -33,8 +33,12 @@ if env "${base[@]}" VAULT_ENV_PATH=prod bash "${probe}" >/dev/null 2>&1; then
   echo 'Schema probe accepted PROD.' >&2
   exit 1
 fi
-if env "${base[@]}" TARGET_DSN=postgres://postgres.abcdefghijklmnopqrst:placeholder@aws-0-test.pooler.supabase.com:6543/postgres?sslmode=require bash "${probe}" >/dev/null 2>&1; then
+bad_target_output="$(env "${base[@]}" TARGET_DSN=postgres://postgres.abcdefghijklmnopqrst:placeholder@aws-0-test.pooler.supabase.com:6543/postgres?sslmode=require bash "${probe}" 2>&1)" && {
   echo 'Schema probe accepted a transaction-pooler target.' >&2
   exit 1
-fi
+}
+[[ "${bad_target_output}" == *'port_5432=False'* && "${bad_target_output}" != *'placeholder'* ]] || {
+  echo 'Schema probe did not provide safe, redacted diagnostics.' >&2
+  exit 1
+}
 echo 'UAT Accounts schema read-only probe passed.'
