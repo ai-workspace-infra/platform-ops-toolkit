@@ -25,6 +25,7 @@
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-orchestrator.yml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/hybrid-orchestrator.yml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/external-inventory-state.yml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/ucloud-iac.yml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/gcp-oidc-bootstrap.yml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/ai-aggregator-v1.yml@*"
     ],

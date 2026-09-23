@@ -48,7 +48,7 @@ on:
         required: false
         default: platform
       resource_manifest:
-        description: "GitOps manifest path for Akamai or an external provider"
+        description: "GitOps manifest path for Akamai, UCloud, or an external provider"
         type: string
         required: false
         default: ''
@@ -88,6 +88,10 @@ on:
         description: "AWS OIDC role used only when cloud_provider=aws-cloud"
         type: string
         default: ''
+      ucloud_iac_ref:
+        description: "Pinned iac_modules ref used when cloud_provider=ucloud"
+        type: string
+        default: main
 
 permissions:
   id-token: write
@@ -205,7 +209,7 @@ jobs:
 
   external-inventory:
     needs: prepare-matrix
-    if: ${{ inputs.cloud_provider == 'ucloud' || inputs.cloud_provider == 'ulighthost' }}
+    if: ${{ inputs.cloud_provider == 'ulighthost' }}
     uses: ./.github/workflows/external-inventory-state.yml
     with:
       cloud_provider: ${{ inputs.cloud_provider }}
@@ -216,4 +220,20 @@ jobs:
       resource_manifest: ${{ inputs.resource_manifest }}
       gitops_repo_name: ${{ inputs.gitops_repo_name || 'ai-workspace-infra/gitops' }}
       gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
+    secrets: inherit
+
+  ucloud:
+    needs: prepare-matrix
+    if: ${{ inputs.cloud_provider == 'ucloud' }}
+    uses: ./.github/workflows/ucloud-iac.yml
+    with:
+      deploy_action: ${{ inputs.deploy_action || 'plan' }}
+      vault_env_path: ${{ inputs.vault_env_path || 'uat' }}
+      project: ${{ inputs.project || 'svc.plus' }}
+      account: ${{ inputs.state_account }}
+      workspace: ${{ inputs.workspace || 'platform' }}
+      resource_manifest: ${{ inputs.resource_manifest || '' }}
+      gitops_repo_name: ${{ inputs.gitops_repo_name || 'ai-workspace-infra/gitops' }}
+      gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
+      iac_ref: ${{ inputs.ucloud_iac_ref || 'main' }}
     secrets: inherit

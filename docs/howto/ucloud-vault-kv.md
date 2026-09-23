@@ -46,11 +46,9 @@ through a secure prompt before running the script.
 
 ## Current application boundary
 
-The current UCloud route in `config/iac_provider_registry.json` classifies
-UCloud as `provisioner: existing` with
-`credential_mode: vault-existing-host-facts`. The
-`external-inventory-state` workflow records existing-resource inventory and
-state metadata; it does not read this UCloud credential path or run Terraform.
-The Vault record documents the future provider credential contract. Consuming
-it requires a separate provisioning change to the registry, workflow routing,
-and environment Vault read policies.
+UCloud is classified as `provisioner: terraform` with
+`terraform_tree: ucloud`. The dedicated `ucloud-iac.yml` workflow reads this
+credential path and the shared `iac_state` path, then renders and runs the
+standard `ucloud/ucloud` Terraform modules. ULightHost remains classified as
+`provisioner: existing` and is the only provider routed through
+`external-inventory-state.yml`.

@@ -6,7 +6,7 @@ on:
       cloud_provider:
         type: choice
         required: true
-        options: [ucloud, ulighthost]
+        options: [ulighthost]
       vault_env_path:
         type: choice
         required: true

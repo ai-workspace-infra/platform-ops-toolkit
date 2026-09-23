@@ -11,8 +11,8 @@
 #   UCLOUD_BOOTSTRAP_ACTION=write|check (defaults to write)
 #
 # This initializes credentials for future provider execution. The current
-# platform-ops UCloud route only records existing-resource inventory and does
-# not consume these credentials or run Terraform.
+# The standard UCloud Terraform workflow consumes these credentials. ULightHost
+# remains on the separate existing-resource inventory route.
 set -euo pipefail
 
 environment="${UCLOUD_ENVIRONMENT:?UCLOUD_ENVIRONMENT is required (sit, uat or prod)}"

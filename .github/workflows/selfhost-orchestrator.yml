@@ -102,7 +102,7 @@ on:
         type: choice
         options: [all, vault, iam, observability]
       cloud_provider:
-        description: "云服务商（按 provider registry 选择；UAT 默认 Akamai Cloud；UCloud/Ulighthost existing 由 external adapter 处理）"
+        description: "云服务商（按 provider registry 选择；UAT 默认 Akamai Cloud；ULightHost existing 由 external adapter 处理）"
         required: true
         default: "akamai-cloud"
         type: choice
