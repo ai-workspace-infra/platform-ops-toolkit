@@ -113,6 +113,19 @@ sql = (root / '.github/scripts/serverless/uat_accounts_baseline_2026091401.sql')
 for forbidden in ('DROP TABLE', 'TRUNCATE ', 'DELETE FROM ', 'UPDATE PUBLIC.USERS'):
     if forbidden in sql.upper():
         raise SystemExit(f'Expand-only UAT baseline contains {forbidden}')
+for index_name in (
+    'overlay_registrations_owner_created_idx',
+    'overlay_registrations_network_pending_idx',
+    'overlay_registrations_network_created_idx',
+    'overlay_registrations_identity_pending_idx',
+):
+    if f'CREATE INDEX IF NOT EXISTS {index_name}' not in sql:
+        raise SystemExit(f'UAT baseline must repair missing prior index {index_name} idempotently')
+if "IF overlay_index_columns <> 7" not in sql:
+    raise SystemExit('UAT baseline must verify overlay index columns before creating indexes')
+adopter = (root / '.github/scripts/serverless/adopt_accounts_uat_baseline.sh').read_text()
+if '"2026091401:false:4:4"' not in adopter:
+    raise SystemExit('UAT baseline post-check must verify all repaired overlay indexes')
 PY
 
 echo "UAT Accounts schema migration dispatch contract passed."
