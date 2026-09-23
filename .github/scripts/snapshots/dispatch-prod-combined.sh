@@ -112,6 +112,7 @@ aws_selfhost_url="$(dispatch_and_assert_ref selfhost-orchestrator.yml \
   -f "deploy_tag=${release_tag}" \
   -f source_host=install.svc.plus -f source_domain_base=svc.plus \
   -f target_domain_base=svc.plus -f dns_mode=prod-cutover \
+  -f "skip_stripe_catalog=${skip_stripe_catalog}" \
   -f agent_controller_url=https://accounts-serverless-prod.svc.plus | tail -n 1)"
 echo "Dispatched production existing AWS Agent Proxy pool (on-demand only): ${aws_selfhost_url}"
 
@@ -122,6 +123,7 @@ akamai_selfhost_url="$(dispatch_and_assert_ref selfhost-orchestrator.yml \
   -f "deploy_tag=${release_tag}" \
   -f source_host=install.svc.plus -f source_domain_base=svc.plus \
   -f target_domain_base=svc.plus -f dns_mode=prod-cutover \
+  -f "skip_stripe_catalog=${skip_stripe_catalog}" \
   -f agent_controller_url=https://accounts-serverless-prod.svc.plus | tail -n 1)"
 echo "Dispatched production Akamai JP/US/SG plus Ulighthost PH Agent Proxy pool: ${akamai_selfhost_url}"
 

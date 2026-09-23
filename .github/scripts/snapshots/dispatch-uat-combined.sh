@@ -160,6 +160,7 @@ dispatch_selfhost_namespace() {
     -f source_domain_base=svc.plus \
     -f target_domain_base=onwalk.net \
     -f "dns_mode=${dns_mode}" \
+    -f "skip_stripe_catalog=${skip_stripe_catalog}" \
     -f "agent_controller_url=${agent_controller_url}"
 }
 

@@ -6,6 +6,25 @@ dispatcher="${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
 workdir="$(mktemp -d)"
 trap 'rm -rf "${workdir}"' EXIT
 
+assert_selfhost_skip_stripe_catalog() {
+  local log_file="${1:?dispatch log is required}"
+  local expected="${2:?expected flag value is required}"
+  local dispatch_lines
+
+  dispatch_lines="$(grep -n '^workflow run selfhost-orchestrator.yml ' "${log_file}" | cut -d: -f1)"
+  [[ -n "${dispatch_lines}" ]] || {
+    echo "no selfhost dispatches found in ${log_file}" >&2
+    return 1
+  }
+
+  while IFS= read -r line_number; do
+    sed -n "${line_number}p" "${log_file}" | grep -Fq -- "-f skip_stripe_catalog=${expected}" || {
+      echo "selfhost dispatch on line ${line_number} did not pass skip_stripe_catalog=${expected}" >&2
+      return 1
+    }
+  done <<<"${dispatch_lines}"
+}
+
 cat > "${workdir}/gh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -95,6 +114,7 @@ grep -Fq -- '-f dns_mode=none' "${workdir}/gh.log"
 grep -Fq -- '-f agent_proxy_plan=1C2G' "${workdir}/gh.log"
 grep -Fq -- '-f deploy_tag=uat-daily-build-2026.08.21-r5' "${workdir}/gh.log"
 grep -Fq -- '-f agent_controller_url=https://accounts-serverless-uat.onwalk.net' "${workdir}/gh.log"
+assert_selfhost_skip_stripe_catalog "${workdir}/gh.log" true
 grep -Fq -- '-f iac_ref=0123456789012345678901234567890123456789' "${workdir}/gh.log"
 grep -Fq -- '-f gitops_ref=0123456789012345678901234567890123456789' "${workdir}/gh.log"
 grep -Fq -- 'contents/vpn-overlay/uat/xconnect-lab.json?ref=0123456789012345678901234567890123456789' "${workdir}/gh.log"
@@ -135,11 +155,13 @@ GH_LOG="${workdir}/gh-uat-explicit-migration.log" \
 PATH="${workdir}:${PATH}" \
 GH_TOKEN=test-token \
 SNAPSHOT_TAG=uat-daily-build-2026.08.21-r5 \
+SKIP_STRIPE_CATALOG=false \
 ENABLE_MIGRATION=true \
 UAT_SERVERLESS_WAIT_TIMEOUT_SECONDS=30 \
 UAT_SERVERLESS_WAIT_INTERVAL_SECONDS=1 \
 bash "${dispatcher}" >/dev/null
 grep -Fq -- '-f operation=deploy+migrate' "${workdir}/gh-uat-explicit-migration.log"
+assert_selfhost_skip_stripe_catalog "${workdir}/gh-uat-explicit-migration.log" false
 
 # One-time baseline adoption is part of a deploy, never a PROD data sync.
 GH_LOG="${workdir}/gh-uat-baseline.log" \
@@ -189,6 +211,7 @@ SKIP_STRIPE_CATALOG=true \
 bash "${prod_dispatcher}"
 
 grep -Fq -- 'workflow run serverless-orchestrator.yml --repo ai-workspace-infra/platform-ops-toolkit --ref v2026.08.21 -f operation=upgrade' "${workdir}/gh-prod-default.log"
+assert_selfhost_skip_stripe_catalog "${workdir}/gh-prod-default.log" true
 
 # Test PROD dispatch with ENABLE_MIGRATION=true (dispatches operation=deploy+migrate)
 GH_LOG="${workdir}/gh-prod-migration.log" \
@@ -206,6 +229,7 @@ grep -Fq -- '-f include_external_agent_proxy=false' "${workdir}/gh-prod-migratio
 grep -Fq -- '-f cloud_provider=akamai-cloud' "${workdir}/gh-prod-migration.log"
 grep -Fq -- '-f akamai_account=manbuzhe2026' "${workdir}/gh-prod-migration.log"
 grep -Fq -- '-f include_external_agent_proxy=true' "${workdir}/gh-prod-migration.log"
+assert_selfhost_skip_stripe_catalog "${workdir}/gh-prod-migration.log" true
 if grep -Fq 'Spot/60m' "${workdir}/gh-prod-migration.log"; then
   echo "production daily dispatch must not select an AWS Spot pool" >&2
   exit 1
