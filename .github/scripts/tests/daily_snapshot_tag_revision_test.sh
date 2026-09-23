@@ -21,6 +21,9 @@ case "$1" in
     ;;
   api)
     case "$*" in
+      *"/releases/tags/"*)
+        printf '%s\n' '["release-manifest.json"]'
+        ;;
       *"/commits/"*)
         printf 'new-sha\n'
         ;;

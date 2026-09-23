@@ -31,6 +31,11 @@ repo_requires_release_manifest() {
   esac
 }
 
+release_asset_names() {
+  local repo="$1"
+  gh api "repos/${repo}/releases/tags/${SNAPSHOT_TAG}" --jq '[.assets[].name]' 2>/dev/null || printf '[]'
+}
+
 ci_trigger_for_repo() {
   case "$1" in
     ai-workspace-services/accounts|ai-workspace-services/billing-service|ai-workspace-services/content-service)
@@ -154,7 +159,7 @@ for repo in "${repos[@]}"; do
 
     required_asset="$(release_asset_for_repo "$repo")"
     if [[ -n "${required_asset}" ]]; then
-      assets="$(gh release view "$SNAPSHOT_TAG" -R "$repo" --json assets --jq '[.assets[].name]' 2>/dev/null || printf '[]')"
+      assets="$(release_asset_names "$repo")"
       if jq -e --arg asset "${required_asset}" --arg repo "$repo" \
         'index($asset) != null and ($repo != "ai-workspace-services/frontend-router" or (index("SHA256SUMS") != null and index("release-metadata.json") != null))' \
         <<< "$assets" >/dev/null; then
@@ -166,7 +171,7 @@ for repo in "${repos[@]}"; do
     elif ! repo_requires_release_manifest "$repo" || ! requires_release_manifest; then
       record "$repo" "build_succeeded" "$run_sha" "CI run ${run_id} completed"
     else
-      assets="$(gh release view "$SNAPSHOT_TAG" -R "$repo" --json assets --jq '[.assets[].name]' 2>/dev/null || printf '[]')"
+      assets="$(release_asset_names "$repo")"
       if jq -e 'index("release-manifest.json") != null' <<< "$assets" >/dev/null; then
         release_url="$(gh release view "$SNAPSHOT_TAG" -R "$repo" --json url --jq .url 2>/dev/null || true)"
         record "$repo" "build_succeeded" "$run_sha" "CI run ${run_id}; release manifest ${release_url}"
