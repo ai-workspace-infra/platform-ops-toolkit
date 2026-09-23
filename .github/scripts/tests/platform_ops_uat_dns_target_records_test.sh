@@ -69,7 +69,7 @@ EOF
 cat >"${test_dir}/cmdb.json" <<'EOF'
 {
   "console-uat.onwalk.net": {
-    "ip": "45.77.128.182",
+    "ip": "192.0.2.138",
     "groups": ["web_saas"]
   },
   "jp-xconnect.onwalk.net": {
@@ -98,28 +98,52 @@ output="$({
   "${reconciler}"
 } 2>&1)"
 
-grep -Fq 'Created console-selfhost-uat.onwalk.net -> 45.77.128.182 (A)' <<<"${output}"
-grep -Fq 'Created accounts-selfhost-uat.onwalk.net -> 45.77.128.182 (A)' <<<"${output}"
-grep -Fq 'Created billing-selfhost-uat.onwalk.net -> 45.77.128.182 (A)' <<<"${output}"
+grep -Fq 'Created console-selfhost-uat.onwalk.net -> 192.0.2.138 (A)' <<<"${output}"
+grep -Fq 'Created accounts-selfhost-uat.onwalk.net -> 192.0.2.138 (A)' <<<"${output}"
+grep -Fq 'Created billing-selfhost-uat.onwalk.net -> 192.0.2.138 (A)' <<<"${output}"
 grep -Fq 'Created console-uat.onwalk.net -> console-selfhost-uat.onwalk.net (CNAME)' <<<"${output}"
 grep -Fq 'Created accounts-uat.onwalk.net -> accounts-selfhost-uat.onwalk.net (CNAME)' <<<"${output}"
-grep -Fq 'Created postgresql-selfhost-uat.onwalk.net -> 45.77.128.182 (A)' <<<"${output}"
+grep -Fq 'Created postgresql-selfhost-uat.onwalk.net -> 192.0.2.138 (A)' <<<"${output}"
+grep -Fq 'Created bridge-uat.onwalk.net -> 192.0.2.138 (A)' <<<"${output}"
 grep -Fq 'Created jp-xconnect.onwalk.net -> 167.179.105.137 (A)' <<<"${output}"
 grep -Fq 'Created us-xconnect.onwalk.net -> 167.179.110.129 (A)' <<<"${output}"
-grep -Fq 'completed for 8 desired records' <<<"${output}"
+grep -Fq 'completed for 9 desired records' <<<"${output}"
 
 cut -f3 "${test_dir}/curl.log" | jq -s -e \
-  'any(.[]; .type == "A" and .name == "console-selfhost-uat.onwalk.net" and .content == "45.77.128.182")' >/dev/null
+  'any(.[]; .type == "A" and .name == "console-selfhost-uat.onwalk.net" and .content == "192.0.2.138")' >/dev/null
 cut -f3 "${test_dir}/curl.log" | jq -s -e \
-  'any(.[]; .type == "A" and .name == "accounts-selfhost-uat.onwalk.net" and .content == "45.77.128.182")' >/dev/null
+  'any(.[]; .type == "A" and .name == "accounts-selfhost-uat.onwalk.net" and .content == "192.0.2.138")' >/dev/null
 cut -f3 "${test_dir}/curl.log" | jq -s -e \
-  'any(.[]; .type == "A" and .name == "billing-selfhost-uat.onwalk.net" and .content == "45.77.128.182")' >/dev/null
+  'any(.[]; .type == "A" and .name == "billing-selfhost-uat.onwalk.net" and .content == "192.0.2.138")' >/dev/null
 cut -f3 "${test_dir}/curl.log" | jq -s -e \
-  'any(.[]; .type == "A" and .name == "postgresql-selfhost-uat.onwalk.net" and .content == "45.77.128.182")' >/dev/null
+  'any(.[]; .type == "A" and .name == "postgresql-selfhost-uat.onwalk.net" and .content == "192.0.2.138")' >/dev/null
+cut -f3 "${test_dir}/curl.log" | jq -s -e \
+  'any(.[]; .type == "A" and .name == "bridge-uat.onwalk.net" and .content == "192.0.2.138")' >/dev/null
 cut -f3 "${test_dir}/curl.log" | jq -s -e \
   'any(.[]; .type == "A" and .name == "jp-xconnect.onwalk.net" and .content == "167.179.105.137")' >/dev/null
 cut -f3 "${test_dir}/curl.log" | jq -s -e \
   'any(.[]; .type == "A" and .name == "us-xconnect.onwalk.net" and .content == "167.179.110.129")' >/dev/null
+
+# The UAT DNS reconciler must fail closed for PROD before making any API call.
+set +e
+prod_output="$({
+  PATH="${test_dir}/bin:${PATH}" \
+  MOCK_CURL_LOG="${test_dir}/prod-curl.log" \
+  CLOUDFLARE_DNS_API_TOKEN="test-token" \
+  CLOUDFLARE_API_BASE_OVERRIDE="https://cloudflare.invalid/client/v4" \
+  DEPLOY_ENV="prod" \
+  SOURCE_DOMAIN_BASE="svc.plus" \
+  TARGET_DOMAIN_BASE="onwalk.net" \
+  CMDB_FILE="${test_dir}/cmdb.json" \
+  GITOPS_ROUTING_CONFIG="${test_dir}/routing.json" \
+  "${reconciler}"
+} 2>&1)"
+prod_exit=$?
+set -e
+
+[[ "${prod_exit}" -ne 0 ]]
+grep -Fq 'UAT DNS reconciler requires DEPLOY_ENV=uat.' <<<"${prod_output}"
+[[ ! -e "${test_dir}/prod-curl.log" ]]
 
 cat >"${test_dir}/duplicate-cmdb.json" <<'EOF'
 {
