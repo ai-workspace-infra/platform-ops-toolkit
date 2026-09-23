@@ -17,6 +17,7 @@ case "$*" in
   *"to_regclass('public.bridge_credentials')"*) printf 't\n' ;;
   *"to_regclass('public.overlay_registrations')"*) printf 't\n' ;;
   *"transport_kind"*) printf '4\n' ;;
+  *"unnest(ARRAY"*) printf 'bridge_credentials_active_user_tenant_uk=true,bridge_credentials_user_tenant_idx=true,overlay_registrations_identity_pending_idx=true,overlay_registrations_network_created_idx=true,overlay_registrations_network_pending_idx=true,overlay_registrations_owner_created_idx=true\n' ;;
   *"information_schema.columns"*) printf '0\n' ;;
   *) exit 1 ;;
 esac
@@ -36,6 +37,10 @@ output="$(env "${base[@]}" bash "${probe}")"
 }
 [[ "${output}" == *'subscription_columns=4/4, bridge_credentials=t, overlay_registrations=t, overlay_transport_columns=4/4'* ]] || {
   echo 'Read-only UAT schema probe did not report prior migration shape.' >&2
+  exit 1
+}
+[[ "${output}" == *'prior migration indexes: bridge_credentials_active_user_tenant_uk=true'* && "${output}" == *'overlay_registrations_owner_created_idx=true'* ]] || {
+  echo 'Read-only UAT schema probe did not report prior migration index presence.' >&2
   exit 1
 }
 output="$(env "${base[@]}" TARGET_DSN=postgres://postgres.abcdefghijklmnopqrst:placeholder@aws-0-test.pooler.supabase.com:5432/postgres bash "${probe}")"
