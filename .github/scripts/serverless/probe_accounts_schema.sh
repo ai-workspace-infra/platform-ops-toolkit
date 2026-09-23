@@ -7,32 +7,9 @@ fail() { echo "::error::$*" >&2; exit 2; }
 command -v psql >/dev/null || fail "psql is required."
 command -v python3 >/dev/null || fail "Python 3 is required."
 
-if ! python3 - <<'PY'
-import os
-import sys
-from urllib.parse import parse_qs, unquote, urlsplit
-
-try:
-    url = urlsplit(os.environ["TARGET_DSN"])
-    checks = {
-        "scheme": url.scheme in {"postgres", "postgresql"},
-        "project_user": unquote(url.username or "") == "postgres." + os.environ["PROJECT_REF"],
-        "session_pooler_host": (url.hostname or "").endswith(".pooler.supabase.com"),
-        "port_5432": url.port == 5432,
-        "database_postgres": url.path == "/postgres",
-        "tls_mode": parse_qs(url.query).get("sslmode", [""])[0] in {"require", "verify-ca", "verify-full"},
-    }
-except (KeyError, ValueError):
-    checks = {"url_parse": False}
-if not all(checks.values()):
-    print("UAT target format checks: " + ", ".join(f"{key}={value}" for key, value in checks.items()), file=sys.stderr)
-    raise SystemExit(1)
-PY
-then
+if ! dsn="$(python3 "$(dirname "${BASH_SOURCE[0]}")/normalize_accounts_uat_dsn.py")"; then
   fail "Target connection does not match the UAT Supabase session pooler project."
 fi
-
-dsn="${TARGET_DSN}"
 table="$(psql "${dsn}" -X -v ON_ERROR_STOP=1 -Atqc "SELECT COALESCE(to_regclass('public.schema_migrations')::text, 'absent')" 2>/dev/null)" || fail "UAT database schema probe failed."
 version="absent"
 if [[ "${table}" != "absent" ]]; then

@@ -13,26 +13,7 @@ target_dsn="${TARGET_DSN:-}"
 project_ref="${PROJECT_REF:-}"
 [[ "${project_ref}" =~ ^[a-z0-9]{20}$ ]] || fail "Vault PROJECT_REF is missing or invalid."
 command -v python3 >/dev/null || fail "Python 3 is required to validate the target connection."
-if ! TARGET_DSN="${target_dsn}" PROJECT_REF="${project_ref}" python3 - <<'PY'
-import os
-from urllib.parse import parse_qs, unquote, urlsplit
-
-try:
-    url = urlsplit(os.environ["TARGET_DSN"])
-    query = parse_qs(url.query)
-    valid = (
-        url.scheme in {"postgres", "postgresql"}
-        and unquote(url.username or "") == "postgres." + os.environ["PROJECT_REF"]
-        and (url.hostname or "").endswith(".pooler.supabase.com")
-        and url.port == 5432
-        and url.path == "/postgres"
-        and query.get("sslmode", [""])[0] in {"require", "verify-ca", "verify-full"}
-    )
-except (KeyError, ValueError):
-    valid = False
-raise SystemExit(0 if valid else 1)
-PY
-then
+if ! target_dsn="$(TARGET_DSN="${target_dsn}" PROJECT_REF="${project_ref}" python3 "$(dirname "${BASH_SOURCE[0]}")/normalize_accounts_uat_dsn.py")"; then
   fail "Target connection does not match the UAT Supabase session pooler project."
 fi
 
