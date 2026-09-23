@@ -534,6 +534,9 @@ jobs:
       SUPABASE_VAULT_PATH: ${{ inputs.supabase_vault_path || format('kv/data/{0}/serverless/supabase', inputs.vault_env_path || 'sit') }}
       SUPABASE_SOURCE_VAULT_PATH: ${{ inputs.supabase_source_vault_path || format('kv/data/{0}/accounts-migration', inputs.vault_env_path || 'sit') }}
       SUPABASE_SOURCE_BACKEND: ${{ inputs.accounts_source_backend || 'supabase' }}
+      # The UAT Vault copy holds a read-only PROD DSN under this fixed key.
+      # workflow_dispatch has no source-key input; do not render an empty key.
+      SUPABASE_SOURCE_DSN_KEY: MIGRATION_SOURCE_DSN
       SUPABASE_TARGET_DSN_KEY: ${{ inputs.supabase_target_dsn_key || 'DATABASE_SESSION_POOLER_URL' }}
       SUPABASE_TARGET_CONNECTION_MODE: ${{ inputs.supabase_target_connection_mode || 'session_pooler' }}
       SUPABASE_SOURCE_TUNNEL_HOST: ${{ inputs.supabase_source_tunnel_host }}

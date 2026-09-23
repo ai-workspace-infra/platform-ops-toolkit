@@ -32,6 +32,11 @@ if "accounts_merge" not in replace_job["if"]:
     raise SystemExit("schema migration job must exclude accounts_merge")
 if "accounts_merge" not in merge_job["if"]:
     raise SystemExit("Accounts merge job must be gated on accounts_merge")
+if merge_job["env"].get("SUPABASE_SOURCE_DSN_KEY") != "MIGRATION_SOURCE_DSN":
+    raise SystemExit("Accounts merge must use the UAT Vault read-only PROD source key")
+source_step = next(step for step in merge_job["steps"] if step.get("id") == "vault_source_supabase")
+if "${{ env.SUPABASE_SOURCE_DSN_KEY }}" not in source_step["with"]["secrets"]:
+    raise SystemExit("Accounts merge source Vault step must use the configured key")
 PY
 
 grep -Fq 'TARGET_STRATEGY="${SUPABASE_TARGET_EXISTING_STRATEGY:-reject}"' "${replace_script}"
@@ -50,4 +55,3 @@ grep -Fq 'source Supabase DSN (SUPABASE_SOURCE_DSN) is required' "${merge_script
 grep -Fq 'Exporting Accounts snapshot directly from source Supabase' "${merge_script}"
 
 echo "supabase_target_strategy_contract_test: PASS"
-
