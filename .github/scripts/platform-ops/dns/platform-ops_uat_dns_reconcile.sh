@@ -67,6 +67,7 @@ expected_console_selfhost_name="console-selfhost-${DEPLOY_ENV}.${UAT_ZONE}"
 expected_accounts_selfhost_name="accounts-selfhost-${DEPLOY_ENV}.${UAT_ZONE}"
 expected_billing_name="billing-selfhost-${DEPLOY_ENV}.${UAT_ZONE}"
 expected_postgresql_name="postgresql-selfhost-${DEPLOY_ENV}.${UAT_ZONE}"
+expected_bridge_name="bridge-${DEPLOY_ENV}.${UAT_ZONE}"
 canonical_records_json="$(jq -c -er '.spec.runtime.routing.dns.canonical_records' "${GITOPS_ROUTING_CONFIG}")"
 if [[ "${agent_proxy_only}" != true ]]; then
   actual_console_target="$(jq -r --arg name "${expected_console_name}" '.[$name] // empty' <<<"${canonical_records_json}")"
@@ -321,6 +322,7 @@ if [[ "${agent_proxy_only}" != true ]]; then
   reconcile_record "${expected_accounts_selfhost_name}" A "${web_saas_ip}" 1
   reconcile_record "${expected_billing_name}" A "${web_saas_ip}" 1
   reconcile_record "${expected_postgresql_name}" A "${web_saas_ip}" 1
+  reconcile_record "${expected_bridge_name}" A "${web_saas_ip}" 1
 fi
 
 if [[ "${#agent_proxy_records[@]}" -gt 0 ]]; then
@@ -331,7 +333,7 @@ fi
 
 record_count="${#agent_proxy_records[@]}"
 if [[ "${agent_proxy_only}" != true ]]; then
-  record_count=$((canonical_count + 4 + ${#agent_proxy_records[@]}))
+  record_count=$((canonical_count + 5 + ${#agent_proxy_records[@]}))
 fi
 agent_proxy_summary=""
 if [[ "${#agent_proxy_records[@]}" -gt 0 ]]; then
