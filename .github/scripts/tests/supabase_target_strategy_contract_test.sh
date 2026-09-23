@@ -32,6 +32,8 @@ if "accounts_merge" not in replace_job["if"]:
     raise SystemExit("schema migration job must exclude accounts_merge")
 if "accounts_merge" not in merge_job["if"]:
     raise SystemExit("Accounts merge job must be gated on accounts_merge")
+if "inputs.vault_env_path == 'uat'" not in merge_job["if"]:
+    raise SystemExit("Accounts merge must be UAT-only")
 if merge_job["env"].get("SUPABASE_SOURCE_DSN_KEY") != "MIGRATION_SOURCE_DSN":
     raise SystemExit("Accounts merge must use the UAT Vault read-only PROD source key")
 source_step = next(step for step in merge_job["steps"] if step.get("id") == "vault_source_supabase")
@@ -53,5 +55,9 @@ grep -Fq 'Accounts merge requires SUPABASE_MIGRATION_MODE=metadata_and_data' "${
 grep -Fq 'SOURCE_BACKEND="${SUPABASE_SOURCE_BACKEND:-supabase}"' "${merge_script}"
 grep -Fq 'source Supabase DSN (SUPABASE_SOURCE_DSN) is required' "${merge_script}"
 grep -Fq 'Exporting Accounts snapshot directly from source Supabase' "${merge_script}"
+grep -Fq 'VAULT_ENV_PATH:-}" == "uat"' "${merge_script}"
+grep -Fq -- '--preserve-existing-users' "${merge_script}"
+grep -Fq -- '--skip-sessions' "${merge_script}"
+grep -Fq 'updated=0' "${merge_script}"
 
 echo "supabase_target_strategy_contract_test: PASS"

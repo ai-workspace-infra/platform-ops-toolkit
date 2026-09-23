@@ -525,9 +525,10 @@ jobs:
   supabase_accounts_merge_migration:
     name: Merge Accounts Data into Supabase Cloud
     needs: validate_accounts_migration_target
-    if: ${{ (inputs.migration_scope || 'accounts') == 'accounts' && (inputs.accounts_target_backend || 'vps') == 'supabase' && (inputs.accounts_migration_mode || 'data') == 'metadata_and_data' && (inputs.supabase_target_existing_strategy || 'reject') == 'accounts_merge' }}
+    if: ${{ inputs.vault_env_path == 'uat' && (inputs.migration_scope || 'accounts') == 'accounts' && (inputs.accounts_target_backend || 'vps') == 'supabase' && (inputs.accounts_migration_mode || 'data') == 'metadata_and_data' && (inputs.supabase_target_existing_strategy || 'reject') == 'accounts_merge' }}
     runs-on: ${{ inputs.runner_type || 'ubuntu-latest' }}
     env:
+      VAULT_ENV_PATH: ${{ inputs.vault_env_path }}
       VAULT_ROLE: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'sit' }}
       SUPABASE_EXPECTED_PROJECT_REF: ${{ inputs.supabase_project_ref }}
       SUPABASE_METADATA_DRY_RUN: ${{ inputs.supabase_metadata_dry_run && 'true' || 'false' }}
