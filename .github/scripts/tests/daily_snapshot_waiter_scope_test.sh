@@ -17,7 +17,11 @@ set -euo pipefail
 
 case "$1" in
   api)
-    printf 'test-sha\n'
+    if [[ "$*" == *"/releases/tags/"* ]]; then
+      printf '%s\n' '["release-manifest.json"]'
+    else
+      printf 'test-sha\n'
+    fi
     ;;
   run)
     case "$2" in

@@ -14,7 +14,11 @@ set -euo pipefail
 
 case "$1" in
   api)
-    printf 'xray-test-sha\n'
+    if [[ "$*" == *"/releases/tags/"* ]]; then
+      printf '%s\n' '["xray-exporter-linux-amd64","xray-exporter-linux-arm64"]'
+    else
+      printf 'xray-test-sha\n'
+    fi
     ;;
   run)
     case "$2" in
@@ -28,7 +32,7 @@ case "$1" in
     ;;
   release)
     if [[ " $* " == *" --json assets "* ]]; then
-      printf '%s\n' '["xray-exporter-linux-amd64","xray-exporter-linux-arm64"]'
+      printf '%s\n' '[]'
     else
       printf '%s\n' 'https://github.example/xray-release'
     fi
