@@ -16,14 +16,24 @@ provider. If a member has a public IP, firewall policy still denies public SSH
 and Vault API access. A Gateway behind NAT needs an inbound mapping or an
 outbound relay/rendezvous; NAT egress alone cannot make a listener reachable.
 
-The stable client endpoint is `vault.svc.plus` served by Caddy with valid TLS:
+The only public inbound port is TCP `443`. The stable client endpoint is
+`vault.svc.plus` served by Caddy with valid TLS:
 
 ```text
 vault.svc.plus:443 -> Caddy (TLS termination) -> Vault API over loopback/private network
 ```
 
 Do not publish Vault's port 8200 directly. Caddy is the only public HTTPS
-application entry; node administration remains on the private operator path.
+application entry. Public firewall rules must deny SSH, Vault API 8200,
+monitoring/exporter ports, and standalone XConnect ports. Node administration,
+Vault peer traffic, and monitoring use XConnect One/Gateway or another private
+zero-trust path.
+
+The XConnect transport must either share the approved 443 entry without
+weakening Caddy/Vault TLS routing, or the Gateway must establish an outbound
+tunnel to an approved relay. Do not open another inbound port as a workaround.
+Members may use NAT egress or their own public IP to reach this 443 entry; in
+both cases, a public source address is not trusted by itself.
 If Caddy is co-located on `vault-prod-0`, that host becomes a single failure
 point for both the XConnect Gateway and public TLS entry even while the other
 two Raft voters remain healthy. To avoid that, use redundant Caddy ingress
@@ -75,8 +85,8 @@ the required provider-neutral Vault service pipeline. Implementation needs:
   declarations;
 - renderer/workflow support for per-node provider, account, and state;
 - a reviewed provider allowlist and isolated Vault JWT/WIF role per provider;
-- a gateway reachability/firewall contract that exposes only required
-  XConnect transport and Caddy TLS, never Vault API or SSH publicly;
+- a gateway reachability/firewall contract allowing only inbound TCP 443,
+  never Vault API, SSH, monitoring, or standalone XConnect ports publicly;
 - Caddy TLS certificate/renewal, private upstream, and ingress health/failover
   declarations for `vault.svc.plus`;
 - CI fixtures covering same-provider and mixed-provider three-node plans.

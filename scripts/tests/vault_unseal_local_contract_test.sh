@@ -14,6 +14,8 @@ grep -Fq -- '--data-binary @-' "$script"
 grep -Fq 'unset unseal_share' "$script"
 grep -Fq 'Vault is not initialized; refusing unseal' "$script"
 grep -Fq 'Refusing non-loopback Vault address' "$script"
+grep -Fq 'The only public inbound port is TCP 443' "${repo_root}/docs/vault/manual-unseal.md"
+grep -Fq 'The only public inbound port is TCP `443`' "${repo_root}/docs/vault/multi-cloud-prod-iac-pipeline.md"
 
 if rg -n 'VAULT_TOKEN|root.token|unseal_keys_b64|credentials.json|mktemp|tee ' "$script"; then
   echo "Unseal helper must not accept/persist root credentials, aggregate keys, or write temporary key files" >&2

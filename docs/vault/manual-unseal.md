@@ -29,14 +29,14 @@ approved access path. Do not enable public SSH only to install this helper.
 
 ## Node networking
 
-`vault-prod-0` hosts the PROD XConnect Gateway and must have a reachable
-XConnect entrypoint (a narrowly exposed XConnect transport port or an approved
-public relay). `vault-prod-1` and `vault-prod-2` are XConnect One members. They
-may reach the Gateway through NAT egress or from their own public IPs. Public
-IP does not authorize public SSH or Vault API access: expose only the required
-XConnect transport and keep Vault/client TLS on its intended secured entry.
-If the Gateway itself is behind NAT with no inbound mapping and no outbound
-relay/rendezvous, the other nodes cannot connect to it.
+`vault-prod-0` hosts the PROD XConnect Gateway. `vault-prod-1` and
+`vault-prod-2` are XConnect One members; they may reach the Gateway through NAT
+egress or from their own public IPs. The only public inbound port is TCP 443
+for the Caddy TLS entry `vault.svc.plus`. Vault 8200, SSH, monitoring, and
+standalone XConnect ports remain private. XConnect must share the approved 443
+entry or use an outbound tunnel to an approved relay. A public member IP is not
+trusted by itself. If the Gateway is behind NAT without a reachable 443 entry
+or outbound relay/rendezvous, members cannot connect to it.
 
 ## Unseal procedure
 
