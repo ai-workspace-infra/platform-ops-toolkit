@@ -1,0 +1,46 @@
+name: Vault shared GCP infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      cloud_provider:
+        description: Provider for this shared Vault deployment (GCP only until the other renderers are wired).
+        type: choice
+        required: true
+        default: gcp-cloud
+        options: [gcp-cloud]
+      deploy_action:
+        description: Terraform action. Run plan first; apply is protected by the prod GitHub Environment.
+        type: choice
+        required: true
+        default: plan
+        options: [plan, apply]
+      gitops_repo_ref:
+        description: GitOps ref containing the reviewed Vault resource declaration.
+        type: string
+        required: true
+        default: main
+      iac_ref:
+        description: Reviewed iac_modules commit containing the GCP Vault renderer and VM modules.
+        type: string
+        required: true
+        default: 939eed3c7cd470be37d5da1d8f9bbce1b7f4eef1
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  gcp-shared:
+    if: ${{ inputs.cloud_provider == 'gcp-cloud' }}
+    uses: ./.github/workflows/gcp-iac-pipeline.yml
+    with:
+      deploy_action: ${{ inputs.deploy_action }}
+      vault_env_path: shared
+      github_environment: prod
+      gcp_account_id: open-platform-prod
+      gcp_resource_manifest: resources/xworktech.com/shared/gcp/vault-shared.yaml
+      gitops_repo_name: https://github.com/ai-workspace-infra/gitops.git
+      gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
+      iac_ref: ${{ inputs.iac_ref }}
+    secrets: inherit

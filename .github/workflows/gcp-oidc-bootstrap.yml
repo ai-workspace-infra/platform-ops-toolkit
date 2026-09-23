@@ -8,7 +8,7 @@ on:
         type: choice
         required: true
         default: uat
-        options: [uat, prod]
+        options: [uat, prod, shared]
       action:
         description: plan validates the declaration; apply reconciles GCP WIF and IAM.
         type: choice
@@ -29,7 +29,7 @@ jobs:
     name: Bootstrap GCP GitHub OIDC trust (${{ inputs.environment }})
     runs-on: ubuntu-latest
     environment:
-      name: ${{ inputs.environment }}
+      name: ${{ inputs.environment == 'shared' && 'prod' || inputs.environment }}
     env:
       GCP_ENVIRONMENT: ${{ inputs.environment }}
       BOOTSTRAP_ACTION: ${{ inputs.action }}
@@ -47,6 +47,7 @@ jobs:
           sparse-checkout: |
             resources/xworktech.com/uat/gcp/github-actions-oidc.yaml
             resources/xworktech.com/prod/gcp/github-actions-oidc.yaml
+            resources/xworktech.com/shared/gcp/github-actions-oidc.yaml
 
       - name: Checkout GCP Terraform bootstrap module
         uses: actions/checkout@v4
