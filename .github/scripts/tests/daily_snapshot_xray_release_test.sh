@@ -15,6 +15,8 @@ set -euo pipefail
 case "$1" in
   api)
     if [[ "$*" == *"/releases/tags/"* ]]; then
+      printf '394431498\n'
+    elif [[ "$*" == *"/releases/394431498/assets"* ]]; then
       printf '%s\n' '["xray-exporter-linux-amd64","xray-exporter-linux-arm64"]'
     else
       printf 'xray-test-sha\n'

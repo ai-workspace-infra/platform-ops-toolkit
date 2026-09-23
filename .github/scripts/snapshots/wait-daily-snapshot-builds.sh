@@ -33,7 +33,15 @@ repo_requires_release_manifest() {
 
 release_asset_names() {
   local repo="$1"
-  gh api "repos/${repo}/releases/tags/${SNAPSHOT_TAG}" --jq '[.assets[].name]' 2>/dev/null || printf '[]'
+  local release_id
+
+  # The by-tag Releases endpoint can temporarily return a stale release
+  # representation after a draft is published. Resolve the stable release ID
+  # from that endpoint, then fetch the assets through the dedicated assets
+  # endpoint, which reflects uploads independently of the cached release body.
+  release_id="$(gh api "repos/${repo}/releases/tags/${SNAPSHOT_TAG}" --jq '.id // empty' 2>/dev/null || true)"
+  [[ "${release_id}" =~ ^[0-9]+$ ]] || { printf '[]'; return; }
+  gh api "repos/${repo}/releases/${release_id}/assets?per_page=100" --jq '[.[].name]' 2>/dev/null || printf '[]'
 }
 
 ci_trigger_for_repo() {

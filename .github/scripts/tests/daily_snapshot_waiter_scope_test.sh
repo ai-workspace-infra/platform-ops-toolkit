@@ -18,6 +18,8 @@ set -euo pipefail
 case "$1" in
   api)
     if [[ "$*" == *"/releases/tags/"* ]]; then
+      printf '394430253\n'
+    elif [[ "$*" == *"/releases/394430253/assets"* ]]; then
       printf '%s\n' '["release-manifest.json"]'
     else
       printf 'test-sha\n'
