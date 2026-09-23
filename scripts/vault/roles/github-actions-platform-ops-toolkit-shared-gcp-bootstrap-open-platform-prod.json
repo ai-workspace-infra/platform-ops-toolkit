@@ -1,0 +1,21 @@
+{
+  "role_name": "github-actions-platform-ops-toolkit-shared-gcp-bootstrap-open-platform-prod",
+  "description": "One-time shared GCP WIF bootstrap role for open-platform-prod, restricted to the protected prod GitHub Environment and the GCP OIDC bootstrap workflow.",
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": ["vault"],
+  "bound_claims_type": "glob",
+  "bound_claims": {
+    "repository": "ai-workspace-infra/platform-ops-toolkit",
+    "environment": "prod",
+    "workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/gcp-oidc-bootstrap.yml@refs/heads/main",
+    "ref": "refs/heads/main"
+  },
+  "token_policies": [
+    "github-actions-platform-ops-toolkit-shared-gcp-bootstrap-open-platform-prod"
+  ],
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": "20m",
+  "token_max_ttl": "20m"
+}

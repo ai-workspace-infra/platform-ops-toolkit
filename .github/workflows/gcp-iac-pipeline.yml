@@ -14,7 +14,12 @@ on:
         type: choice
         required: true
         default: uat
-        options: [uat, prod]
+        options: [uat, prod, shared]
+      github_environment:
+        description: GitHub Environment used for approval and OIDC JWT claims (defaults to vault_env_path; shared uses prod).
+        type: string
+        required: false
+        default: ''
       gcp_account_id:
         description: Readable GCP account identifier used in Vault runtime role/path.
         type: string
@@ -49,6 +54,10 @@ on:
       vault_env_path:
         type: string
         required: true
+      github_environment:
+        type: string
+        required: false
+        default: ''
       gcp_account_id:
         type: string
         required: true
@@ -82,7 +91,7 @@ jobs:
     name: GCP platform (${{ inputs.vault_env_path }}, action=${{ inputs.deploy_action }})
     runs-on: ubuntu-latest
     environment:
-      name: ${{ inputs.vault_env_path }}
+      name: ${{ inputs.github_environment || (inputs.vault_env_path == 'shared' && 'prod' || inputs.vault_env_path) }}
     env:
       DEPLOY_ENV: ${{ inputs.vault_env_path }}
       DEPLOY_ACTION: ${{ inputs.deploy_action || 'plan' }}
@@ -122,15 +131,24 @@ jobs:
         shell: bash
         env:
           GCP_ENVIRONMENT: ${{ env.DEPLOY_ENV }}
+          DEPLOY_ACTION: ${{ env.DEPLOY_ACTION }}
           GCP_ACCOUNT_ID: ${{ env.GCP_ACCOUNT_ID }}
           GCP_RESOURCE_MANIFEST_INPUT: ${{ env.GCP_RESOURCE_MANIFEST_INPUT }}
         run: |
           set -euo pipefail
           case "${GCP_ENVIRONMENT}" in
-            uat|prod) ;;
-            *) echo "::error::vault_env_path must be uat or prod" >&2; exit 1 ;;
+            uat|prod|shared) ;;
+            *) echo "::error::vault_env_path must be uat, prod, or shared" >&2; exit 1 ;;
           esac
-          default_manifest="resources/xworktech.com/${GCP_ENVIRONMENT}/gcp/open-platform-${GCP_ENVIRONMENT}.yaml"
+          if [[ "${GCP_ENVIRONMENT}" == shared && "${DEPLOY_ACTION}" == destroy ]]; then
+            echo "::error::destroy is disabled for the shared Vault environment" >&2
+            exit 1
+          fi
+          if [[ "${GCP_ENVIRONMENT}" == shared ]]; then
+            default_manifest="resources/xworktech.com/shared/gcp/vault-shared.yaml"
+          else
+            default_manifest="resources/xworktech.com/${GCP_ENVIRONMENT}/gcp/open-platform-${GCP_ENVIRONMENT}.yaml"
+          fi
           manifest="${GCP_RESOURCE_MANIFEST_INPUT:-${default_manifest}}"
           [[ "${manifest}" != /* && "${manifest}" != *..* ]] || { echo "::error::manifest path must be relative and cannot contain '..'" >&2; exit 1; }
           [[ "${manifest}" == resources/*/${GCP_ENVIRONMENT}/gcp/*.yaml ]] || {

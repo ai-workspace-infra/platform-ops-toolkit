@@ -7,8 +7,8 @@ readonly expected_repository="ai-workspace-infra/platform-ops-toolkit"
 readonly expected_organization_id="744119519286"
 
 case "${environment}" in
-  uat|prod) ;;
-  *) echo "GCP_ENVIRONMENT must be uat or prod, got: ${environment}" >&2; exit 1 ;;
+  uat|prod|shared) ;;
+  *) echo "GCP_ENVIRONMENT must be uat, prod, or shared, got: ${environment}" >&2; exit 1 ;;
 esac
 test -f "${config_file}" || { echo "GCP OIDC declaration not found: ${config_file}" >&2; exit 1; }
 command -v ruby >/dev/null 2>&1 || { echo "ruby is required to validate GCP OIDC declaration" >&2; exit 1; }
@@ -24,12 +24,14 @@ spec = config.fetch("spec")
 metadata = config.fetch("metadata")
 project_by_environment = {
   "uat" => "xwork-open-platform-uat",
-  "prod" => "xwork-open-platform-prod"
+  "prod" => "xwork-open-platform-prod",
+  "shared" => "open-platform-prod"
 }
 expected_project = project_by_environment.fetch(environment)
 account_id = spec["gcp_account_id"].to_s
 expected_audience_prefix = "https://iam.googleapis.com/"
-required_subject = "repo:#{ENV.fetch("EXPECTED_REPOSITORY")}:environment:#{environment}"
+github_environment = environment == "shared" ? "prod" : environment
+required_subject = "repo:#{ENV.fetch("EXPECTED_REPOSITORY")}:environment:#{github_environment}"
 
 checks = {
   "apiVersion" => config["apiVersion"] == "gitops.svc.plus/v1alpha1",
@@ -54,6 +56,7 @@ abort "GCP OIDC declaration failed validation: #{failed.join(", ")}" unless fail
 
 values = {
   "environment" => environment,
+  "github_environment" => github_environment,
   "account_id" => account_id,
   "project_id" => spec.fetch("project_id"),
   "repository" => spec.fetch("repository"),

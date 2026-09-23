@@ -158,6 +158,9 @@ jobs:
     - name: Verify AWS OIDC is resolved from GitOps
       run: bash .github/scripts/tests/aws_oidc_gitops_contract_test.sh
 
+    - name: Verify GCP OIDC bootstrap and shared Vault IaC contract
+      run: bash .github/scripts/tests/gcp_oidc_bootstrap_contract_test.sh
+
     - name: Verify AWS OIDC bootstrap recovery contract
       run: bash .github/scripts/tests/aws_oidc_bootstrap_recovery_contract_test.sh
 

@@ -21,11 +21,11 @@ test -f "${gcp_iac_workflow}" || { echo "GCP IAC workflow must exist" >&2; exit 
 
 for required in \
   'environment:' \
-  'options: [uat, prod]' \
+  'options: [uat, prod, shared]' \
   'action:' \
   'options: [plan, apply]' \
   'id-token: write' \
-  'name: ${{ inputs.environment }}' \
+  "name: \${{ inputs.environment == 'shared' && 'prod' || inputs.environment }}" \
   'Checkout GitOps GCP OIDC declaration' \
   'resources/xworktech.com/${{ inputs.environment }}/gcp/github-actions-oidc.yaml' \
   'hashicorp/vault-action' \
@@ -79,7 +79,7 @@ done
 
 for required in \
   'options: [plan, apply, destroy]' \
-  'options: [uat, prod]' \
+  'options: [uat, prod, shared]' \
   'gcp_account_id:' \
   'gcp_resource_manifest:' \
   'iac_ref:' \
@@ -234,7 +234,7 @@ for forbidden in 'credentials.json' 'service_account_key'; do
 done
 
 for required in \
-  'GCP_ENVIRONMENT must be uat or prod' \
+  'GCP_ENVIRONMENT must be uat, prod, or shared' \
   'https://token.actions.githubusercontent.com' \
   'https://iam.googleapis.com/' \
   '744119519286' \
@@ -244,6 +244,40 @@ for required in \
   'platform-ops-toolkit/#{environment}/#{account_id}/gcp-oidc-bootstrap/terraform.tfstate'; do
   grep -Fq -- "${required}" "${resolver}" || {
     echo "GCP OIDC resolver missing validation: ${required}" >&2
+    exit 1
+  }
+done
+
+shared_bootstrap_role="${vault_role_dir}/github-actions-platform-ops-toolkit-shared-gcp-bootstrap-open-platform-prod.json"
+shared_bootstrap_policy="${vault_policy_dir}/github-actions-platform-ops-toolkit-shared-gcp-bootstrap-open-platform-prod.hcl"
+shared_runtime_role="${vault_role_dir}/github-actions-platform-ops-toolkit-shared-gcp-oidc-open-platform-prod.json"
+shared_runtime_policy="${vault_policy_dir}/github-actions-platform-ops-toolkit-shared-gcp-oidc-open-platform-prod.hcl"
+for shared_file in "${shared_bootstrap_role}" "${shared_bootstrap_policy}" "${shared_runtime_role}" "${shared_runtime_policy}"; do
+  test -f "${shared_file}" || { echo "missing shared GCP role/policy declaration: ${shared_file}" >&2; exit 1; }
+done
+jq -e '
+  .role_name == "github-actions-platform-ops-toolkit-shared-gcp-bootstrap-open-platform-prod" and
+  .bound_claims.environment == "prod" and
+  .bound_claims.repository == "ai-workspace-infra/platform-ops-toolkit" and
+  .bound_claims.ref == "refs/heads/main" and
+  (.bound_claims.workflow_ref | contains("gcp-oidc-bootstrap.yml"))
+' "${shared_bootstrap_role}" >/dev/null
+grep -Fq 'kv/data/CICD/shared/gcp-bootstrap/open-platform-prod' "${shared_bootstrap_policy}"
+grep -Fq 'kv/data/shared/platform/oidc/open-platform-prod' "${shared_bootstrap_policy}"
+jq -e '
+  .role_name == "github-actions-platform-ops-toolkit-shared-gcp-oidc-open-platform-prod" and
+  .bound_claims.environment == "prod" and
+  .bound_claims.repository == "ai-workspace-infra/platform-ops-toolkit" and
+  .bound_claims.ref == "refs/heads/main" and
+  (.bound_claims.job_workflow_ref | contains("gcp-iac-pipeline.yml"))
+' "${shared_runtime_role}" >/dev/null
+grep -Fq 'kv/data/shared/platform/oidc/open-platform-prod' "${shared_runtime_policy}"
+grep -Fq 'kv/data/CICD/shared/iac_state' "${shared_runtime_policy}"
+
+shared_iac_workflow="${repo_root}/.github/workflows/vault-shared-gcp-iac.yml"
+for required in 'cloud_provider:' 'options: [gcp-cloud]' 'options: [plan, apply]' 'vault_env_path: shared' 'github_environment: prod' 'open-platform-prod' 'vault-shared.yaml'; do
+  grep -Fq -- "${required}" "${shared_iac_workflow}" || {
+    echo "shared Vault GCP workflow missing contract: ${required}" >&2
     exit 1
   }
 done
