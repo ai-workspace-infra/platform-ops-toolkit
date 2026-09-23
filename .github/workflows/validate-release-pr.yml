@@ -161,6 +161,9 @@ jobs:
     - name: Verify AWS OIDC bootstrap recovery contract
       run: bash .github/scripts/tests/aws_oidc_bootstrap_recovery_contract_test.sh
 
+    - name: Verify Vault manual unseal contract
+      run: bash scripts/tests/vault_unseal_local_contract_test.sh
+
     - name: Verify XConnect cloud-lab Vault role contract
       run: bash .github/scripts/tests/xconnect_cloud_lab_vault_role_contract_test.sh
 
