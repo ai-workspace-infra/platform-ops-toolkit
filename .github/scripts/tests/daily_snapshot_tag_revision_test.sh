@@ -22,6 +22,9 @@ case "$1" in
   api)
     case "$*" in
       *"/releases/tags/"*)
+        printf '394430253\n'
+        ;;
+      *"/releases/394430253/assets"*)
         printf '%s\n' '["release-manifest.json"]'
         ;;
       *"/commits/"*)
