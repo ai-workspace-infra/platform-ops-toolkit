@@ -34,11 +34,37 @@ class RouterReleaseDeployment(unittest.TestCase):
                            for name in ('frontend-router-worker.js', 'release-metadata.json'))
             if mode == 'missing_metadata_checksum':
                 sums = sums.splitlines()[0] + '\n'
+            if mode == 'missing_asset':
+                (assets / 'release-metadata.json').unlink()
             (assets / 'SHA256SUMS').write_text(sums)
             if mode == 'corrupt':
                 (assets / 'frontend-router-worker.js').write_text('corrupted\n')
             commands = {
-                'gh': 'while [ "$1" != --dir ]; do shift; done; cp "$ASSETS/"* "$2/"',
+                'gh': '''case "$*" in
+  *"/releases/tags/"*) printf "394450977\\n" ;;
+  *"/releases/394450977/assets"*)
+    if [ "$MODE" = missing_asset ]; then
+      printf "[{\\"id\\":1,\\"name\\":\\"frontend-router-worker.js\\"},{\\"id\\":3,\\"name\\":\\"SHA256SUMS\\"}]\\n"
+    else
+      printf "[{\\"id\\":1,\\"name\\":\\"frontend-router-worker.js\\"},{\\"id\\":2,\\"name\\":\\"release-metadata.json\\"},{\\"id\\":3,\\"name\\":\\"SHA256SUMS\\"}]\\n"
+    fi ;;
+  *) exit 2 ;;
+esac''',
+                'curl': '''output=
+url=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --output) output=$2; shift 2 ;;
+    https://*) url=$1; shift ;;
+    *) shift ;;
+  esac
+done
+case "$url" in
+  */releases/assets/1) cp "$ASSETS/frontend-router-worker.js" "$output" ;;
+  */releases/assets/2) cp "$ASSETS/release-metadata.json" "$output" ;;
+  */releases/assets/3) cp "$ASSETS/SHA256SUMS" "$output" ;;
+  *) exit 3 ;;
+esac''',
                 'git': 'printf "%s\\n" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                 'npm': '[ "$*" = ci ] || exit 99',
             }
@@ -51,7 +77,9 @@ class RouterReleaseDeployment(unittest.TestCase):
             deploy.chmod(0o755)
             env = {**os.environ, 'PATH': str(bin_dir) + os.pathsep + os.environ['PATH'],
                    'FRONTEND_ROUTER_DIR': str(repo), 'CLOUDFLARE_BOUNDARY_CONFIG': str(config),
-                   'FRONTEND_ROUTER_RELEASE_TAG': tag, 'RUNNER_TEMP': str(folder), 'ASSETS': str(assets)}
+                   'FRONTEND_ROUTER_RELEASE_TAG': tag, 'RUNNER_TEMP': str(folder), 'ASSETS': str(assets),
+                   'GH_TOKEN': 'test-token'}
+            env['MODE'] = mode
             return subprocess.run(['bash', str(SCRIPT)], env=env, capture_output=True, text=True)
 
     def test_valid_prebuilt_release(self):
@@ -60,7 +88,7 @@ class RouterReleaseDeployment(unittest.TestCase):
         self.assertIn('DEPLOYED_PREBUILT', result.stdout)
 
     def test_fail_before_deploy_on_unverified_release(self):
-        for mode in ('wrong_tag', 'wrong_source', 'missing_metadata_checksum', 'corrupt'):
+        for mode in ('wrong_tag', 'wrong_source', 'missing_metadata_checksum', 'missing_asset', 'corrupt'):
             with self.subTest(mode=mode):
                 result = self.run_case(mode)
                 self.assertNotEqual(result.returncode, 0)
