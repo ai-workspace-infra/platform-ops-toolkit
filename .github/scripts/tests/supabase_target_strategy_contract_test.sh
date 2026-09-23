@@ -59,5 +59,6 @@ grep -Fq 'VAULT_ENV_PATH:-}" == "uat"' "${merge_script}"
 grep -Fq -- '--preserve-existing-users' "${merge_script}"
 grep -Fq -- '--skip-sessions' "${merge_script}"
 grep -Fq 'updated=0' "${merge_script}"
+grep -Fq 'Accounts merge completed as a verified no-op' "${merge_script}"
 
 echo "supabase_target_strategy_contract_test: PASS"
