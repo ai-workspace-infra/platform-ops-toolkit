@@ -9,6 +9,7 @@ trap 'rm -rf "${workdir}"' EXIT
 cat >"${workdir}/psql" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+[[ "$1" == *'sslmode=require'* ]] || exit 3
 case "$*" in
   *"to_regclass('public.schema_migrations')"*) printf 'absent\n' ;;
   *"information_schema.columns"*) printf '0\n' ;;
@@ -29,6 +30,11 @@ output="$(env "${base[@]}" bash "${probe}")"
   echo 'Read-only UAT schema probe did not report the expected metadata.' >&2
   exit 1
 }
+output="$(env "${base[@]}" TARGET_DSN=postgres://postgres.abcdefghijklmnopqrst:placeholder@aws-0-test.pooler.supabase.com:5432/postgres bash "${probe}")"
+[[ "${output}" == *'migration_version=absent'* ]] || {
+  echo 'Schema probe did not normalize an omitted TLS mode.' >&2
+  exit 1
+}
 if env "${base[@]}" VAULT_ENV_PATH=prod bash "${probe}" >/dev/null 2>&1; then
   echo 'Schema probe accepted PROD.' >&2
   exit 1
@@ -41,4 +47,8 @@ bad_target_output="$(env "${base[@]}" TARGET_DSN=postgres://postgres.abcdefghijk
   echo 'Schema probe did not provide safe, redacted diagnostics.' >&2
   exit 1
 }
+if env "${base[@]}" TARGET_DSN=postgres://postgres.abcdefghijklmnopqrst:placeholder@aws-0-test.pooler.supabase.com:5432/postgres?sslmode=disable bash "${probe}" >/dev/null 2>&1; then
+  echo 'Schema probe accepted disabled TLS.' >&2
+  exit 1
+fi
 echo 'UAT Accounts schema read-only probe passed.'
