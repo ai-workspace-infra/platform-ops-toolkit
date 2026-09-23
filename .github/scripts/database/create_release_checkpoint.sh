@@ -148,8 +148,12 @@ checkpoint_supabase() {
       echo "ERROR: Durable UAT checkpoint preflight requires configured remote object storage credentials." >&2
       exit 1
     }
+    [[ -n "${S3_REGION}" && -n "${S3_ENDPOINT}" && "${S3_PREFIX}" == "database-checkpoints" ]] || {
+      echo "ERROR: Durable UAT checkpoint requires its UAT object-storage endpoint, region, and database-checkpoints prefix." >&2
+      exit 1
+    }
     [[ -n "${ENCRYPTION_PASS}" ]] || {
-      echo "ERROR: Durable UAT checkpoint preflight requires the configured backup encryption secret." >&2
+      echo "ERROR: Durable UAT checkpoint requires BACKUP_ENCRYPTION_PASS from the UAT-only Vault field kv/data/uat/serverless/database-backup." >&2
       exit 1
     }
     command -v aws >/dev/null 2>&1 || { echo "ERROR: AWS CLI is required to verify the remote checkpoint." >&2; exit 1; }

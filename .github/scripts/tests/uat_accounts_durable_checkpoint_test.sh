@@ -27,6 +27,22 @@ fi
   exit 1
 }
 
+if output="$(env PATH="${tmp}/success-bin:${PATH}" PSQL_CALLED="${tmp}/psql-called-missing-pass" \
+  RELEASE_TAG=uat-daily-build-2026.09.23-r1 DATABASE_BACKEND=supabase DATABASE_ENV=uat \
+  TARGET_DSN=postgres://user:secret@db.supabase.com/postgres S3_BUCKET=uat-checkpoints \
+  AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_DEFAULT_REGION=uat-region \
+  S3_REGION=uat-region S3_ENDPOINT=https://objects.uat.example.invalid S3_PREFIX=database-checkpoints \
+  REQUIRE_DURABLE_CHECKPOINT=true CHECKPOINT_DIR="${tmp}/missing-pass" RUNNER_TEMP="${tmp}" \
+  bash "${checkpoint_script}" 2>&1)"; then
+  echo 'Durable UAT checkpoint accepted a missing UAT-only encryption key.' >&2
+  exit 1
+fi
+[[ ! -e "${tmp}/psql-called-missing-pass" ]] || { echo 'Checkpoint issued SQL before the UAT encryption-key preflight.' >&2; exit 1; }
+[[ "${output}" == *'BACKUP_ENCRYPTION_PASS from the UAT-only Vault field kv/data/uat/serverless/database-backup'* ]] || {
+  echo 'Missing encryption-key failure did not name the exact UAT Vault field.' >&2
+  exit 1
+}
+
 mkdir -p "${tmp}/success-bin"
 printf '%s\n' '#!/usr/bin/env bash' \
   'case "$*" in' \
@@ -57,7 +73,9 @@ success_output="${tmp}/success-output"
 if output="$(env PATH="${tmp}/success-bin:${PATH}" RELEASE_TAG=uat-daily-build-2026.09.23-r1 \
   DATABASE_BACKEND=supabase DATABASE_ENV=uat GIT_SHA=0123456789012345678901234567890123456789 \
   TARGET_DSN=postgres://user:secret@db.supabase.com/postgres S3_BUCKET=uat-checkpoints \
-  AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test BACKUP_ENCRYPTION_PASS=test-encryption \
+  AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_DEFAULT_REGION=uat-region \
+  S3_REGION=uat-region S3_ENDPOINT=https://objects.uat.example.invalid S3_PREFIX=database-checkpoints \
+  BACKUP_ENCRYPTION_PASS=test-encryption \
   REQUIRE_DURABLE_CHECKPOINT=true CHECKPOINT_DIR="${tmp}/checkpoint" RUNNER_TEMP="${tmp}" \
   GITHUB_OUTPUT="${success_output}" LEDGER_RECORDED="${tmp}/ledger-recorded" \
   REMOTE_OBJECT_UPLOADED="${tmp}/remote-object-uploaded" bash "${checkpoint_script}" 2>&1)"; then
@@ -80,7 +98,7 @@ import sys
 from pathlib import Path
 
 manifest = json.loads(Path(sys.argv[1]).read_text())
-if manifest['environment'] != 'uat' or not manifest['s3_uri'].endswith('.sql.gz.enc'):
+if manifest['environment'] != 'uat' or not manifest['s3_uri'].startswith('s3://uat-checkpoints/database-checkpoints/uat/supabase/') or not manifest['s3_uri'].endswith('.sql.gz.enc'):
     raise SystemExit('Checkpoint manifest did not bind UAT to an encrypted remote object.')
 PY
 [[ "${output}" != *'secret'* && "${output}" != *'postgres://'* && "${output}" != *'private fixture row'* ]] || {
@@ -107,6 +125,23 @@ if supabase.get('outputs', {}).get('durable_checkpoint_verified') != '${{ steps.
     raise SystemExit('Supabase job must expose only the verified checkpoint boolean to migration.')
 if next(step for step in supabase['steps'] if step.get('id') == 'checkpoint')['env'].get('REQUIRE_DURABLE_CHECKPOINT') != '${{ inputs.apply_accounts_schema_migration || false }}':
     raise SystemExit('Migration requests must activate durable checkpoint preflight.')
+vault = next(step for step in supabase['steps'] if step.get('id') == 'vault_uat_checkpoint')
+vault_secrets = vault['with']['secrets']
+required_vault_refs = (
+    'kv/data/CICD/uat/iac_state TF_STATE_BUCKET | S3_BUCKET',
+    'kv/data/CICD/uat/iac_state TF_STATE_ACCESS_KEY | AWS_ACCESS_KEY_ID',
+    'kv/data/CICD/uat/iac_state TF_STATE_SECRET_KEY | AWS_SECRET_ACCESS_KEY',
+    'kv/data/CICD/uat/iac_state TF_STATE_REGION | S3_REGION',
+    'kv/data/CICD/uat/iac_state TF_STATE_ENDPOINT | S3_ENDPOINT',
+    'kv/data/uat/serverless/database-backup BACKUP_ENCRYPTION_PASS | BACKUP_ENCRYPTION_PASS',
+)
+if any(ref not in vault_secrets for ref in required_vault_refs):
+    raise SystemExit('Checkpoint must load only the documented UAT storage and encryption fields.')
+if 'prod' in vault_secrets.lower() or vault['with']['role'] != 'github-actions-platform-ops-toolkit-uat':
+    raise SystemExit('Checkpoint Vault reads must use the UAT role and must not reference PROD.')
+checkpoint_env = next(step for step in supabase['steps'] if step.get('id') == 'checkpoint')['env']
+if checkpoint_env.get('S3_PREFIX') != 'database-checkpoints':
+    raise SystemExit('UAT checkpoint objects must use the isolated database-checkpoints/uat prefix.')
 if 'durable_checkpoint_verified' not in str(next(step for step in migration['steps'] if step.get('name', '').startswith('Apply reviewed'))['env'].get('RELEASE_CHECKPOINT_VERIFIED')):
     raise SystemExit('Migration must consume the verified checkpoint result.')
 if 'uat_accounts_schema_migration' not in cloud_run['needs']:

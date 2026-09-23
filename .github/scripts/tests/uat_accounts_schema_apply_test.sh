@@ -14,7 +14,14 @@ printf '%s\n' '#!/usr/bin/env bash' \
   '[[ "$*" == *"sslmode=require"* ]] || exit 3' \
   'case "$*" in' \
   '  *"information_schema.columns"*) printf "%s\\n" "${TEST_SCHEMA_PROBE:-4:1:4}" ;;' \
-  '  *"string_agg"*) if [[ -e "${TEST_APPLIED_MARKER}" ]]; then printf "%s\\n" "${TEST_USER_SENTINEL:-2:0123456789abcdef0123456789abcdef}"; else printf "2:0123456789abcdef0123456789abcdef\\n"; fi ;;' \
+  '  *"jsonb_agg"*)' \
+  '    if [[ -e "${TEST_APPLIED_MARKER}" && "${TEST_SENTINEL_CHANGED:-false}" == "true" ]]; then' \
+  '      user_rows="${TEST_USER_ROWS_CHANGED}"' \
+  '    else' \
+  '      user_rows="${TEST_USER_ROWS}"' \
+  '    fi' \
+  '    printf "%s\t%s\t%s\n" users 2 "${user_rows}"' \
+  '    printf "%s\t%s\t%s\n" subscriptions 1 "${TEST_SUBSCRIPTION_ROWS:-[]}" ;;' \
   '  *) if [[ -e "${TEST_APPLIED_MARKER}" ]]; then printf "2026092301:false\\n"; else printf "2026091401:false\\n"; fi ;;' \
   'esac' \
   >"${workdir}/bin/psql"
@@ -38,8 +45,17 @@ common=(
   ACCOUNTS_SCHEMA_TARGET_VERSION=2026092301
   "ACCOUNTS_SCHEMA_SHA256=${checksum}"
   RELEASE_CHECKPOINT_VERIFIED=true
+  'TEST_USER_ROWS=[{},{"groups":["team-a"]}]'
+  'TEST_SUBSCRIPTION_ROWS=[{"status":"active"}]'
   "TEST_APPLIED_MARKER=${workdir}/applied"
 )
+
+sentinel_result="$(env "${common[@]}" bash "${root}/.github/scripts/serverless/accounts_uat_data_sentinel.sh")"
+sentinel_shape="$(python3 -c 'import sys; print("\n".join(":".join((parts[0], parts[1], str(len(parts[2])))) for parts in (line.split(":", 2) for line in sys.stdin.read().splitlines())))' <<<"${sentinel_result}")"
+[[ "${sentinel_shape}" == $'users:2:64\nsubscriptions:1:64' ]] || {
+  echo "Private sentinel must return SHA-256 digests with user/subscription counts only (shape: ${sentinel_shape})." >&2
+  exit 1
+}
 
 env "${common[@]}" bash "${apply_script}" >/dev/null
 [[ -e "${workdir}/applied" ]] || { echo 'Expected migratectl invocation.' >&2; exit 1; }
@@ -67,7 +83,7 @@ rm -f "${workdir}/accounts/sql/migrations/2026092401_other.up.sql"
 
 reject_without_apply env "${common[@]}" TEST_SCHEMA_PROBE=4:0:4 bash "${apply_script}"
 rm -f "${workdir}/applied"
-if env "${common[@]}" TEST_USER_SENTINEL=3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa bash "${apply_script}" >/dev/null 2>&1; then
+if env "${common[@]}" TEST_SENTINEL_CHANGED=true 'TEST_USER_ROWS_CHANGED=[{},{"groups":["changed"]}]' bash "${apply_script}" >/dev/null 2>&1; then
   echo 'Migration did not fail when the post-migration user/subscription sentinel changed.' >&2
   exit 1
 fi

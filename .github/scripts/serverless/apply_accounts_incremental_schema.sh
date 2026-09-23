@@ -56,23 +56,24 @@ done
 [[ ${pending} -eq 1 ]] || fail "The selected tag must contain exactly one pending migration."
 
 schema_probe_sql="SELECT (SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name IN ('subscription_valid_from','subscription_valid_until','last_active_at','archived_at'))::text || ':' || (SELECT count(*) FROM pg_constraint WHERE conrelid='public.users'::regclass AND conname='users_subscription_validity_order_ck' AND convalidated)::text || ':' || (SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN ('overlay_registrations_owner_created_idx','overlay_registrations_network_pending_idx','overlay_registrations_network_created_idx','overlay_registrations_identity_pending_idx') AND i.indisvalid AND i.indisready)::text"
-sentinel_sql="SELECT count(*)::text || ':' || COALESCE(md5(string_agg(md5(concat_ws(chr(31), id::text, COALESCE(email::text,''), COALESCE(subscription_valid_from::text,''), COALESCE(subscription_valid_until::text,''), COALESCE(last_active_at::text,''), COALESCE(archived_at::text,''))), '' ORDER BY id::text)), md5('')) FROM public.users"
 schema_probe() {
   local result
   result="$(psql "${target_dsn}" -X -v ON_ERROR_STOP=1 -Atqc "${schema_probe_sql}" 2>/dev/null)" || fail "Could not verify required UAT Accounts schema prerequisites."
   [[ "${result}" == "4:1:4" ]] || fail "Required UAT subscription columns, validity constraint, or baseline indexes are missing or invalid."
 }
-user_sentinel() {
+data_sentinel() {
   local result
-  result="$(psql "${target_dsn}" -X -v ON_ERROR_STOP=1 -Atqc "${sentinel_sql}" 2>/dev/null)" || fail "Could not calculate the private UAT user/subscription sentinel."
-  [[ "${result}" =~ ^[0-9]+:[0-9a-f]{32}$ ]] || fail "UAT user/subscription sentinel result is invalid."
+  local -a lines
+  result="$(TARGET_DSN="${target_dsn}" bash "$(dirname "${BASH_SOURCE[0]}")/accounts_uat_data_sentinel.sh")" || fail "Could not calculate the private UAT user/subscription sentinel."
+  mapfile -t lines <<<"${result}"
+  [[ ${#lines[@]} -eq 2 && "${lines[0]}" =~ ^users:[0-9]+:[0-9a-f]{64}$ && "${lines[1]}" =~ ^subscriptions:[0-9]+:[0-9a-f]{64}$ ]] || fail "UAT user/subscription sentinel result is invalid."
   printf '%s' "${result}"
 }
 
 current="$(psql "${target_dsn}" -X -v ON_ERROR_STOP=1 -Atqc "SELECT version::text || ':' || dirty::text FROM public.schema_migrations LIMIT 1" 2>/dev/null)" || fail "Could not read UAT schema_migrations."
 [[ "${current}" == "${expected}:false" ]] || fail "UAT schema version/dirty state differs from the reviewed precondition."
 schema_probe
-sentinel_before="$(user_sentinel)"
+sentinel_before="$(data_sentinel)"
 
 echo "Applying reviewed Accounts migration ${target} from ${snapshot_tag} (sha256 ${actual_sha}) to UAT."
 if ! (cd "${accounts_dir}" && go run ./cmd/migratectl migrate --dsn "${target_dsn}" --dir sql/migrations) >/dev/null 2>&1; then
@@ -82,9 +83,11 @@ fi
 after="$(psql "${target_dsn}" -X -v ON_ERROR_STOP=1 -Atqc "SELECT version::text || ':' || dirty::text FROM public.schema_migrations LIMIT 1" 2>/dev/null)" || fail "Could not verify UAT schema_migrations after apply."
 [[ "${after}" == "${target}:false" ]] || fail "UAT schema did not reach the expected clean target version."
 schema_probe
-sentinel_after="$(user_sentinel)"
+sentinel_after="$(data_sentinel)"
 [[ "${sentinel_after}" == "${sentinel_before}" ]] || fail "Existing UAT user/subscription sentinel changed during migration; downstream deployment is blocked."
-echo "Verified UAT migration version, required schema probes, and unchanged user/subscription sentinel (${sentinel_before%%:*} users)."
+users_count="$(sed -n 's/^users:\([0-9][0-9]*\):.*/\1/p' <<<"${sentinel_before}")"
+subscriptions_count="$(sed -n 's/^subscriptions:\([0-9][0-9]*\):.*/\1/p' <<<"${sentinel_before}")"
+echo "Verified UAT migration version, required schema probes, and unchanged user/subscription sentinel (${users_count} users, ${subscriptions_count} subscriptions)."
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-  printf 'Accounts UAT schema migration: `%s` → `%s`, snapshot `%s`, migration SHA-256 `%s`; required schema probes passed and user/subscription sentinel was unchanged (%s users).\n' "${expected}" "${target}" "${snapshot_tag}" "${actual_sha}" "${sentinel_before%%:*}" >>"${GITHUB_STEP_SUMMARY}"
+  printf 'Accounts UAT schema migration: `%s` → `%s`, snapshot `%s`, migration SHA-256 `%s`; required schema probes passed and user/subscription sentinel was unchanged (%s users, %s subscriptions).\n' "${expected}" "${target}" "${snapshot_tag}" "${actual_sha}" "${users_count}" "${subscriptions_count}" >>"${GITHUB_STEP_SUMMARY}"
 fi
