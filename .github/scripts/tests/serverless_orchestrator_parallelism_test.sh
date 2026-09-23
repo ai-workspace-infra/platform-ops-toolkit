@@ -28,16 +28,27 @@ if dns_mode is None or dns_mode.get("default") != "none" or dns_mode.get("option
 # the moment it is published, without waiting for serverless_domains. A backend
 # that had just failed therefore got a freshly shipped frontend pointing at it.
 # PROD safety now outranks the few minutes of parallelism those lanes bought, so
-# the Cloudflare lanes wait on backend_gate. Supabase and Cloud Run still fan out
-# from preflight directly — nothing downstream of them is user-visible yet.
+# the Cloudflare lanes wait on backend_gate. Supabase still fans out from
+# preflight. A requested UAT schema migration must finish before Cloud Run;
+# the skipped migration job does not serialize ordinary deployments.
 preflight_only = {
     "supabase",
-    "cloud_run",
 }
 for job in preflight_only:
     needs = jobs[job].get("needs")
     if needs != "preflight":
         raise SystemExit(f"{job} must depend only on preflight, got {needs!r}")
+
+schema_migration = jobs["uat_accounts_schema_migration"]
+if schema_migration.get("needs") != ["preflight", "supabase"]:
+    raise SystemExit("UAT schema migration must follow successful Supabase readiness/checkpoint")
+if "inputs.apply_accounts_schema_migration == true" not in schema_migration.get("if", ""):
+    raise SystemExit("UAT schema migration must be explicitly opt-in")
+cloud_run = jobs["cloud_run"]
+if cloud_run.get("needs") != ["preflight", "uat_accounts_schema_migration"]:
+    raise SystemExit("Cloud Run must wait for the optional schema migration result")
+if "needs.uat_accounts_schema_migration.result == 'success'" not in cloud_run.get("if", ""):
+    raise SystemExit("Cloud Run must fail closed when a requested schema migration fails")
 
 gated_frontend = {
     "cloudflare_ssr",
