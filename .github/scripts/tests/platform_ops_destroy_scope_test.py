@@ -26,7 +26,6 @@ class AkamaiDestroyScopeTest(unittest.TestCase):
         terraform.write_text("#!/bin/sh\nprintf '%s\\n' \"$FAKE_TERRAFORM_STATE\"\n", encoding="utf-8")
         terraform.chmod(0o755)
         self.hosts = self.root / "hosts_manifest.json"
-        self.hosts.write_text(json.dumps({"hosts": [{"label": "ap-uat-ak-jp-jpn-tky"}]}), encoding="utf-8")
         self.acceptance = self.root / "acceptance.json"
         self.write_acceptance(accepted=True)
 
@@ -56,7 +55,8 @@ class AkamaiDestroyScopeTest(unittest.TestCase):
             "values": {"label": label},
         }]}}}
 
-    def run_guard(self, namespace, state_label):
+    def run_guard(self, namespace, state_label, expected_label=None):
+        self.hosts.write_text(json.dumps({"hosts": [{"label": expected_label or state_label}]}), encoding="utf-8")
         state_key = f"terraform/uat/svc.plus/akamai-cloud/manbuzhe2026/{namespace}/terraform.tfstate"
         env = os.environ.copy()
         env.update({
@@ -75,19 +75,24 @@ class AkamaiDestroyScopeTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("aggregate Akamai destroy namespace", result.stderr)
 
-    def test_permanent_open_platform_cannot_be_destroyed(self):
+    def test_accepted_open_platform_cleanup_is_allowed(self):
         result = self.run_guard("open-platform", "open-platform-uat-ak-open-platform")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("permanent service node", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("verified in-profile instance", result.stdout)
 
     def test_source_instance_is_never_in_destroy_scope(self):
         result = self.run_guard("agent-proxy-jp", "observability.svc.plus")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("protected migration source", result.stderr)
 
-    def test_cleanup_requires_migration_health_and_state_isolation_attestation(self):
+    def test_temporary_namespace_cleanup_does_not_require_open_platform_attestation(self):
         self.write_acceptance(accepted=False)
         result = self.run_guard("agent-proxy-jp", "ap-uat-ak-jp-jpn-tky")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_open_platform_cleanup_requires_migration_health_and_state_isolation_attestation(self):
+        self.write_acceptance(accepted=False)
+        result = self.run_guard("open-platform", "open-platform-uat-ak-open-platform")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("migration, dual-end health", result.stderr)
 
@@ -97,7 +102,7 @@ class AkamaiDestroyScopeTest(unittest.TestCase):
         self.assertIn("verified in-profile instance", result.stdout)
 
     def test_state_must_match_only_the_selected_namespace_manifest(self):
-        result = self.run_guard("agent-proxy-jp", "open-platform-uat-ak-open-platform")
+        result = self.run_guard("agent-proxy-jp", "open-platform-uat-ak-open-platform", "ap-uat-ak-jp-jpn-tky")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("permanent open-platform resource", result.stderr)
 
