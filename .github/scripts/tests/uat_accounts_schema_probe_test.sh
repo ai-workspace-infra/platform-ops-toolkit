@@ -12,8 +12,12 @@ set -euo pipefail
 [[ "$1" == *'sslmode=require'* ]] || exit 3
 case "$*" in
   *"to_regclass('public.schema_migrations')"*) printf 'absent\n' ;;
-  *"information_schema.columns"*) printf '0\n' ;;
   *"to_regclass('public.account_lifecycle_events')"*) printf 'f\n' ;;
+  *"subscription_valid_from"*) printf '4\n' ;;
+  *"to_regclass('public.bridge_credentials')"*) printf 't\n' ;;
+  *"to_regclass('public.overlay_registrations')"*) printf 't\n' ;;
+  *"transport_kind"*) printf '4\n' ;;
+  *"information_schema.columns"*) printf '0\n' ;;
   *) exit 1 ;;
 esac
 EOF
@@ -28,6 +32,10 @@ base=(
 output="$(env "${base[@]}" bash "${probe}")"
 [[ "${output}" == *'migration_version=absent, lifecycle_columns=0/6, lifecycle_events=f'* ]] || {
   echo 'Read-only UAT schema probe did not report the expected metadata.' >&2
+  exit 1
+}
+[[ "${output}" == *'subscription_columns=4/4, bridge_credentials=t, overlay_registrations=t, overlay_transport_columns=4/4'* ]] || {
+  echo 'Read-only UAT schema probe did not report prior migration shape.' >&2
   exit 1
 }
 output="$(env "${base[@]}" TARGET_DSN=postgres://postgres.abcdefghijklmnopqrst:placeholder@aws-0-test.pooler.supabase.com:5432/postgres bash "${probe}")"
