@@ -14,9 +14,29 @@ test -f "${CONFIG_FILE}"
 test -x "${FRONTEND_ROUTER_DIR}/scripts/deploy_from_gitops.sh"
 
 release_dir="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/frontend-router-release.XXXXXX")"
-gh release download "$release_tag" --repo ai-workspace-services/frontend-router \
-  --pattern frontend-router-worker.js --pattern release-metadata.json --pattern SHA256SUMS \
-  --dir "$release_dir"
+release_repo='ai-workspace-services/frontend-router'
+release_id="$(gh api "repos/${release_repo}/releases/tags/${release_tag}" --jq '.id // empty')"
+[[ "$release_id" =~ ^[0-9]+$ ]] || {
+  echo "Unable to resolve Frontend Router release ID for ${release_tag}." >&2
+  exit 1
+}
+
+# The by-tag Release response can be stale immediately after publication and
+# report an empty assets array. Resolve only the stable ID above, then list and
+# download through the dedicated asset endpoints.
+release_assets="$(gh api "repos/${release_repo}/releases/${release_id}/assets?per_page=100")"
+for asset in frontend-router-worker.js release-metadata.json SHA256SUMS; do
+  asset_id="$(jq -r --arg name "$asset" '[.[] | select(.name == $name)][0].id // empty' <<< "$release_assets")"
+  [[ "$asset_id" =~ ^[0-9]+$ ]] || {
+    echo "Required Frontend Router release asset is missing: ${asset}" >&2
+    exit 1
+  }
+  curl --fail --location --silent --show-error --retry 3 \
+    -H 'Accept: application/octet-stream' \
+    -H "Authorization: Bearer ${GH_TOKEN:?GH_TOKEN must authorize release asset downloads}" \
+    "https://api.github.com/repos/${release_repo}/releases/assets/${asset_id}" \
+    --output "${release_dir}/${asset}"
+done
 # Check only the two explicit assets, never filenames supplied by an arbitrary
 # checksum entry. Source identity must match the checked-out immutable tag.
 awk '$2 == "frontend-router-worker.js" || $2 == "release-metadata.json" {print}' \
