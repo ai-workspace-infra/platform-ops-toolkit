@@ -47,6 +47,23 @@ on:
         description: "可选：是否触发数据迁移（UAT 默认 true 并单向拉取 PROD Supabase；PROD 默认 false，需显式开启）"
         required: false
         type: boolean
+      apply_accounts_schema_migration:
+        description: "仅 UAT：在部署前执行 Accounts tag 中的单个增量 schema 迁移；必须关闭数据迁移"
+        required: false
+        default: false
+        type: boolean
+      accounts_schema_expected_version:
+        description: "仅增量迁移：UAT schema_migrations 当前版本"
+        required: false
+        type: string
+      accounts_schema_target_version:
+        description: "仅增量迁移：Accounts tag 中目标迁移版本"
+        required: false
+        type: string
+      accounts_schema_sha256:
+        description: "仅增量迁移：目标 .up.sql 文件的 SHA-256"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -66,6 +83,18 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+
+      - name: Validate optional UAT Accounts schema migration request
+        run: ./.github/scripts/snapshots/validate-uat-schema-migration-request.sh
+        env:
+          DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
+          SNAPSHOT_REPOS: ${{ inputs.repositories }}
+          SNAPSHOT_SOURCE_REF: ${{ inputs.snapshot_source_ref }}
+          APPLY_ACCOUNTS_SCHEMA_MIGRATION: ${{ inputs.apply_accounts_schema_migration || false }}
+          ENABLE_MIGRATION: ${{ inputs.enable_migration }}
+          ACCOUNTS_SCHEMA_EXPECTED_VERSION: ${{ inputs.accounts_schema_expected_version }}
+          ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
+          ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}
 
       - name: Load GitHub App private key from Vault
         id: vault
@@ -298,6 +327,10 @@ jobs:
           XCONNECT_ONE_RELEASE_TAG: ${{ inputs.xconnect_one_release_tag }}
           XCONNECT_GATEWAY_RELEASE_TAG: ${{ inputs.xconnect_gateway_release_tag }}
           ENABLE_MIGRATION: ${{ inputs.enable_migration }}
+          APPLY_ACCOUNTS_SCHEMA_MIGRATION: ${{ inputs.apply_accounts_schema_migration || false }}
+          ACCOUNTS_SCHEMA_EXPECTED_VERSION: ${{ inputs.accounts_schema_expected_version }}
+          ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
+          ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}
 
       - name: Load GitHub App private key for production dispatch
         if: ${{ (inputs.deploy_env || 'uat') == 'prod' && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' }}

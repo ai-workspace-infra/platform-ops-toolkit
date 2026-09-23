@@ -9,6 +9,42 @@ tag_ref="${TAG_REF:-}"
 deploy_cloudflare="${DEPLOY_CLOUDFLARE:-false}"
 deploy_cloud_run="${DEPLOY_CLOUD_RUN:-false}"
 serverless_dns_mode="${SERVERLESS_DNS_MODE:-none}"
+apply_schema="${APPLY_ACCOUNTS_SCHEMA_MIGRATION:-false}"
+schema_expected="${ACCOUNTS_SCHEMA_EXPECTED_VERSION:-}"
+schema_target="${ACCOUNTS_SCHEMA_TARGET_VERSION:-}"
+schema_sha256="${ACCOUNTS_SCHEMA_SHA256:-}"
+probe_schema="${PROBE_ACCOUNTS_SCHEMA:-false}"
+
+case "${probe_schema}" in
+  false) ;;
+  true)
+    if [[ "${environment}" != "uat" || "${operation}" != "plan" || "${apply_schema}" != "false" ]]; then
+      echo "Accounts schema probe requires UAT operation=plan without an apply request" >&2
+      exit 2
+    fi
+    ;;
+  *) echo "PROBE_ACCOUNTS_SCHEMA must be true or false" >&2; exit 2 ;;
+esac
+
+case "${apply_schema}" in
+  false)
+    if [[ -n "${schema_expected}${schema_target}${schema_sha256}" ]]; then
+      echo "Schema migration parameters require APPLY_ACCOUNTS_SCHEMA_MIGRATION=true" >&2
+      exit 2
+    fi
+    ;;
+  true)
+    if [[ "${environment}" != "uat" || "${operation}" != "deploy" || "${deploy_cloud_run}" != "true" ]]; then
+      echo "Accounts schema migration requires UAT operation=deploy with Cloud Run enabled" >&2
+      exit 2
+    fi
+    if [[ ! "${schema_expected}" =~ ^[0-9]+$ || ! "${schema_target}" =~ ^[0-9]+$ || "${schema_target}" -le "${schema_expected}" || ! "${schema_sha256}" =~ ^[0-9a-f]{64}$ ]]; then
+      echo "Accounts schema migration requires increasing numeric versions and a SHA-256 digest" >&2
+      exit 2
+    fi
+    ;;
+  *) echo "APPLY_ACCOUNTS_SCHEMA_MIGRATION must be true or false" >&2; exit 2 ;;
+esac
 
 # The serverless workflow owns only the complete web-saas control plane. `all`
 # remains the UI-compatible full-domain selection, but its serverless segment
