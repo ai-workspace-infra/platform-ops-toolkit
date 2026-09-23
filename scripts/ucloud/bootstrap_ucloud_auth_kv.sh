@@ -5,6 +5,9 @@
 # Required for write:
 #   UCLOUD_ENVIRONMENT=sit|uat|prod
 #   UCLOUD_PROJECT_ID, UCLOUD_PUBLIC_KEY, UCLOUD_PRIVATE_KEY, UCLOUD_REGION
+# The separate UCloud bootstrap Job writes UCLOUD_SECURITY_GROUP_ID and
+# UCLOUD_KEY_PAIR_ID to the same record after resolving/creating host access
+# resources; this helper deliberately does not manufacture those IDs.
 # Optional:
 #   VAULT_ADDR (defaults to https://vault.svc.plus)
 #   VAULT_TOKEN (otherwise uses an authenticated Vault CLI session)
