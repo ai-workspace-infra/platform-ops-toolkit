@@ -69,10 +69,7 @@ jobs:
   configure-services:
     name: Configure Vault node services (${{ inputs.service_stage }})
     needs: gcp-shared
-    if: >-
-      ${{ inputs.cloud_provider == 'gcp-cloud' && inputs.deploy_action == 'apply' &&
-          inputs.service_stage != 'none' && github.ref == 'refs/heads/main' &&
-          inputs.gitops_repo_ref == 'main' }}
+    if: ${{ inputs.cloud_provider == 'gcp-cloud' && inputs.deploy_action == 'apply' && inputs.service_stage != 'none' && github.ref == 'refs/heads/main' && inputs.gitops_repo_ref == 'main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 70
     environment: prod
@@ -288,11 +285,7 @@ jobs:
   cleanup-bootstrap-ssh:
     name: Ensure temporary public SSH rule is absent
     needs: [gcp-shared, configure-services]
-    if: >-
-      ${{ always() && inputs.cloud_provider == 'gcp-cloud' &&
-          inputs.deploy_action == 'apply' && inputs.service_stage != 'none' &&
-          inputs.connection_mode == 'bootstrap-public' && github.ref == 'refs/heads/main' &&
-          inputs.gitops_repo_ref == 'main' }}
+    if: ${{ always() && needs.gcp-shared.result == 'success' && needs.configure-services.result != 'skipped' && inputs.cloud_provider == 'gcp-cloud' && inputs.deploy_action == 'apply' && inputs.service_stage != 'none' && inputs.connection_mode == 'bootstrap-public' && github.ref == 'refs/heads/main' && inputs.gitops_repo_ref == 'main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: prod
