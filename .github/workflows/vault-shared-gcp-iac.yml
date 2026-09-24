@@ -36,12 +36,12 @@ on:
         description: Reviewed iac_modules commit containing the GCP Vault renderer and VM modules.
         type: string
         required: true
-        default: 939eed3c7cd470be37d5da1d8f9bbce1b7f4eef1
+        default: 815ad1c21dde0f2e579913d755bfe2d45da25e05
       playbooks_ref:
         description: Reviewed playbooks commit for Vault node configuration.
         type: string
         required: true
-        default: main
+        default: b6a8bbcdae8e67f0b75b8c6a9492af5cea128c1d
 
 permissions:
   contents: read
