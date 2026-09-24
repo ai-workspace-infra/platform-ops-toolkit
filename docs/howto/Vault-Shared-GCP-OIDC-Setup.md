@@ -10,7 +10,8 @@ service-account JSON key, or permanent GCP credential belongs in GitHub.
 
 An authorized Vault administrator runs this from the checked-out
 `platform-ops-toolkit` main branch. The default is a read-only check; `--apply`
-writes just the two shared GCP roles and policies (not every repository role):
+writes the two shared GCP roles plus the three stage-scoped Vault node roles
+and policies (not every repository role):
 
 ```bash
 export VAULT_ADDR=https://vault.svc.plus
@@ -27,11 +28,22 @@ The declarations are stored separately by role name:
 - `scripts/vault/policies/github-actions-platform-ops-toolkit-shared-gcp-bootstrap-open-platform-prod.hcl`
 - `scripts/vault/roles/github-actions-platform-ops-toolkit-shared-gcp-oidc-open-platform-prod.json`
 - `scripts/vault/policies/github-actions-platform-ops-toolkit-shared-gcp-oidc-open-platform-prod.hcl`
+- `scripts/vault/roles/github-actions-platform-ops-toolkit-shared-vault-node-oidc-open-platform-prod.json`
+- `scripts/vault/policies/github-actions-platform-ops-toolkit-shared-vault-node-oidc-open-platform-prod.hcl`
+- `scripts/vault/roles/github-actions-platform-ops-toolkit-shared-vault-monitoring.json`
+- `scripts/vault/policies/github-actions-platform-ops-toolkit-shared-vault-monitoring.hcl`
+- `scripts/vault/roles/github-actions-platform-ops-toolkit-shared-vault-xconnect.json`
+- `scripts/vault/policies/github-actions-platform-ops-toolkit-shared-vault-xconnect.hcl`
 
 The bootstrap role is restricted to this repository, the `prod` GitHub
 Environment, the bootstrap workflow, and `main`. It can read only the shared
 bootstrap/state records and write the shared runtime OIDC record. The runtime
 role can read only the shared runtime OIDC record and shared state record.
+The node role reads only shared runtime GCP identity metadata, the monitoring
+role only `CICD/observability`, and the XConnect role only
+`CICD/shared/xconnect` plus the `svc.plus` TLS record. These roles are bound
+to the Vault shared GCP workflow on `main` and must be provisioned before
+the corresponding installation stage runs.
 
 ## 2. Prepare the shared Terraform state KV record
 
@@ -137,7 +149,21 @@ Gateway, and TCP 22 only from `35.79.83.48/32`. No public rule should expose
 Vault API port 8200. If the plan is correct, dispatch again with
 `deploy_action = apply` and complete the protected `prod` Environment approval.
 
-This provisions infrastructure only. Installing/configuring Vault and
-XConnect, DNS cutover, and manual per-node Vault initialization/unseal remain
-separate operations. GitHub Actions must never receive root tokens or unseal
-shares.
+For a hosted-runner Vault installation, dispatch `deploy_action=apply`,
+`service_stage=vault-shared-leader`, `connection_mode=bootstrap-public`, and
+the reviewed `playbooks_ref`. The installation job temporarily opens TCP/22
+to the three Vault-tagged VMs, compares live SSH host keys to GitOps pins,
+uses a short-lived OS Login key, and removes the temporary firewall rule and
+key after the job. Check that no `vault-shared-ci-ssh-*` rule remains, even if
+the workflow was canceled. Initialize and unseal node 0 manually from a
+secured operator terminal; then run `service_stage=vault-shared-peers` and
+unseal nodes 1 and 2 manually. Run `service_stage=node-process-metrics` to
+install node exporter, process exporter, and Vector.
+
+XConnect Zero network/policy creation, Gateway and One enrollment, DNS cutover,
+and the zero-trust SSH adapter remain separate checkpoints. Do not remove the
+operator `/32` SSH allowlist until all three overlay addresses and internal DNS
+names are verified. GitHub Actions must never receive Vault root tokens or
+unseal shares. Note that naming the GitHub Environment `prod` does not itself
+enforce approval: configure required reviewers in repository settings before
+running production installation.

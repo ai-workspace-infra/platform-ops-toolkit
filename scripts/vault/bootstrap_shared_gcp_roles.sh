@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Reconcile only the shared open-platform-prod GCP bootstrap/runtime Vault roles.
-# Default is read-only --check; use --apply to write these two roles/policies.
+# Reconcile shared GCP bootstrap/runtime and Vault node service JWT roles.
+# Default is read-only --check; use --apply to write the declared roles/policies.
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 repo_root="$(cd -- "${script_dir}/../.." && pwd -P)"
@@ -17,7 +17,7 @@ while (($#)); do
     --apply) mode=apply ;;
     -h|--help)
       printf 'Usage: %s [--check|--apply]\n' "$0"
-      printf 'Targets only shared open-platform-prod GCP bootstrap/runtime JWT roles and policies.\n'
+      printf 'Targets only shared open-platform-prod GCP and Vault node JWT roles and policies.\n'
       exit 0
       ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
@@ -40,6 +40,9 @@ fi
 names=(
   github-actions-platform-ops-toolkit-shared-gcp-bootstrap-open-platform-prod
   github-actions-platform-ops-toolkit-shared-gcp-oidc-open-platform-prod
+  github-actions-platform-ops-toolkit-shared-vault-node-oidc-open-platform-prod
+  github-actions-platform-ops-toolkit-shared-vault-monitoring
+  github-actions-platform-ops-toolkit-shared-vault-xconnect
 )
 
 for name in "${names[@]}"; do
@@ -52,9 +55,12 @@ for name in "${names[@]}"; do
   if [[ "${name}" == *-bootstrap-* ]]; then
     workflow_claim=workflow_ref
     workflow_value="ai-workspace-infra/platform-ops-toolkit/.github/workflows/gcp-oidc-bootstrap.yml@refs/heads/main"
-  else
+  elif [[ "${name}" == *-gcp-oidc-* ]]; then
     workflow_claim=job_workflow_ref
     workflow_value="ai-workspace-infra/platform-ops-toolkit/.github/workflows/gcp-iac-pipeline.yml@*"
+  else
+    workflow_claim=workflow_ref
+    workflow_value="ai-workspace-infra/platform-ops-toolkit/.github/workflows/vault-shared-gcp-iac.yml@refs/heads/main"
   fi
   jq -e --arg name "${name}" --arg workflow_claim "${workflow_claim}" --arg workflow_value "${workflow_value}" '
     .role_name == $name and
@@ -63,6 +69,10 @@ for name in "${names[@]}"; do
     .token_no_default_policy == true and
     .token_type == "batch" and
     (.bound_claims.repository == "ai-workspace-infra/platform-ops-toolkit") and
+    (if ($name | contains("shared-vault-")) then
+      .bound_claims.repository_id == "1284966060" and
+      .bound_claims.repository_owner_id == "292703558"
+     else true end) and
     (.bound_claims.environment == "prod") and
     (.bound_claims.ref == "refs/heads/main") and
     (.bound_claims[$workflow_claim] == $workflow_value) and

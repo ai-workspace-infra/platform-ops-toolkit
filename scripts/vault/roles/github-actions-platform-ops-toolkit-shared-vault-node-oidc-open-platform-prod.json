@@ -1,0 +1,21 @@
+{
+  "role_name": "github-actions-platform-ops-toolkit-shared-vault-node-oidc-open-platform-prod",
+  "description": "Read only shared GCP runtime identity for Vault node configuration after IaC apply.",
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": ["vault"],
+  "bound_claims_type": "glob",
+  "bound_claims": {
+    "repository": "ai-workspace-infra/platform-ops-toolkit",
+    "repository_id": "1284966060",
+    "repository_owner_id": "292703558",
+    "environment": "prod",
+    "workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/vault-shared-gcp-iac.yml@refs/heads/main",
+    "ref": "refs/heads/main"
+  },
+  "token_policies": ["github-actions-platform-ops-toolkit-shared-vault-node-oidc-open-platform-prod"],
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": "15m",
+  "token_max_ttl": "15m"
+}
