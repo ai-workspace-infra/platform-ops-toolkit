@@ -21,6 +21,7 @@ class VaultSharedWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("runner.temp", str(job["env"]))
         names = {step["name"]: step for step in job["steps"]}
         self.assertIn("GITHUB_ENV", names["Set runner temporary paths"]["run"])
+        self.assertIn("ansible.posix:==2.1.0", names["Prepare isolated manifest parser"]["run"])
         create = names["Temporarily open SSH for bootstrap job"]
         self.assertIn("--source-ranges=0.0.0.0/0", create["run"])
         self.assertIn("--target-tags=vault", create["run"])

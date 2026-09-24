@@ -116,6 +116,7 @@ jobs:
           set -euo pipefail
           python3 -m venv "${RUNNER_TEMP}/vault-shared-python"
           "${RUNNER_TEMP}/vault-shared-python/bin/python" -m pip install --disable-pip-version-check 'pyyaml==6.0.2' 'ansible-core==2.17.14'
+          "${RUNNER_TEMP}/vault-shared-python/bin/ansible-galaxy" collection install 'ansible.posix:==2.1.0'
           echo "${RUNNER_TEMP}/vault-shared-python/bin" >> "${GITHUB_PATH}"
 
       - name: Read GCP runtime identity with stage-scoped Vault JWT role
