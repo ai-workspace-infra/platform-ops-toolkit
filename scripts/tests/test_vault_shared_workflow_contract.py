@@ -18,7 +18,9 @@ class VaultSharedWorkflowContractTests(unittest.TestCase):
         job = self.workflow["jobs"]["configure-services"]
         self.assertEqual(job["runs-on"], "ubuntu-latest")
         self.assertEqual(self.workflow[True]["workflow_dispatch"]["inputs"]["connection_mode"]["options"], ["bootstrap-public"])
+        self.assertNotIn("runner.temp", str(job["env"]))
         names = {step["name"]: step for step in job["steps"]}
+        self.assertIn("GITHUB_ENV", names["Set runner temporary paths"]["run"])
         create = names["Temporarily open SSH for bootstrap job"]
         self.assertIn("--source-ranges=0.0.0.0/0", create["run"])
         self.assertIn("--target-tags=vault", create["run"])

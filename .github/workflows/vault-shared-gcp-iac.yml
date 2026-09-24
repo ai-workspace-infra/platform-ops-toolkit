@@ -80,11 +80,15 @@ jobs:
       GCP_PROJECT_ID: open-platform-prod
       GITOPS_MANIFEST: resources/xworktech.com/shared/gcp/vault-shared.yaml
       PLAYBOOK_NAME: deploy_vault_shared_services.yml
-      OSLOGIN_DIR: ${{ runner.temp }}/vault-shared-oslogin
-      NODE_CONTRACT: ${{ runner.temp }}/vault-shared-nodes.json
-      SSH_KNOWN_HOSTS: ${{ runner.temp }}/vault-shared-known-hosts
       TEMP_SSH_RULE: vault-shared-ci-ssh-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
+      - name: Set runner temporary paths
+        shell: bash
+        run: |
+          echo "OSLOGIN_DIR=${RUNNER_TEMP}/vault-shared-oslogin" >> "${GITHUB_ENV}"
+          echo "NODE_CONTRACT=${RUNNER_TEMP}/vault-shared-nodes.json" >> "${GITHUB_ENV}"
+          echo "SSH_KNOWN_HOSTS=${RUNNER_TEMP}/vault-shared-known-hosts" >> "${GITHUB_ENV}"
+
       - name: Checkout toolkit
         uses: actions/checkout@v4
         with:
