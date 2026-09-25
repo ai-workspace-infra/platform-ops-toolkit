@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -37,7 +38,7 @@ def resolve_migration(service: dict, environment: str, vault_addr: str) -> dict[
     """Validate spec.migration (the existing node being moved) if declared."""
     migration = service["spec"].get("migration")
     if not migration:
-        return {"migration": "false", "legacy_config": "{}", "raft_operator_role": ""}
+        return {"migration": "false", "legacy_config": "{}", "raft_operator_role": "", "observation": "{}"}
     source = migration["source"]
     ssh_ca = migration["ssh_ca"]
     if not IDENTIFIER.fullmatch(str(source.get("id", ""))):
@@ -70,7 +71,34 @@ def resolve_migration(service: dict, environment: str, vault_addr: str) -> dict[
         "migration": "true",
         "legacy_config": json.dumps(config, separators=(",", ":"), sort_keys=True),
         "raft_operator_role": raft_operator_role,
+        "observation": json.dumps(resolve_observation(migration), separators=(",", ":"), sort_keys=True),
     }
+
+
+def resolve_observation(migration: dict) -> dict:
+    """spec.migration.observation: when the service DNS moved and how long to keep the old peer.
+
+    Recorded in GitOps by the operator who switches the DNS; migrate-remove
+    waits until ``dns_switched_at + hours`` (default 24).
+    """
+    observation = migration.get("observation") or {}
+    if not isinstance(observation, dict):
+        raise ValueError("migration.observation must be a mapping")
+    hours = observation.get("hours", 24)
+    if not isinstance(hours, int) or isinstance(hours, bool) or not 1 <= hours <= 24 * 30:
+        raise ValueError("migration.observation.hours must be an integer between 1 and 720")
+    resolved: dict = {"hours": hours}
+    switched = observation.get("dns_switched_at")
+    if switched is not None:
+        text = switched.isoformat() if hasattr(switched, "isoformat") else str(switched)
+        try:
+            moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            raise ValueError("migration.observation.dns_switched_at must be an ISO 8601 time") from None
+        if moment.tzinfo is None:
+            raise ValueError("migration.observation.dns_switched_at needs a UTC offset (for example 2026-10-01T08:00:00Z)")
+        resolved["dns_switched_at"] = moment.isoformat()
+    return resolved
 
 
 def resolve_backup(service: dict, environment: str) -> dict[str, str]:

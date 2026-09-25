@@ -185,17 +185,68 @@ Before changing anything, each stage probes every node over SSH (sudo, swap,
 Vault's loopback `sys/health` and `sys/leader`, service units) and refuses to
 run unless its prerequisites hold. The probe needs no Vault token.
 
+#### Fresh environment (no existing Vault)
+
+IaC → preflight → leader → manual init/unseal → one peer per dispatch
+(manual unseal + `raft list-peers` after each) → quorum → monitoring and
+XConnect → service verification.
+
 | Order | `service_stage` | Requires (checked live) | Does | Then, manually |
 | --- | --- | --- | --- | --- |
 | 1 | `node-preflight` | SSH, sudo, no swap | nothing | — |
 | 2 | `fresh-leader` | same + no split cluster | installs Vault on node 0 | `vault operator init` + unseal node 0 |
-| 3 | `fresh-peers` | node 0 initialized and unsealed | installs Vault on nodes 1/2 | unseal nodes 1/2; `vault operator raft list-peers` |
+| 3 | `fresh-peers` (repeat) | node 0 unsealed; every joined peer unsealed | installs Vault on the **next** peer only | unseal it; `vault operator raft list-peers`; dispatch again for the next peer |
 | 4 | `vault-raft-verify` | all nodes unsealed, one cluster ID, one active, same private Raft leader | nothing | confirm all voters |
-| 5 | `node-process-metrics` | Raft quorum as above | node exporter, process exporter, Vector | — |
-| 6 | `xconnect-gateway-frontend` | SSH | Caddy on node 0: TLS 443 for `vault-xconnect.svc.plus`, only `/xconnect` forwarded | point `vault-xconnect.svc.plus` at node 0 |
-| 7 | `xconnect-gateway` | SSH (not Raft: the old node joins over this overlay) | installs the verified runtime, `init`, issues a one-use invitation bound to the Gateway key, enrolls, starts Xray + sync; confirms `gateway-running` | check the Gateway in the Zero portal |
-| 8 | `xconnect-one` | Gateway enrolled | enrolls vault-prod-1/2 and, while `spec.migration` is declared, the existing vault.svc.plus node (M4) as One; one invitation per node that has not joined | record overlay IPs in GitOps (`fixed_nodes[].xconnect.overlay_ip`, `spec.migration.source.overlay_address`) |
-| 9 | `xconnect-operator-invite` | Gateway enrolled | issues a one-use invitation for the operator device declared in GitOps and writes it to `kv/data/CICD/shared/xconnect-operator-invite` (CI can create/update, never read); no host change | on the Mac within 30 min: `vault kv get -field=join_uri kv/CICD/shared/xconnect-operator-invite`, then `xconnect join` |
+| 5 | `node-process-metrics` | SSH | node exporter, process exporter, Vector | — |
+| 6–9 | `xconnect-gateway-frontend`, `xconnect-gateway`, `xconnect-one`, `xconnect-operator-invite` | see below | XConnect | see below |
+| 10 | `vault-service-verify` | quorum, monitoring, Gateway running, `https://vault.svc.plus` answers unsealed as this cluster | nothing | — |
+
+#### Migration of the existing vault.svc.plus node
+
+Target IaC/preflight/monitoring → read-only check of the old node → old
+node to single-node Raft → encrypted snapshot + restore drill → XConnect
+between the old cluster and the new nodes → new nodes join **one at a time**
+→ manual unseal / voter / quorum → leader transfer + cluster health → DNS
+switch (the last traffic change) → observation and rollback window → remove
+the old peer and retire the node → manual rekey, rotate, revoke the old root
+token. `migrate-auto` (confirm `MIGRATE-VAULT-AUTO`) picks the next of these
+from live state and stops at every manual gate.
+
+| Order | `service_stage` | Requires (checked live) | Does | Then, manually |
+| --- | --- | --- | --- | --- |
+| 1 | `node-preflight`, `node-process-metrics` | SSH | target nodes checked and monitored for the whole migration | — |
+| 2 | `xconnect-gateway-frontend`, `xconnect-gateway`, `xconnect-one` | see below | overlay; `xconnect-one` also enrolls the old node (no Vault change) | record `spec.migration.source.overlay_address` |
+| 3 | `migrate-preflight` | old node unsealed; disk; storage | read-only report | — |
+| 4 | `migrate-convert` (`CONVERT-VAULT-TO-RAFT`) | old node unsealed, report, overlay address declared | PostgreSQL → single-node Raft in place (its Raft address is the overlay address) | unseal it with its existing key |
+| 5 | `vault-snapshot` | `spec.backup` | snapshot → restore drill in a disposable Raft Vault → age encryption → upload → read-back check → manifest | keep the age identity and unseal keys offline |
+| 6 | `migrate-join` (repeat) | old node active on Raft; one cluster; **every node reaches every other on 8200/8201 over the overlay**; every joined node unsealed | snapshot + drill first, then joins the **next** new node only | unseal it with the existing key; `raft list-peers`; dispatch again |
+| 7 | `migrate-cutover` (`MOVE-VAULT-LEADER`) | all nodes unsealed, one cluster, one leader | snapshot + drill, then steps the old node down until a new node leads; confirms old node standby **and** a healthy quorum | switch `vault.svc.plus` DNS; record `spec.migration.observation.dns_switched_at` |
+| 8 | observation window | — | nothing: the old node stays a voter and forwards to the leader | rollback = point the DNS back at the old node |
+| 9 | `migrate-remove` (`REMOVE-LEGACY-VAULT-PEER`) | old node standby, DNS no longer on it, `dns_switched_at + hours` passed (default 24) | snapshot + drill, removes the old Raft peer, stops and disables the old Vault | — |
+| 10 | `vault-service-verify` | as in the fresh path | nothing | rekey, rotate and revoke the old root token (M7) |
+
+`spec.migration.observation` in the Vault service declaration:
+
+```yaml
+spec:
+  migration:
+    observation:
+      dns_switched_at: 2026-10-01T08:00:00Z   # when vault.svc.plus moved (UTC offset required)
+      hours: 24                             # 1–720, default 24
+```
+
+#### XConnect stages
+
+| `service_stage` | Requires (checked live) | Does | Then, manually |
+| --- | --- | --- | --- |
+| `xconnect-gateway-frontend` | SSH | Caddy on node 0: TLS 443 for `vault-xconnect.svc.plus`, only `/xconnect` forwarded | point `vault-xconnect.svc.plus` at node 0 |
+| `xconnect-gateway` | SSH (not Raft: the old node joins over this overlay) | installs the verified runtime, `init`, issues a one-use invitation bound to the Gateway key, enrolls, starts Xray + sync; confirms `gateway-running` | check the Gateway in the Zero portal |
+| `xconnect-one` | Gateway enrolled | enrolls vault-prod-1/2 and, while `spec.migration` is declared, the existing vault.svc.plus node (M4) as One; one invitation per node that has not joined | record overlay IPs in GitOps (`fixed_nodes[].xconnect.overlay_ip`, `spec.migration.source.overlay_address`) |
+| `xconnect-operator-invite` | Gateway enrolled | issues a one-use invitation for the operator device declared in GitOps and writes it to `kv/data/CICD/shared/xconnect-operator-invite` (CI can create/update, never read); no host change | on the Mac within 30 min: `vault kv get -field=join_uri kv/CICD/shared/xconnect-operator-invite`, then `xconnect join` |
+
+The Zero access policy must allow tcp 8200/8201 between the Vault nodes and
+the old node before `migrate-join`; the stage checks the path from every
+node and refuses when packets are dropped.
 
 `xconnect-gateway` needs, in `kv/data/CICD/shared/xconnect`: `ZERO_SERVICE_TOKEN`,
 `ZERO_OWNER_EMAIL` and `VLESS_ID` for the shared network (not the UAT values).

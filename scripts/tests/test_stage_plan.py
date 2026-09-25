@@ -59,13 +59,53 @@ class StagePlanTests(unittest.TestCase):
         order = list(module.STAGES)
         migration = ["migrate-auto", "migrate-preflight", "migrate-convert", "migrate-join", "migrate-cutover", "migrate-remove"]
         self.assertEqual(migration, sorted(migration, key=order.index))
-        self.assertIn("legacy-overlay", entry("migrate-convert")["requires"])
+        # Read-only report before the in-place conversion.
+        self.assertEqual(entry("migrate-convert")["requires"], ["access", "legacy-unsealed", "legacy-report", "legacy-overlay"])
         self.assertIn("vault-port-guard", entry("migrate-convert")["confirms"])
-        self.assertEqual(entry("migrate-join")["requires"], ["access", "legacy-raft", "new-nodes-empty"])
+        # XConnect path to the old cluster, then ONE node per dispatch.
+        self.assertEqual(
+            entry("migrate-join")["requires"],
+            ["access", "legacy-raft", "no-foreign-cluster", "overlay-raft-path", "next-peer"],
+        )
+        self.assertTrue(entry("migrate-join")["one_node"])
+        self.assertEqual(entry("migrate-join")["confirms"], ["selected-running"])
+        # Leader transfer, then the whole cluster must be healthy.
         self.assertIn("raft-quorum", entry("migrate-cutover")["requires"])
-        self.assertEqual(entry("migrate-cutover")["confirms"], ["legacy-standby"])
-        self.assertIn("legacy-standby", entry("migrate-remove")["requires"])
+        self.assertEqual(entry("migrate-cutover")["confirms"], ["legacy-standby", "raft-quorum"])
+        # DNS moves last; the old peer stays for the observation window.
+        self.assertEqual(
+            entry("migrate-remove")["requires"],
+            ["access", "legacy-standby", "service-dns-moved", "observation-window"],
+        )
         self.assertEqual(entry("migrate-remove")["confirms"], ["raft-quorum-new"])
+
+    def test_every_live_raft_change_is_preceded_by_a_drilled_snapshot(self):
+        for stage in ("migrate-join", "migrate-cutover", "migrate-remove"):
+            self.assertTrue(entry(stage)["snapshot_first"], stage)
+            with self.assertRaisesRegex(ValueError, "declare spec.backup"):
+                module.plan(stage, entry(stage)["confirm"], migration=True, backup=False)
+            module.plan(stage, entry(stage)["confirm"], migration=True, backup=True)
+        with self.assertRaisesRegex(ValueError, "declare spec.backup"):
+            module.plan("vault-snapshot", backup=False)
+        self.assertFalse(entry("migrate-convert")["snapshot_first"])
+        self.assertEqual(entry("vault-snapshot")["token"], "")
+
+    def test_fresh_path_installs_one_peer_per_dispatch_and_ends_with_service_verify(self):
+        peers = entry("fresh-peers")
+        self.assertTrue(peers["one_node"])
+        self.assertEqual(peers["requires"], ["access", "leader-unsealed", "next-peer"])
+        self.assertEqual(peers["confirms"], ["selected-running"])
+        verify = entry("vault-service-verify")
+        self.assertEqual(verify["path"], "any")
+        self.assertEqual(verify["ssh"], "new")
+        self.assertEqual(
+            verify["requires"],
+            ["access", "raft-quorum", "monitoring-running", "gateway-running", "service-endpoint"],
+        )
+        self.assertEqual(verify["tags"], [])
+        values = module.output_values(module.plan("fresh-peers", migration=False))
+        self.assertEqual(values["one_node"], "true")
+        self.assertEqual(values["snapshot_first"], "false")
 
     def test_host_changes_run_as_playbook_tags_not_toolkit_actions(self):
         self.assertEqual(entry("migrate-convert")["playbook"], module.LEGACY_PLAYBOOK)

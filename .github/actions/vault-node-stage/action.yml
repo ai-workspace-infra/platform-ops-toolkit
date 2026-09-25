@@ -51,9 +51,17 @@ inputs:
     required: false
     default: ''
   vault_addr:
-    description: Vault API address for runner-side Raft operations
+    description: Vault service address (runner-side Raft operations and the service-* checks)
     required: false
     default: ''
+  observation:
+    description: spec.migration.observation JSON for the observation-window check
+    required: false
+    default: '{}'
+  one_node:
+    description: "'true' when the stage changes exactly one peer: the next one that has not joined"
+    required: false
+    default: 'false'
   extra_vars:
     description: JSON extra-vars for the playbook tags (for example the confirm phrase a destructive role asserts)
     required: false
@@ -93,6 +101,7 @@ runs:
         done < <(jq -r '[.spec.nodes[].auth.adapter] | unique[]' "${NODE_CONTRACT}")
 
     - name: Check live node state required by the stage
+      id: gate
       shell: bash
       env:
         NODE_CONTRACT: ${{ inputs.contract }}
@@ -101,11 +110,19 @@ runs:
         SSH_PRIVATE_KEY: ${{ inputs.ssh_private_key }}
         SSH_KNOWN_HOSTS: ${{ inputs.known_hosts }}
         GATEWAY_STATE: ${{ inputs.gateway_state }}
+        VAULT_ADDR: ${{ inputs.vault_addr }}
+        OBSERVATION: ${{ inputs.observation }}
+        ONE_NODE: ${{ inputs.one_node }}
       run: |
         set -euo pipefail
+        # One-node stages also pick the peer to change: the first declared
+        # peer that has not joined, and only once every joined peer is unsealed.
+        select=()
+        [[ "${ONE_NODE}" != true ]] || select=(--select-next-peer "${GITHUB_OUTPUT}")
         python3 "${GITHUB_WORKSPACE}/scripts/node_deploy/verify_vault_stage.py" \
           --contract "${NODE_CONTRACT}" --key "${SSH_PRIVATE_KEY}" --known-hosts "${SSH_KNOWN_HOSTS}" \
           --checks "${REQUIRED_CHECKS}" --gateway-state "${GATEWAY_STATE}" \
+          --vault-addr "${VAULT_ADDR}" --observation "${OBSERVATION}" "${select[@]}" \
           --title "Before ${DEPLOY_STAGE}"
 
     - name: Run the stage action
@@ -135,8 +152,14 @@ runs:
         XCONNECT_TOPOLOGY: ${{ inputs.xconnect_topology }}
         XCONNECT_DIR: ${{ inputs.xconnect_dir }}
         GATEWAY_STATE: ${{ inputs.gateway_state }}
+        ONE_NODE: ${{ inputs.one_node }}
+        SELECTED_NODE: ${{ steps.gate.outputs.node }}
       run: |
         set -euo pipefail
+        if [[ "${ONE_NODE}" == true ]]; then
+          [[ -n "${SELECTED_NODE}" ]] || { echo '::error::one-node stage without a selected node' >&2; exit 1; }
+          export NODE_STAGE_ONLY="${SELECTED_NODE}"
+        fi
         export ANSIBLE_HOST_KEY_CHECKING=True
         export ANSIBLE_SSH_COMMON_ARGS="-o IdentitiesOnly=yes -o UserKnownHostsFile=${SSH_KNOWN_HOSTS} -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=ssh-ed25519"
         # One-use invitations live only in the runner-private secrets dir.
@@ -172,11 +195,15 @@ runs:
         SSH_PRIVATE_KEY: ${{ inputs.ssh_private_key }}
         SSH_KNOWN_HOSTS: ${{ inputs.known_hosts }}
         GATEWAY_STATE: ${{ inputs.gateway_state }}
+        VAULT_ADDR: ${{ inputs.vault_addr }}
+        OBSERVATION: ${{ inputs.observation }}
+        SELECTED_NODE: ${{ steps.gate.outputs.node }}
       run: |
         set -euo pipefail
         python3 "${GITHUB_WORKSPACE}/scripts/node_deploy/verify_vault_stage.py" \
           --contract "${NODE_CONTRACT}" --key "${SSH_PRIVATE_KEY}" --known-hosts "${SSH_KNOWN_HOSTS}" \
           --checks "${CONFIRM_CHECKS}" --gateway-state "${GATEWAY_STATE}" \
+          --vault-addr "${VAULT_ADDR}" --observation "${OBSERVATION}" --selected "${SELECTED_NODE}" \
           --attempts 8 --interval 15 --title "After ${DEPLOY_STAGE}"
 
     - name: Record the next operator step

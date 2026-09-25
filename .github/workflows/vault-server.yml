@@ -33,7 +33,7 @@ on:
         type: choice
         required: true
         default: none
-        options: [none, node-preflight, node-process-metrics, vault-raft-verify, vault-snapshot, xconnect-gateway-frontend, xconnect-gateway, xconnect-one, xconnect-operator-invite, fresh-leader, fresh-peers, migrate-auto, migrate-preflight, migrate-convert, migrate-rollback, migrate-join, migrate-cutover, migrate-remove]
+        options: [none, node-preflight, node-process-metrics, vault-raft-verify, vault-snapshot, vault-service-verify, xconnect-gateway-frontend, xconnect-gateway, xconnect-one, xconnect-operator-invite, fresh-leader, fresh-peers, migrate-auto, migrate-preflight, migrate-convert, migrate-rollback, migrate-join, migrate-cutover, migrate-remove]
       connection_mode:
         description: Current supported SSH transport for the hosted installation job.
         type: choice
@@ -79,6 +79,11 @@ concurrency:
   group: vault-server-${{ inputs.service_manifest }}
   cancel-in-progress: false
 
+env:
+  # Disposable Vault used only for the snapshot restore drill on the runner;
+  # the same release the playbooks install on the nodes (vhosts/vault).
+  VAULT_DRILL_VERSION: 1.21.4
+
 jobs:
   declaration:
     name: Resolve declaration and stage plan
@@ -99,6 +104,7 @@ jobs:
       raft_operator_role: ${{ steps.declaration.outputs.raft_operator_role }}
       snapshot_role: ${{ steps.declaration.outputs.snapshot_role }}
       backup_config: ${{ steps.declaration.outputs.backup_config }}
+      observation: ${{ steps.declaration.outputs.observation }}
       open_new: ${{ steps.access.outputs.open_new }}
       open_legacy: ${{ steps.access.outputs.open_legacy }}
     steps:
@@ -330,16 +336,20 @@ jobs:
           NODE_CONTRACT: ${{ steps.access.outputs.contract }}
           VAULT_ADDR: ${{ needs.declaration.outputs.vault_addr }}
           BACKUP_CONFIG: ${{ needs.declaration.outputs.backup_config }}
+          OBSERVATION: ${{ needs.declaration.outputs.observation }}
         run: |
           set -euo pipefail
+          backup=true
+          [[ "${BACKUP_CONFIG}" != '{}' ]] || backup=false
           if [[ "${SERVICE_STAGE}" == migrate-auto ]]; then
             python3 scripts/node_deploy/auto_migration.py \
               --contract "${NODE_CONTRACT}" --key "${NODE_ACCESS_DIR}/id_ed25519" --known-hosts "${SSH_KNOWN_HOSTS}" \
-              --vault-addr "${VAULT_ADDR}" --backup-config "${BACKUP_CONFIG}" --github-output "${GITHUB_OUTPUT}"
+              --vault-addr "${VAULT_ADDR}" --backup-config "${BACKUP_CONFIG}" --observation "${OBSERVATION}" \
+              --github-output "${GITHUB_OUTPUT}"
           else
             python3 scripts/node_deploy/stage_plan.py "${SERVICE_STAGE}" \
-              --confirm "${CONFIRM}" --migration "${MIGRATION}" --github-output "${GITHUB_OUTPUT}" >/dev/null
-            echo "snapshot_first=false" >> "${GITHUB_OUTPUT}"
+              --confirm "${CONFIRM}" --migration "${MIGRATION}" --backup "${backup}" \
+              --github-output "${GITHUB_OUTPUT}" >/dev/null
             echo "blocked=" >> "${GITHUB_OUTPUT}"
           fi
 
@@ -459,6 +469,9 @@ jobs:
           role: ${{ needs.declaration.outputs.snapshot_role }}
           jwtGithubAudience: vault
           exportToken: false
+          # The snapshot runs with this snapshot-only token, so a stage that
+          # snapshots first keeps its own (raft-operator) token for itself.
+          outputToken: true
           secrets: |
             ${{ fromJSON(needs.declaration.outputs.backup_config).credentials_path }} access_key_id | BACKUP_ACCESS_KEY_ID ;
             ${{ fromJSON(needs.declaration.outputs.backup_config).credentials_path }} secret_access_key | BACKUP_SECRET_ACCESS_KEY
@@ -468,6 +481,8 @@ jobs:
         shell: bash
         env:
           VAULT_ADDR: ${{ needs.declaration.outputs.vault_addr }}
+          VAULT_TOKEN: ${{ steps.backup.outputs.vault_token }}
+          VAULT_DRILL_VERSION: ${{ env.VAULT_DRILL_VERSION }}
           BACKUP_AGE_RECIPIENT: ${{ fromJSON(needs.declaration.outputs.backup_config).age_recipient }}
           BACKUP_DESTINATION: ${{ fromJSON(needs.declaration.outputs.backup_config).destination }}
           BACKUP_ENDPOINT: ${{ fromJSON(needs.declaration.outputs.backup_config).endpoint }}
@@ -477,7 +492,8 @@ jobs:
         run: |
           set -euo pipefail
           command -v age >/dev/null 2>&1 || sudo apt-get install -y -qq age >/dev/null
-          bash scripts/node_deploy/vault_snapshot.sh
+          bash scripts/node_deploy/install_vault_drill.sh "${VAULT_DRILL_VERSION}" "${RUNNER_TEMP}/vault-drill-bin"
+          VAULT_DRILL_BIN="${RUNNER_TEMP}/vault-drill-bin/vault" bash scripts/node_deploy/vault_snapshot.sh
 
       - name: Execute provider-neutral Vault node stage
         if: ${{ steps.access.outcome == 'success' && steps.stage.outputs.stage != '' }}
@@ -504,6 +520,8 @@ jobs:
           ready_adapters: ${{ steps.access.outputs.auth_adapters }}
           action: ${{ steps.stage.outputs.action }}
           vault_addr: ${{ needs.declaration.outputs.vault_addr }}
+          observation: ${{ needs.declaration.outputs.observation }}
+          one_node: ${{ steps.stage.outputs.one_node }}
           extra_vars: ${{ steps.stage.outputs.extra_vars }}
           xconnect_role: ${{ steps.stage.outputs.xconnect }}
           xconnect_topology: ${{ github.workspace }}/gitops/${{ needs.declaration.outputs.xconnect_topology }}

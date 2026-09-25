@@ -49,8 +49,14 @@ def probes(legacy, new=None):
     return states
 
 
-def decide(states, dns_on_legacy=True, backup=True):
-    return module.decide(contract(), states, dns_on_legacy=dns_on_legacy, backup_declared=backup)
+OBSERVED = {"dns_switched_at": "2020-01-01T00:00:00+00:00", "hours": 24}
+
+
+def decide(states, dns_on_legacy=True, backup=True, observation=None):
+    return module.decide(
+        contract(), states, dns_on_legacy=dns_on_legacy, backup_declared=backup,
+        observation=OBSERVED if observation is None else observation,
+    )
 
 
 class AutoMigrationDecisionTests(unittest.TestCase):
@@ -67,7 +73,8 @@ class AutoMigrationDecisionTests(unittest.TestCase):
 
     def test_join_takes_a_snapshot_first_and_requires_a_declared_backup(self):
         result = decide(probes(running("raft")))
-        self.assertEqual(result, {"stage": "migrate-join", "blocked": "", "snapshot_first": True})
+        self.assertEqual(result, {"stage": "migrate-join", "blocked": ""})
+        self.assertTrue(module.plan("migrate-join", migration=True)["snapshot_first"])
         result = decide(probes(running("raft")), backup=False)
         self.assertEqual(result["stage"], "")
         self.assertIn("spec.backup", result["blocked"])
@@ -79,22 +86,32 @@ class AutoMigrationDecisionTests(unittest.TestCase):
         self.assertIn("vault-0, vault-1", result["blocked"])
         self.assertIn("raft list-peers", result["blocked"])
 
-    def test_partial_join_is_reported_not_retried_blindly(self):
+    def test_nodes_join_one_at_a_time_after_each_manual_unseal(self):
+        # vault-0 joined and was unsealed by hand: the next join is chosen.
         new = {"vault-0": running("raft", standby=True)}
+        self.assertEqual(decide(probes(running("raft"), new))["stage"], "migrate-join")
+        # vault-1 joined but is still sealed: stop until an operator unseals it.
+        new["vault-1"] = running("raft", sealed=True)
         result = decide(probes(running("raft"), new))
         self.assertEqual(result["stage"], "")
-        self.assertIn("vault-1, vault-2 did not join", result["blocked"])
+        self.assertIn("Unseal vault-1", result["blocked"])
 
     def test_cutover_when_every_node_is_unsealed_and_the_source_still_leads(self):
         new = {node_id: running("raft", standby=True) for node_id in NEW}
         self.assertEqual(decide(probes(running("raft"), new))["stage"], "migrate-cutover")
 
-    def test_removal_waits_for_the_dns_move(self):
+    def test_removal_waits_for_the_dns_move_and_the_observation_window(self):
         new = {node_id: running("raft", standby=node_id != "vault-1") for node_id in NEW}
         source = running("raft", standby=True)
         result = decide(probes(source, new), dns_on_legacy=True)
         self.assertEqual(result["stage"], "")
-        self.assertIn("DNS", result["blocked"])
+        self.assertIn("Switch the service DNS", result["blocked"])
+        self.assertIn("dns_switched_at", result["blocked"])
+        result = decide(probes(source, new), dns_on_legacy=False, observation={})
+        self.assertEqual(result["stage"], "")
+        self.assertIn("Observing", result["blocked"])
+        result = decide(probes(source, new), dns_on_legacy=False, observation={"dns_switched_at": "2999-01-01T00:00:00Z"})
+        self.assertIn("observation window runs until", result["blocked"])
         self.assertEqual(decide(probes(source, new), dns_on_legacy=False)["stage"], "migrate-remove")
 
     def test_retired_source_with_an_active_new_leader_is_done(self):
@@ -123,29 +140,32 @@ class AutoMigrationDecisionTests(unittest.TestCase):
 
 class DnsCheckTests(unittest.TestCase):
     def test_unresolvable_service_name_counts_as_still_on_the_old_node(self):
-        original = module.addresses
+        verify = sys.modules["verify_vault_stage"]
+        original = verify.addresses
         try:
-            module.addresses = lambda host: {"service.example": set(), "old.example": {"46.0.0.1"}}.get(host, set())
+            verify.addresses = lambda host: {"service.example": set(), "old.example": {"46.0.0.1"}}.get(host, set())
             self.assertTrue(module.dns_points_at_legacy("service.example", "old.example"))
-            module.addresses = lambda host: {"service.example": {"34.1.1.1"}, "old.example": {"46.0.0.1"}}[host]
+            verify.addresses = lambda host: {"service.example": {"34.1.1.1"}, "old.example": {"46.0.0.1"}}[host]
             self.assertFalse(module.dns_points_at_legacy("service.example", "old.example"))
-            module.addresses = lambda host: {"service.example": {"46.0.0.1"}, "old.example": {"46.0.0.1"}}[host]
+            verify.addresses = lambda host: {"service.example": {"46.0.0.1"}, "old.example": {"46.0.0.1"}}[host]
             self.assertTrue(module.dns_points_at_legacy("service.example", "old.example"))
         finally:
-            module.addresses = original
+            verify.addresses = original
 
 
 class OutputTests(unittest.TestCase):
-    def test_chosen_stage_outputs_carry_its_own_confirm_and_snapshot_token(self):
+    def test_chosen_stage_outputs_carry_its_own_snapshot_and_one_node_flags(self):
         result = module.plan("migrate-join", "", migration=True)
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "out"
-            module.write_outputs(result, output, {"blocked": "", "snapshot_first": "true", "token": "snapshot"})
+            module.write_outputs(result, output, {"blocked": ""})
             values = dict(line.split("=", 1) for line in output.read_text().splitlines())
         self.assertEqual(values["stage"], "migrate-join")
         self.assertEqual(values["tags"], "vault-shared-peers")
-        self.assertEqual(values["token"], "snapshot")
+        # The snapshot uses the backup login's own token; join itself needs none.
+        self.assertEqual(values["token"], "")
         self.assertEqual(values["snapshot_first"], "true")
+        self.assertEqual(values["one_node"], "true")
         convert = module.plan("migrate-convert", module.STAGES["migrate-convert"]["confirm"], migration=True)
         self.assertEqual(convert["confirm"], "CONVERT-VAULT-TO-RAFT")
 
