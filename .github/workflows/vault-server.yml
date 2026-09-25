@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       cloud_provider:
-        description: Provider for this shared Vault deployment (GCP only until the other renderers are wired).
+        description: Provisioning adapter. GCP is currently wired; node stages consume a cloud-neutral service declaration.
         type: choice
         required: true
         default: gcp-cloud
@@ -32,6 +32,16 @@ on:
         type: string
         required: true
         default: main
+      service_manifest:
+        description: Provider-neutral Vault service declaration inside GitOps.
+        type: string
+        required: true
+        default: resources/svc.plus/shared/vault/server.yaml
+      provider_manifest:
+        description: Provider-specific node and network declaration inside GitOps.
+        type: string
+        required: true
+        default: resources/xworktech.com/shared/gcp/vault-shared.yaml
       iac_ref:
         description: Reviewed iac_modules commit containing the GCP Vault renderer and VM modules.
         type: string
@@ -48,19 +58,61 @@ permissions:
   id-token: write
 
 concurrency:
-  group: vault-shared-gcp
+  group: vault-server-${{ inputs.service_manifest }}
   cancel-in-progress: false
 
 jobs:
+  declaration:
+    name: Validate Vault service and provider declarations
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.resolve.outputs.environment }}
+      github_environment: ${{ steps.resolve.outputs.github_environment }}
+      vault_addr: ${{ steps.resolve.outputs.vault_addr }}
+      runtime_identity_path: ${{ steps.resolve.outputs.runtime_identity_path }}
+      monitoring_secret_path: ${{ steps.resolve.outputs.monitoring_secret_path }}
+      node_role: ${{ steps.resolve.outputs.node_role }}
+      monitoring_role: ${{ steps.resolve.outputs.monitoring_role }}
+      account_id: ${{ steps.resolve.outputs.account_id }}
+      project_id: ${{ steps.resolve.outputs.project_id }}
+      network_name: ${{ steps.resolve.outputs.network_name }}
+      ssh_access_mode: ${{ steps.resolve.outputs.ssh_access_mode }}
+      xconnect_topology: ${{ steps.resolve.outputs.xconnect_topology }}
+    steps:
+      - name: Checkout toolkit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout reviewed GitOps declaration
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_repo_ref }}
+          path: gitops
+          persist-credentials: false
+      - name: Parse scoped Vault and provider declarations
+        id: resolve
+        env:
+          SERVICE_MANIFEST: ${{ inputs.service_manifest }}
+          PROVIDER_MANIFEST: ${{ inputs.provider_manifest }}
+          CLOUD_PROVIDER: ${{ inputs.cloud_provider }}
+        run: |
+          python3 -m pip install --disable-pip-version-check 'pyyaml==6.0.2'
+          python3 scripts/node_deploy/resolve_vault_server_declaration.py \
+            --gitops-root gitops --service-manifest "${SERVICE_MANIFEST}" \
+            --provider-manifest "${PROVIDER_MANIFEST}" --provider "${CLOUD_PROVIDER}" \
+            --output "${GITHUB_OUTPUT}"
+
   gcp-shared:
+    needs: declaration
     if: ${{ inputs.cloud_provider == 'gcp-cloud' }}
     uses: ./.github/workflows/gcp-iac-pipeline.yml
     with:
       deploy_action: ${{ inputs.deploy_action }}
-      vault_env_path: shared
-      github_environment: prod
-      gcp_account_id: open-platform-prod
-      gcp_resource_manifest: resources/xworktech.com/shared/gcp/vault-shared.yaml
+      vault_env_path: ${{ needs.declaration.outputs.environment }}
+      github_environment: ${{ needs.declaration.outputs.github_environment }}
+      gcp_account_id: ${{ needs.declaration.outputs.account_id }}
+      gcp_resource_manifest: ${{ inputs.provider_manifest }}
       gitops_repo_name: https://github.com/ai-workspace-infra/gitops.git
       gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
       iac_ref: ${{ inputs.iac_ref }}
@@ -68,17 +120,21 @@ jobs:
 
   configure-services:
     name: Configure Vault node services (${{ inputs.service_stage }})
-    needs: gcp-shared
+    needs: [declaration, gcp-shared]
     if: ${{ inputs.cloud_provider == 'gcp-cloud' && inputs.deploy_action == 'apply' && inputs.service_stage != 'none' && github.ref == 'refs/heads/main' && inputs.gitops_repo_ref == 'main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 70
-    environment: prod
+    environment: ${{ needs.declaration.outputs.github_environment }}
     permissions:
       contents: read
       id-token: write
     env:
-      GCP_PROJECT_ID: open-platform-prod
-      GITOPS_MANIFEST: resources/xworktech.com/shared/gcp/vault-shared.yaml
+      GCP_PROJECT_ID: ${{ needs.declaration.outputs.project_id }}
+      GCP_NETWORK_NAME: ${{ needs.declaration.outputs.network_name }}
+      DEPLOY_ENVIRONMENT: ${{ needs.declaration.outputs.environment }}
+      GITOPS_MANIFEST: ${{ inputs.provider_manifest }}
+      SERVICE_MANIFEST: ${{ inputs.service_manifest }}
+      XCONNECT_TOPOLOGY: ${{ needs.declaration.outputs.xconnect_topology }}
       TEMP_SSH_RULE: vault-shared-ci-ssh-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Set runner temporary paths
@@ -122,16 +178,16 @@ jobs:
         id: node_identity
         uses: hashicorp/vault-action@v4
         with:
-          url: https://vault.svc.plus
+          url: ${{ needs.declaration.outputs.vault_addr }}
           method: jwt
-          role: github-actions-platform-ops-toolkit-shared-vault-node-oidc-open-platform-prod
+          role: ${{ needs.declaration.outputs.node_role }}
           jwtGithubAudience: vault
           exportToken: false
           secrets: |
-            kv/data/shared/platform/oidc/open-platform-prod gcp_workload_identity_provider | GCP_WORKLOAD_IDENTITY_PROVIDER ;
-            kv/data/shared/platform/oidc/open-platform-prod deploy_service_account | GCP_SERVICE_ACCOUNT_EMAIL ;
-            kv/data/shared/platform/oidc/open-platform-prod gcp_oidc_audience | GCP_OIDC_AUDIENCE ;
-            kv/data/shared/platform/oidc/open-platform-prod project_id | GCP_PROJECT_ID
+            ${{ needs.declaration.outputs.runtime_identity_path }} gcp_workload_identity_provider | GCP_WORKLOAD_IDENTITY_PROVIDER ;
+            ${{ needs.declaration.outputs.runtime_identity_path }} deploy_service_account | GCP_SERVICE_ACCOUNT_EMAIL ;
+            ${{ needs.declaration.outputs.runtime_identity_path }} gcp_oidc_audience | GCP_OIDC_AUDIENCE ;
+            ${{ needs.declaration.outputs.runtime_identity_path }} project_id | GCP_PROJECT_ID
 
       - name: Verify scoped project identity
         shell: bash
@@ -195,11 +251,12 @@ jobs:
             > "${RUNNER_TEMP}/vault-shared-instances.json"
           "${RUNNER_TEMP}/vault-shared-python/bin/python" scripts/node_deploy/resolve_gcp_vault.py \
             --manifest "gitops/${GITOPS_MANIFEST}" \
+            --service-manifest "gitops/${SERVICE_MANIFEST}" \
             --instances "${RUNNER_TEMP}/vault-shared-instances.json" \
             --project-id "${GCP_PROJECT_ID}" \
-            --environment shared \
+            --environment "${DEPLOY_ENVIRONMENT}" \
             --ssh-user "${SSH_USER}" \
-            --xconnect-topology "gitops/vpn-overlay/shared/xconnect-vault-shared.yaml" \
+            --xconnect-topology "gitops/${XCONNECT_TOPOLOGY}" \
             --output "${NODE_CONTRACT}"
           if jq -e 'any(.spec.nodes[]; has("overlay_address"))' "${NODE_CONTRACT}" >/dev/null; then
             "${RUNNER_TEMP}/vault-shared-python/bin/python" - "${NODE_CONTRACT}" <<'PY'
@@ -221,7 +278,7 @@ jobs:
         run: |
           set -euo pipefail
           gcloud compute firewall-rules create "${TEMP_SSH_RULE}" \
-            --project="${GCP_PROJECT_ID}" --network=vault-shared \
+            --project="${GCP_PROJECT_ID}" --network="${GCP_NETWORK_NAME}" \
             --direction=INGRESS --priority=1000 --action=ALLOW \
             --rules=tcp:22 --source-ranges=0.0.0.0/0 \
             --target-tags=vault \
@@ -240,14 +297,14 @@ jobs:
         id: observability
         uses: hashicorp/vault-action@v4
         with:
-          url: https://vault.svc.plus
+          url: ${{ needs.declaration.outputs.vault_addr }}
           method: jwt
-          role: github-actions-platform-ops-toolkit-shared-vault-monitoring
+          role: ${{ needs.declaration.outputs.monitoring_role }}
           jwtGithubAudience: vault
           exportToken: false
           secrets: |
-            kv/data/CICD/observability user | VECTOR_AUTH_USER ;
-            kv/data/CICD/observability password | VECTOR_AUTH_PASSWORD
+            ${{ needs.declaration.outputs.monitoring_secret_path }} user | VECTOR_AUTH_USER ;
+            ${{ needs.declaration.outputs.monitoring_secret_path }} password | VECTOR_AUTH_PASSWORD
 
       - name: Execute provider-neutral Vault node stage
         uses: ./.github/actions/vault-node-stage
@@ -288,32 +345,32 @@ jobs:
 
   cleanup-bootstrap-ssh:
     name: Ensure temporary public SSH rule is absent
-    needs: [gcp-shared, configure-services]
+    needs: [declaration, gcp-shared, configure-services]
     if: ${{ always() && needs.gcp-shared.result == 'success' && needs.configure-services.result != 'skipped' && inputs.cloud_provider == 'gcp-cloud' && inputs.deploy_action == 'apply' && inputs.service_stage != 'none' && inputs.connection_mode == 'bootstrap-public' && github.ref == 'refs/heads/main' && inputs.gitops_repo_ref == 'main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: prod
+    environment: ${{ needs.declaration.outputs.github_environment }}
     permissions:
       contents: read
       id-token: write
     env:
-      GCP_PROJECT_ID: open-platform-prod
+      GCP_PROJECT_ID: ${{ needs.declaration.outputs.project_id }}
       TEMP_SSH_RULE: vault-shared-ci-ssh-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Read cleanup identity with stage-scoped Vault JWT role
         id: node_identity
         uses: hashicorp/vault-action@v4
         with:
-          url: https://vault.svc.plus
+          url: ${{ needs.declaration.outputs.vault_addr }}
           method: jwt
-          role: github-actions-platform-ops-toolkit-shared-vault-node-oidc-open-platform-prod
+          role: ${{ needs.declaration.outputs.node_role }}
           jwtGithubAudience: vault
           exportToken: false
           secrets: |
-            kv/data/shared/platform/oidc/open-platform-prod gcp_workload_identity_provider | GCP_WORKLOAD_IDENTITY_PROVIDER ;
-            kv/data/shared/platform/oidc/open-platform-prod deploy_service_account | GCP_SERVICE_ACCOUNT_EMAIL ;
-            kv/data/shared/platform/oidc/open-platform-prod gcp_oidc_audience | GCP_OIDC_AUDIENCE ;
-            kv/data/shared/platform/oidc/open-platform-prod project_id | GCP_PROJECT_ID
+            ${{ needs.declaration.outputs.runtime_identity_path }} gcp_workload_identity_provider | GCP_WORKLOAD_IDENTITY_PROVIDER ;
+            ${{ needs.declaration.outputs.runtime_identity_path }} deploy_service_account | GCP_SERVICE_ACCOUNT_EMAIL ;
+            ${{ needs.declaration.outputs.runtime_identity_path }} gcp_oidc_audience | GCP_OIDC_AUDIENCE ;
+            ${{ needs.declaration.outputs.runtime_identity_path }} project_id | GCP_PROJECT_ID
 
       - name: Verify project and authenticate through Google WIF
         env:

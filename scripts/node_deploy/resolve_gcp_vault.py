@@ -33,6 +33,7 @@ STAGE_TARGETS = {
 
 def resolve(
     manifest: dict,
+    service: dict,
     instances: list[dict],
     project_id: str,
     environment: str,
@@ -45,9 +46,22 @@ def resolve(
     spec = manifest["spec"]
     if (metadata.get("environment"), spec.get("project_id")) != (environment, project_id):
         raise ValueError("GCP environment or project identity does not match GitOps")
+    if service.get("kind") != "VaultServerDeployment" or service.get("metadata", {}).get("environment") != environment:
+        raise ValueError("Vault service declaration belongs to another environment")
+    service_spec = service["spec"]
+    storage = service_spec["storage"]
+    if storage.get("backend") != "raft" or storage.get("address_scope") != "private":
+        raise ValueError("Vault service must use private Raft storage")
+    if service_spec.get("stages") != STAGES:
+        raise ValueError("Vault service stages do not match the reviewed runner")
     if spec.get("enable_oslogin") is not True or spec.get("enable_iap_ssh") is not False:
         raise ValueError("shared Vault deployment requires OS Login and direct allowlisted SSH")
     access_mode = spec.get("ssh_access_mode", "bootstrap-public")
+    if access_mode not in {
+        service_spec["access"]["bootstrap"],
+        service_spec["access"]["steady_state"],
+    }:
+        raise ValueError("GCP SSH access mode is not declared by the Vault service")
     if access_mode == "bootstrap-public":
         if not spec.get("ssh_source_ranges"):
             raise ValueError("bootstrap-public requires an explicit public SSH /32 allowlist")
@@ -63,10 +77,20 @@ def resolve(
     else:
         raise ValueError("unsupported SSH access mode")
     declared = spec["resources"]["vault_nodes"]
-    if len(declared) != 3 or sorted(node.get("xconnect_role") for node in declared) != [
-        "gateway", "one", "one"
-    ]:
-        raise ValueError("expected one gateway and two One nodes")
+    service_nodes = service_spec["nodes"]
+    service_roles = {node["id"]: node["xconnect_role"] for node in service_nodes}
+    declared_roles = {node["name"]: node["xconnect_role"] for node in declared}
+    if (
+        len(declared) != 3
+        or len(service_roles) != 3
+        or declared_roles != service_roles
+        or sorted(service_roles.values()) != ["gateway", "one", "one"]
+        or storage.get("members") != 3
+        or storage.get("leader") not in service_roles
+        or service_roles[storage["leader"]] != "gateway"
+        or set(storage.get("peers", [])) != set(service_roles) - {storage["leader"]}
+    ):
+        raise ValueError("GCP nodes do not match the provider-neutral Vault service declaration")
     live = {(item.get("name"), item.get("zone", "").split("/")[-1]): item for item in instances}
     nodes = []
     for node in declared:
@@ -134,6 +158,7 @@ def resolve(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--service-manifest", type=Path, required=True)
     parser.add_argument("--instances", type=Path, required=True)
     parser.add_argument("--project-id", required=True)
     parser.add_argument("--environment", required=True)
@@ -142,9 +167,13 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     manifest = yaml.safe_load(args.manifest.read_text(encoding="utf-8"))
+    service = yaml.safe_load(args.service_manifest.read_text(encoding="utf-8"))
+    expected_topology = Path("gitops") / service["spec"]["access"]["xconnect_topology"]
+    if args.xconnect_topology != expected_topology:
+        raise SystemExit("XConnect topology path differs from the reviewed Vault service declaration")
     instances = json.loads(args.instances.read_text(encoding="utf-8"))
     topology = yaml.safe_load(args.xconnect_topology.read_text(encoding="utf-8")) if args.xconnect_topology else None
-    contract = resolve(manifest, instances, args.project_id, args.environment, args.ssh_user, topology)
+    contract = resolve(manifest, service, instances, args.project_id, args.environment, args.ssh_user, topology)
     args.output.write_text(json.dumps(contract, indent=2) + "\n", encoding="utf-8")
     args.output.chmod(0o600)
     print(f"resolved {len(contract['spec']['nodes'])} GCP Vault nodes into {args.output}")

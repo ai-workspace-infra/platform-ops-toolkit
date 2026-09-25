@@ -54,6 +54,15 @@ class VaultSharedWorkflowContractTests(unittest.TestCase):
             path = ROOT / "scripts/vault/roles" / f"github-actions-platform-ops-toolkit-shared-vault-{role}.json"
             self.assertIn(".github/workflows/vault-server.yml@refs/heads/main", path.read_text(encoding="utf-8"))
 
+    def test_scoped_service_declaration_drives_gcp_adapter(self):
+        jobs = self.workflow["jobs"]
+        self.assertEqual(jobs["gcp-shared"]["needs"], "declaration")
+        self.assertEqual(jobs["gcp-shared"]["with"]["gcp_account_id"], "${{ needs.declaration.outputs.account_id }}")
+        self.assertEqual(jobs["gcp-shared"]["with"]["vault_env_path"], "${{ needs.declaration.outputs.environment }}")
+        self.assertIn("declaration", jobs["configure-services"]["needs"])
+        self.assertEqual(jobs["configure-services"]["env"]["GCP_PROJECT_ID"], "${{ needs.declaration.outputs.project_id }}")
+        self.assertIn("--service-manifest", self.source)
+
 
 if __name__ == "__main__":
     unittest.main()

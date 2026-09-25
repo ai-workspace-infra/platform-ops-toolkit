@@ -141,7 +141,15 @@ identity, and writes runtime identity metadata to
 
 ## 5. Run Vault infrastructure plan/apply
 
-After bootstrap apply succeeds, dispatch **Vault server** (`.github/workflows/vault-server.yml`):
+After bootstrap apply succeeds, dispatch **Vault server** (`.github/workflows/vault-server.yml`).
+Its default GitOps service declaration is
+`resources/svc.plus/shared/vault/server.yaml`; the GCP adapter reads
+`resources/xworktech.com/shared/gcp/vault-shared.yaml`. The first workflow job
+checks the environment, Vault JWT roles and KV paths, project, network, and
+the declared XConnect topology. For another environment, supply its reviewed
+service and provider manifest paths and provision the corresponding scoped
+Vault roles before dispatching. The node-stage action itself consumes the
+provider-neutral `NodeDeployment` contract:
 
 ```text
 cloud_provider = gcp-cloud
