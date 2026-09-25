@@ -30,7 +30,7 @@ class VaultServerEntryTests(unittest.TestCase):
         self.assertEqual(self.inputs["deploy_action"]["options"], ["none", "plan", "apply"])
         self.assertEqual(self.inputs["connection_mode"]["options"], ["bootstrap-public"])
         self.assertNotIn("xconnect-gateway", self.inputs["service_stage"]["options"])
-        self.assertEqual(self.inputs["playbooks_ref"]["default"], "7affb1d53001a248c1266ca747f8ba22980281aa")
+        self.assertEqual(self.inputs["playbooks_ref"]["default"], "00aa9fe3f18e4ea060173974b5529c0502b2d8a0")
 
     def test_it_is_a_single_workflow_file(self):
         # The node stage was previously a separate reusable workflow with
@@ -54,7 +54,11 @@ class VaultServerEntryTests(unittest.TestCase):
     def test_plan_cannot_be_combined_with_a_node_stage(self):
         guard = steps_by_name(self.jobs["declaration"]["steps"])["Reject dispatch combinations that cannot run"]
         self.assertIn('"${DEPLOY_ACTION}" == plan && "${SERVICE_STAGE}" != none', guard["run"])
-        self.assertIn("stage_plan.py", guard["run"])
+        # Stage validation needs the confirm phrase, so it lives in the plan
+        # step, not here (without --confirm every gated stage would fail).
+        self.assertNotIn("stage_plan.py", guard["run"])
+        plan = steps_by_name(self.jobs["declaration"]["steps"])["Resolve the stage plan"]["run"]
+        self.assertIn('--confirm "${CONFIRM}"', plan)
 
     def test_declaration_checks_connection_mode_and_stage_once(self):
         steps = steps_by_name(self.jobs["declaration"]["steps"])
@@ -98,9 +102,22 @@ class ProviderNeutralStageTests(unittest.TestCase):
     def test_stage_runner_receives_plan_outputs(self):
         run = self.steps["Execute provider-neutral Vault node stage"]
         self.assertEqual(run["uses"], "./.github/actions/vault-node-stage")
-        for field in ("tags", "requires", "confirms", "playbook"):
-            self.assertEqual(run["with"][field], f"${{{{ needs.declaration.outputs.{field} }}}}")
-        self.assertIn("needs_observability == 'true'", self.steps["Read observability ingestion credentials"]["if"])
+        for field in ("tags", "requires", "confirms", "playbook", "action", "extra_vars", "stage"):
+            self.assertEqual(run["with"][field], f"${{{{ steps.stage.outputs.{field} }}}}")
+        self.assertIn("steps.stage.outputs.stage != ''", run["if"])
+        self.assertIn("steps.stage.outputs.needs_observability == 'true'", self.steps["Read observability ingestion credentials"]["if"])
+
+    def test_stage_is_resolved_after_access_and_auto_mode_can_stop(self):
+        names = list(self.steps)
+        resolve = self.steps["Resolve the stage to run"]
+        self.assertLess(names.index("Verify live SSH host keys against GitOps pins"), names.index("Resolve the stage to run"))
+        self.assertLess(names.index("Resolve the stage to run"), names.index("Log in with the stage's scoped Vault role"))
+        self.assertIn("auto_migration.py", resolve["run"])
+        self.assertIn("stage_plan.py", resolve["run"])
+        report = self.steps["Report where migrate-auto stopped"]
+        self.assertIn("steps.stage.outputs.blocked != ''", report["if"])
+        snapshot = self.steps["Take, encrypt and upload a Raft snapshot"]
+        self.assertIn("steps.stage.outputs.snapshot_first == 'true'", snapshot["if"])
 
 
 class MigrationWiringTests(unittest.TestCase):

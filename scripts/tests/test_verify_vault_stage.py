@@ -197,7 +197,7 @@ class MigrationCheckTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "already holds Vault data"):
             module.verify(contract, ["new-nodes-empty"], probes)
         probes["legacy"]["storage_type"] = "postgresql"
-        with self.assertRaisesRegex(ValueError, "legacy-convert-raft"):
+        with self.assertRaisesRegex(ValueError, "migrate-convert"):
             module.verify(contract, ["legacy-raft"], probes)
 
     def test_quorum_includes_the_source_until_it_is_removed(self):

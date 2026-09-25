@@ -18,6 +18,9 @@ ALLOWED_AUTH_ADAPTERS = {"gcp-oslogin-ephemeral", "ssh-certificate", "ephemeral-
 ALLOWED_STAGES = {
     "node-preflight",
     "vault-single-raft",
+    "vault-legacy-convert",
+    "vault-legacy-rollback",
+    "vault-legacy-retire",
     "vault-shared-leader",
     "vault-shared-peers",
     "node-process-metrics",

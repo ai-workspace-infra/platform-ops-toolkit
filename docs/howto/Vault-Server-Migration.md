@@ -38,39 +38,72 @@ below; the protected `prod` Environment still asks for approval.
    `migration.source.overlay_address` is the XConnect IP assigned to the old
    node; Raft never uses a public address.
 
-## Stages
+## Automatic mode (recommended)
+
+Dispatch `service_stage=migrate-auto` with `confirm=MIGRATE-VAULT-AUTO`
+(and `deploy_action=none`). Each run probes the old node and the new nodes,
+runs the one next step that is safe to run, and stops with a message in the
+run summary whenever a person has to act. Do that step and dispatch
+`migrate-auto` again; repeat until the summary says the migration is
+complete.
+
+| Live state it finds | It runs | Then you |
+| --- | --- | --- |
+| old node on PostgreSQL, unsealed | `migrate-convert` | unseal the old node with its existing key |
+| old node on Raft, new nodes empty | `vault-snapshot`, then `migrate-join` | unseal each new node; check `vault operator raft list-peers` |
+| every node unsealed, old node leads | `migrate-cutover` | point `vault.svc.plus` DNS at the new entry point |
+| old node standby, DNS moved | `migrate-remove` | rekey, rotate, revoke the old root token (M7) |
+| old node retired, new node leads | nothing (done) | drop `spec.migration` from GitOps |
+
+It never initializes or unseals anything, never rolls back on its own,
+refuses to let new nodes join unless `spec.backup` is declared (it takes the
+encrypted snapshot first), and will not remove the old peer while the service
+name still resolves to the old node. Each chosen step still runs its own
+before/after checks.
+
+## Stages (manual mode)
+
+Every step can also be dispatched by name. Names are grouped: `node-*` and
+`vault-*` apply to both paths, `fresh-*` to a new cluster, `migrate-*` to
+moving the existing node.
 
 | # | `service_stage` | `confirm` | You do afterwards |
 | --- | --- | --- | --- |
 | 1 | `node-preflight` | — | — |
 | 2 | `node-process-metrics` | — | check the dashboards |
-| 3 | `legacy-preflight` | — | read the warnings (key file on disk, versions) |
-| 4 | `legacy-convert-raft` | `CONVERT-VAULT-TO-RAFT` | unseal the old node with its existing key; check `vault.svc.plus` |
+| 3 | `migrate-preflight` | — | read the warnings (key file on disk, versions) |
+| 4 | `migrate-convert` | `CONVERT-VAULT-TO-RAFT` | unseal the old node with its existing key; check `vault.svc.plus` |
 | 5 | `vault-snapshot` | — | restore drill on a throwaway node (M3) |
-| 6 | `vault-join-legacy` | — | unseal each new node (existing key); `vault operator raft list-peers` shows all voters |
+| 6 | `migrate-join` | — | unseal each new node (existing key); `vault operator raft list-peers` shows all voters |
 | 7 | `vault-raft-verify` | — | — |
-| 8 | `vault-cutover` | `MOVE-VAULT-LEADER` | move `vault.svc.plus` DNS to the new entry point |
-| 9 | `vault-remove-legacy` | `REMOVE-LEGACY-VAULT-PEER` | **rekey, rotate, revoke the old root token, delete `vault_init.json`** |
+| 8 | `migrate-cutover` | `MOVE-VAULT-LEADER` | move `vault.svc.plus` DNS to the new entry point |
+| 9 | `migrate-remove` | `REMOVE-LEGACY-VAULT-PEER` | **rekey, rotate, revoke the old root token, delete `vault_init.json`** |
 
-What each changing stage does:
+What each changing stage does. Host changes run as tags of
+`deploy_vault_legacy_migration.yml` in `ai-workspace-infra/playbooks`
+(roles `vhosts/vault_legacy_migration` and `vhosts/vault_port_guard`); the
+toolkit only orchestrates them and calls the Vault API.
 
-- `legacy-convert-raft`: on the old host, backs up `vault_storage`
-  (`/var/backups/vault-migration`, 0600, sha256), stops Vault, runs
-  `vault operator migrate` from local PostgreSQL (read-only, 127.0.0.1) to
-  `/opt/vault/data`, loads the `vault_port_guard` nftables table (8200/8201
-  only from loopback and the overlay interface), then runs the reviewed
-  `deploy_vault_single_raft.yml`. PostgreSQL itself is never restarted or
-  written. Undo with `legacy-convert-rollback` (`ROLLBACK-VAULT-TO-POSTGRESQL`);
-  writes made to Raft since the conversion are not carried back.
+- `migrate-convert` (tags `vault-legacy-convert`, then `vault-single-raft`):
+  on the old host, backs up `vault_storage` (`/var/backups/vault-migration`,
+  0600, sha256), stops Vault, runs `vault operator migrate` through the
+  reviewed `vault_operator_data.sh migrate-offline` from local PostgreSQL
+  (read-only, 127.0.0.1) to `/opt/vault/data`, loads the `vault_port_guard`
+  nftables table (8200/8201 only from loopback and the overlay interface),
+  then writes the Raft configuration and starts Vault. PostgreSQL itself is
+  never restarted or written. Undo with `migrate-rollback`
+  (`ROLLBACK-VAULT-TO-POSTGRESQL`, tag `vault-legacy-rollback`); writes made
+  to Raft since the conversion are not carried back.
 - `vault-snapshot`: snapshot through the API with a snapshot-only token,
   checksum verification, age encryption on the runner, upload of the
   ciphertext only.
-- `vault-cutover`: steps the old node down (retrying if it wins again) until
+- `migrate-cutover`: steps the old node down (retrying if it wins again) until
   a new node leads. The old node keeps serving by forwarding to the new
   leader, so DNS can move at your pace.
-- `vault-remove-legacy`: removes only the declared source peer, only when a
-  new node leads and all new nodes are voters, then stops and disables Vault
-  on the old host (its data stays until decommissioning).
+- `migrate-remove`: removes only the declared source peer through the Vault
+  API, only when a new node leads and all new nodes are voters, then (tag
+  `vault-legacy-retire`) stops and disables Vault on the old host; its data
+  stays until decommissioning.
 
 After step 9, drop `spec.migration` from GitOps; `vault-raft-verify` then
 checks only the new nodes.

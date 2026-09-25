@@ -98,12 +98,20 @@ class LegacyContractTests(unittest.TestCase):
         self.assertEqual(node["private_address"], "10.79.0.10")
         self.assertIn("vault_legacy_source", node["groups"])
         self.assertIn("vault_shared_leader", node["groups"])
-        self.assertEqual(contract["spec"]["stage_targets"], {"vault-single-raft": ["vault_single_node"]})
+        self.assertEqual(contract["spec"]["stage_targets"], {
+            "vault-legacy-convert": ["vault_legacy_source"],
+            "vault-legacy-rollback": ["vault_legacy_source"],
+            "vault-legacy-retire": ["vault_legacy_source"],
+            "vault-single-raft": ["vault_single_node"],
+        })
 
     def test_merge_combines_providers_into_one_contract(self):
         merged = legacy_source.merge([new_contract(), legacy_source.legacy_contract(service(), "vault-server")])
         self.assertEqual([node["id"] for node in merged["spec"]["nodes"]], ["vault-prod-0", "jp-xhttp-contabo"])
-        self.assertEqual(set(merged["spec"]["stages"]), {"vault-shared-peers", "vault-single-raft"})
+        self.assertEqual(
+            set(merged["spec"]["stages"]),
+            {"vault-shared-peers", "vault-single-raft", "vault-legacy-convert", "vault-legacy-rollback", "vault-legacy-retire"},
+        )
         self.assertEqual(merged["spec"]["connection"], {"mode": "bootstrap-public"})
 
     def test_merge_rejects_duplicates_and_mixed_environments(self):
@@ -171,21 +179,21 @@ class RaftOperatorTests(unittest.TestCase):
             raft_operator.plan_remove(config("n0", ("legacy", "n0", "n1", "n2", "old-x")), "legacy", self.expected)
 
 
-class LegacyScriptTests(unittest.TestCase):
-    script = SCRIPT_DIR / "legacy_convert.sh"
+class ControlPlaneBoundaryTests(unittest.TestCase):
+    def test_host_side_migration_lives_in_playbooks_not_the_toolkit(self):
+        self.assertFalse((SCRIPT_DIR / "legacy_convert.sh").exists())
+        action = (SCRIPT_DIR / "run_stage_action.sh").read_text(encoding="utf-8")
+        subprocess.run(["bash", "-n", str(SCRIPT_DIR / "run_stage_action.sh")], check=True)
+        self.assertNotIn("ssh ", action)
+        self.assertNotIn("legacy-convert", action)
+        self.assertIn("vault_raft_operator.py", action)
 
-    def test_script_is_valid_and_guards_every_live_change(self):
-        subprocess.run(["bash", "-n", str(self.script)], check=True)
-        source = self.script.read_text(encoding="utf-8")
-        for phrase in ("CONVERT-VAULT-TO-RAFT", "ROLLBACK-VAULT-TO-POSTGRESQL", "REMOVE-LEGACY-VAULT-PEER"):
-            self.assertIn(f"require_confirm \"${{", source.split(phrase)[0][-200:] + "require_confirm \"${")
-            self.assertIn(phrase, source)
-        self.assertIn("data_empty || die", source)
-        self.assertIn("@127\\.0\\.0\\.1:", source)
-        self.assertIn('PGPASSWORD="${password}" docker exec -e PGPASSWORD', source)
-        self.assertNotIn("vault_init.json", source)
-        self.assertIn('tcp dport { 8200, 8201 } drop', source)
-        self.assertIn("shred -u", source)
+    def test_run_stage_passes_extra_vars_to_ansible(self):
+        source = (SCRIPT_DIR / "run_stage.sh").read_text(encoding="utf-8")
+        subprocess.run(["bash", "-n", str(SCRIPT_DIR / "run_stage.sh")], check=True)
+        self.assertIn("NODE_STAGE_EXTRA_VARS", source)
+        self.assertIn('--extra-vars "${NODE_STAGE_EXTRA_VARS}"', source)
+        self.assertIn("jq -e .", source)
 
     def test_snapshot_script_only_uploads_ciphertext(self):
         source = (SCRIPT_DIR / "vault_snapshot.sh").read_text(encoding="utf-8")

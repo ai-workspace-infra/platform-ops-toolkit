@@ -80,6 +80,7 @@ print(json.dumps({
     "storage_type": seal.get("storage_type"),
     "version": seal.get("version"),
     "units": {unit: run("systemctl", "is-active", unit).stdout.strip() for unit in units.split(",") if unit},
+    "vault_enabled": run("systemctl", "is-enabled", "vault").stdout.strip(),
     "gateway_state": bool(gateway_state) and run("sudo", "-n", "test", "-s", gateway_state).returncode == 0,
     "init_file": bool(init_file) and run("sudo", "-n", "test", "-e", init_file).returncode == 0,
     "port_guard": run("sudo", "-n", "nft", "list", "table", "inet", guard_table).returncode == 0,
@@ -285,7 +286,7 @@ def check_legacy_raft(contract: dict, probes: dict[str, dict]) -> None:
     legacy = single(contract, LEGACY_GROUP, "legacy source node")
     state = probes[legacy["id"]]
     if state.get("storage_type") != "raft":
-        raise ValueError(f"{legacy['id']}: convert the existing Vault to Raft (legacy-convert-raft) first")
+        raise ValueError(f"{legacy['id']}: convert the existing Vault to Raft (migrate-convert) first")
     if not active(state):
         raise ValueError(f"{legacy['id']}: the existing Vault must be unsealed and active before new nodes join")
 

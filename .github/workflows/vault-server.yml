@@ -29,11 +29,11 @@ on:
         default: plan
         options: [none, plan, apply]
       service_stage:
-        description: One node stage per dispatch (see docs/howto/Vault-Server-Migration.md). Each checks live state first.
+        description: 'One stage per dispatch. node-*/vault-*: both paths; fresh-*: new cluster; migrate-*: move the existing vault.svc.plus (migrate-auto picks the next step). Each checks live state first.'
         type: choice
         required: true
         default: none
-        options: [none, node-preflight, node-process-metrics, vault-shared-leader, vault-shared-peers, vault-raft-verify, legacy-preflight, legacy-convert-raft, legacy-convert-rollback, vault-snapshot, vault-join-legacy, vault-cutover, vault-remove-legacy]
+        options: [none, node-preflight, node-process-metrics, vault-raft-verify, vault-snapshot, fresh-leader, fresh-peers, migrate-auto, migrate-preflight, migrate-convert, migrate-rollback, migrate-join, migrate-cutover, migrate-remove]
       connection_mode:
         description: Current supported SSH transport for the hosted installation job.
         type: choice
@@ -61,7 +61,7 @@ on:
         required: true
         default: 815ad1c21dde0f2e579913d755bfe2d45da25e05
       confirm:
-        description: Confirmation phrase for stages that change a live Vault (the stage names it when missing).
+        description: Confirmation phrase for stages that change a live Vault (MIGRATE-VAULT-AUTO for migrate-auto; a missing phrase is named in the error).
         type: string
         required: false
         default: ''
@@ -69,7 +69,7 @@ on:
         description: Reviewed playbooks commit for Vault node configuration.
         type: string
         required: true
-        default: 7affb1d53001a248c1266ca747f8ba22980281aa
+        default: 00aa9fe3f18e4ea060173974b5529c0502b2d8a0
 
 permissions:
   contents: read
@@ -99,14 +99,6 @@ jobs:
       backup_config: ${{ steps.declaration.outputs.backup_config }}
       open_new: ${{ steps.access.outputs.open_new }}
       open_legacy: ${{ steps.access.outputs.open_legacy }}
-      action: ${{ steps.plan.outputs.action }}
-      token: ${{ steps.plan.outputs.token }}
-      playbook: ${{ steps.plan.outputs.playbook }}
-      tags: ${{ steps.plan.outputs.tags }}
-      requires: ${{ steps.plan.outputs.requires }}
-      confirms: ${{ steps.plan.outputs.confirms }}
-      needs_observability: ${{ steps.plan.outputs.needs_observability }}
-      next: ${{ steps.plan.outputs.next }}
     steps:
       - name: Checkout toolkit
         uses: actions/checkout@v4
@@ -134,9 +126,6 @@ jobs:
           if [[ "${DEPLOY_ACTION}" == none && "${SERVICE_STAGE}" == none ]]; then
             echo '::error::Nothing to do: choose an IaC action or a node stage' >&2
             exit 1
-          fi
-          if [[ "${SERVICE_STAGE}" != none ]]; then
-            python3 scripts/node_deploy/stage_plan.py "${SERVICE_STAGE}" >/dev/null
           fi
 
       - name: Resolve environment, Vault paths and connection mode from GitOps
@@ -327,8 +316,41 @@ jobs:
           python3 scripts/node_deploy/prepare_known_hosts.py \
             --contract "${NODE_CONTRACT}" --output "${SSH_KNOWN_HOSTS}"
 
+      # migrate-auto chooses the next step from live state here, once access
+      # is open; every other stage resolves to itself.
+      - name: Resolve the stage to run
+        id: stage
+        shell: bash
+        env:
+          SERVICE_STAGE: ${{ inputs.service_stage }}
+          CONFIRM: ${{ inputs.confirm }}
+          MIGRATION: ${{ needs.declaration.outputs.migration }}
+          NODE_CONTRACT: ${{ steps.access.outputs.contract }}
+          VAULT_ADDR: ${{ needs.declaration.outputs.vault_addr }}
+          BACKUP_CONFIG: ${{ needs.declaration.outputs.backup_config }}
+        run: |
+          set -euo pipefail
+          if [[ "${SERVICE_STAGE}" == migrate-auto ]]; then
+            python3 scripts/node_deploy/auto_migration.py \
+              --contract "${NODE_CONTRACT}" --key "${NODE_ACCESS_DIR}/id_ed25519" --known-hosts "${SSH_KNOWN_HOSTS}" \
+              --vault-addr "${VAULT_ADDR}" --backup-config "${BACKUP_CONFIG}" --github-output "${GITHUB_OUTPUT}"
+          else
+            python3 scripts/node_deploy/stage_plan.py "${SERVICE_STAGE}" \
+              --confirm "${CONFIRM}" --migration "${MIGRATION}" --github-output "${GITHUB_OUTPUT}" >/dev/null
+            echo "snapshot_first=false" >> "${GITHUB_OUTPUT}"
+            echo "blocked=" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Report where migrate-auto stopped
+        if: ${{ steps.stage.outputs.blocked != '' }}
+        shell: bash
+        env:
+          BLOCKED: ${{ steps.stage.outputs.blocked }}
+        run: |
+          printf '**migrate-auto stopped:** %s\n' "${BLOCKED}" | tee -a "${GITHUB_STEP_SUMMARY}"
+
       - name: Read observability ingestion credentials
-        if: ${{ needs.declaration.outputs.needs_observability == 'true' }}
+        if: ${{ steps.stage.outputs.needs_observability == 'true' }}
         id: observability
         uses: hashicorp/vault-action@v4
         with:
@@ -342,18 +364,18 @@ jobs:
             ${{ needs.declaration.outputs.monitoring_secret_path }} password | VECTOR_AUTH_PASSWORD
 
       - name: Log in with the stage's scoped Vault role
-        if: ${{ needs.declaration.outputs.token != '' }}
+        if: ${{ steps.stage.outputs.token != '' }}
         uses: hashicorp/vault-action@v4
         with:
           url: ${{ needs.declaration.outputs.vault_addr }}
           method: jwt
-          role: ${{ needs.declaration.outputs.token == 'snapshot' && needs.declaration.outputs.snapshot_role || needs.declaration.outputs.raft_operator_role }}
+          role: ${{ steps.stage.outputs.token == 'snapshot' && needs.declaration.outputs.snapshot_role || needs.declaration.outputs.raft_operator_role }}
           jwtGithubAudience: vault
           exportToken: true
 
       - name: Read off-site backup credentials
         id: backup
-        if: ${{ needs.declaration.outputs.action == 'snapshot' }}
+        if: ${{ steps.stage.outputs.action == 'snapshot' || steps.stage.outputs.snapshot_first == 'true' }}
         uses: hashicorp/vault-action@v4
         with:
           url: ${{ needs.declaration.outputs.vault_addr }}
@@ -366,7 +388,7 @@ jobs:
             ${{ fromJSON(needs.declaration.outputs.backup_config).credentials_path }} secret_access_key | BACKUP_SECRET_ACCESS_KEY
 
       - name: Take, encrypt and upload a Raft snapshot
-        if: ${{ needs.declaration.outputs.action == 'snapshot' }}
+        if: ${{ steps.stage.outputs.action == 'snapshot' || steps.stage.outputs.snapshot_first == 'true' }}
         shell: bash
         env:
           VAULT_ADDR: ${{ needs.declaration.outputs.vault_addr }}
@@ -382,27 +404,26 @@ jobs:
           bash scripts/node_deploy/vault_snapshot.sh
 
       - name: Execute provider-neutral Vault node stage
-        if: ${{ steps.access.outcome == 'success' }}
+        if: ${{ steps.access.outcome == 'success' && steps.stage.outputs.stage != '' }}
         uses: ./.github/actions/vault-node-stage
         env:
           VECTOR_AUTH_USER: ${{ steps.observability.outputs.VECTOR_AUTH_USER }}
           VECTOR_AUTH_PASSWORD: ${{ steps.observability.outputs.VECTOR_AUTH_PASSWORD }}
         with:
           contract: ${{ steps.access.outputs.contract }}
-          stage: ${{ inputs.service_stage }}
-          playbook: ${{ needs.declaration.outputs.playbook }}
-          tags: ${{ needs.declaration.outputs.tags }}
-          requires: ${{ needs.declaration.outputs.requires }}
-          confirms: ${{ needs.declaration.outputs.confirms }}
-          next_step: ${{ needs.declaration.outputs.next }}
+          stage: ${{ steps.stage.outputs.stage }}
+          playbook: ${{ steps.stage.outputs.playbook }}
+          tags: ${{ steps.stage.outputs.tags }}
+          requires: ${{ steps.stage.outputs.requires }}
+          confirms: ${{ steps.stage.outputs.confirms }}
+          next_step: ${{ steps.stage.outputs.next }}
           playbooks_root: ${{ github.workspace }}/playbooks
           ssh_private_key: ${{ steps.access.outputs.ssh_private_key }}
           known_hosts: ${{ runner.temp }}/node-known-hosts
           ready_adapters: ${{ steps.access.outputs.auth_adapters }}
-          action: ${{ needs.declaration.outputs.action }}
-          confirm: ${{ inputs.confirm }}
+          action: ${{ steps.stage.outputs.action }}
           vault_addr: ${{ needs.declaration.outputs.vault_addr }}
-          legacy_config: ${{ needs.declaration.outputs.legacy_config }}
+          extra_vars: ${{ steps.stage.outputs.extra_vars }}
           gateway_state: /var/lib/xconnect-gateway/${{ needs.declaration.outputs.environment }}/state.json
 
       - name: Close access to the existing node
