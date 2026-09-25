@@ -11,6 +11,11 @@ from pathlib import Path
 from render_inventory import validate
 
 
+def host_label(address: str, port: int) -> str:
+    """Return the known_hosts name OpenSSH uses for this address and port."""
+    return address if port == 22 else f"[{address}]:{port}"
+
+
 def verify_scan(address: str, expected: str, scan: str) -> str:
     matches = []
     for line in scan.splitlines():
@@ -32,17 +37,17 @@ def main() -> None:
     doc = validate(json.loads(args.contract.read_text(encoding="utf-8")))
     known_hosts = []
     for node in doc["spec"]["nodes"]:
-        address = node["address"]
+        port = node.get("ssh_port", 22)
         expected = node.get("ssh_host_ed25519")
         if not expected:
             raise SystemExit(f"{node['id']} has no reviewed Ed25519 SSH host key")
         scan = subprocess.run(
-            ["ssh-keyscan", "-T", "10", "-t", "ed25519", address],
+            ["ssh-keyscan", "-T", "10", "-t", "ed25519", "-p", str(port), node["address"]],
             capture_output=True,
             text=True,
             check=True,
         )
-        known_hosts.append(verify_scan(address, expected, scan.stdout))
+        known_hosts.append(verify_scan(host_label(node["address"], port), expected, scan.stdout))
     args.output.write_text("\n".join(known_hosts) + "\n", encoding="utf-8")
     args.output.chmod(0o600)
     print(f"verified reviewed SSH host keys for {len(known_hosts)} nodes")

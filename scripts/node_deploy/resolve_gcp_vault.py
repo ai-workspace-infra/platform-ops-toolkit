@@ -21,6 +21,7 @@ STAGES = [
     "xconnect-gateway",
     "xconnect-one",
 ]
+RAFT_PORTS = (8200, 8201)
 STAGE_TARGETS = {
     "node-preflight": ["vault_shared_nodes"],
     "vault-shared-leader": ["vault_shared_leader"],
@@ -29,6 +30,53 @@ STAGE_TARGETS = {
     "xconnect-gateway": ["xconnect_gateway"],
     "xconnect-one": ["xconnect_one"],
 }
+
+
+def allows_port(rule: dict, port: int) -> bool:
+    for allowed in rule.get("allowed", []):
+        protocol = allowed.get("IPProtocol")
+        if protocol == "all":
+            return True
+        if protocol != "tcp":
+            continue
+        ports = allowed.get("ports")
+        if not ports:
+            return True
+        for entry in ports:
+            low, _, high = str(entry).partition("-")
+            if int(low) <= port <= int(high or low):
+                return True
+    return False
+
+
+def verify_private_raft_channel(manifest: dict, firewalls: list[dict], target_tag: str = "vault") -> None:
+    """Require Raft ports to be reachable from the declared subnet and nowhere public."""
+    spec = manifest["spec"]
+    network = spec["network_name"]
+    subnet = ipaddress.ip_network(spec["subnet_cidr"], strict=True)
+    covered: set[int] = set()
+    for rule in firewalls:
+        if (
+            rule.get("disabled") is True
+            or rule.get("direction", "INGRESS") != "INGRESS"
+            or not str(rule.get("network", "")).endswith(f"/networks/{network}")
+            or "allowed" not in rule
+        ):
+            continue
+        tags = rule.get("targetTags")
+        if tags and target_tag not in tags:
+            continue
+        sources = [ipaddress.ip_network(value, strict=False) for value in rule.get("sourceRanges", [])]
+        for port in RAFT_PORTS:
+            if not allows_port(rule, port):
+                continue
+            if any(not source.is_private for source in sources):
+                raise ValueError(f"firewall rule {rule.get('name')} exposes Vault port {port} publicly")
+            if sources and all(source.subnet_of(subnet) for source in sources):
+                covered.add(port)
+    missing = [str(port) for port in RAFT_PORTS if port not in covered]
+    if missing:
+        raise ValueError(f"no private Raft firewall rule for port(s) {', '.join(missing)} from {subnet}")
 
 
 def resolve(
@@ -149,6 +197,7 @@ def resolve(
             "environment": environment,
             "stages": STAGES,
             "stage_targets": STAGE_TARGETS,
+            "connection": {"mode": access_mode},
             "nodes": nodes,
         },
     }
@@ -164,6 +213,7 @@ def main() -> None:
     parser.add_argument("--environment", required=True)
     parser.add_argument("--ssh-user", required=True)
     parser.add_argument("--xconnect-topology", type=Path)
+    parser.add_argument("--firewalls", type=Path, required=True, help="gcloud compute firewall-rules list JSON")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     manifest = yaml.safe_load(args.manifest.read_text(encoding="utf-8"))
@@ -174,6 +224,10 @@ def main() -> None:
     instances = json.loads(args.instances.read_text(encoding="utf-8"))
     topology = yaml.safe_load(args.xconnect_topology.read_text(encoding="utf-8")) if args.xconnect_topology else None
     contract = resolve(manifest, service, instances, args.project_id, args.environment, args.ssh_user, topology)
+    try:
+        verify_private_raft_channel(manifest, json.loads(args.firewalls.read_text(encoding="utf-8")))
+    except ValueError as error:
+        raise SystemExit(f"private Raft channel check failed: {error}") from None
     args.output.write_text(json.dumps(contract, indent=2) + "\n", encoding="utf-8")
     args.output.chmod(0o600)
     print(f"resolved {len(contract['spec']['nodes'])} GCP Vault nodes into {args.output}")

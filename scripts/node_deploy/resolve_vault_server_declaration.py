@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 from pathlib import Path
 
@@ -67,6 +68,22 @@ def resolve(service: dict, provider: dict, provider_name: str) -> dict[str, str]
         raise ValueError("Vault JWT endpoint must match the declared service domain")
     if values["ssh_access_mode"] not in {service["spec"]["access"]["bootstrap"], service["spec"]["access"]["steady_state"]}:
         raise ValueError("provider SSH mode is not declared by the Vault service")
+    # Only the provider adapter reads this blob; the generic stage runner
+    # forwards it without interpreting cloud-specific fields.
+    values["provider_config"] = json.dumps(
+        {
+            "provider": provider_name,
+            "environment": environment,
+            "vault_addr": values["vault_addr"],
+            "node_role": values["node_role"],
+            "runtime_identity_path": values["runtime_identity_path"],
+            "account_id": values["account_id"],
+            "project_id": values["project_id"],
+            "network_name": values["network_name"],
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    )
     return values
 
 

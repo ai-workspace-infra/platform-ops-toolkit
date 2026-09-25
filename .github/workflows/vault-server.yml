@@ -1,26 +1,32 @@
 name: Vault server
 
+# Entry point for a Vault server deployment. The cloud adapter selected here
+# only creates nodes (IaC) and opens short-lived SSH; Vault, monitoring and
+# XConnect installation run in the provider-neutral vault-shared-iac.yml.
+# Run one node stage per dispatch; each stage checks live node state first,
+# so manual Vault init/unseal can happen between dispatches.
+
 on:
   workflow_dispatch:
     inputs:
       cloud_provider:
-        description: Provisioning adapter. GCP is currently wired; node stages consume a cloud-neutral service declaration.
+        description: Provider adapter. It creates nodes and opens short-lived SSH; the node stages themselves are provider-neutral.
         type: choice
         required: true
         default: gcp-cloud
         options: [gcp-cloud]
       deploy_action:
-        description: Terraform action. Run plan first; apply is protected by the prod GitHub Environment.
+        description: IaC action. none runs only the selected node stage against existing nodes; plan cannot be combined with a node stage.
         type: choice
         required: true
         default: plan
-        options: [plan, apply]
+        options: [none, plan, apply]
       service_stage:
-        description: Post-apply node stage; run preflight, leader, peers, monitoring, Gateway, and One across separate dispatches.
+        description: One node stage per dispatch, in order preflight, leader, peers, raft verify, metrics. Each checks live state first.
         type: choice
         required: true
         default: none
-        options: [none, node-preflight, vault-shared-leader, vault-shared-peers, node-process-metrics, xconnect-gateway, xconnect-one]
+        options: [none, node-preflight, vault-shared-leader, vault-shared-peers, vault-raft-verify, node-process-metrics]
       connection_mode:
         description: Current supported SSH transport for the hosted installation job.
         type: choice
@@ -51,7 +57,7 @@ on:
         description: Reviewed playbooks commit for Vault node configuration.
         type: string
         required: true
-        default: 9acf64baff20c67e286db168447f1ca13ffb0cb2
+        default: 7affb1d53001a248c1266ca747f8ba22980281aa
 
 permissions:
   contents: read
@@ -68,16 +74,7 @@ jobs:
     outputs:
       environment: ${{ steps.resolve.outputs.environment }}
       github_environment: ${{ steps.resolve.outputs.github_environment }}
-      vault_addr: ${{ steps.resolve.outputs.vault_addr }}
-      runtime_identity_path: ${{ steps.resolve.outputs.runtime_identity_path }}
-      monitoring_secret_path: ${{ steps.resolve.outputs.monitoring_secret_path }}
-      node_role: ${{ steps.resolve.outputs.node_role }}
-      monitoring_role: ${{ steps.resolve.outputs.monitoring_role }}
       account_id: ${{ steps.resolve.outputs.account_id }}
-      project_id: ${{ steps.resolve.outputs.project_id }}
-      network_name: ${{ steps.resolve.outputs.network_name }}
-      ssh_access_mode: ${{ steps.resolve.outputs.ssh_access_mode }}
-      xconnect_topology: ${{ steps.resolve.outputs.xconnect_topology }}
     steps:
       - name: Checkout toolkit
         uses: actions/checkout@v4
@@ -90,6 +87,24 @@ jobs:
           ref: ${{ inputs.gitops_repo_ref }}
           path: gitops
           persist-credentials: false
+      - name: Reject dispatch combinations that cannot run
+        env:
+          DEPLOY_ACTION: ${{ inputs.deploy_action }}
+          SERVICE_STAGE: ${{ inputs.service_stage }}
+        run: |
+          set -euo pipefail
+          if [[ "${DEPLOY_ACTION}" == plan && "${SERVICE_STAGE}" != none ]]; then
+            echo '::error::A node stage needs deploy_action=apply or deploy_action=none, not plan' >&2
+            exit 1
+          fi
+          if [[ "${DEPLOY_ACTION}" == none && "${SERVICE_STAGE}" == none ]]; then
+            echo '::error::Nothing to do: choose an IaC action or a node stage' >&2
+            exit 1
+          fi
+          if [[ "${SERVICE_STAGE}" != none ]]; then
+            python3 scripts/node_deploy/stage_plan.py "${SERVICE_STAGE}" >/dev/null
+          fi
+
       - name: Parse scoped Vault and provider declarations
         id: resolve
         env:
@@ -105,7 +120,7 @@ jobs:
 
   gcp-shared:
     needs: declaration
-    if: ${{ inputs.cloud_provider == 'gcp-cloud' }}
+    if: ${{ inputs.cloud_provider == 'gcp-cloud' && inputs.deploy_action != 'none' }}
     uses: ./.github/workflows/gcp-iac-pipeline.yml
     with:
       deploy_action: ${{ inputs.deploy_action }}
@@ -118,287 +133,19 @@ jobs:
       iac_ref: ${{ inputs.iac_ref }}
     secrets: inherit
 
-  configure-services:
-    name: Configure Vault node services (${{ inputs.service_stage }})
+  node-stage:
+    name: Node stage (${{ inputs.service_stage }})
     needs: [declaration, gcp-shared]
-    if: ${{ inputs.cloud_provider == 'gcp-cloud' && inputs.deploy_action == 'apply' && inputs.service_stage != 'none' && github.ref == 'refs/heads/main' && inputs.gitops_repo_ref == 'main' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 70
-    environment: ${{ needs.declaration.outputs.github_environment }}
+    if: ${{ always() && needs.declaration.result == 'success' && inputs.service_stage != 'none' && ((inputs.deploy_action == 'apply' && needs.gcp-shared.result == 'success') || (inputs.deploy_action == 'none' && needs.gcp-shared.result == 'skipped')) && github.ref == 'refs/heads/main' && inputs.gitops_repo_ref == 'main' }}
+    uses: ./.github/workflows/vault-shared-iac.yml
     permissions:
       contents: read
       id-token: write
-    env:
-      GCP_PROJECT_ID: ${{ needs.declaration.outputs.project_id }}
-      GCP_NETWORK_NAME: ${{ needs.declaration.outputs.network_name }}
-      DEPLOY_ENVIRONMENT: ${{ needs.declaration.outputs.environment }}
-      GITOPS_MANIFEST: ${{ inputs.provider_manifest }}
-      SERVICE_MANIFEST: ${{ inputs.service_manifest }}
-      XCONNECT_TOPOLOGY: ${{ needs.declaration.outputs.xconnect_topology }}
-      TEMP_SSH_RULE: vault-shared-ci-ssh-${{ github.run_id }}-${{ github.run_attempt }}
-    steps:
-      - name: Set runner temporary paths
-        shell: bash
-        run: |
-          echo "OSLOGIN_DIR=${RUNNER_TEMP}/vault-shared-oslogin" >> "${GITHUB_ENV}"
-          echo "NODE_CONTRACT=${RUNNER_TEMP}/vault-shared-nodes.json" >> "${GITHUB_ENV}"
-          echo "SSH_KNOWN_HOSTS=${RUNNER_TEMP}/vault-shared-known-hosts" >> "${GITHUB_ENV}"
-
-      - name: Checkout toolkit
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Checkout reviewed GitOps declaration
-        uses: actions/checkout@v4
-        with:
-          repository: ai-workspace-infra/gitops
-          ref: ${{ inputs.gitops_repo_ref }}
-          path: gitops
-          persist-credentials: false
-
-      - name: Checkout reviewed service playbooks
-        uses: actions/checkout@v4
-        with:
-          repository: ai-workspace-infra/playbooks
-          ref: ${{ inputs.playbooks_ref }}
-          path: playbooks
-          persist-credentials: false
-
-      - name: Prepare isolated manifest parser
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 -m venv "${RUNNER_TEMP}/vault-shared-python"
-          "${RUNNER_TEMP}/vault-shared-python/bin/python" -m pip install --disable-pip-version-check 'pyyaml==6.0.2' 'ansible-core==2.17.14'
-          "${RUNNER_TEMP}/vault-shared-python/bin/ansible-galaxy" collection install 'ansible.posix:==2.1.0'
-          echo "${RUNNER_TEMP}/vault-shared-python/bin" >> "${GITHUB_PATH}"
-
-      - name: Read GCP runtime identity with stage-scoped Vault JWT role
-        id: node_identity
-        uses: hashicorp/vault-action@v4
-        with:
-          url: ${{ needs.declaration.outputs.vault_addr }}
-          method: jwt
-          role: ${{ needs.declaration.outputs.node_role }}
-          jwtGithubAudience: vault
-          exportToken: false
-          secrets: |
-            ${{ needs.declaration.outputs.runtime_identity_path }} gcp_workload_identity_provider | GCP_WORKLOAD_IDENTITY_PROVIDER ;
-            ${{ needs.declaration.outputs.runtime_identity_path }} deploy_service_account | GCP_SERVICE_ACCOUNT_EMAIL ;
-            ${{ needs.declaration.outputs.runtime_identity_path }} gcp_oidc_audience | GCP_OIDC_AUDIENCE ;
-            ${{ needs.declaration.outputs.runtime_identity_path }} project_id | GCP_PROJECT_ID
-
-      - name: Verify scoped project identity
-        shell: bash
-        env:
-          VAULT_PROJECT_ID: ${{ steps.node_identity.outputs.GCP_PROJECT_ID }}
-        run: |
-          set -euo pipefail
-          test "${VAULT_PROJECT_ID}" = "${GCP_PROJECT_ID}" || {
-            echo '::error::Vault runtime identity belongs to another project' >&2
-            exit 1
-          }
-
-      - name: Authenticate through Google WIF
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ steps.node_identity.outputs.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ steps.node_identity.outputs.GCP_SERVICE_ACCOUNT_EMAIL }}
-          audience: ${{ steps.node_identity.outputs.GCP_OIDC_AUDIENCE }}
-          cleanup_credentials: true
-
-      - name: Install Google Cloud CLI
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Prepare one-run OS Login SSH identity
-        id: oslogin
-        shell: bash
-        run: |
-          set -euo pipefail
-          install -d -m 700 "${OSLOGIN_DIR}"
-          key_path="${OSLOGIN_DIR}/id_ed25519"
-          ssh-keygen -q -t ed25519 -N '' -f "${key_path}"
-          gcloud compute os-login ssh-keys add \
-            --project="${GCP_PROJECT_ID}" --key-file="${key_path}.pub" --ttl=65m >/dev/null
-          profile="$(gcloud compute os-login describe-profile --project="${GCP_PROJECT_ID}" --format=json)"
-          ssh_user="$(jq -er '[.posixAccounts[]? | select(.operatingSystemType == "LINUX") | .username] | first' <<<"${profile}")"
-          [[ "${ssh_user}" =~ ^[a-z_][a-z0-9_-]{0,31}\$?$ ]] || {
-            echo '::error::OS Login did not return a safe Linux username' >&2
-            exit 1
-          }
-          echo "ssh_user=${ssh_user}" >> "${GITHUB_OUTPUT}"
-          echo "key_path=${key_path}" >> "${GITHUB_OUTPUT}"
-
-      - name: Resolve live GCP VMs and reviewed SSH access mode
-        shell: bash
-        env:
-          SSH_USER: ${{ steps.oslogin.outputs.ssh_user }}
-          CONNECTION_MODE: ${{ inputs.connection_mode }}
-        run: |
-          set -euo pipefail
-          declared_mode="$("${RUNNER_TEMP}/vault-shared-python/bin/python" - "gitops/${GITOPS_MANIFEST}" <<'PY'
-          import sys, yaml
-          with open(sys.argv[1], encoding='utf-8') as stream:
-              print(yaml.safe_load(stream)['spec']['ssh_access_mode'])
-          PY
-          )"
-          [[ "${declared_mode}" == "${CONNECTION_MODE}" ]] || {
-            echo "::error::Workflow SSH mode does not match reviewed GitOps manifest" >&2
-            exit 1
-          }
-          gcloud compute instances list --project="${GCP_PROJECT_ID}" --format=json \
-            > "${RUNNER_TEMP}/vault-shared-instances.json"
-          "${RUNNER_TEMP}/vault-shared-python/bin/python" scripts/node_deploy/resolve_gcp_vault.py \
-            --manifest "gitops/${GITOPS_MANIFEST}" \
-            --service-manifest "gitops/${SERVICE_MANIFEST}" \
-            --instances "${RUNNER_TEMP}/vault-shared-instances.json" \
-            --project-id "${GCP_PROJECT_ID}" \
-            --environment "${DEPLOY_ENVIRONMENT}" \
-            --ssh-user "${SSH_USER}" \
-            --xconnect-topology "gitops/${XCONNECT_TOPOLOGY}" \
-            --output "${NODE_CONTRACT}"
-          if jq -e 'any(.spec.nodes[]; has("overlay_address"))' "${NODE_CONTRACT}" >/dev/null; then
-            "${RUNNER_TEMP}/vault-shared-python/bin/python" - "${NODE_CONTRACT}" <<'PY'
-          import json
-          import socket
-          import sys
-          from pathlib import Path
-          nodes = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["spec"]["nodes"]
-          for node in nodes:
-              resolved = {item[4][0] for item in socket.getaddrinfo(node["address"], 22, family=socket.AF_INET)}
-              if node["overlay_address"] not in resolved:
-                  raise SystemExit(f"{node['id']} internal DNS does not resolve to its assigned overlay IP")
-          PY
-          fi
-
-      - name: Temporarily open SSH for bootstrap job
-        if: ${{ inputs.connection_mode == 'bootstrap-public' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gcloud compute firewall-rules create "${TEMP_SSH_RULE}" \
-            --project="${GCP_PROJECT_ID}" --network="${GCP_NETWORK_NAME}" \
-            --direction=INGRESS --priority=1000 --action=ALLOW \
-            --rules=tcp:22 --source-ranges=0.0.0.0/0 \
-            --target-tags=vault \
-            --description="Ephemeral Vault service bootstrap; run ${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}" \
-            --quiet
-
-      - name: Verify live SSH host keys against GitOps pins
-        shell: bash
-        run: |
-          set -euo pipefail
-          "${RUNNER_TEMP}/vault-shared-python/bin/python" scripts/node_deploy/prepare_known_hosts.py \
-            --contract "${NODE_CONTRACT}" --output "${SSH_KNOWN_HOSTS}"
-
-      - name: Read observability ingestion credentials
-        if: ${{ inputs.service_stage == 'node-process-metrics' || inputs.service_stage == 'xconnect-one' }}
-        id: observability
-        uses: hashicorp/vault-action@v4
-        with:
-          url: ${{ needs.declaration.outputs.vault_addr }}
-          method: jwt
-          role: ${{ needs.declaration.outputs.monitoring_role }}
-          jwtGithubAudience: vault
-          exportToken: false
-          secrets: |
-            ${{ needs.declaration.outputs.monitoring_secret_path }} user | VECTOR_AUTH_USER ;
-            ${{ needs.declaration.outputs.monitoring_secret_path }} password | VECTOR_AUTH_PASSWORD
-
-      - name: Execute provider-neutral Vault node stage
-        uses: ./.github/actions/vault-node-stage
-        env:
-          VECTOR_AUTH_USER: ${{ steps.observability.outputs.VECTOR_AUTH_USER }}
-          VECTOR_AUTH_PASSWORD: ${{ steps.observability.outputs.VECTOR_AUTH_PASSWORD }}
-        with:
-          contract: ${{ runner.temp }}/vault-shared-nodes.json
-          stage: ${{ inputs.service_stage }}
-          playbooks_root: ${{ github.workspace }}/playbooks
-          ssh_private_key: ${{ steps.oslogin.outputs.key_path }}
-          known_hosts: ${{ runner.temp }}/vault-shared-known-hosts
-          ready_adapters: gcp-oslogin-ephemeral
-
-      - name: Delete temporary public SSH rule
-        if: ${{ always() && inputs.connection_mode == 'bootstrap-public' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if gcloud compute firewall-rules describe "${TEMP_SSH_RULE}" \
-            --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
-            gcloud compute firewall-rules delete "${TEMP_SSH_RULE}" \
-              --project="${GCP_PROJECT_ID}" --quiet
-          fi
-
-      - name: Revoke temporary OS Login key and remove local key material
-        if: ${{ always() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          key_path="${OSLOGIN_DIR}/id_ed25519"
-          if [[ -s "${key_path}.pub" ]]; then
-            gcloud compute os-login ssh-keys remove \
-              --project="${GCP_PROJECT_ID}" --key-file="${key_path}.pub" || true
-          fi
-          rm -f -- "${key_path}" "${key_path}.pub" "${NODE_CONTRACT}" \
-            "${SSH_KNOWN_HOSTS}" "${RUNNER_TEMP}/vault-shared-instances.json"
-
-  cleanup-bootstrap-ssh:
-    name: Ensure temporary public SSH rule is absent
-    needs: [declaration, gcp-shared, configure-services]
-    if: ${{ always() && needs.gcp-shared.result == 'success' && needs.configure-services.result != 'skipped' && inputs.cloud_provider == 'gcp-cloud' && inputs.deploy_action == 'apply' && inputs.service_stage != 'none' && inputs.connection_mode == 'bootstrap-public' && github.ref == 'refs/heads/main' && inputs.gitops_repo_ref == 'main' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: ${{ needs.declaration.outputs.github_environment }}
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      GCP_PROJECT_ID: ${{ needs.declaration.outputs.project_id }}
-      TEMP_SSH_RULE: vault-shared-ci-ssh-${{ github.run_id }}-${{ github.run_attempt }}
-    steps:
-      - name: Read cleanup identity with stage-scoped Vault JWT role
-        id: node_identity
-        uses: hashicorp/vault-action@v4
-        with:
-          url: ${{ needs.declaration.outputs.vault_addr }}
-          method: jwt
-          role: ${{ needs.declaration.outputs.node_role }}
-          jwtGithubAudience: vault
-          exportToken: false
-          secrets: |
-            ${{ needs.declaration.outputs.runtime_identity_path }} gcp_workload_identity_provider | GCP_WORKLOAD_IDENTITY_PROVIDER ;
-            ${{ needs.declaration.outputs.runtime_identity_path }} deploy_service_account | GCP_SERVICE_ACCOUNT_EMAIL ;
-            ${{ needs.declaration.outputs.runtime_identity_path }} gcp_oidc_audience | GCP_OIDC_AUDIENCE ;
-            ${{ needs.declaration.outputs.runtime_identity_path }} project_id | GCP_PROJECT_ID
-
-      - name: Verify project and authenticate through Google WIF
-        env:
-          VAULT_PROJECT_ID: ${{ steps.node_identity.outputs.GCP_PROJECT_ID }}
-        run: test "${VAULT_PROJECT_ID}" = "${GCP_PROJECT_ID}"
-
-      - name: Authenticate through Google WIF
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ steps.node_identity.outputs.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ steps.node_identity.outputs.GCP_SERVICE_ACCOUNT_EMAIL }}
-          audience: ${{ steps.node_identity.outputs.GCP_OIDC_AUDIENCE }}
-          cleanup_credentials: true
-
-      - name: Install Google Cloud CLI
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Delete and verify temporary public SSH rule
-        shell: bash
-        run: |
-          set -euo pipefail
-          if gcloud compute firewall-rules describe "${TEMP_SSH_RULE}" \
-            --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
-            gcloud compute firewall-rules delete "${TEMP_SSH_RULE}" \
-              --project="${GCP_PROJECT_ID}" --quiet
-          fi
-          if gcloud compute firewall-rules describe "${TEMP_SSH_RULE}" \
-            --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
-            echo '::error::Temporary public SSH rule still exists' >&2
-            exit 1
-          fi
+    with:
+      stage: ${{ inputs.service_stage }}
+      provider: ${{ inputs.cloud_provider }}
+      service_manifest: ${{ inputs.service_manifest }}
+      provider_manifest: ${{ inputs.provider_manifest }}
+      connection_mode: ${{ inputs.connection_mode }}
+      gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
+      playbooks_ref: ${{ inputs.playbooks_ref }}

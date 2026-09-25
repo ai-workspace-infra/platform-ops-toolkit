@@ -1,0 +1,269 @@
+name: Vault server node stage (provider-neutral)
+
+# Reusable orchestration for one Vault server node stage. Callers (for example
+# vault-server.yml) decide how nodes were created; this workflow reads the
+# environment, nodes, network, Vault paths and connection mode from reviewed
+# GitOps, asks the selected provider adapter for short-lived SSH access and a
+# NodeDeployment contract, then runs the same Ansible stage on any provider.
+#
+# Every dispatch runs exactly one stage. Manual Vault init/unseal can span
+# several dispatches, so a stage first checks live node state instead of
+# relying on a `needs` chain.
+
+on:
+  workflow_call:
+    inputs:
+      stage:
+        description: Node stage from scripts/node_deploy/stage_plan.py.
+        type: string
+        required: true
+      provider:
+        description: Provider adapter that opens SSH access and emits the NodeDeployment contract.
+        type: string
+        required: true
+      service_manifest:
+        description: Provider-neutral VaultServerDeployment path inside GitOps.
+        type: string
+        required: true
+      provider_manifest:
+        description: Provider-specific node declaration path inside GitOps.
+        type: string
+        required: true
+      connection_mode:
+        description: SSH transport the operator expects; must match GitOps.
+        type: string
+        required: true
+      gitops_repo_ref:
+        description: Reviewed GitOps ref.
+        type: string
+        required: true
+      playbooks_ref:
+        description: Reviewed playbooks commit.
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  declaration:
+    name: Resolve declaration and stage plan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      github_environment: ${{ steps.declaration.outputs.github_environment }}
+      environment: ${{ steps.declaration.outputs.environment }}
+      vault_addr: ${{ steps.declaration.outputs.vault_addr }}
+      monitoring_role: ${{ steps.declaration.outputs.monitoring_role }}
+      monitoring_secret_path: ${{ steps.declaration.outputs.monitoring_secret_path }}
+      ssh_access_mode: ${{ steps.declaration.outputs.ssh_access_mode }}
+      xconnect_topology: ${{ steps.declaration.outputs.xconnect_topology }}
+      provider_config: ${{ steps.declaration.outputs.provider_config }}
+      playbook: ${{ steps.plan.outputs.playbook }}
+      tags: ${{ steps.plan.outputs.tags }}
+      requires: ${{ steps.plan.outputs.requires }}
+      confirms: ${{ steps.plan.outputs.confirms }}
+      needs_observability: ${{ steps.plan.outputs.needs_observability }}
+      next: ${{ steps.plan.outputs.next }}
+    steps:
+      - name: Checkout toolkit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Checkout reviewed GitOps declaration
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_repo_ref }}
+          path: gitops
+          persist-credentials: false
+
+      - name: Resolve the stage plan
+        id: plan
+        env:
+          DEPLOY_STAGE: ${{ inputs.stage }}
+        run: python3 scripts/node_deploy/stage_plan.py "${DEPLOY_STAGE}" --github-output "${GITHUB_OUTPUT}"
+
+      - name: Resolve environment, Vault paths and connection mode from GitOps
+        id: declaration
+        env:
+          SERVICE_MANIFEST: ${{ inputs.service_manifest }}
+          PROVIDER_MANIFEST: ${{ inputs.provider_manifest }}
+          PROVIDER: ${{ inputs.provider }}
+          CONNECTION_MODE: ${{ inputs.connection_mode }}
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'pyyaml==6.0.2'
+          python3 scripts/node_deploy/resolve_vault_server_declaration.py \
+            --gitops-root gitops --service-manifest "${SERVICE_MANIFEST}" \
+            --provider-manifest "${PROVIDER_MANIFEST}" --provider "${PROVIDER}" \
+            --output "${GITHUB_OUTPUT}"
+          declared_mode="$(grep '^ssh_access_mode=' "${GITHUB_OUTPUT}" | tail -n 1 | cut -d= -f2-)"
+          [[ "${declared_mode}" == "${CONNECTION_MODE}" ]] || {
+            echo "::error::connection_mode=${CONNECTION_MODE} does not match reviewed GitOps (${declared_mode})" >&2
+            exit 1
+          }
+
+  node-stage:
+    name: Node stage ${{ inputs.stage }}
+    needs: declaration
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    environment: ${{ needs.declaration.outputs.github_environment }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Set runner-private paths
+        shell: bash
+        run: |
+          echo "NODE_ACCESS_DIR=${RUNNER_TEMP}/node-access" >> "${GITHUB_ENV}"
+          echo "SSH_KNOWN_HOSTS=${RUNNER_TEMP}/node-known-hosts" >> "${GITHUB_ENV}"
+
+      - name: Checkout toolkit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Checkout reviewed GitOps declaration
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_repo_ref }}
+          path: gitops
+          persist-credentials: false
+
+      - name: Checkout reviewed service playbooks
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ inputs.playbooks_ref }}
+          path: playbooks
+          persist-credentials: false
+
+      - name: Prepare isolated Python and Ansible
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "${RUNNER_TEMP}/node-stage-python"
+          "${RUNNER_TEMP}/node-stage-python/bin/python" -m pip install --disable-pip-version-check 'pyyaml==6.0.2' 'ansible-core==2.17.14'
+          "${RUNNER_TEMP}/node-stage-python/bin/ansible-galaxy" collection install 'ansible.posix:==2.1.0'
+          echo "${RUNNER_TEMP}/node-stage-python/bin" >> "${GITHUB_PATH}"
+
+      # Provider adapters: add one step per adapter. Each emits the same
+      # contract/ssh_private_key/auth_adapter outputs and has a close phase.
+      - name: Open node access through the GCP adapter
+        id: gcp
+        if: ${{ inputs.provider == 'gcp-cloud' }}
+        uses: ./.github/actions/node-access-gcp
+        with:
+          phase: open
+          provider_config: ${{ needs.declaration.outputs.provider_config }}
+          service_manifest: ${{ inputs.service_manifest }}
+          provider_manifest: ${{ inputs.provider_manifest }}
+          xconnect_topology: ${{ needs.declaration.outputs.xconnect_topology }}
+          connection_mode: ${{ inputs.connection_mode }}
+          work_dir: ${{ runner.temp }}/node-access
+
+      - name: Select the prepared adapter
+        id: access
+        shell: bash
+        env:
+          GCP_CONTRACT: ${{ steps.gcp.outputs.contract }}
+          GCP_KEY: ${{ steps.gcp.outputs.ssh_private_key }}
+          GCP_ADAPTER: ${{ steps.gcp.outputs.auth_adapter }}
+        run: |
+          set -euo pipefail
+          contract="${GCP_CONTRACT}"
+          key="${GCP_KEY}"
+          adapter="${GCP_ADAPTER}"
+          [[ -s "${contract}" && -s "${key}" && -n "${adapter}" ]] || {
+            echo '::error::No provider adapter prepared node access' >&2
+            exit 1
+          }
+          echo "contract=${contract}" >> "${GITHUB_OUTPUT}"
+          echo "ssh_private_key=${key}" >> "${GITHUB_OUTPUT}"
+          echo "auth_adapter=${adapter}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify live SSH host keys against GitOps pins
+        shell: bash
+        env:
+          NODE_CONTRACT: ${{ steps.access.outputs.contract }}
+        run: |
+          set -euo pipefail
+          python3 scripts/node_deploy/prepare_known_hosts.py \
+            --contract "${NODE_CONTRACT}" --output "${SSH_KNOWN_HOSTS}"
+
+      - name: Read observability ingestion credentials
+        if: ${{ needs.declaration.outputs.needs_observability == 'true' }}
+        id: observability
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ needs.declaration.outputs.vault_addr }}
+          method: jwt
+          role: ${{ needs.declaration.outputs.monitoring_role }}
+          jwtGithubAudience: vault
+          exportToken: false
+          secrets: |
+            ${{ needs.declaration.outputs.monitoring_secret_path }} user | VECTOR_AUTH_USER ;
+            ${{ needs.declaration.outputs.monitoring_secret_path }} password | VECTOR_AUTH_PASSWORD
+
+      - name: Execute provider-neutral Vault node stage
+        uses: ./.github/actions/vault-node-stage
+        env:
+          VECTOR_AUTH_USER: ${{ steps.observability.outputs.VECTOR_AUTH_USER }}
+          VECTOR_AUTH_PASSWORD: ${{ steps.observability.outputs.VECTOR_AUTH_PASSWORD }}
+        with:
+          contract: ${{ steps.access.outputs.contract }}
+          stage: ${{ inputs.stage }}
+          playbook: ${{ needs.declaration.outputs.playbook }}
+          tags: ${{ needs.declaration.outputs.tags }}
+          requires: ${{ needs.declaration.outputs.requires }}
+          confirms: ${{ needs.declaration.outputs.confirms }}
+          next_step: ${{ needs.declaration.outputs.next }}
+          playbooks_root: ${{ github.workspace }}/playbooks
+          ssh_private_key: ${{ steps.access.outputs.ssh_private_key }}
+          known_hosts: ${{ runner.temp }}/node-known-hosts
+          ready_adapters: ${{ steps.access.outputs.auth_adapter }}
+          gateway_state: /var/lib/xconnect-gateway/${{ needs.declaration.outputs.environment }}/state.json
+
+      - name: Close node access through the GCP adapter
+        if: ${{ always() && inputs.provider == 'gcp-cloud' }}
+        uses: ./.github/actions/node-access-gcp
+        with:
+          phase: close
+          provider_config: ${{ needs.declaration.outputs.provider_config }}
+          connection_mode: ${{ inputs.connection_mode }}
+          work_dir: ${{ runner.temp }}/node-access
+
+      - name: Remove runner-private node files
+        if: ${{ always() }}
+        shell: bash
+        run: rm -rf -- "${NODE_ACCESS_DIR}" "${SSH_KNOWN_HOSTS}"
+
+  cleanup-node-access:
+    name: Ensure temporary node access is closed
+    needs: [declaration, node-stage]
+    if: ${{ always() && needs.declaration.result == 'success' && needs.node-stage.result != 'skipped' && inputs.provider == 'gcp-cloud' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: ${{ needs.declaration.outputs.github_environment }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout toolkit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Close node access through the GCP adapter
+        uses: ./.github/actions/node-access-gcp
+        with:
+          phase: close
+          provider_config: ${{ needs.declaration.outputs.provider_config }}
+          connection_mode: ${{ inputs.connection_mode }}
+          work_dir: ${{ runner.temp }}/node-access

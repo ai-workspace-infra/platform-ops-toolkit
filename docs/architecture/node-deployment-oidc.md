@@ -112,14 +112,43 @@ manifest. The runner is an execution boundary, not a credential: it receives
 per-job OIDC tokens and short-lived identities and must not have persistent
 cloud credentials.
 
+## Workflow layout
+
+```text
+vault-server.yml (entry, provider = gcp-cloud)
+  ├─ declaration      GitOps service + provider manifests → environment, Vault paths, mode
+  ├─ gcp-shared       optional IaC plan/apply (gcp-iac-pipeline.yml)
+  └─ node-stage       uses vault-shared-iac.yml (provider-neutral, one stage)
+        ├─ declaration     stage plan (scripts/node_deploy/stage_plan.py)
+        ├─ node-stage      adapter open → host-key pin → gate → playbook → confirm → adapter close
+        └─ cleanup-node-access  adapter close again (always)
+```
+
+A provider adapter is a composite action with an `open` and a `close` phase.
+`open` emits `contract` (NodeDeployment JSON), `ssh_private_key`, and
+`auth_adapter`; `close` revokes the credential and removes any temporary
+ingress. `.github/actions/node-access-gcp` is the only file that knows about
+Google WIF, OS Login, and GCP firewall rules. A VPS or other-cloud adapter
+adds one `open` step and one `close` step in `vault-shared-iac.yml`; the
+stage plan, gates, and playbooks stay the same.
+
+The Vault JWT roles bind `workflow_ref` to `vault-server.yml` on `main`. For a
+reusable workflow, GitHub keeps the caller in `workflow_ref`, so the roles do
+not change when stages run inside `vault-shared-iac.yml`.
+
 ## Rollout order
 
-1. Keep GCP Vault provisioning as the first provider adapter; use Google WIF
-   and ephemeral OS Login, with no IAP requirement.
-2. Deploy the common Raft, XConnect, and monitoring playbook entrypoints and
-   feed them a resolved `NodeDeployment` contract.
-3. Add a VPS adapter only after its provider API identity path, Vault policy,
-   network reachability, host-key validation, and credential revocation have
-   executable contract tests.
-4. Add provider adapters incrementally without changing the playbook contract
-   or the existing AWS OIDC workflow.
+1. IaC creates the nodes and the private Raft channel (8200/8201 from the
+   subnet only). The GCP adapter re-checks the live firewall on every stage.
+2. `node-preflight`, `vault-shared-leader`, `vault-shared-peers`,
+   `vault-raft-verify`, `node-process-metrics`: one dispatch each, gated on
+   live state. Operators init/unseal between dispatches.
+3. XConnect Gateway and One: the stage gates exist, but dispatch stays disabled
+   until the Gateway frontend, release artifacts, and one-use invitation
+   issuance are wired. Then the operator Mac joins with its own one-use
+   invitation, GitOps switches to `xconnect-zero`, and IaC removes the public
+   SSH allowlist.
+4. Migrating data from the old PostgreSQL-backed Vault and moving
+   `vault.svc.plus` are separate, operator-run gates with a backup,
+   verification, and rollback (see the playbooks operator runbook). The old
+   node never joins the new Raft cluster.

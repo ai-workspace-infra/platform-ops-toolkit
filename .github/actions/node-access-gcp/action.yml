@@ -1,0 +1,218 @@
+name: GCP node access adapter
+description: >-
+  Open or close short-lived SSH access to GCP nodes and emit the
+  provider-neutral NodeDeployment contract. This is the only place that knows
+  about Google WIF, OS Login, GCP firewall rules, and GCP instance discovery.
+inputs:
+  phase:
+    description: open (identity, contract, temporary ingress) or close (revoke and clean up)
+    required: true
+  provider_config:
+    description: provider_config JSON from resolve_vault_server_declaration.py
+    required: true
+  service_manifest:
+    description: Vault service declaration path inside the GitOps checkout
+    required: false
+    default: ''
+  provider_manifest:
+    description: GCPWorkloadNamespace declaration path inside the GitOps checkout
+    required: false
+    default: ''
+  xconnect_topology:
+    description: XConnect topology path inside the GitOps checkout
+    required: false
+    default: ''
+  connection_mode:
+    description: Reviewed SSH access mode (bootstrap-public opens a temporary rule)
+    required: true
+  work_dir:
+    description: Private runner directory for key material and the contract
+    required: true
+outputs:
+  contract:
+    description: Validated NodeDeployment JSON path
+    value: ${{ steps.resolve.outputs.contract }}
+  ssh_private_key:
+    description: One-run OS Login private key path
+    value: ${{ steps.oslogin.outputs.key_path }}
+  auth_adapter:
+    description: Credential adapter prepared by this action
+    value: gcp-oslogin-ephemeral
+runs:
+  using: composite
+  steps:
+    - name: Parse GCP adapter configuration
+      id: config
+      shell: bash
+      env:
+        PROVIDER_CONFIG: ${{ inputs.provider_config }}
+        PHASE: ${{ inputs.phase }}
+      run: |
+        set -euo pipefail
+        [[ "${PHASE}" == open || "${PHASE}" == close ]] || { echo '::error::phase must be open or close' >&2; exit 1; }
+        jq -e '.provider == "gcp-cloud"' <<<"${PROVIDER_CONFIG}" >/dev/null || {
+          echo '::error::provider_config does not belong to the GCP adapter' >&2
+          exit 1
+        }
+        for field in environment vault_addr node_role runtime_identity_path project_id network_name; do
+          value="$(jq -er --arg field "${field}" '.[$field]' <<<"${PROVIDER_CONFIG}")"
+          [[ "${value}" =~ ^[A-Za-z0-9:/._-]+$ ]] || { echo "::error::invalid GCP adapter field ${field}" >&2; exit 1; }
+          echo "${field}=${value}" >> "${GITHUB_OUTPUT}"
+        done
+        environment="$(jq -er .environment <<<"${PROVIDER_CONFIG}")"
+        echo "temp_rule=vault-${environment}-ci-ssh-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "${GITHUB_OUTPUT}"
+
+    - name: Read GCP runtime identity with the scoped Vault JWT role
+      id: identity
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ steps.config.outputs.vault_addr }}
+        method: jwt
+        role: ${{ steps.config.outputs.node_role }}
+        jwtGithubAudience: vault
+        exportToken: false
+        secrets: |
+          ${{ steps.config.outputs.runtime_identity_path }} gcp_workload_identity_provider | GCP_WORKLOAD_IDENTITY_PROVIDER ;
+          ${{ steps.config.outputs.runtime_identity_path }} deploy_service_account | GCP_SERVICE_ACCOUNT_EMAIL ;
+          ${{ steps.config.outputs.runtime_identity_path }} gcp_oidc_audience | GCP_OIDC_AUDIENCE ;
+          ${{ steps.config.outputs.runtime_identity_path }} project_id | GCP_PROJECT_ID
+
+    - name: Verify the Vault identity belongs to the declared project
+      shell: bash
+      env:
+        VAULT_PROJECT_ID: ${{ steps.identity.outputs.GCP_PROJECT_ID }}
+        DECLARED_PROJECT_ID: ${{ steps.config.outputs.project_id }}
+      run: |
+        set -euo pipefail
+        test "${VAULT_PROJECT_ID}" = "${DECLARED_PROJECT_ID}" || {
+          echo '::error::Vault runtime identity belongs to another project' >&2
+          exit 1
+        }
+
+    - name: Authenticate through Google WIF
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: ${{ steps.identity.outputs.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+        service_account: ${{ steps.identity.outputs.GCP_SERVICE_ACCOUNT_EMAIL }}
+        audience: ${{ steps.identity.outputs.GCP_OIDC_AUDIENCE }}
+        cleanup_credentials: true
+
+    - name: Install Google Cloud CLI
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: Prepare one-run OS Login SSH identity
+      id: oslogin
+      if: ${{ inputs.phase == 'open' }}
+      shell: bash
+      env:
+        WORK_DIR: ${{ inputs.work_dir }}
+        GCP_PROJECT_ID: ${{ steps.config.outputs.project_id }}
+      run: |
+        set -euo pipefail
+        install -d -m 700 "${WORK_DIR}"
+        key_path="${WORK_DIR}/id_ed25519"
+        rm -f -- "${key_path}" "${key_path}.pub"
+        ssh-keygen -q -t ed25519 -N '' -f "${key_path}"
+        gcloud compute os-login ssh-keys add \
+          --project="${GCP_PROJECT_ID}" --key-file="${key_path}.pub" --ttl=65m >/dev/null
+        profile="$(gcloud compute os-login describe-profile --project="${GCP_PROJECT_ID}" --format=json)"
+        ssh_user="$(jq -er '[.posixAccounts[]? | select(.operatingSystemType == "LINUX") | .username] | first' <<<"${profile}")"
+        [[ "${ssh_user}" =~ ^[a-z_][a-z0-9_-]{0,31}\$?$ ]] || {
+          echo '::error::OS Login did not return a safe Linux username' >&2
+          exit 1
+        }
+        echo "ssh_user=${ssh_user}" >> "${GITHUB_OUTPUT}"
+        echo "key_path=${key_path}" >> "${GITHUB_OUTPUT}"
+
+    - name: Resolve live GCP nodes and the private Raft channel into a NodeDeployment
+      id: resolve
+      if: ${{ inputs.phase == 'open' }}
+      shell: bash
+      env:
+        WORK_DIR: ${{ inputs.work_dir }}
+        GCP_PROJECT_ID: ${{ steps.config.outputs.project_id }}
+        DEPLOY_ENVIRONMENT: ${{ steps.config.outputs.environment }}
+        SSH_USER: ${{ steps.oslogin.outputs.ssh_user }}
+        SERVICE_MANIFEST: ${{ inputs.service_manifest }}
+        PROVIDER_MANIFEST: ${{ inputs.provider_manifest }}
+        XCONNECT_TOPOLOGY: ${{ inputs.xconnect_topology }}
+      run: |
+        set -euo pipefail
+        contract="${WORK_DIR}/nodes.json"
+        gcloud compute instances list --project="${GCP_PROJECT_ID}" --format=json > "${WORK_DIR}/instances.json"
+        gcloud compute firewall-rules list --project="${GCP_PROJECT_ID}" --format=json > "${WORK_DIR}/firewalls.json"
+        python3 "${GITHUB_WORKSPACE}/scripts/node_deploy/resolve_gcp_vault.py" \
+          --manifest "gitops/${PROVIDER_MANIFEST}" \
+          --service-manifest "gitops/${SERVICE_MANIFEST}" \
+          --instances "${WORK_DIR}/instances.json" \
+          --firewalls "${WORK_DIR}/firewalls.json" \
+          --project-id "${GCP_PROJECT_ID}" \
+          --environment "${DEPLOY_ENVIRONMENT}" \
+          --ssh-user "${SSH_USER}" \
+          --xconnect-topology "gitops/${XCONNECT_TOPOLOGY}" \
+          --output "${contract}"
+        if jq -e 'any(.spec.nodes[]; has("overlay_address"))' "${contract}" >/dev/null; then
+          python3 - "${contract}" <<'PY'
+        import json
+        import socket
+        import sys
+        from pathlib import Path
+        nodes = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["spec"]["nodes"]
+        for node in nodes:
+            resolved = {item[4][0] for item in socket.getaddrinfo(node["address"], 22, family=socket.AF_INET)}
+            if node["overlay_address"] not in resolved:
+                raise SystemExit(f"{node['id']} internal DNS does not resolve to its assigned overlay IP")
+        PY
+        fi
+        echo "contract=${contract}" >> "${GITHUB_OUTPUT}"
+
+    - name: Temporarily open SSH for the bootstrap job
+      if: ${{ inputs.phase == 'open' && inputs.connection_mode == 'bootstrap-public' }}
+      shell: bash
+      env:
+        GCP_PROJECT_ID: ${{ steps.config.outputs.project_id }}
+        GCP_NETWORK_NAME: ${{ steps.config.outputs.network_name }}
+        TEMP_SSH_RULE: ${{ steps.config.outputs.temp_rule }}
+      run: |
+        set -euo pipefail
+        gcloud compute firewall-rules create "${TEMP_SSH_RULE}" \
+          --project="${GCP_PROJECT_ID}" --network="${GCP_NETWORK_NAME}" \
+          --direction=INGRESS --priority=1000 --action=ALLOW \
+          --rules=tcp:22 --source-ranges=0.0.0.0/0 \
+          --target-tags=vault \
+          --description="Ephemeral Vault node stage; run ${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}" \
+          --quiet
+
+    - name: Delete and verify the temporary public SSH rule
+      if: ${{ inputs.phase == 'close' }}
+      shell: bash
+      env:
+        GCP_PROJECT_ID: ${{ steps.config.outputs.project_id }}
+        TEMP_SSH_RULE: ${{ steps.config.outputs.temp_rule }}
+      run: |
+        set -euo pipefail
+        if gcloud compute firewall-rules describe "${TEMP_SSH_RULE}" \
+          --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
+          gcloud compute firewall-rules delete "${TEMP_SSH_RULE}" \
+            --project="${GCP_PROJECT_ID}" --quiet
+        fi
+        if gcloud compute firewall-rules describe "${TEMP_SSH_RULE}" \
+          --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
+          echo '::error::Temporary public SSH rule still exists' >&2
+          exit 1
+        fi
+
+    - name: Revoke the OS Login key and remove local key material
+      if: ${{ inputs.phase == 'close' }}
+      shell: bash
+      env:
+        WORK_DIR: ${{ inputs.work_dir }}
+        GCP_PROJECT_ID: ${{ steps.config.outputs.project_id }}
+      run: |
+        set -euo pipefail
+        key_path="${WORK_DIR}/id_ed25519"
+        if [[ -s "${key_path}.pub" ]]; then
+          gcloud compute os-login ssh-keys remove \
+            --project="${GCP_PROJECT_ID}" --key-file="${key_path}.pub" || true
+        fi
+        rm -rf -- "${WORK_DIR}"

@@ -275,7 +275,7 @@ grep -Fq 'kv/data/shared/platform/oidc/open-platform-prod' "${shared_runtime_pol
 grep -Fq 'kv/data/CICD/shared/iac_state' "${shared_runtime_policy}"
 
 shared_iac_workflow="${repo_root}/.github/workflows/vault-server.yml"
-for required in 'cloud_provider:' 'options: [gcp-cloud]' 'options: [plan, apply]' 'service_manifest:' 'provider_manifest:' 'vault_env_path: ${{ needs.declaration.outputs.environment }}' 'github_environment: ${{ needs.declaration.outputs.github_environment }}' 'gcp_resource_manifest: ${{ inputs.provider_manifest }}'; do
+for required in 'cloud_provider:' 'options: [gcp-cloud]' 'options: [none, plan, apply]' 'uses: ./.github/workflows/vault-shared-iac.yml' 'service_manifest:' 'provider_manifest:' 'vault_env_path: ${{ needs.declaration.outputs.environment }}' 'github_environment: ${{ needs.declaration.outputs.github_environment }}' 'gcp_resource_manifest: ${{ inputs.provider_manifest }}'; do
   grep -Fq -- "${required}" "${shared_iac_workflow}" || {
     echo "shared Vault GCP workflow missing contract: ${required}" >&2
     exit 1

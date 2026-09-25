@@ -1,12 +1,34 @@
 name: Vault node stage
-description: Verify or configure nodes using the provider-neutral NodeDeployment contract.
+description: >-
+  Run one provider-neutral stage against a NodeDeployment contract: check the
+  live state the stage requires, apply its playbook tags, then confirm the
+  result. Provider adapters prepare the SSH credential; this action never
+  talks to a cloud API.
 inputs:
   contract:
     description: Validated NodeDeployment JSON path
     required: true
   stage:
-    description: node-preflight or a declared Ansible stage
+    description: Stage name from scripts/node_deploy/stage_plan.py
     required: true
+  playbook:
+    description: Playbook file inside playbooks_root
+    required: true
+  tags:
+    description: Comma-separated playbook tags; empty for check-only stages
+    required: false
+    default: ''
+  requires:
+    description: Comma-separated live-state checks that must pass before any change
+    required: true
+  confirms:
+    description: Comma-separated live-state checks that must pass after the playbook
+    required: false
+    default: ''
+  next_step:
+    description: Operator guidance printed after a successful stage
+    required: false
+    default: ''
   playbooks_root:
     description: Reviewed Ansible playbooks checkout
     required: true
@@ -19,42 +41,90 @@ inputs:
   ready_adapters:
     description: Comma-separated auth adapters prepared by the caller
     required: true
+  gateway_state:
+    description: XConnect Gateway state file checked by the gateway-enrolled gate
+    required: false
+    default: ''
 runs:
   using: composite
   steps:
-    - name: Execute reviewed node stage
+    - name: Require prepared short-lived credentials for every node
+      shell: bash
+      env:
+        NODE_CONTRACT: ${{ inputs.contract }}
+        NODE_AUTH_ADAPTERS_READY: ${{ inputs.ready_adapters }}
+        SSH_PRIVATE_KEY: ${{ inputs.ssh_private_key }}
+        SSH_KNOWN_HOSTS: ${{ inputs.known_hosts }}
+      run: |
+        set -euo pipefail
+        test -s "${SSH_PRIVATE_KEY}"
+        test -s "${SSH_KNOWN_HOSTS}"
+        ready=",${NODE_AUTH_ADAPTERS_READY},"
+        while IFS= read -r adapter; do
+          [[ "${ready}" == *",${adapter},"* ]] || {
+            echo "::error::No prepared short-lived credential adapter for ${adapter}" >&2
+            exit 1
+          }
+        done < <(jq -r '[.spec.nodes[].auth.adapter] | unique[]' "${NODE_CONTRACT}")
+
+    - name: Check live node state required by the stage
       shell: bash
       env:
         NODE_CONTRACT: ${{ inputs.contract }}
         DEPLOY_STAGE: ${{ inputs.stage }}
+        REQUIRED_CHECKS: ${{ inputs.requires }}
+        SSH_PRIVATE_KEY: ${{ inputs.ssh_private_key }}
+        SSH_KNOWN_HOSTS: ${{ inputs.known_hosts }}
+        GATEWAY_STATE: ${{ inputs.gateway_state }}
+      run: |
+        set -euo pipefail
+        python3 "${GITHUB_WORKSPACE}/scripts/node_deploy/verify_vault_stage.py" \
+          --contract "${NODE_CONTRACT}" --key "${SSH_PRIVATE_KEY}" --known-hosts "${SSH_KNOWN_HOSTS}" \
+          --checks "${REQUIRED_CHECKS}" --gateway-state "${GATEWAY_STATE}" \
+          --title "Before ${DEPLOY_STAGE}"
+
+    - name: Apply the stage playbook tags
+      if: ${{ inputs.tags != '' }}
+      shell: bash
+      env:
+        NODE_CONTRACT: ${{ inputs.contract }}
+        PLAYBOOK: ${{ inputs.playbook }}
+        STAGE_TAGS: ${{ inputs.tags }}
         PLAYBOOKS_ROOT: ${{ inputs.playbooks_root }}
         NODE_AUTH_ADAPTERS_READY: ${{ inputs.ready_adapters }}
         ANSIBLE_PRIVATE_KEY_FILE: ${{ inputs.ssh_private_key }}
         SSH_KNOWN_HOSTS: ${{ inputs.known_hosts }}
       run: |
         set -euo pipefail
-        test -s "${ANSIBLE_PRIVATE_KEY_FILE}"
-        test -s "${SSH_KNOWN_HOSTS}"
         export ANSIBLE_HOST_KEY_CHECKING=True
-        export ANSIBLE_SSH_COMMON_ARGS="-o UserKnownHostsFile=${SSH_KNOWN_HOSTS} -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=ssh-ed25519"
-        python3 scripts/node_deploy/verify_vault_stage.py \
-          --contract "${NODE_CONTRACT}" --stage "${DEPLOY_STAGE}" \
-          --key "${ANSIBLE_PRIVATE_KEY_FILE}" --known-hosts "${SSH_KNOWN_HOSTS}"
-        if [[ "${DEPLOY_STAGE}" == node-preflight ]]; then
-          ready=",${NODE_AUTH_ADAPTERS_READY},"
-          while IFS= read -r adapter; do
-            [[ "${ready}" == *",${adapter},"* ]] || {
-              echo "No prepared short-lived credential adapter for ${adapter}" >&2
-              exit 1
-            }
-          done < <(jq -r '[.spec.nodes[].auth.adapter] | unique[]' "${NODE_CONTRACT}")
-          inventory="$(mktemp "${RUNNER_TEMP:-/tmp}/vault-node-preflight.XXXXXX")"
-          trap 'rm -f -- "${inventory}"' EXIT
-          chmod 600 "${inventory}"
-          python3 scripts/node_deploy/render_inventory.py "${NODE_CONTRACT}" --inventory "${inventory}" >/dev/null
-          ansible -i "${inventory}" vault_shared_nodes -m ansible.builtin.ping
-        else
-          bash scripts/node_deploy/run_stage.sh \
-            "${NODE_CONTRACT}" deploy_vault_shared_services.yml \
-            "${DEPLOY_STAGE}" "${PLAYBOOKS_ROOT}"
-        fi
+        export ANSIBLE_SSH_COMMON_ARGS="-o IdentitiesOnly=yes -o UserKnownHostsFile=${SSH_KNOWN_HOSTS} -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=ssh-ed25519"
+        IFS=, read -r -a tags <<<"${STAGE_TAGS}"
+        for tag in "${tags[@]}"; do
+          bash "${GITHUB_WORKSPACE}/scripts/node_deploy/run_stage.sh" \
+            "${NODE_CONTRACT}" "${PLAYBOOK}" "${tag}" "${PLAYBOOKS_ROOT}"
+        done
+
+    - name: Confirm live node state after the stage
+      if: ${{ inputs.confirms != '' }}
+      shell: bash
+      env:
+        NODE_CONTRACT: ${{ inputs.contract }}
+        DEPLOY_STAGE: ${{ inputs.stage }}
+        CONFIRM_CHECKS: ${{ inputs.confirms }}
+        SSH_PRIVATE_KEY: ${{ inputs.ssh_private_key }}
+        SSH_KNOWN_HOSTS: ${{ inputs.known_hosts }}
+        GATEWAY_STATE: ${{ inputs.gateway_state }}
+      run: |
+        set -euo pipefail
+        python3 "${GITHUB_WORKSPACE}/scripts/node_deploy/verify_vault_stage.py" \
+          --contract "${NODE_CONTRACT}" --key "${SSH_PRIVATE_KEY}" --known-hosts "${SSH_KNOWN_HOSTS}" \
+          --checks "${CONFIRM_CHECKS}" --gateway-state "${GATEWAY_STATE}" \
+          --attempts 8 --interval 15 --title "After ${DEPLOY_STAGE}"
+
+    - name: Record the next operator step
+      if: ${{ inputs.next_step != '' }}
+      shell: bash
+      env:
+        NEXT_STEP: ${{ inputs.next_step }}
+      run: |
+        printf '**Next:** %s\n' "${NEXT_STEP}" | tee -a "${GITHUB_STEP_SUMMARY}"
