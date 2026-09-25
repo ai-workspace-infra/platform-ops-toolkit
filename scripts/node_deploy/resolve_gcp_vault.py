@@ -14,6 +14,7 @@ from render_inventory import validate
 
 
 STAGES = [
+    "node-preflight",
     "vault-shared-leader",
     "vault-shared-peers",
     "node-process-metrics",
@@ -21,6 +22,7 @@ STAGES = [
     "xconnect-one",
 ]
 STAGE_TARGETS = {
+    "node-preflight": ["vault_shared_nodes"],
     "vault-shared-leader": ["vault_shared_leader"],
     "vault-shared-peers": ["vault_shared_peers"],
     "node-process-metrics": ["vault_shared_nodes"],
@@ -33,6 +35,7 @@ def resolve(
     manifest: dict,
     instances: list[dict],
     project_id: str,
+    environment: str,
     ssh_user: str,
     topology: dict | None = None,
 ) -> dict:
@@ -40,8 +43,8 @@ def resolve(
         raise ValueError("expected GCPWorkloadNamespace manifest")
     metadata = manifest["metadata"]
     spec = manifest["spec"]
-    if (metadata.get("environment"), spec.get("project_id")) != ("shared", project_id):
-        raise ValueError("shared GCP project identity does not match GitOps")
+    if (metadata.get("environment"), spec.get("project_id")) != (environment, project_id):
+        raise ValueError("GCP environment or project identity does not match GitOps")
     if spec.get("enable_oslogin") is not True or spec.get("enable_iap_ssh") is not False:
         raise ValueError("shared Vault deployment requires OS Login and direct allowlisted SSH")
     access_mode = spec.get("ssh_access_mode", "bootstrap-public")
@@ -51,12 +54,12 @@ def resolve(
     elif access_mode == "xconnect-zero":
         if spec.get("ssh_source_ranges") or topology is None:
             raise ValueError("xconnect-zero requires no public SSH allowlist and a verified topology")
-        if topology.get("kind") != "XConnectOneNodeSet" or topology.get("metadata", {}).get("environment") != "shared":
-            raise ValueError("invalid shared XConnect topology")
+        if topology.get("kind") != "XConnectOneNodeSet" or topology.get("metadata", {}).get("environment") != environment:
+            raise ValueError("XConnect topology belongs to another environment")
         overlay_network = ipaddress.ip_network(topology["spec"]["network"]["cidr"], strict=True)
         network_id = topology["spec"]["network"]["id"]
-        if network_id != "net_shared_vault":
-            raise ValueError("wrong shared XConnect network")
+        if network_id != topology["spec"].get("control_plane", {}).get("network_id"):
+            raise ValueError("XConnect topology and control plane network identities differ")
     else:
         raise ValueError("unsupported SSH access mode")
     declared = spec["resources"]["vault_nodes"]
@@ -119,7 +122,7 @@ def resolve(
         "kind": "NodeDeployment",
         "metadata": {"name": metadata["name"]},
         "spec": {
-            "environment": "shared",
+            "environment": environment,
             "stages": STAGES,
             "stage_targets": STAGE_TARGETS,
             "nodes": nodes,
@@ -133,6 +136,7 @@ def main() -> None:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--instances", type=Path, required=True)
     parser.add_argument("--project-id", required=True)
+    parser.add_argument("--environment", required=True)
     parser.add_argument("--ssh-user", required=True)
     parser.add_argument("--xconnect-topology", type=Path)
     parser.add_argument("--output", type=Path, required=True)
@@ -140,7 +144,7 @@ def main() -> None:
     manifest = yaml.safe_load(args.manifest.read_text(encoding="utf-8"))
     instances = json.loads(args.instances.read_text(encoding="utf-8"))
     topology = yaml.safe_load(args.xconnect_topology.read_text(encoding="utf-8")) if args.xconnect_topology else None
-    contract = resolve(manifest, instances, args.project_id, args.ssh_user, topology)
+    contract = resolve(manifest, instances, args.project_id, args.environment, args.ssh_user, topology)
     args.output.write_text(json.dumps(contract, indent=2) + "\n", encoding="utf-8")
     args.output.chmod(0o600)
     print(f"resolved {len(contract['spec']['nodes'])} GCP Vault nodes into {args.output}")

@@ -10,7 +10,7 @@
     "repository_id": "1284966060",
     "repository_owner_id": "292703558",
     "environment": "prod",
-    "workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/vault-shared-gcp-iac.yml@refs/heads/main",
+    "workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/vault-server.yml@refs/heads/main",
     "ref": "refs/heads/main"
   },
   "token_policies": ["github-actions-platform-ops-toolkit-shared-vault-xconnect"],

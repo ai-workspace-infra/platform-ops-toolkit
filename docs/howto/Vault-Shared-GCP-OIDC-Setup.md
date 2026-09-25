@@ -35,6 +35,11 @@ The declarations are stored separately by role name:
 - `scripts/vault/roles/github-actions-platform-ops-toolkit-shared-vault-xconnect.json`
 - `scripts/vault/policies/github-actions-platform-ops-toolkit-shared-vault-xconnect.hcl`
 
+The node, monitoring, and XConnect JWT roles bind to
+`.github/workflows/vault-server.yml@refs/heads/main`. After changing the
+workflow filename, an administrator must run `--apply` again; `--check` now
+rejects a role still bound to the previous filename.
+
 The bootstrap role is restricted to this repository, the `prod` GitHub
 Environment, the bootstrap workflow, and `main`. It can read only the shared
 bootstrap/state records and write the shared runtime OIDC record. The runtime
@@ -136,7 +141,7 @@ identity, and writes runtime identity metadata to
 
 ## 5. Run Vault infrastructure plan/apply
 
-After bootstrap apply succeeds, dispatch **Vault shared GCP infrastructure**:
+After bootstrap apply succeeds, dispatch **Vault server** (`.github/workflows/vault-server.yml`):
 
 ```text
 cloud_provider = gcp-cloud
@@ -150,6 +155,9 @@ Vault API port 8200. If the plan is correct, dispatch again with
 `deploy_action = apply` and complete the protected `prod` Environment approval.
 
 For a hosted-runner Vault installation, dispatch `deploy_action=apply`,
+`service_stage=node-preflight`, `connection_mode=bootstrap-public`, and
+the reviewed `playbooks_ref` first. This verifies the three live hosts,
+GitOps-pinned SSH host keys, and short-lived OS Login access. Then run
 `service_stage=vault-shared-leader`, `connection_mode=bootstrap-public`, and
 the reviewed `playbooks_ref`. The installation job temporarily opens TCP/22
 to the three Vault-tagged VMs, compares live SSH host keys to GitOps pins,

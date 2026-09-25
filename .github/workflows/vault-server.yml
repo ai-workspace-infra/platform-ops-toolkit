@@ -1,4 +1,4 @@
-name: Vault shared GCP infrastructure
+name: Vault server
 
 on:
   workflow_dispatch:
@@ -16,11 +16,11 @@ on:
         default: plan
         options: [plan, apply]
       service_stage:
-        description: Optional post-apply Vault node service stage; run leader and peers separately around manual init/unseal.
+        description: Post-apply node stage; run preflight, leader, peers, monitoring, Gateway, and One across separate dispatches.
         type: choice
         required: true
         default: none
-        options: [none, vault-shared-leader, vault-shared-peers, node-process-metrics]
+        options: [none, node-preflight, vault-shared-leader, vault-shared-peers, node-process-metrics, xconnect-gateway, xconnect-one]
       connection_mode:
         description: Current supported SSH transport for the hosted installation job.
         type: choice
@@ -41,7 +41,7 @@ on:
         description: Reviewed playbooks commit for Vault node configuration.
         type: string
         required: true
-        default: b6a8bbcdae8e67f0b75b8c6a9492af5cea128c1d
+        default: 9acf64baff20c67e286db168447f1ca13ffb0cb2
 
 permissions:
   contents: read
@@ -198,6 +198,7 @@ jobs:
             --manifest "gitops/${GITOPS_MANIFEST}" \
             --instances "${RUNNER_TEMP}/vault-shared-instances.json" \
             --project-id "${GCP_PROJECT_ID}" \
+            --environment shared \
             --ssh-user "${SSH_USER}" \
             --xconnect-topology "gitops/vpn-overlay/shared/xconnect-vault-shared.yaml" \
             --output "${NODE_CONTRACT}"
@@ -236,7 +237,7 @@ jobs:
             --contract "${NODE_CONTRACT}" --output "${SSH_KNOWN_HOSTS}"
 
       - name: Read observability ingestion credentials
-        if: ${{ inputs.service_stage == 'node-process-metrics' }}
+        if: ${{ inputs.service_stage == 'node-process-metrics' || inputs.service_stage == 'xconnect-one' }}
         id: observability
         uses: hashicorp/vault-action@v4
         with:
@@ -250,6 +251,7 @@ jobs:
             kv/data/CICD/observability password | VECTOR_AUTH_PASSWORD
 
       - name: Apply selected Vault service playbook stage
+        if: ${{ inputs.service_stage != 'node-preflight' }}
         shell: bash
         env:
           NODE_AUTH_ADAPTERS_READY: gcp-oslogin-ephemeral
@@ -262,6 +264,19 @@ jobs:
           set -euo pipefail
           bash scripts/node_deploy/run_stage.sh \
             "${NODE_CONTRACT}" "${PLAYBOOK_NAME}" "${DEPLOY_STAGE}" "${GITHUB_WORKSPACE}/playbooks"
+
+      - name: Verify SSH access to all declared nodes
+        if: ${{ inputs.service_stage == 'node-preflight' }}
+        shell: bash
+        env:
+          ANSIBLE_PRIVATE_KEY_FILE: ${{ steps.oslogin.outputs.key_path }}
+          ANSIBLE_SSH_COMMON_ARGS: -o UserKnownHostsFile=${{ runner.temp }}/vault-shared-known-hosts -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=ssh-ed25519
+        run: |
+          set -euo pipefail
+          inventory="${RUNNER_TEMP}/vault-shared-preflight.ini"
+          python3 scripts/node_deploy/render_inventory.py "${NODE_CONTRACT}" --inventory "${inventory}" >/dev/null
+          chmod 600 "${inventory}"
+          ANSIBLE_HOST_KEY_CHECKING=True ansible -i "${inventory}" vault_shared_nodes -m ansible.builtin.ping
 
       - name: Delete temporary public SSH rule
         if: ${{ always() && inputs.connection_mode == 'bootstrap-public' }}
@@ -285,7 +300,8 @@ jobs:
               --project="${GCP_PROJECT_ID}" --key-file="${key_path}.pub" || true
           fi
           rm -f -- "${key_path}" "${key_path}.pub" "${NODE_CONTRACT}" \
-            "${SSH_KNOWN_HOSTS}" "${RUNNER_TEMP}/vault-shared-instances.json"
+            "${SSH_KNOWN_HOSTS}" "${RUNNER_TEMP}/vault-shared-instances.json" \
+            "${RUNNER_TEMP}/vault-shared-preflight.ini"
 
   cleanup-bootstrap-ssh:
     name: Ensure temporary public SSH rule is absent

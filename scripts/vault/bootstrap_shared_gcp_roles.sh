@@ -60,7 +60,7 @@ for name in "${names[@]}"; do
     workflow_value="ai-workspace-infra/platform-ops-toolkit/.github/workflows/gcp-iac-pipeline.yml@*"
   else
     workflow_claim=workflow_ref
-    workflow_value="ai-workspace-infra/platform-ops-toolkit/.github/workflows/vault-shared-gcp-iac.yml@refs/heads/main"
+    workflow_value="ai-workspace-infra/platform-ops-toolkit/.github/workflows/vault-server.yml@refs/heads/main"
   fi
   jq -e --arg name "${name}" --arg workflow_claim "${workflow_claim}" --arg workflow_value "${workflow_value}" '
     .role_name == $name and
@@ -90,8 +90,13 @@ for name in "${names[@]}"; do
       vault write "auth/jwt/role/${name}" - >/dev/null
   else
     vault policy read "${name}" >/dev/null
-    vault read "auth/jwt/role/${name}" >/dev/null
-    echo "${name}: present"
+    vault read -format=json "auth/jwt/role/${name}" |
+      jq -e --arg claim "${workflow_claim}" --arg expected "${workflow_value}" \
+        '.data.bound_claims[$claim] == $expected' >/dev/null || {
+          echo "${name}: Vault JWT role does not match the declared workflow ref; run --apply" >&2
+          exit 1
+        }
+    echo "${name}: present and workflow claim matches"
   fi
 done
 

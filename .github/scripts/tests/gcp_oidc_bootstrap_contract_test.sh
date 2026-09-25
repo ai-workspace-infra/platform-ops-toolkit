@@ -274,7 +274,7 @@ jq -e '
 grep -Fq 'kv/data/shared/platform/oidc/open-platform-prod' "${shared_runtime_policy}"
 grep -Fq 'kv/data/CICD/shared/iac_state' "${shared_runtime_policy}"
 
-shared_iac_workflow="${repo_root}/.github/workflows/vault-shared-gcp-iac.yml"
+shared_iac_workflow="${repo_root}/.github/workflows/vault-server.yml"
 for required in 'cloud_provider:' 'options: [gcp-cloud]' 'options: [plan, apply]' 'vault_env_path: shared' 'github_environment: prod' 'open-platform-prod' 'vault-shared.yaml'; do
   grep -Fq -- "${required}" "${shared_iac_workflow}" || {
     echo "shared Vault GCP workflow missing contract: ${required}" >&2
