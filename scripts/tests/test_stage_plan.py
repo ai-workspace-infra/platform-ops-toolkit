@@ -120,6 +120,25 @@ class StagePlanTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unknown node stage"):
             module.plan("arbitrary-shell")
 
+    def test_gateway_frontend_runs_before_any_raft_change_and_reads_only_tls(self):
+        frontend = entry("xconnect-gateway-frontend")
+        self.assertEqual(frontend["path"], "any")
+        self.assertEqual(frontend["requires"], ["access"])
+        self.assertEqual(frontend["tags"], ["vault-gateway-frontend"])
+        self.assertEqual(frontend["secrets"], ["tls"])
+        self.assertEqual(frontend["confirm"], "")
+        order = list(module.STAGES)
+        # The old node needs the overlay before it can join, so the frontend
+        # precedes the migration stages instead of waiting for Raft quorum.
+        self.assertLess(order.index("xconnect-gateway-frontend"), order.index("migrate-join"))
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "out"
+            module.write_outputs(module.plan("xconnect-gateway-frontend", migration=True), output)
+            lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        self.assertEqual(lines["needs_tls"], "true")
+        self.assertEqual(lines["needs_xconnect"], "false")
+        self.assertEqual(lines["token"], "")
+
     def test_github_outputs(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "out"
@@ -130,6 +149,7 @@ class StagePlanTests(unittest.TestCase):
         self.assertEqual(lines["token"], "raft-operator")
         self.assertEqual(lines["ssh"], "all")
         self.assertEqual(lines["needs_observability"], "false")
+        self.assertEqual(lines["needs_tls"], "false")
         self.assertEqual(json.loads(lines["extra_vars"]), {"vault_legacy_migration_confirm": "MOVE-VAULT-LEADER"})
 
     def test_dispatch_options_match_enabled_stages(self):

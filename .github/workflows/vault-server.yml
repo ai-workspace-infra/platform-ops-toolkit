@@ -33,7 +33,7 @@ on:
         type: choice
         required: true
         default: none
-        options: [none, node-preflight, node-process-metrics, vault-raft-verify, vault-snapshot, fresh-leader, fresh-peers, migrate-auto, migrate-preflight, migrate-convert, migrate-rollback, migrate-join, migrate-cutover, migrate-remove]
+        options: [none, node-preflight, node-process-metrics, vault-raft-verify, vault-snapshot, xconnect-gateway-frontend, fresh-leader, fresh-peers, migrate-auto, migrate-preflight, migrate-convert, migrate-rollback, migrate-join, migrate-cutover, migrate-remove]
       connection_mode:
         description: Current supported SSH transport for the hosted installation job.
         type: choice
@@ -90,6 +90,7 @@ jobs:
       vault_addr: ${{ steps.declaration.outputs.vault_addr }}
       monitoring_role: ${{ steps.declaration.outputs.monitoring_role }}
       monitoring_secret_path: ${{ steps.declaration.outputs.monitoring_secret_path }}
+      xconnect_role: ${{ steps.declaration.outputs.xconnect_role }}
       xconnect_topology: ${{ steps.declaration.outputs.xconnect_topology }}
       provider_config: ${{ steps.declaration.outputs.provider_config }}
       migration: ${{ steps.declaration.outputs.migration }}
@@ -363,6 +364,20 @@ jobs:
             ${{ needs.declaration.outputs.monitoring_secret_path }} user | VECTOR_AUTH_USER ;
             ${{ needs.declaration.outputs.monitoring_secret_path }} password | VECTOR_AUTH_PASSWORD
 
+      - name: Read the Gateway TLS certificate
+        if: ${{ steps.stage.outputs.needs_tls == 'true' }}
+        id: gateway_tls
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ needs.declaration.outputs.vault_addr }}
+          method: jwt
+          role: ${{ needs.declaration.outputs.xconnect_role }}
+          jwtGithubAudience: vault
+          exportToken: false
+          secrets: |
+            kv/data/CICD/domains/svc.plus tls_fullchain_pem_b64 | VAULT_GATEWAY_TLS_FULLCHAIN_B64 ;
+            kv/data/CICD/domains/svc.plus tls_key_pem_b64 | VAULT_GATEWAY_TLS_KEY_B64
+
       - name: Log in with the stage's scoped Vault role
         if: ${{ steps.stage.outputs.token != '' }}
         uses: hashicorp/vault-action@v4
@@ -409,6 +424,8 @@ jobs:
         env:
           VECTOR_AUTH_USER: ${{ steps.observability.outputs.VECTOR_AUTH_USER }}
           VECTOR_AUTH_PASSWORD: ${{ steps.observability.outputs.VECTOR_AUTH_PASSWORD }}
+          VAULT_GATEWAY_TLS_FULLCHAIN_B64: ${{ steps.gateway_tls.outputs.VAULT_GATEWAY_TLS_FULLCHAIN_B64 }}
+          VAULT_GATEWAY_TLS_KEY_B64: ${{ steps.gateway_tls.outputs.VAULT_GATEWAY_TLS_KEY_B64 }}
         with:
           contract: ${{ steps.access.outputs.contract }}
           stage: ${{ steps.stage.outputs.stage }}
