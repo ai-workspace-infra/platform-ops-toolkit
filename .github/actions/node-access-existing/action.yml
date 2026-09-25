@@ -1,0 +1,78 @@
+name: Existing node access adapter
+description: >-
+  Open short-lived SSH access to an existing, non-IaC node (the current
+  vault.svc.plus host) and emit its NodeDeployment contract. GitHub OIDC
+  logs in to Vault with a scoped JWT role, and Vault's SSH CA signs the
+  run's public key for 30 minutes. No long-lived SSH key is stored anywhere.
+inputs:
+  phase:
+    description: open (sign certificate, emit contract) or close (remove certificate)
+    required: true
+  legacy_config:
+    description: legacy_config JSON from resolve_vault_server_declaration.py
+    required: true
+  service_manifest:
+    description: Vault service declaration path inside the GitOps checkout
+    required: false
+    default: ''
+  ssh_key:
+    description: One-run private key; its public half is signed
+    required: true
+outputs:
+  contract:
+    description: NodeDeployment JSON for the existing node
+    value: ${{ steps.contract.outputs.contract }}
+  auth_adapter:
+    description: Credential adapter prepared by this action
+    value: ssh-certificate
+runs:
+  using: composite
+  steps:
+    - name: Sign the one-run key with Vault's SSH CA
+      if: ${{ inputs.phase == 'open' }}
+      shell: bash
+      env:
+        LEGACY_CONFIG: ${{ inputs.legacy_config }}
+        SSH_KEY: ${{ inputs.ssh_key }}
+      run: |
+        set -euo pipefail
+        vault_addr="$(jq -er .vault_addr <<<"${LEGACY_CONFIG}")"
+        role="$(jq -er .ssh_role <<<"${LEGACY_CONFIG}")"
+        sign_path="$(jq -er .sign_path <<<"${LEGACY_CONFIG}")"
+        principal="$(jq -er .ssh_user <<<"${LEGACY_CONFIG}")"
+        [[ "${vault_addr}" =~ ^https://[A-Za-z0-9.-]+$ ]] || { echo '::error::invalid Vault address' >&2; exit 1; }
+        [[ -s "${SSH_KEY}.pub" ]] || { echo '::error::one-run public key is missing' >&2; exit 1; }
+        : "${ACTIONS_ID_TOKEN_REQUEST_URL:?id-token: write permission is required}"
+        jwt="$(curl -fsS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+          "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=vault" | jq -er .value)"
+        echo "::add-mask::${jwt}"
+        token="$(jq -n --arg role "${role}" --arg jwt "${jwt}" '{role:$role,jwt:$jwt}' |
+          curl -fsS -X POST --data-binary @- "${vault_addr}/v1/auth/jwt/login" | jq -er .auth.client_token)"
+        echo "::add-mask::${token}"
+        jq -n --arg key "$(<"${SSH_KEY}.pub")" --arg principal "${principal}" \
+          '{public_key:$key,valid_principals:$principal,ttl:"30m",cert_type:"user"}' |
+          curl -fsS -X POST -H "X-Vault-Token: ${token}" --data-binary @- \
+            "${vault_addr}/v1/${sign_path}" | jq -er .data.signed_key > "${SSH_KEY}-cert.pub"
+        chmod 600 "${SSH_KEY}-cert.pub"
+        ssh-keygen -L -f "${SSH_KEY}-cert.pub" | grep -E 'Valid:|Principals:' -A1 | sed 's/^/  /'
+
+    - name: Build the existing node's NodeDeployment
+      id: contract
+      if: ${{ inputs.phase == 'open' }}
+      shell: bash
+      env:
+        SERVICE_MANIFEST: ${{ inputs.service_manifest }}
+        SSH_KEY: ${{ inputs.ssh_key }}
+      run: |
+        set -euo pipefail
+        contract="$(dirname "${SSH_KEY}")/legacy-nodes.json"
+        python3 "${GITHUB_WORKSPACE}/scripts/node_deploy/legacy_source.py" contract \
+          --service-manifest "gitops/${SERVICE_MANIFEST}" --output "${contract}"
+        echo "contract=${contract}" >> "${GITHUB_OUTPUT}"
+
+    - name: Remove the SSH certificate
+      if: ${{ inputs.phase == 'close' }}
+      shell: bash
+      env:
+        SSH_KEY: ${{ inputs.ssh_key }}
+      run: rm -f -- "${SSH_KEY}-cert.pub"

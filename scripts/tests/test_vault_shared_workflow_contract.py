@@ -68,7 +68,7 @@ class ProviderNeutralStageTests(unittest.TestCase):
         inputs = self.workflow[True]["workflow_call"]["inputs"]
         self.assertEqual(
             set(inputs),
-            {"stage", "provider", "service_manifest", "provider_manifest", "connection_mode", "gitops_repo_ref", "playbooks_ref"},
+            {"stage", "provider", "service_manifest", "provider_manifest", "connection_mode", "gitops_repo_ref", "playbooks_ref", "confirm"},
         )
         self.assertEqual(self.jobs["node-stage"]["runs-on"], "ubuntu-latest")
         self.assertEqual(self.jobs["node-stage"]["environment"], "${{ needs.declaration.outputs.github_environment }}")
@@ -106,6 +106,52 @@ class ProviderNeutralStageTests(unittest.TestCase):
         self.assertIn("needs_observability == 'true'", self.steps["Read observability ingestion credentials"]["if"])
 
 
+class MigrationWiringTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.workflow = load(GENERIC)
+        cls.steps = steps_by_name(cls.workflow["jobs"]["node-stage"]["steps"])
+
+    def test_one_run_key_is_shared_by_both_adapters(self):
+        self.assertIn("ssh-keygen", self.steps["Create the one-run SSH key"]["run"])
+        legacy = self.steps["Open access to the existing vault.svc.plus node"]
+        self.assertEqual(legacy["uses"], "./.github/actions/node-access-existing")
+        self.assertEqual(legacy["with"]["ssh_key"], self.steps["Open node access through the GCP adapter"]["with"]["ssh_key"])
+        self.assertIn("legacy_source.py merge", self.steps["Select the prepared adapters"]["run"])
+        self.assertIn("always()", self.steps["Close access to the existing node"]["if"])
+
+    def test_scoped_tokens_and_encrypted_snapshot(self):
+        login = self.steps["Log in with the stage's scoped Vault role"]
+        self.assertEqual(login["with"]["method"], "jwt")
+        self.assertIs(login["with"]["exportToken"], True)
+        snapshot = self.steps["Take, encrypt and upload a Raft snapshot"]
+        self.assertIn("vault_snapshot.sh", snapshot["run"])
+        self.assertIn("age_recipient", snapshot["env"]["BACKUP_AGE_RECIPIENT"])
+
+    def test_existing_node_uses_short_lived_ssh_certificates(self):
+        action = load(ROOT / ".github/actions/node-access-existing/action.yml")
+        sign = action["runs"]["steps"][0]["run"]
+        self.assertIn("audience=vault", sign)
+        self.assertIn("auth/jwt/login", sign)
+        self.assertIn('ttl:"30m"', sign)
+        self.assertIn("::add-mask::", sign)
+        self.assertEqual(action["outputs"]["auth_adapter"]["value"], "ssh-certificate")
+
+    def test_new_vault_roles_are_scoped_and_bound_to_the_entry(self):
+        policies = ROOT / "scripts/vault/policies"
+        self.assertEqual(
+            (policies / "github-actions-platform-ops-toolkit-shared-vault-legacy-ssh.hcl").read_text().count("path "), 1
+        )
+        snapshot = (policies / "github-actions-platform-ops-toolkit-shared-vault-snapshot.hcl").read_text()
+        self.assertIn("sys/storage/raft/snapshot", snapshot)
+        self.assertNotIn("kv/data/*", snapshot)
+        bootstrap = (ROOT / "scripts/vault/bootstrap_shared_gcp_roles.sh").read_text()
+        for suffix in ("legacy-ssh", "snapshot", "raft-operator"):
+            name = f"github-actions-platform-ops-toolkit-shared-vault-{suffix}"
+            self.assertIn(name, bootstrap)
+            self.assertIn("vault-server.yml@refs/heads/main", (ROOT / "scripts/vault/roles" / f"{name}.json").read_text())
+
+
 class AdapterAndRunnerTests(unittest.TestCase):
     def test_gcp_adapter_uses_short_lived_identities_and_cleans_up(self):
         action = load(GCP_ADAPTER)
@@ -120,7 +166,7 @@ class AdapterAndRunnerTests(unittest.TestCase):
         self.assertIn("--rules=tcp:22", create["run"])
         self.assertIn("inputs.connection_mode == 'bootstrap-public'", create["if"])
         self.assertIn("firewall-rules delete", steps["Delete and verify the temporary public SSH rule"]["run"])
-        self.assertIn("os-login ssh-keys remove", steps["Revoke the OS Login key and remove local key material"]["run"])
+        self.assertIn("os-login ssh-keys remove", steps["Revoke the OS Login key and remove discovery files"]["run"])
         self.assertEqual(action["outputs"]["auth_adapter"]["value"], "gcp-oslogin-ephemeral")
 
     def test_node_stage_gates_before_and_after_the_playbook(self):

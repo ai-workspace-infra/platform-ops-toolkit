@@ -41,6 +41,11 @@ on:
         description: Reviewed playbooks commit.
         type: string
         required: true
+      confirm:
+        description: Confirmation phrase required by stages that change a live Vault.
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -61,6 +66,15 @@ jobs:
       ssh_access_mode: ${{ steps.declaration.outputs.ssh_access_mode }}
       xconnect_topology: ${{ steps.declaration.outputs.xconnect_topology }}
       provider_config: ${{ steps.declaration.outputs.provider_config }}
+      migration: ${{ steps.declaration.outputs.migration }}
+      legacy_config: ${{ steps.declaration.outputs.legacy_config }}
+      raft_operator_role: ${{ steps.declaration.outputs.raft_operator_role }}
+      snapshot_role: ${{ steps.declaration.outputs.snapshot_role }}
+      backup_config: ${{ steps.declaration.outputs.backup_config }}
+      open_new: ${{ steps.access.outputs.open_new }}
+      open_legacy: ${{ steps.access.outputs.open_legacy }}
+      action: ${{ steps.plan.outputs.action }}
+      token: ${{ steps.plan.outputs.token }}
       playbook: ${{ steps.plan.outputs.playbook }}
       tags: ${{ steps.plan.outputs.tags }}
       requires: ${{ steps.plan.outputs.requires }}
@@ -81,12 +95,6 @@ jobs:
           path: gitops
           persist-credentials: false
 
-      - name: Resolve the stage plan
-        id: plan
-        env:
-          DEPLOY_STAGE: ${{ inputs.stage }}
-        run: python3 scripts/node_deploy/stage_plan.py "${DEPLOY_STAGE}" --github-output "${GITHUB_OUTPUT}"
-
       - name: Resolve environment, Vault paths and connection mode from GitOps
         id: declaration
         env:
@@ -106,6 +114,36 @@ jobs:
             echo "::error::connection_mode=${CONNECTION_MODE} does not match reviewed GitOps (${declared_mode})" >&2
             exit 1
           }
+
+      - name: Resolve the stage plan
+        id: plan
+        env:
+          DEPLOY_STAGE: ${{ inputs.stage }}
+          CONFIRM: ${{ inputs.confirm }}
+          MIGRATION: ${{ steps.declaration.outputs.migration }}
+        run: |
+          python3 scripts/node_deploy/stage_plan.py "${DEPLOY_STAGE}" \
+            --confirm "${CONFIRM}" --migration "${MIGRATION}" --github-output "${GITHUB_OUTPUT}"
+
+      - name: Select node access for the stage
+        id: access
+        env:
+          SSH_SCOPE: ${{ steps.plan.outputs.ssh }}
+          MIGRATION: ${{ steps.declaration.outputs.migration }}
+        run: |
+          set -euo pipefail
+          open_new=false
+          open_legacy=false
+          case "${SSH_SCOPE}" in
+            new) open_new=true ;;
+            legacy) open_legacy=true ;;
+            all) open_new=true; open_legacy=true ;;
+            cluster) open_new=true; open_legacy="${MIGRATION}" ;;
+            none) ;;
+            *) echo "::error::unknown ssh scope ${SSH_SCOPE}" >&2; exit 1 ;;
+          esac
+          echo "open_new=${open_new}" >> "${GITHUB_OUTPUT}"
+          echo "open_legacy=${open_legacy}" >> "${GITHUB_OUTPUT}"
 
   node-stage:
     name: Node stage ${{ inputs.stage }}
@@ -153,11 +191,20 @@ jobs:
           "${RUNNER_TEMP}/node-stage-python/bin/ansible-galaxy" collection install 'ansible.posix:==2.1.0'
           echo "${RUNNER_TEMP}/node-stage-python/bin" >> "${GITHUB_PATH}"
 
+      - name: Create the one-run SSH key
+        if: ${{ needs.declaration.outputs.open_new == 'true' || needs.declaration.outputs.open_legacy == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 700 "${NODE_ACCESS_DIR}"
+          ssh-keygen -q -t ed25519 -N '' -C "vault-node-stage-${GITHUB_RUN_ID}" -f "${NODE_ACCESS_DIR}/id_ed25519"
+
       # Provider adapters: add one step per adapter. Each emits the same
-      # contract/ssh_private_key/auth_adapter outputs and has a close phase.
+      # contract/auth_adapter outputs for the shared one-run key and has a
+      # close phase.
       - name: Open node access through the GCP adapter
         id: gcp
-        if: ${{ inputs.provider == 'gcp-cloud' }}
+        if: ${{ needs.declaration.outputs.open_new == 'true' && inputs.provider == 'gcp-cloud' }}
         uses: ./.github/actions/node-access-gcp
         with:
           phase: open
@@ -166,29 +213,50 @@ jobs:
           provider_manifest: ${{ inputs.provider_manifest }}
           xconnect_topology: ${{ needs.declaration.outputs.xconnect_topology }}
           connection_mode: ${{ inputs.connection_mode }}
-          work_dir: ${{ runner.temp }}/node-access
+          work_dir: ${{ runner.temp }}/node-access/gcp
+          ssh_key: ${{ runner.temp }}/node-access/id_ed25519
 
-      - name: Select the prepared adapter
+      - name: Open access to the existing vault.svc.plus node
+        id: legacy
+        if: ${{ needs.declaration.outputs.open_legacy == 'true' }}
+        uses: ./.github/actions/node-access-existing
+        with:
+          phase: open
+          legacy_config: ${{ needs.declaration.outputs.legacy_config }}
+          service_manifest: ${{ inputs.service_manifest }}
+          ssh_key: ${{ runner.temp }}/node-access/id_ed25519
+
+      - name: Select the prepared adapters
         id: access
+        if: ${{ needs.declaration.outputs.open_new == 'true' || needs.declaration.outputs.open_legacy == 'true' }}
         shell: bash
         env:
           GCP_CONTRACT: ${{ steps.gcp.outputs.contract }}
-          GCP_KEY: ${{ steps.gcp.outputs.ssh_private_key }}
           GCP_ADAPTER: ${{ steps.gcp.outputs.auth_adapter }}
+          LEGACY_CONTRACT: ${{ steps.legacy.outputs.contract }}
+          LEGACY_ADAPTER: ${{ steps.legacy.outputs.auth_adapter }}
+          OPEN_NEW: ${{ needs.declaration.outputs.open_new }}
+          OPEN_LEGACY: ${{ needs.declaration.outputs.open_legacy }}
         run: |
           set -euo pipefail
-          contract="${GCP_CONTRACT}"
-          key="${GCP_KEY}"
-          adapter="${GCP_ADAPTER}"
-          [[ -s "${contract}" && -s "${key}" && -n "${adapter}" ]] || {
-            echo '::error::No provider adapter prepared node access' >&2
-            exit 1
-          }
+          contracts=()
+          adapters=()
+          if [[ "${OPEN_NEW}" == true ]]; then
+            [[ -s "${GCP_CONTRACT}" ]] || { echo '::error::No provider adapter prepared the new nodes' >&2; exit 1; }
+            contracts+=("${GCP_CONTRACT}"); adapters+=("${GCP_ADAPTER}")
+          fi
+          if [[ "${OPEN_LEGACY}" == true ]]; then
+            [[ -s "${LEGACY_CONTRACT}" ]] || { echo '::error::The existing node was not prepared' >&2; exit 1; }
+            contracts+=("${LEGACY_CONTRACT}"); adapters+=("${LEGACY_ADAPTER}")
+          fi
+          contract="${NODE_ACCESS_DIR}/nodes.json"
+          python3 scripts/node_deploy/legacy_source.py merge "${contracts[@]}" --output "${contract}"
           echo "contract=${contract}" >> "${GITHUB_OUTPUT}"
-          echo "ssh_private_key=${key}" >> "${GITHUB_OUTPUT}"
-          echo "auth_adapter=${adapter}" >> "${GITHUB_OUTPUT}"
+          echo "ssh_private_key=${NODE_ACCESS_DIR}/id_ed25519" >> "${GITHUB_OUTPUT}"
+          echo "auth_adapters=$(IFS=,; echo "${adapters[*]}")" >> "${GITHUB_OUTPUT}"
 
       - name: Verify live SSH host keys against GitOps pins
+        if: ${{ steps.access.outcome == 'success' }}
         shell: bash
         env:
           NODE_CONTRACT: ${{ steps.access.outputs.contract }}
@@ -211,7 +279,48 @@ jobs:
             ${{ needs.declaration.outputs.monitoring_secret_path }} user | VECTOR_AUTH_USER ;
             ${{ needs.declaration.outputs.monitoring_secret_path }} password | VECTOR_AUTH_PASSWORD
 
+      - name: Log in with the stage's scoped Vault role
+        if: ${{ needs.declaration.outputs.token != '' }}
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ needs.declaration.outputs.vault_addr }}
+          method: jwt
+          role: ${{ needs.declaration.outputs.token == 'snapshot' && needs.declaration.outputs.snapshot_role || needs.declaration.outputs.raft_operator_role }}
+          jwtGithubAudience: vault
+          exportToken: true
+
+      - name: Read off-site backup credentials
+        id: backup
+        if: ${{ needs.declaration.outputs.action == 'snapshot' }}
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ needs.declaration.outputs.vault_addr }}
+          method: jwt
+          role: ${{ needs.declaration.outputs.snapshot_role }}
+          jwtGithubAudience: vault
+          exportToken: false
+          secrets: |
+            ${{ fromJSON(needs.declaration.outputs.backup_config).credentials_path }} access_key_id | BACKUP_ACCESS_KEY_ID ;
+            ${{ fromJSON(needs.declaration.outputs.backup_config).credentials_path }} secret_access_key | BACKUP_SECRET_ACCESS_KEY
+
+      - name: Take, encrypt and upload a Raft snapshot
+        if: ${{ needs.declaration.outputs.action == 'snapshot' }}
+        shell: bash
+        env:
+          VAULT_ADDR: ${{ needs.declaration.outputs.vault_addr }}
+          BACKUP_AGE_RECIPIENT: ${{ fromJSON(needs.declaration.outputs.backup_config).age_recipient }}
+          BACKUP_DESTINATION: ${{ fromJSON(needs.declaration.outputs.backup_config).destination }}
+          BACKUP_ENDPOINT: ${{ fromJSON(needs.declaration.outputs.backup_config).endpoint }}
+          AWS_REGION: ${{ fromJSON(needs.declaration.outputs.backup_config).region }}
+          AWS_ACCESS_KEY_ID: ${{ steps.backup.outputs.BACKUP_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ steps.backup.outputs.BACKUP_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          command -v age >/dev/null 2>&1 || sudo apt-get install -y -qq age >/dev/null
+          bash scripts/node_deploy/vault_snapshot.sh
+
       - name: Execute provider-neutral Vault node stage
+        if: ${{ steps.access.outcome == 'success' }}
         uses: ./.github/actions/vault-node-stage
         env:
           VECTOR_AUTH_USER: ${{ steps.observability.outputs.VECTOR_AUTH_USER }}
@@ -227,17 +336,30 @@ jobs:
           playbooks_root: ${{ github.workspace }}/playbooks
           ssh_private_key: ${{ steps.access.outputs.ssh_private_key }}
           known_hosts: ${{ runner.temp }}/node-known-hosts
-          ready_adapters: ${{ steps.access.outputs.auth_adapter }}
+          ready_adapters: ${{ steps.access.outputs.auth_adapters }}
+          action: ${{ needs.declaration.outputs.action }}
+          confirm: ${{ inputs.confirm }}
+          vault_addr: ${{ needs.declaration.outputs.vault_addr }}
+          legacy_config: ${{ needs.declaration.outputs.legacy_config }}
           gateway_state: /var/lib/xconnect-gateway/${{ needs.declaration.outputs.environment }}/state.json
 
+      - name: Close access to the existing node
+        if: ${{ always() && needs.declaration.outputs.open_legacy == 'true' }}
+        uses: ./.github/actions/node-access-existing
+        with:
+          phase: close
+          legacy_config: ${{ needs.declaration.outputs.legacy_config }}
+          ssh_key: ${{ runner.temp }}/node-access/id_ed25519
+
       - name: Close node access through the GCP adapter
-        if: ${{ always() && inputs.provider == 'gcp-cloud' }}
+        if: ${{ always() && needs.declaration.outputs.open_new == 'true' && inputs.provider == 'gcp-cloud' }}
         uses: ./.github/actions/node-access-gcp
         with:
           phase: close
           provider_config: ${{ needs.declaration.outputs.provider_config }}
           connection_mode: ${{ inputs.connection_mode }}
-          work_dir: ${{ runner.temp }}/node-access
+          work_dir: ${{ runner.temp }}/node-access/gcp
+          ssh_key: ${{ runner.temp }}/node-access/id_ed25519
 
       - name: Remove runner-private node files
         if: ${{ always() }}
@@ -247,7 +369,7 @@ jobs:
   cleanup-node-access:
     name: Ensure temporary node access is closed
     needs: [declaration, node-stage]
-    if: ${{ always() && needs.declaration.result == 'success' && needs.node-stage.result != 'skipped' && inputs.provider == 'gcp-cloud' }}
+    if: ${{ always() && needs.declaration.result == 'success' && needs.node-stage.result != 'skipped' && needs.declaration.outputs.open_new == 'true' && inputs.provider == 'gcp-cloud' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: ${{ needs.declaration.outputs.github_environment }}
@@ -266,4 +388,5 @@ jobs:
           phase: close
           provider_config: ${{ needs.declaration.outputs.provider_config }}
           connection_mode: ${{ inputs.connection_mode }}
-          work_dir: ${{ runner.temp }}/node-access
+          work_dir: ${{ runner.temp }}/node-access/gcp
+          ssh_key: ${{ runner.temp }}/node-access/id_ed25519

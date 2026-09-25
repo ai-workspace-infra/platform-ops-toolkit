@@ -26,14 +26,17 @@ inputs:
     description: Reviewed SSH access mode (bootstrap-public opens a temporary rule)
     required: true
   work_dir:
-    description: Private runner directory for key material and the contract
+    description: Private runner directory for the contract and discovery files
+    required: true
+  ssh_key:
+    description: One-run private key created by the caller; its public half is added to OS Login
     required: true
 outputs:
   contract:
     description: Validated NodeDeployment JSON path
     value: ${{ steps.resolve.outputs.contract }}
   ssh_private_key:
-    description: One-run OS Login private key path
+    description: One-run private key path registered with OS Login
     value: ${{ steps.oslogin.outputs.key_path }}
   auth_adapter:
     description: Credential adapter prepared by this action
@@ -106,13 +109,13 @@ runs:
       shell: bash
       env:
         WORK_DIR: ${{ inputs.work_dir }}
+        SSH_KEY: ${{ inputs.ssh_key }}
         GCP_PROJECT_ID: ${{ steps.config.outputs.project_id }}
       run: |
         set -euo pipefail
         install -d -m 700 "${WORK_DIR}"
-        key_path="${WORK_DIR}/id_ed25519"
-        rm -f -- "${key_path}" "${key_path}.pub"
-        ssh-keygen -q -t ed25519 -N '' -f "${key_path}"
+        key_path="${SSH_KEY}"
+        [[ -s "${key_path}" && -s "${key_path}.pub" ]] || { echo '::error::one-run SSH key is missing' >&2; exit 1; }
         gcloud compute os-login ssh-keys add \
           --project="${GCP_PROJECT_ID}" --key-file="${key_path}.pub" --ttl=65m >/dev/null
         profile="$(gcloud compute os-login describe-profile --project="${GCP_PROJECT_ID}" --format=json)"
@@ -202,15 +205,16 @@ runs:
           exit 1
         fi
 
-    - name: Revoke the OS Login key and remove local key material
+    - name: Revoke the OS Login key and remove discovery files
       if: ${{ inputs.phase == 'close' }}
       shell: bash
       env:
         WORK_DIR: ${{ inputs.work_dir }}
+        SSH_KEY: ${{ inputs.ssh_key }}
         GCP_PROJECT_ID: ${{ steps.config.outputs.project_id }}
       run: |
         set -euo pipefail
-        key_path="${WORK_DIR}/id_ed25519"
+        key_path="${SSH_KEY}"
         if [[ -s "${key_path}.pub" ]]; then
           gcloud compute os-login ssh-keys remove \
             --project="${GCP_PROJECT_ID}" --key-file="${key_path}.pub" || true

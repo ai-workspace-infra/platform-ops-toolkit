@@ -12,8 +12,9 @@ inputs:
     description: Stage name from scripts/node_deploy/stage_plan.py
     required: true
   playbook:
-    description: Playbook file inside playbooks_root
-    required: true
+    description: Playbook file inside playbooks_root (empty when the stage has none)
+    required: false
+    default: ''
   tags:
     description: Comma-separated playbook tags; empty for check-only stages
     required: false
@@ -45,6 +46,22 @@ inputs:
     description: XConnect Gateway state file checked by the gateway-enrolled gate
     required: false
     default: ''
+  action:
+    description: Non-playbook stage action from stage_plan.py (empty for none)
+    required: false
+    default: ''
+  confirm:
+    description: Confirmation phrase for actions that change a live Vault
+    required: false
+    default: ''
+  vault_addr:
+    description: Vault API address for runner-side Raft operations
+    required: false
+    default: ''
+  legacy_config:
+    description: legacy_config JSON for actions on the existing node
+    required: false
+    default: '{}'
 runs:
   using: composite
   steps:
@@ -82,6 +99,23 @@ runs:
           --contract "${NODE_CONTRACT}" --key "${SSH_PRIVATE_KEY}" --known-hosts "${SSH_KNOWN_HOSTS}" \
           --checks "${REQUIRED_CHECKS}" --gateway-state "${GATEWAY_STATE}" \
           --title "Before ${DEPLOY_STAGE}"
+
+    - name: Run the stage action
+      if: ${{ inputs.action != '' }}
+      shell: bash
+      env:
+        STAGE_ACTION: ${{ inputs.action }}
+        NODE_CONTRACT: ${{ inputs.contract }}
+        SSH_PRIVATE_KEY: ${{ inputs.ssh_private_key }}
+        SSH_KNOWN_HOSTS: ${{ inputs.known_hosts }}
+        CONFIRM: ${{ inputs.confirm }}
+        LEGACY_CONFIG: ${{ inputs.legacy_config }}
+        VAULT_ADDR: ${{ inputs.vault_addr }}
+      run: |
+        set -euo pipefail
+        bash "${GITHUB_WORKSPACE}/scripts/node_deploy/run_stage_action.sh" \
+          "${STAGE_ACTION}" "${NODE_CONTRACT}" "${SSH_PRIVATE_KEY}" "${SSH_KNOWN_HOSTS}" \
+          "${CONFIRM}" "${LEGACY_CONFIG}"
 
     - name: Apply the stage playbook tags
       if: ${{ inputs.tags != '' }}

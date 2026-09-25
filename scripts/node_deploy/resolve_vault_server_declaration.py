@@ -25,6 +25,82 @@ def checked_path(root: Path, value: str) -> Path:
     return resolved
 
 
+SSH_USER = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+HOST_KEY = re.compile(r"^AAAAC3NzaC1lZDI1NTE5[A-Za-z0-9+/]+={0,2}$")
+SIGN_PATH = re.compile(r"^[a-z0-9-]+/sign/[a-z0-9-]+$")
+AGE_RECIPIENT = re.compile(r"^age1[0-9a-z]{58}$")
+S3_URL = re.compile(r"^s3://[a-z0-9.-]+(/[A-Za-z0-9._/-]*)?$")
+HTTPS_URL = re.compile(r"^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._/-]*)?$")
+
+
+def resolve_migration(service: dict, environment: str, vault_addr: str) -> dict[str, str]:
+    """Validate spec.migration (the existing node being moved) if declared."""
+    migration = service["spec"].get("migration")
+    if not migration:
+        return {"migration": "false", "legacy_config": "{}", "raft_operator_role": ""}
+    source = migration["source"]
+    ssh_ca = migration["ssh_ca"]
+    if not IDENTIFIER.fullmatch(str(source.get("id", ""))):
+        raise ValueError("invalid migration source id")
+    if source["id"] in {node["id"] for node in service["spec"].get("nodes", [])}:
+        raise ValueError("the migration source must not also be a declared new node")
+    if not SSH_USER.fullmatch(str(source.get("ssh_user", ""))):
+        raise ValueError("invalid migration source ssh_user")
+    if not HOST_KEY.fullmatch(str(source.get("ssh_host_ed25519", ""))):
+        raise ValueError("migration source needs a pinned Ed25519 host key")
+    if not IDENTIFIER.fullmatch(str(ssh_ca.get("role", ""))) or not SIGN_PATH.fullmatch(str(ssh_ca.get("sign_path", ""))):
+        raise ValueError("migration ssh_ca needs a JWT role and an SSH sign path")
+    raft_operator_role = str(service["spec"]["automation"].get("raft_operator_role", ""))
+    if not IDENTIFIER.fullmatch(raft_operator_role):
+        raise ValueError("a migration needs automation.raft_operator_role")
+    if migration.get("raft_network", "private") not in {"private", "overlay"}:
+        raise ValueError("migration.raft_network must be private or overlay")
+    config = {
+        "environment": environment,
+        "vault_addr": vault_addr,
+        "id": source["id"],
+        "ssh_user": source["ssh_user"],
+        "ssh_role": ssh_ca["role"],
+        "sign_path": ssh_ca["sign_path"],
+        "overlay_interface": str(migration.get("overlay_interface", "xconone0")),
+    }
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,15}", config["overlay_interface"]):
+        raise ValueError("invalid migration overlay_interface")
+    return {
+        "migration": "true",
+        "legacy_config": json.dumps(config, separators=(",", ":"), sort_keys=True),
+        "raft_operator_role": raft_operator_role,
+    }
+
+
+def resolve_backup(service: dict, environment: str) -> dict[str, str]:
+    """Validate spec.backup (encrypted off-site Raft snapshots) if declared."""
+    backup = service["spec"].get("backup")
+    if not backup:
+        return {"backup_config": "{}", "snapshot_role": ""}
+    role = str(backup.get("snapshot_role", ""))
+    if not IDENTIFIER.fullmatch(role):
+        raise ValueError("invalid backup.snapshot_role")
+    if not AGE_RECIPIENT.fullmatch(str(backup.get("age_recipient", ""))):
+        raise ValueError("backup.age_recipient must be an age public key")
+    if not S3_URL.fullmatch(str(backup.get("destination", ""))):
+        raise ValueError("backup.destination must be s3://bucket/prefix")
+    endpoint = str(backup.get("endpoint", ""))
+    if endpoint and not HTTPS_URL.fullmatch(endpoint):
+        raise ValueError("backup.endpoint must be an https URL")
+    credentials = str(backup.get("credentials_path", ""))
+    if not KV_PATH.fullmatch(credentials) or f"/{environment}/" not in credentials:
+        raise ValueError("backup.credentials_path must be a KV path in this environment")
+    config = {
+        "age_recipient": backup["age_recipient"],
+        "destination": backup["destination"],
+        "endpoint": endpoint,
+        "region": str(backup.get("region", "us-east-1")),
+        "credentials_path": credentials,
+    }
+    return {"backup_config": json.dumps(config, separators=(",", ":"), sort_keys=True), "snapshot_role": role}
+
+
 def resolve(service: dict, provider: dict, provider_name: str) -> dict[str, str]:
     if service.get("kind") != "VaultServerDeployment":
         raise ValueError("expected VaultServerDeployment service declaration")
@@ -68,6 +144,8 @@ def resolve(service: dict, provider: dict, provider_name: str) -> dict[str, str]
         raise ValueError("Vault JWT endpoint must match the declared service domain")
     if values["ssh_access_mode"] not in {service["spec"]["access"]["bootstrap"], service["spec"]["access"]["steady_state"]}:
         raise ValueError("provider SSH mode is not declared by the Vault service")
+    values.update(resolve_migration(service, environment, values["vault_addr"]))
+    values.update(resolve_backup(service, environment))
     # Only the provider adapter reads this blob; the generic stage runner
     # forwards it without interpreting cloud-specific fields.
     values["provider_config"] = json.dumps(

@@ -22,11 +22,11 @@ on:
         default: plan
         options: [none, plan, apply]
       service_stage:
-        description: One node stage per dispatch, in order preflight, leader, peers, raft verify, metrics. Each checks live state first.
+        description: One node stage per dispatch (see docs/howto/Vault-Server-Migration.md). Each checks live state first.
         type: choice
         required: true
         default: none
-        options: [none, node-preflight, vault-shared-leader, vault-shared-peers, vault-raft-verify, node-process-metrics]
+        options: [none, node-preflight, node-process-metrics, vault-shared-leader, vault-shared-peers, vault-raft-verify, legacy-preflight, legacy-convert-raft, legacy-convert-rollback, vault-snapshot, vault-join-legacy, vault-cutover, vault-remove-legacy]
       connection_mode:
         description: Current supported SSH transport for the hosted installation job.
         type: choice
@@ -53,6 +53,11 @@ on:
         type: string
         required: true
         default: 815ad1c21dde0f2e579913d755bfe2d45da25e05
+      confirm:
+        description: Confirmation phrase for stages that change a live Vault (the stage names it when missing).
+        type: string
+        required: false
+        default: ''
       playbooks_ref:
         description: Reviewed playbooks commit for Vault node configuration.
         type: string
@@ -149,3 +154,4 @@ jobs:
       connection_mode: ${{ inputs.connection_mode }}
       gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
       playbooks_ref: ${{ inputs.playbooks_ref }}
+      confirm: ${{ inputs.confirm }}
