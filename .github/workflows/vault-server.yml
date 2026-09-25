@@ -79,7 +79,6 @@ jobs:
     env:
       GCP_PROJECT_ID: open-platform-prod
       GITOPS_MANIFEST: resources/xworktech.com/shared/gcp/vault-shared.yaml
-      PLAYBOOK_NAME: deploy_vault_shared_services.yml
       TEMP_SSH_RULE: vault-shared-ci-ssh-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Set runner temporary paths
@@ -250,33 +249,18 @@ jobs:
             kv/data/CICD/observability user | VECTOR_AUTH_USER ;
             kv/data/CICD/observability password | VECTOR_AUTH_PASSWORD
 
-      - name: Apply selected Vault service playbook stage
-        if: ${{ inputs.service_stage != 'node-preflight' }}
-        shell: bash
+      - name: Execute provider-neutral Vault node stage
+        uses: ./.github/actions/vault-node-stage
         env:
-          NODE_AUTH_ADAPTERS_READY: gcp-oslogin-ephemeral
-          ANSIBLE_PRIVATE_KEY_FILE: ${{ steps.oslogin.outputs.key_path }}
-          ANSIBLE_SSH_COMMON_ARGS: -o UserKnownHostsFile=${{ runner.temp }}/vault-shared-known-hosts -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=ssh-ed25519
           VECTOR_AUTH_USER: ${{ steps.observability.outputs.VECTOR_AUTH_USER }}
           VECTOR_AUTH_PASSWORD: ${{ steps.observability.outputs.VECTOR_AUTH_PASSWORD }}
-          DEPLOY_STAGE: ${{ inputs.service_stage }}
-        run: |
-          set -euo pipefail
-          bash scripts/node_deploy/run_stage.sh \
-            "${NODE_CONTRACT}" "${PLAYBOOK_NAME}" "${DEPLOY_STAGE}" "${GITHUB_WORKSPACE}/playbooks"
-
-      - name: Verify SSH access to all declared nodes
-        if: ${{ inputs.service_stage == 'node-preflight' }}
-        shell: bash
-        env:
-          ANSIBLE_PRIVATE_KEY_FILE: ${{ steps.oslogin.outputs.key_path }}
-          ANSIBLE_SSH_COMMON_ARGS: -o UserKnownHostsFile=${{ runner.temp }}/vault-shared-known-hosts -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=ssh-ed25519
-        run: |
-          set -euo pipefail
-          inventory="${RUNNER_TEMP}/vault-shared-preflight.ini"
-          python3 scripts/node_deploy/render_inventory.py "${NODE_CONTRACT}" --inventory "${inventory}" >/dev/null
-          chmod 600 "${inventory}"
-          ANSIBLE_HOST_KEY_CHECKING=True ansible -i "${inventory}" vault_shared_nodes -m ansible.builtin.ping
+        with:
+          contract: ${{ runner.temp }}/vault-shared-nodes.json
+          stage: ${{ inputs.service_stage }}
+          playbooks_root: ${{ github.workspace }}/playbooks
+          ssh_private_key: ${{ steps.oslogin.outputs.key_path }}
+          known_hosts: ${{ runner.temp }}/vault-shared-known-hosts
+          ready_adapters: gcp-oslogin-ephemeral
 
       - name: Delete temporary public SSH rule
         if: ${{ always() && inputs.connection_mode == 'bootstrap-public' }}
@@ -300,8 +284,7 @@ jobs:
               --project="${GCP_PROJECT_ID}" --key-file="${key_path}.pub" || true
           fi
           rm -f -- "${key_path}" "${key_path}.pub" "${NODE_CONTRACT}" \
-            "${SSH_KNOWN_HOSTS}" "${RUNNER_TEMP}/vault-shared-instances.json" \
-            "${RUNNER_TEMP}/vault-shared-preflight.ini"
+            "${SSH_KNOWN_HOSTS}" "${RUNNER_TEMP}/vault-shared-instances.json"
 
   cleanup-bootstrap-ssh:
     name: Ensure temporary public SSH rule is absent

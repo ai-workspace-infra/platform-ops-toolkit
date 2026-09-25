@@ -1,0 +1,57 @@
+name: Vault node stage
+description: Verify or configure nodes using the provider-neutral NodeDeployment contract.
+inputs:
+  contract:
+    description: Validated NodeDeployment JSON path
+    required: true
+  stage:
+    description: node-preflight or a declared Ansible stage
+    required: true
+  playbooks_root:
+    description: Reviewed Ansible playbooks checkout
+    required: true
+  ssh_private_key:
+    description: Path to a short-lived SSH credential prepared by the provider adapter
+    required: true
+  known_hosts:
+    description: Path to GitOps-pinned SSH host keys
+    required: true
+  ready_adapters:
+    description: Comma-separated auth adapters prepared by the caller
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Execute reviewed node stage
+      shell: bash
+      env:
+        NODE_CONTRACT: ${{ inputs.contract }}
+        DEPLOY_STAGE: ${{ inputs.stage }}
+        PLAYBOOKS_ROOT: ${{ inputs.playbooks_root }}
+        NODE_AUTH_ADAPTERS_READY: ${{ inputs.ready_adapters }}
+        ANSIBLE_PRIVATE_KEY_FILE: ${{ inputs.ssh_private_key }}
+        SSH_KNOWN_HOSTS: ${{ inputs.known_hosts }}
+      run: |
+        set -euo pipefail
+        test -s "${ANSIBLE_PRIVATE_KEY_FILE}"
+        test -s "${SSH_KNOWN_HOSTS}"
+        export ANSIBLE_HOST_KEY_CHECKING=True
+        export ANSIBLE_SSH_COMMON_ARGS="-o UserKnownHostsFile=${SSH_KNOWN_HOSTS} -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=ssh-ed25519"
+        if [[ "${DEPLOY_STAGE}" == node-preflight ]]; then
+          ready=",${NODE_AUTH_ADAPTERS_READY},"
+          while IFS= read -r adapter; do
+            [[ "${ready}" == *",${adapter},"* ]] || {
+              echo "No prepared short-lived credential adapter for ${adapter}" >&2
+              exit 1
+            }
+          done < <(jq -r '[.spec.nodes[].auth.adapter] | unique[]' "${NODE_CONTRACT}")
+          inventory="$(mktemp "${RUNNER_TEMP:-/tmp}/vault-node-preflight.XXXXXX")"
+          trap 'rm -f -- "${inventory}"' EXIT
+          chmod 600 "${inventory}"
+          python3 scripts/node_deploy/render_inventory.py "${NODE_CONTRACT}" --inventory "${inventory}" >/dev/null
+          ansible -i "${inventory}" vault_shared_nodes -m ansible.builtin.ping
+        else
+          bash scripts/node_deploy/run_stage.sh \
+            "${NODE_CONTRACT}" deploy_vault_shared_services.yml \
+            "${DEPLOY_STAGE}" "${PLAYBOOKS_ROOT}"
+        fi

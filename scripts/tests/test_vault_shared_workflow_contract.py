@@ -6,6 +6,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/vault-server.yml"
+NODE_STAGE = ROOT / ".github/actions/vault-node-stage/action.yml"
 
 
 class VaultSharedWorkflowContractTests(unittest.TestCase):
@@ -37,7 +38,9 @@ class VaultSharedWorkflowContractTests(unittest.TestCase):
         self.assertEqual(names["Read GCP runtime identity with stage-scoped Vault JWT role"]["with"]["method"], "jwt")
         self.assertIn("--ttl=65m", names["Prepare one-run OS Login SSH identity"]["run"])
         self.assertIn("prepare_known_hosts.py", names["Verify live SSH host keys against GitOps pins"]["run"])
-        self.assertIn("StrictHostKeyChecking=yes", names["Apply selected Vault service playbook stage"]["env"]["ANSIBLE_SSH_COMMON_ARGS"])
+        node_action = yaml.safe_load(NODE_STAGE.read_text(encoding="utf-8"))
+        self.assertIn("StrictHostKeyChecking=yes", node_action["runs"]["steps"][0]["run"])
+        self.assertEqual(names["Execute provider-neutral Vault node stage"]["with"]["ready_adapters"], "gcp-oslogin-ephemeral")
         self.assertIn("gcloud compute os-login ssh-keys remove", names["Revoke temporary OS Login key and remove local key material"]["run"])
 
     def test_renamed_workflow_and_node_preflight(self):
@@ -45,8 +48,8 @@ class VaultSharedWorkflowContractTests(unittest.TestCase):
         inputs = self.workflow[True]["workflow_dispatch"]["inputs"]
         self.assertIn("node-preflight", inputs["service_stage"]["options"])
         steps = {step["name"]: step for step in self.workflow["jobs"]["configure-services"]["steps"]}
-        self.assertIn("ansible.builtin.ping", steps["Verify SSH access to all declared nodes"]["run"])
-        self.assertIn("StrictHostKeyChecking=yes", steps["Verify SSH access to all declared nodes"]["env"]["ANSIBLE_SSH_COMMON_ARGS"])
+        self.assertEqual(steps["Execute provider-neutral Vault node stage"]["with"]["stage"], "${{ inputs.service_stage }}")
+        self.assertIn("ansible.builtin.ping", NODE_STAGE.read_text(encoding="utf-8"))
         for role in ("node-oidc-open-platform-prod", "monitoring", "xconnect"):
             path = ROOT / "scripts/vault/roles" / f"github-actions-platform-ops-toolkit-shared-vault-{role}.json"
             self.assertIn(".github/workflows/vault-server.yml@refs/heads/main", path.read_text(encoding="utf-8"))
