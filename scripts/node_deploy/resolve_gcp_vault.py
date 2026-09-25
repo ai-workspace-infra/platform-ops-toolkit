@@ -21,6 +21,7 @@ STAGES = [
     "xconnect-gateway",
     "xconnect-one",
 ]
+RAFT_PORTS = (8200, 8201)
 STAGE_TARGETS = {
     "node-preflight": ["vault_shared_nodes"],
     "vault-shared-leader": ["vault_shared_leader"],
@@ -29,6 +30,70 @@ STAGE_TARGETS = {
     "xconnect-gateway": ["xconnect_gateway"],
     "xconnect-one": ["xconnect_one"],
 }
+
+
+def allows_port(rule: dict, port: int) -> bool:
+    for allowed in rule.get("allowed", []):
+        protocol = allowed.get("IPProtocol")
+        if protocol == "all":
+            return True
+        if protocol != "tcp":
+            continue
+        ports = allowed.get("ports")
+        if not ports:
+            return True
+        for entry in ports:
+            low, _, high = str(entry).partition("-")
+            if int(low) <= port <= int(high or low):
+                return True
+    return False
+
+
+def verify_private_raft_channel(manifest: dict, firewalls: list[dict], target_tag: str = "vault") -> None:
+    """Require Raft ports to be reachable from the declared subnet and nowhere public."""
+    spec = manifest["spec"]
+    network = spec["network_name"]
+    subnet = ipaddress.ip_network(spec["subnet_cidr"], strict=True)
+    covered: set[int] = set()
+    for rule in firewalls:
+        if (
+            rule.get("disabled") is True
+            or rule.get("direction", "INGRESS") != "INGRESS"
+            or not str(rule.get("network", "")).endswith(f"/networks/{network}")
+            or "allowed" not in rule
+        ):
+            continue
+        tags = rule.get("targetTags")
+        if tags and target_tag not in tags:
+            continue
+        sources = [ipaddress.ip_network(value, strict=False) for value in rule.get("sourceRanges", [])]
+        for port in RAFT_PORTS:
+            if not allows_port(rule, port):
+                continue
+            if any(not source.is_private for source in sources):
+                raise ValueError(f"firewall rule {rule.get('name')} exposes Vault port {port} publicly")
+            if sources and all(source.subnet_of(subnet) for source in sources):
+                covered.add(port)
+    missing = [str(port) for port in RAFT_PORTS if port not in covered]
+    if missing:
+        raise ValueError(f"no private Raft firewall rule for port(s) {', '.join(missing)} from {subnet}")
+
+
+def overlay_address_of(topology: dict | None, name: str) -> str:
+    if topology is None:
+        raise ValueError("Raft over the overlay needs the XConnect topology")
+    spec = topology["spec"]
+    members = [spec["gateway"], *spec.get("fixed_nodes", [])]
+    target = next((member for member in members if member.get("id") == name), None)
+    overlay_ip = (target or {}).get("xconnect", {}).get("overlay_ip")
+    network = ipaddress.ip_network(spec["network"]["cidr"], strict=True)
+    try:
+        assigned = ipaddress.ip_address(overlay_ip)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} has no assigned XConnect overlay IP for Raft") from None
+    if assigned not in network or assigned == network.network_address:
+        raise ValueError(f"{name} overlay IP is outside the declared overlay")
+    return str(assigned)
 
 
 def resolve(
@@ -40,6 +105,13 @@ def resolve(
     ssh_user: str,
     topology: dict | None = None,
 ) -> dict:
+    """Resolve declared GCP Vault nodes.
+
+    With ``spec.migration`` declared, every new node is a Raft peer that joins
+    the existing vault.svc.plus node (the only member of the leader group) and,
+    for ``raft_network: overlay``, advertises its XConnect overlay address so
+    the old node can reach it.
+    """
     if manifest.get("kind") != "GCPWorkloadNamespace":
         raise ValueError("expected GCPWorkloadNamespace manifest")
     metadata = manifest["metadata"]
@@ -52,8 +124,13 @@ def resolve(
     storage = service_spec["storage"]
     if storage.get("backend") != "raft" or storage.get("address_scope") != "private":
         raise ValueError("Vault service must use private Raft storage")
-    if service_spec.get("stages") != STAGES:
-        raise ValueError("Vault service stages do not match the reviewed runner")
+    declared_stages = service_spec.get("stages")
+    if not isinstance(declared_stages, list) or not set(declared_stages) <= set(STAGES):
+        raise ValueError("Vault service stages are not all supported by the reviewed runner")
+    migration = service_spec.get("migration")
+    raft_network = (migration or {}).get("raft_network", "private")
+    if raft_network not in {"private", "overlay"}:
+        raise ValueError("spec.migration.raft_network must be private or overlay")
     if spec.get("enable_oslogin") is not True or spec.get("enable_iap_ssh") is not False:
         raise ValueError("shared Vault deployment requires OS Login and direct allowlisted SSH")
     access_mode = spec.get("ssh_access_mode", "bootstrap-public")
@@ -110,8 +187,12 @@ def resolve(
         role = node["xconnect_role"]
         if not node.get("ssh_host_ed25519"):
             raise ValueError(f"declared VM {name} has no reviewed SSH host key")
-        groups = ["vault_shared_nodes"]
-        groups.extend(["vault_shared_leader", "xconnect_gateway"] if role == "gateway" else ["vault_shared_peers", "xconnect_one"])
+        groups = ["vault_shared_nodes", "xconnect_gateway" if role == "gateway" else "xconnect_one"]
+        if migration:
+            # The existing node leads; every new node joins it as a peer.
+            groups.append("vault_shared_peers")
+        else:
+            groups.append("vault_shared_leader" if role == "gateway" else "vault_shared_peers")
         resolved = {
                 "id": name,
                 "provider": "gcp",
@@ -140,15 +221,22 @@ def resolve(
                 raise ValueError(f"XConnect node {name} has no internal DNS name")
             resolved["address"] = internal_dns
             resolved["overlay_address"] = overlay_ip
+        if raft_network == "overlay":
+            overlay_ip = overlay_address_of(topology, name)
+            resolved["overlay_address"] = overlay_ip
+            resolved["private_address"] = overlay_ip
         nodes.append(resolved)
+    # A migration never initializes a new leader: the existing node leads.
+    stages = [stage for stage in STAGES if not (migration and stage == "vault-shared-leader")]
     contract = {
         "apiVersion": "ops.svc.plus/v1alpha1",
         "kind": "NodeDeployment",
         "metadata": {"name": metadata["name"]},
         "spec": {
             "environment": environment,
-            "stages": STAGES,
-            "stage_targets": STAGE_TARGETS,
+            "stages": stages,
+            "stage_targets": {stage: STAGE_TARGETS[stage] for stage in stages},
+            "connection": {"mode": access_mode},
             "nodes": nodes,
         },
     }
@@ -164,6 +252,7 @@ def main() -> None:
     parser.add_argument("--environment", required=True)
     parser.add_argument("--ssh-user", required=True)
     parser.add_argument("--xconnect-topology", type=Path)
+    parser.add_argument("--firewalls", type=Path, required=True, help="gcloud compute firewall-rules list JSON")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     manifest = yaml.safe_load(args.manifest.read_text(encoding="utf-8"))
@@ -174,6 +263,10 @@ def main() -> None:
     instances = json.loads(args.instances.read_text(encoding="utf-8"))
     topology = yaml.safe_load(args.xconnect_topology.read_text(encoding="utf-8")) if args.xconnect_topology else None
     contract = resolve(manifest, service, instances, args.project_id, args.environment, args.ssh_user, topology)
+    try:
+        verify_private_raft_channel(manifest, json.loads(args.firewalls.read_text(encoding="utf-8")))
+    except ValueError as error:
+        raise SystemExit(f"private Raft channel check failed: {error}") from None
     args.output.write_text(json.dumps(contract, indent=2) + "\n", encoding="utf-8")
     args.output.chmod(0o600)
     print(f"resolved {len(contract['spec']['nodes'])} GCP Vault nodes into {args.output}")

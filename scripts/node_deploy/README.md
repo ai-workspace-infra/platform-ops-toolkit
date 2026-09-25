@@ -84,3 +84,24 @@ adapter while emitting the same contract. Public IP, private overlay address,
 or a reachable DNS name are all valid SSH targets. Network reachability and
 host-key verification remain explicit requirements; the contract does not
 open firewall rules or silently disable SSH host-key checking.
+
+## Stage plan and live-state gates
+
+`stage_plan.py` lists the dispatchable stages in rollout order and, for each,
+the live checks it requires before any change (`requires`), the playbook tags
+it applies, and the checks that must pass afterwards (`confirms`).
+`verify_vault_stage.py` evaluates those checks from one SSH probe per node
+(sudo, swap, Vault loopback `sys/health`/`sys/leader`, systemd units). It uses
+no Vault token, so CI can gate stages while init, unseal, and the
+`raft list-peers` confirmation stay with operators:
+
+```bash
+python3 scripts/node_deploy/stage_plan.py vault-shared-peers
+python3 scripts/node_deploy/verify_vault_stage.py \
+  --contract /tmp/vault-shared-node-deployment.json \
+  --key /path/to/short-lived-key --known-hosts /path/to/pinned-known-hosts \
+  --checks access,leader-unsealed
+```
+
+Stages that are not wired end-to-end (XConnect Gateway/One) stay in the plan
+with `enabled: False`, so `stage_plan.py` rejects them with the reason.

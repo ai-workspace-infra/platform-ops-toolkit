@@ -54,6 +54,14 @@ class NodeDeploymentContractTests(unittest.TestCase):
         self.assertIn("vault-prod-1 ansible_host=vault-1.example.net ansible_user=ops ansible_port=2222", rendered)
         self.assertIn("node_auth_adapter=ssh-certificate", rendered)
 
+    def test_connection_mode_is_optional_but_constrained(self):
+        doc = contract()
+        doc["spec"]["connection"] = {"mode": "xconnect-zero"}
+        node_inventory.validate(doc)
+        doc["spec"]["connection"] = {"mode": "public-forever"}
+        with self.assertRaises(SystemExit):
+            node_inventory.validate(doc)
+
     def test_rejects_embedded_credentials(self):
         doc = contract()
         doc["spec"]["nodes"][0]["private_key"] = "DO NOT STORE"

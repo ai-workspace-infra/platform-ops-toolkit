@@ -17,6 +17,7 @@ HOSTNAME = re.compile(r"^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z
 ALLOWED_AUTH_ADAPTERS = {"gcp-oslogin-ephemeral", "ssh-certificate", "ephemeral-ssh-key"}
 ALLOWED_STAGES = {
     "node-preflight",
+    "vault-single-raft",
     "vault-shared-leader",
     "vault-shared-peers",
     "node-process-metrics",
@@ -40,8 +41,15 @@ def validate(document: Any) -> dict[str, Any]:
         fail("metadata.name is required and must be a safe identifier")
     if not isinstance(spec, dict):
         fail("spec must be an object")
-    if set(spec) - {"environment", "stages", "stage_targets", "nodes"}:
-        fail("spec accepts only environment, stages, stage_targets, and nodes")
+    if set(spec) - {"environment", "stages", "stage_targets", "connection", "nodes"}:
+        fail("spec accepts only environment, stages, stage_targets, connection, and nodes")
+    connection = spec.get("connection", {"mode": "bootstrap-public"})
+    if (
+        not isinstance(connection, dict)
+        or set(connection) != {"mode"}
+        or connection["mode"] not in {"bootstrap-public", "xconnect-zero"}
+    ):
+        fail("spec.connection.mode must be bootstrap-public or xconnect-zero")
     environment = spec.get("environment")
     if not isinstance(environment, str) or not IDENTIFIER.fullmatch(environment):
         fail("spec.environment is required")

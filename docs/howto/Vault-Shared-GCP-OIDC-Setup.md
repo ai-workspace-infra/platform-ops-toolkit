@@ -162,26 +162,40 @@ Gateway, and TCP 22 only from `35.79.83.48/32`. No public rule should expose
 Vault API port 8200. If the plan is correct, dispatch again with
 `deploy_action = apply` and complete the protected `prod` Environment approval.
 
-For a hosted-runner Vault installation, dispatch `deploy_action=apply`,
-`service_stage=node-preflight`, `connection_mode=bootstrap-public`, and
-the reviewed `playbooks_ref` first. This verifies the three live hosts,
-GitOps-pinned SSH host keys, and short-lived OS Login access. Then run
-`service_stage=vault-shared-leader`, `connection_mode=bootstrap-public`, and
-the reviewed `playbooks_ref`. The installation job temporarily opens TCP/22
-to the three Vault-tagged VMs, compares live SSH host keys to GitOps pins,
-uses a short-lived OS Login key, and removes the temporary firewall rule and
-key after the job. Check that no `vault-shared-ci-ssh-*` rule remains, even if
-the workflow was canceled. Initialize and unseal node 0 manually from a
-secured operator terminal; then run `service_stage=vault-shared-peers` and
-unseal nodes 1 and 2 manually. Run `service_stage=node-process-metrics` to
-install node exporter, process exporter, and Vector.
+### Node stages: one per dispatch
 
-The peers stage checks that node 0 is initialized and unsealed. Monitoring
-and XConnect stages check that all three nodes are unsealed and report the
-same cluster ID with one active and two standby nodes. From the secured
-operator terminal, also run `vault operator raft list-peers` with a current
-operator credential and verify all three nodes are voters before changing
-the public SSH policy. GitHub Actions does not receive this credential.
+`vault-server.yml` is the GCP entry point. It runs IaC (when
+`deploy_action` is `plan` or `apply`) and then calls the provider-neutral
+`vault-shared-iac.yml` for exactly one `service_stage`. Use
+`deploy_action=none` to run a node stage against existing VMs without another
+Terraform apply; `plan` cannot be combined with a node stage.
+
+Every node stage opens access the same way through the GCP adapter
+(`.github/actions/node-access-gcp`): Vault JWT → Google WIF, a 65-minute
+OS Login key, a live check that the private Raft firewall rule allows
+8200/8201 only from the declared subnet, and (in `bootstrap-public` mode) a
+temporary `vault-shared-ci-ssh-<run>-<attempt>` rule for TCP/22. Live SSH host
+keys must match the GitOps pins. The rule and key are removed at the end of
+the job and again by an independent cleanup job. Check that no
+`vault-shared-ci-ssh-*` rule remains, even if the workflow was canceled.
+
+Before changing anything, each stage probes every node over SSH (sudo, swap,
+Vault's loopback `sys/health` and `sys/leader`, service units) and refuses to
+run unless its prerequisites hold. The probe needs no Vault token.
+
+| Order | `service_stage` | Requires (checked live) | Does | Then, manually |
+| --- | --- | --- | --- | --- |
+| 1 | `node-preflight` | SSH, sudo, no swap | nothing | — |
+| 2 | `vault-shared-leader` | same + no split cluster | installs Vault on node 0 | `vault operator init` + unseal node 0 |
+| 3 | `vault-shared-peers` | node 0 initialized and unsealed | installs Vault on nodes 1/2 | unseal nodes 1/2; `vault operator raft list-peers` |
+| 4 | `vault-raft-verify` | all nodes unsealed, one cluster ID, one active, same private Raft leader | nothing | confirm all voters |
+| 5 | `node-process-metrics` | Raft quorum as above | node exporter, process exporter, Vector | — |
+| 6 | `xconnect-gateway`, `xconnect-one` | quorum; One also needs Gateway enrollment | not dispatchable yet | — |
+
+Initialization and unsealing always happen in a secured operator terminal
+(see `docs/vault/operator-runbook.md` in `playbooks`). GitHub Actions never
+receives the root token, unseal shares, or an operator credential, so the
+`vault operator raft list-peers` confirmation also stays manual.
 
 XConnect Zero network/policy creation, Gateway and One enrollment, DNS cutover,
 and the zero-trust SSH adapter remain separate checkpoints. Do not remove the

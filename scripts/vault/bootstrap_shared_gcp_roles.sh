@@ -43,6 +43,9 @@ names=(
   github-actions-platform-ops-toolkit-shared-vault-node-oidc-open-platform-prod
   github-actions-platform-ops-toolkit-shared-vault-monitoring
   github-actions-platform-ops-toolkit-shared-vault-xconnect
+  github-actions-platform-ops-toolkit-shared-vault-legacy-ssh
+  github-actions-platform-ops-toolkit-shared-vault-snapshot
+  github-actions-platform-ops-toolkit-shared-vault-raft-operator
 )
 
 for name in "${names[@]}"; do
