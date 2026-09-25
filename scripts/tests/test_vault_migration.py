@@ -140,6 +140,25 @@ class DeclarationTests(unittest.TestCase):
         backup = declaration.resolve_backup(service(), "shared")
         self.assertIn('"destination":"s3://vault-backups/shared"', backup["backup_config"])
 
+    def test_observation_window_is_validated_and_defaults_to_a_day(self):
+        values = declaration.resolve_migration(service(), "shared", "https://vault.svc.plus")
+        self.assertEqual(values["observation"], '{"hours":24}')
+        document = service()
+        document["spec"]["migration"]["observation"] = {
+            "dns_switched_at": declaration.datetime.fromisoformat("2026-10-01T08:00:00+00:00"), "hours": 48,
+        }
+        values = declaration.resolve_migration(document, "shared", "https://vault.svc.plus")
+        self.assertEqual(values["observation"], '{"dns_switched_at":"2026-10-01T08:00:00+00:00","hours":48}')
+        document["spec"]["migration"]["observation"] = {"dns_switched_at": "2026-10-01T08:00:00"}
+        with self.assertRaisesRegex(ValueError, "UTC offset"):
+            declaration.resolve_migration(document, "shared", "https://vault.svc.plus")
+        document["spec"]["migration"]["observation"] = {"dns_switched_at": "yesterday"}
+        with self.assertRaisesRegex(ValueError, "ISO 8601"):
+            declaration.resolve_migration(document, "shared", "https://vault.svc.plus")
+        document["spec"]["migration"]["observation"] = {"hours": 0}
+        with self.assertRaisesRegex(ValueError, "between 1 and 720"):
+            declaration.resolve_migration(document, "shared", "https://vault.svc.plus")
+
     def test_absent_blocks_mean_a_fresh_install(self):
         document = service()
         del document["spec"]["migration"], document["spec"]["backup"]
@@ -202,6 +221,23 @@ class ControlPlaneBoundaryTests(unittest.TestCase):
         self.assertIn("NODE_STAGE_EXTRA_VARS", source)
         self.assertIn('--extra-vars "${NODE_STAGE_EXTRA_VARS}"', source)
         self.assertIn("jq -e .", source)
+
+    def test_run_stage_limits_one_node_stages_to_the_selected_target(self):
+        source = (SCRIPT_DIR / "run_stage.sh").read_text(encoding="utf-8")
+        self.assertIn("NODE_STAGE_ONLY", source)
+        self.assertIn("is not a target of", source)
+
+    def test_snapshot_is_restore_drilled_and_read_back(self):
+        source = (SCRIPT_DIR / "vault_snapshot.sh").read_text(encoding="utf-8")
+        # Drill before encryption, on the plaintext that is then encrypted.
+        self.assertLess(source.index('drill "${snapshot}"'), source.index("age --encrypt"))
+        self.assertIn("sys/storage/raft/snapshot-force", source)
+        self.assertIn(".sealed == true", source)
+        self.assertIn("env -u VAULT_TOKEN -u VAULT_ADDR", source)
+        self.assertIn("readback.age", source)
+        installer = (SCRIPT_DIR / "install_vault_drill.sh").read_text(encoding="utf-8")
+        subprocess.run(["bash", "-n", str(SCRIPT_DIR / "install_vault_drill.sh")], check=True)
+        self.assertIn("sha256sum --check", installer)
 
     def test_snapshot_script_only_uploads_ciphertext(self):
         source = (SCRIPT_DIR / "vault_snapshot.sh").read_text(encoding="utf-8")

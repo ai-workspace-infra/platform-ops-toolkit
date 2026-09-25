@@ -221,17 +221,64 @@ class MigrationCheckTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "overlay address"):
             module.verify(contract, ["legacy-overlay"], probes)
 
-    def test_join_needs_an_active_raft_source_and_empty_targets(self):
+    def test_join_needs_an_active_raft_source(self):
         contract, probes = migration_fixture()
-        for node_id in ("vault-0", "vault-1", "vault-2"):
-            probes[node_id]["health"] = None
-        module.verify(contract, ["legacy-raft", "new-nodes-empty"], probes)
-        probes["vault-1"]["health"] = {"initialized": True, "sealed": True, "standby": True}
-        with self.assertRaisesRegex(ValueError, "already holds Vault data"):
-            module.verify(contract, ["new-nodes-empty"], probes)
+        module.verify(contract, ["legacy-raft"], probes)
         probes["legacy"]["storage_type"] = "postgresql"
         with self.assertRaisesRegex(ValueError, "migrate-convert"):
             module.verify(contract, ["legacy-raft"], probes)
+
+    def test_peers_join_one_at_a_time_and_each_is_unsealed_before_the_next(self):
+        contract, probes = migration_fixture()
+        for node_id in ("vault-0", "vault-1", "vault-2"):
+            probes[node_id]["health"] = None
+        self.assertEqual(module.next_peer(contract, probes)["id"], "vault-0")
+        # vault-0 joined but waits for its manual unseal: nothing else may join.
+        probes["vault-0"]["health"] = {"initialized": True, "sealed": True, "standby": True}
+        with self.assertRaisesRegex(ValueError, "vault-0 joined but is still sealed"):
+            module.verify(contract, ["next-peer"], probes)
+        probes["vault-0"]["health"] = {"initialized": True, "sealed": False, "standby": True, "cluster_id": "cluster-a"}
+        self.assertEqual(module.next_peer(contract, probes)["id"], "vault-1")
+        for node_id in ("vault-1", "vault-2"):
+            probes[node_id]["health"] = {"initialized": True, "sealed": False, "standby": True, "cluster_id": "cluster-a"}
+        with self.assertRaisesRegex(ValueError, "already joined"):
+            module.verify(contract, ["next-peer"], probes)
+
+    def test_selected_running_checks_only_the_changed_node(self):
+        contract, probes = migration_fixture()
+        probes["vault-2"]["health"] = None
+        probes["vault-2"]["units"]["vault"] = "inactive"
+        probes["vault-1"]["health"] = {"initialized": True, "sealed": True, "standby": True}
+        module.verify(contract, ["selected-running"], probes, selected=["vault-1"])
+        with self.assertRaisesRegex(ValueError, "vault-2"):
+            module.verify(contract, ["selected-running"], probes, selected=["vault-2"])
+        with self.assertRaisesRegex(ValueError, "no node was selected"):
+            module.verify(contract, ["selected-running"], probes)
+        probes["vault-1"]["health"] = {"initialized": False, "sealed": True, "standby": True}
+        with self.assertRaisesRegex(ValueError, "has not joined"):
+            module.verify(contract, ["selected-running"], probes, selected=["vault-1"])
+
+    def test_overlay_raft_path_must_reach_every_node_and_the_old_node_must_answer(self):
+        contract, probes = migration_fixture()
+        for node in contract["spec"]["nodes"]:
+            targets = module.raft_targets(contract, node).split(",")
+            self.assertNotIn(f"{node['private_address']}:8201", targets)
+            probes[node["id"]]["reach"] = {
+                target: ("open" if target.startswith("10.79.0.10:") else "refused") for target in targets
+            }
+        module.verify(contract, ["overlay-raft-path"], probes)
+        probes["vault-1"]["reach"]["10.79.0.10:8201"] = "refused"
+        with self.assertRaisesRegex(ValueError, "legacy does not answer on 10.79.0.10:8201 from vault-1"):
+            module.verify(contract, ["overlay-raft-path"], probes)
+        probes["vault-1"]["reach"]["10.79.0.10:8201"] = "open"
+        probes["legacy"]["reach"]["10.81.0.4:8201"] = "blocked"
+        with self.assertRaisesRegex(ValueError, "legacy cannot reach vault-2 at 10.81.0.4:8201"):
+            module.verify(contract, ["overlay-raft-path"], probes)
+
+    def test_probe_targets_are_validated(self):
+        self.assertTrue(module.SAFE_TARGETS.fullmatch("10.79.0.1:8200,10.79.0.1:8201"))
+        self.assertTrue(module.SAFE_TARGETS.fullmatch(""))
+        self.assertFalse(module.SAFE_TARGETS.fullmatch("10.79.0.1:8200;rm -rf /"))
 
     def test_quorum_includes_the_source_until_it_is_removed(self):
         contract, probes = migration_fixture()
@@ -251,6 +298,54 @@ class MigrationCheckTests(unittest.TestCase):
     def test_new_node_monitoring_ignores_the_source(self):
         contract, probes = migration_fixture()
         module.verify(contract, ["monitoring-running"], probes)
+
+
+class CutoverAndServiceTests(unittest.TestCase):
+    def test_removal_waits_for_the_service_dns(self):
+        contract, _ = migration_fixture()
+        contract["spec"]["nodes"][-1]["address"] = "old.example"
+        original = module.addresses
+        try:
+            module.addresses = lambda host: {"vault.example": {"46.0.0.1"}, "old.example": {"46.0.0.1"}}[host]
+            with self.assertRaisesRegex(ValueError, "still resolves to legacy"):
+                module.verify(contract, ["service-dns-moved"], {}, vault_addr="https://vault.example")
+            module.addresses = lambda host: {"vault.example": {"34.1.1.1"}, "old.example": {"46.0.0.1"}}[host]
+            module.verify(contract, ["service-dns-moved"], {}, vault_addr="https://vault.example")
+            module.addresses = lambda host: {"vault.example": set(), "old.example": {"46.0.0.1"}}[host]
+            with self.assertRaisesRegex(ValueError, "still resolves"):
+                module.verify(contract, ["service-dns-moved"], {}, vault_addr="https://vault.example")
+        finally:
+            module.addresses = original
+
+    def test_observation_window_is_declared_and_elapsed(self):
+        now = module.datetime(2026, 10, 2, 12, 0, tzinfo=module.timezone.utc)
+        with self.assertRaisesRegex(ValueError, "dns_switched_at"):
+            module.check_observation_window({}, now)
+        with self.assertRaisesRegex(ValueError, "runs until 2026-10-02T08:00:00"):
+            module.check_observation_window({"dns_switched_at": "2026-10-01T08:00:00+00:00", "hours": 24}, now.replace(hour=7))
+        module.check_observation_window({"dns_switched_at": "2026-10-01T08:00:00+00:00", "hours": 24}, now)
+        module.check_observation_window({"dns_switched_at": "2026-10-02T00:00:00Z", "hours": 6}, now)
+        with self.assertRaisesRegex(ValueError, "UTC offset"):
+            module.check_observation_window({"dns_switched_at": "2026-10-01T08:00:00"}, now)
+        with self.assertRaisesRegex(ValueError, "positive integer"):
+            module.check_observation_window({"dns_switched_at": "2026-10-01T08:00:00Z", "hours": 0}, now)
+
+    def test_service_endpoint_answers_as_the_declared_cluster(self):
+        contract, probes = fixture()
+        original = module.service_health
+        try:
+            module.service_health = lambda address: {"initialized": True, "sealed": False, "cluster_id": "cluster-a"}
+            module.verify(contract, ["service-endpoint"], probes, vault_addr="https://vault.example")
+            module.service_health = lambda address: {"initialized": True, "sealed": False, "cluster_id": "other"}
+            with self.assertRaisesRegex(ValueError, "different Vault cluster"):
+                module.verify(contract, ["service-endpoint"], probes, vault_addr="https://vault.example")
+            module.service_health = lambda address: {}
+            with self.assertRaisesRegex(ValueError, "not answering"):
+                module.verify(contract, ["service-endpoint"], probes, vault_addr="https://vault.example")
+            with self.assertRaisesRegex(ValueError, "https"):
+                module.verify(contract, ["service-endpoint"], probes, vault_addr="http://vault.example")
+        finally:
+            module.service_health = original
 
 
 if __name__ == "__main__":

@@ -45,6 +45,13 @@ PY
 
 ready_adapters=",${NODE_AUTH_ADAPTERS_READY:-},"
 stage_limit="$(jq -r --arg stage "${stage}" '.spec.stage_targets[$stage] | join(",")' "${contract_path}")"
+if [[ -n "${NODE_STAGE_ONLY:-}" ]]; then
+  # One-node stages: the selected node, and only if the stage targets it.
+  jq -e --arg node "${NODE_STAGE_ONLY}" --arg stage "${stage}" \
+    '.spec as $spec | any($spec.nodes[]; .id == $node and any(.groups[]; . as $group | $spec.stage_targets[$stage] | index($group)))' \
+    "${contract_path}" >/dev/null || { echo "${NODE_STAGE_ONLY} is not a target of ${stage}" >&2; exit 1; }
+  stage_limit="${NODE_STAGE_ONLY}"
+fi
 while IFS= read -r adapter; do
   [[ -n "${adapter}" ]] || continue
   [[ "${ready_adapters}" == *",${adapter},"* ]] || {

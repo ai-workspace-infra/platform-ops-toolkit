@@ -221,6 +221,31 @@ class MigrationWiringTests(unittest.TestCase):
         snapshot = self.steps["Take, encrypt and upload a Raft snapshot"]
         self.assertIn("vault_snapshot.sh", snapshot["run"])
         self.assertIn("age_recipient", snapshot["env"]["BACKUP_AGE_RECIPIENT"])
+        # The snapshot runs with the backup login's snapshot-only token, so a
+        # stage that snapshots first keeps its own token.
+        backup = self.steps["Read off-site backup credentials"]
+        self.assertIs(backup["with"]["outputToken"], True)
+        self.assertEqual(snapshot["env"]["VAULT_TOKEN"], "${{ steps.backup.outputs.vault_token }}")
+        self.assertIn("install_vault_drill.sh", snapshot["run"])
+        self.assertRegex(self.workflow["env"]["VAULT_DRILL_VERSION"], r"^\d+\.\d+\.\d+$")
+
+    def test_one_node_stages_and_observation_reach_the_node_stage(self):
+        run = self.steps["Execute provider-neutral Vault node stage"]
+        self.assertEqual(run["with"]["one_node"], "${{ steps.stage.outputs.one_node }}")
+        self.assertEqual(run["with"]["observation"], "${{ needs.declaration.outputs.observation }}")
+        self.assertIn("observation", self.workflow["jobs"]["declaration"]["outputs"])
+        options = self.workflow[True]["workflow_dispatch"]["inputs"]["service_stage"]["options"]
+        self.assertIn("vault-service-verify", options)
+        resolve = self.steps["Resolve the stage to run"]["run"]
+        self.assertIn('--backup "${backup}"', resolve)
+        self.assertIn('--observation "${OBSERVATION}"', resolve)
+        action = load(NODE_STAGE)
+        gate = steps_by_name(action["runs"]["steps"])["Check live node state required by the stage"]
+        self.assertIn("--select-next-peer", gate["run"])
+        apply = steps_by_name(action["runs"]["steps"])["Apply the stage playbook tags"]
+        self.assertIn("NODE_STAGE_ONLY", apply["run"])
+        confirm = steps_by_name(action["runs"]["steps"])["Confirm live node state after the stage"]
+        self.assertIn('--selected "${SELECTED_NODE}"', confirm["run"])
 
     def test_existing_node_uses_short_lived_ssh_certificates(self):
         action = load(ROOT / ".github/actions/node-access-existing/action.yml")

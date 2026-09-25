@@ -5,25 +5,27 @@ Each migrate-auto dispatch probes the existing vault.svc.plus node and the
 new nodes (token-free, see verify_vault_stage.py) and chooses exactly one
 next step, or stops at a gate only a person may pass:
 
-  PostgreSQL, unsealed           -> migrate-convert
-  Raft, sealed                   -> stop: unseal the old node (existing key)
-  Raft, active, new nodes empty  -> vault-snapshot, then migrate-join
-  new nodes joined but sealed    -> stop: unseal them, confirm raft list-peers
-  all unsealed, old node active  -> migrate-cutover
-  old node standby, DNS on it    -> stop: move the service DNS
-  old node standby, DNS moved    -> migrate-remove
-  old node stopped and disabled  -> done (rekey/rotate/revoke by hand)
+  PostgreSQL, unsealed            -> migrate-convert (after the read-only report)
+  Raft, sealed                    -> stop: unseal the old node (existing key)
+  a new node joined but sealed    -> stop: unseal it, confirm raft list-peers
+  Raft, active, a new node empty  -> migrate-join: snapshot + restore drill,
+                                     overlay path check, then ONE more node
+  all unsealed, old node active   -> migrate-cutover (leader transfer + health)
+  old node standby, DNS on it     -> stop: switch the service DNS (last)
+  DNS moved, window still open    -> stop: observe; roll back = DNS back
+  window over                     -> migrate-remove (remove peer, retire node)
+  old node stopped and disabled   -> done (rekey/rotate/revoke by hand)
 
 Rollback is never chosen automatically. The single MIGRATE-VAULT-AUTO
 confirmation authorizes whichever destructive step is chosen; the chosen
-stage's own requires/confirms gates still run before and after it.
+stage's own requires/confirms gates (and its snapshot, for snapshot_first
+stages) still run before and after it.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import socket
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -33,8 +35,11 @@ from verify_vault_stage import (
     LEGACY_GROUP,
     VAULT_UNIT,
     active,
+    check_observation_window,
+    dns_points_at_legacy,
     health_of,
     new_nodes,
+    node_phase,
     probe,
     single,
     unsealed,
@@ -42,22 +47,20 @@ from verify_vault_stage import (
 
 
 def blocked(message: str) -> dict:
-    return {"stage": "", "blocked": message, "snapshot_first": False}
+    return {"stage": "", "blocked": message}
 
 
-def chosen(stage: str, snapshot_first: bool = False) -> dict:
-    return {"stage": stage, "blocked": "", "snapshot_first": snapshot_first}
+def chosen(stage: str) -> dict:
+    return {"stage": stage, "blocked": ""}
 
 
-def node_phase(state: dict) -> str:
-    """empty (nothing to lose), sealed (joined, waiting for a key), unsealed."""
-    health = health_of(state)
-    if not health or health.get("initialized") is not True:
-        return "empty"
-    return "unsealed" if health.get("sealed") is False else "sealed"
-
-
-def decide(contract: dict, probes: dict[str, dict], dns_on_legacy: bool, backup_declared: bool) -> dict:
+def decide(
+    contract: dict,
+    probes: dict[str, dict],
+    dns_on_legacy: bool,
+    backup_declared: bool,
+    observation: dict | None = None,
+) -> dict:
     legacy = single(contract, LEGACY_GROUP, "legacy source node")
     source = probes[legacy["id"]]
     new = new_nodes(contract)
@@ -86,43 +89,35 @@ def decide(contract: dict, probes: dict[str, dict], dns_on_legacy: bool, backup_
         return blocked(f"{legacy['id']}: unseal the converted node with its existing key, then dispatch migrate-auto again.")
 
     phases = {node["id"]: node_phase(probes[node["id"]]) for node in new}
-    if all(phase == "empty" for phase in phases.values()):
-        if not active(source):
-            return blocked(f"{legacy['id']} is not the active node; new nodes can only join an active leader.")
-        if not backup_declared:
-            return blocked("Declare spec.backup in the Vault service declaration: migrate-auto snapshots before new nodes join.")
-        return chosen("migrate-join", snapshot_first=True)
     sealed = sorted(node_id for node_id, phase in phases.items() if phase == "sealed")
     if sealed:
         return blocked(
             f"Unseal {', '.join(sealed)} with the existing key, confirm vault operator raft list-peers "
-            "shows every node as a voter, then dispatch migrate-auto again."
+            "shows it as a voter, then dispatch migrate-auto again."
         )
-    missing = sorted(node_id for node_id, phase in phases.items() if phase == "empty")
-    if missing:
-        return blocked(
-            f"{', '.join(missing)} did not join the cluster; check overlay reachability to "
-            f"{legacy['id']} and the peers' Vault logs before retrying."
-        )
+    if any(phase == "empty" for phase in phases.values()):
+        if not active(source):
+            return blocked(f"{legacy['id']} is not the active node; new nodes can only join an active leader.")
+        if not backup_declared:
+            return blocked(
+                "Declare spec.backup in the Vault service declaration: every join is preceded by an "
+                "encrypted snapshot and a restore drill."
+            )
+        return chosen("migrate-join")
 
     if active(source):
         return chosen("migrate-cutover")
     if dns_on_legacy:
-        return blocked("Leadership has moved. Point the service DNS at the new entry point, then dispatch migrate-auto again.")
-    return chosen("migrate-remove")
-
-
-def addresses(host: str) -> set[str]:
+        return blocked(
+            "Leadership has moved and the cluster is healthy. Switch the service DNS to the new entry point "
+            "(the last traffic change), record spec.migration.observation.dns_switched_at in GitOps, "
+            "then dispatch migrate-auto again."
+        )
     try:
-        return {item[4][0] for item in socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)}
-    except OSError:
-        return set()
-
-
-def dns_points_at_legacy(service_host: str, legacy_address: str) -> bool:
-    """Conservative: an unresolvable service name counts as still on the old node."""
-    service = addresses(service_host)
-    return not service or bool(service & addresses(legacy_address))
+        check_observation_window(observation or {})
+    except ValueError as waiting:
+        return blocked(f"Observing the new entry point: {waiting}.")
+    return chosen("migrate-remove")
 
 
 def main() -> None:
@@ -132,6 +127,7 @@ def main() -> None:
     parser.add_argument("--known-hosts", type=Path, required=True)
     parser.add_argument("--vault-addr", required=True)
     parser.add_argument("--backup-config", default="{}")
+    parser.add_argument("--observation", default="{}", help="spec.migration.observation as JSON")
     parser.add_argument("--gateway-state", default="")
     parser.add_argument("--github-output", type=Path)
     args = parser.parse_args()
@@ -148,16 +144,14 @@ def main() -> None:
         probes,
         dns_on_legacy=dns_points_at_legacy(service_host, legacy["address"]),
         backup_declared=bool(json.loads(args.backup_config or "{}")),
+        observation=json.loads(args.observation or "{}"),
     )
 
     if decision["stage"]:
         stage = decision["stage"]
         result = plan(stage, STAGES[stage].get("confirm", ""), migration=True)
-        extra = {"blocked": "", "snapshot_first": "true" if decision["snapshot_first"] else "false"}
-        if decision["snapshot_first"]:
-            # The snapshot runs before the chosen stage and needs its own role.
-            extra["token"] = "snapshot"
-        print(f"migrate-auto: next step is {stage}" + (" (snapshot first)" if decision["snapshot_first"] else ""))
+        extra = {"blocked": ""}
+        print(f"migrate-auto: next step is {stage}" + (" (snapshot first)" if result["snapshot_first"] else ""))
     else:
         result = None
         print(f"migrate-auto: stopping here. {decision['blocked']}")

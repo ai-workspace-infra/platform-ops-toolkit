@@ -4,7 +4,8 @@
 The probe reads only unauthenticated, non-secret state over the pinned SSH
 channel: sudo availability, swap, free disk, Vault's loopback ``sys/health``,
 ``sys/leader`` and ``sys/seal-status`` endpoints, listening sockets, the
-Vault port guard, and service unit states. It never needs a Vault token, so
+Vault port guard, service unit states, and whether the other nodes' Raft
+ports (8200/8201) are reachable from the node. It never needs a Vault token, so
 GitHub Actions can gate stages without holding root tokens or unseal shares.
 Operators still confirm ``vault operator raft list-peers``.
 """
@@ -16,8 +17,12 @@ import json
 import os
 import re
 import shlex
+import socket
 import subprocess
 import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -37,9 +42,12 @@ GUARD_TABLE = "vault_port_guard"
 INIT_FILE = "/etc/vault.d/vault_init.json"
 MIN_FREE_MB = 1024
 SAFE_ARGUMENT = re.compile(r"^[A-Za-z0-9_./-]*$")
+SAFE_TARGETS = re.compile(r"^([0-9a-fA-F.:]+:[0-9]{1,5}(,[0-9a-fA-F.:]+:[0-9]{1,5})*)?$")
+RAFT_PORTS = (8200, 8201)
+DEFAULT_OBSERVE_HOURS = 24
 
 REMOTE_PROBE = r"""
-import json, os, subprocess, sys, urllib.error, urllib.request
+import json, os, socket, subprocess, sys, urllib.error, urllib.request
 
 def api(path):
     try:
@@ -62,7 +70,7 @@ with open("/proc/swaps") as swaps:
         fields = line.split()
         if len(fields) >= 3 and fields[2].isdigit():
             swap_kb += int(fields[2])
-units, gateway_state, init_file, guard_table = sys.argv[1:5]
+units, gateway_state, init_file, guard_table, targets = sys.argv[1:6]
 listeners = []
 for line in run("ss", "-Hltn").stdout.splitlines():
     fields = line.split()
@@ -85,6 +93,18 @@ def gateway(path):
     credential = (state.get("device_credential") or {}).get("credential") or ""
     return {"exists": True, "enrolled": bool(credential), "public_key": str(state.get("wireguard_public_key") or "")}
 
+def reach(target):
+    # open: something listens; refused: the packet arrived (nothing listens
+    # yet); blocked: dropped on the way (overlay down or policy denies it).
+    host, _, port = target.rpartition(":")
+    try:
+        socket.create_connection((host, int(port)), timeout=4).close()
+        return "open"
+    except ConnectionRefusedError:
+        return "refused"
+    except (OSError, ValueError):
+        return "blocked"
+
 disk = os.statvfs("/")
 seal = api("/v1/sys/seal-status") or {}
 print(json.dumps({
@@ -102,16 +122,19 @@ print(json.dumps({
     "init_file": bool(init_file) and run("sudo", "-n", "test", "-e", init_file).returncode == 0,
     "port_guard": run("sudo", "-n", "nft", "list", "table", "inet", guard_table).returncode == 0,
     "listeners": listeners,
+    "reach": {target: reach(target) for target in targets.split(",") if target},
 }))
 """
 
 
-def probe(node: dict, key: Path, known_hosts: Path, gateway_state: str) -> dict:
+def probe(node: dict, key: Path, known_hosts: Path, gateway_state: str, targets: str = "") -> dict:
     units = ",".join((VAULT_UNIT, *MONITORING_UNITS, *GATEWAY_UNITS))
     init_file = INIT_FILE if LEGACY_GROUP in node.get("groups", []) else ""
     for value in (gateway_state, init_file):
         if not SAFE_ARGUMENT.fullmatch(value):
             raise ValueError("probe path contains unsupported characters")
+    if not SAFE_TARGETS.fullmatch(targets):
+        raise ValueError("probe targets must be comma-separated address:port pairs")
     command = [
         "ssh", "-i", str(key),
         "-o", "IdentitiesOnly=yes",
@@ -123,11 +146,13 @@ def probe(node: dict, key: Path, known_hosts: Path, gateway_state: str) -> dict:
         "-p", str(node.get("ssh_port", 22)),
         f"{node['ssh_user']}@{node['address']}",
         "python3", "-",
-        *(shlex.quote(value) for value in (units, gateway_state, init_file, GUARD_TABLE)),
+        *(shlex.quote(value) for value in (units, gateway_state, init_file, GUARD_TABLE, targets)),
     ]
     try:
         result = subprocess.run(
-            command, input=REMOTE_PROBE, capture_output=True, text=True, timeout=40, check=False
+            # Each unreachable Raft target may take its full 4 s connect timeout.
+            command, input=REMOTE_PROBE, capture_output=True, text=True,
+            timeout=40 + 5 * len([target for target in targets.split(",") if target]), check=False,
         )
     except subprocess.TimeoutExpired:
         return {"reachable": False}
@@ -344,13 +369,6 @@ def check_legacy_standby(contract: dict, probes: dict[str, dict]) -> None:
         raise ValueError("no new node is active after the leadership transfer")
 
 
-def check_new_nodes_empty(contract: dict, probes: dict[str, dict]) -> None:
-    for node in new_nodes(contract):
-        health = health_of(probes[node["id"]])
-        if health.get("initialized") is True:
-            raise ValueError(f"{node['id']}: already holds Vault data; a migration target must start empty")
-
-
 def check_port_guard(contract: dict, probes: dict[str, dict]) -> None:
     for node in members(contract, LEGACY_GROUP):
         state = probes[node["id"]]
@@ -365,7 +383,157 @@ def check_port_guard(contract: dict, probes: dict[str, dict]) -> None:
             )
 
 
-def verify(contract: dict, checks: list[str], probes: dict[str, dict]) -> list[str]:
+def node_phase(state: dict) -> str:
+    """empty (nothing installed or joined), sealed (joined, waiting for a key), unsealed."""
+    health = health_of(state)
+    if not health or health.get("initialized") is not True:
+        return "empty"
+    return "unsealed" if health.get("sealed") is False else "sealed"
+
+
+def next_peer(contract: dict, probes: dict[str, dict]) -> dict:
+    """The one peer to install or join next; the previous one must be unsealed first.
+
+    Peers join one at a time so an operator unseals and checks each node
+    (vault operator raft list-peers) before the next one exists.
+    """
+    peers = members(contract, PEER_GROUP)
+    waiting = [node["id"] for node in peers if node_phase(probes[node["id"]]) == "sealed"]
+    if waiting:
+        raise ValueError(
+            f"{', '.join(waiting)} joined but is still sealed: unseal it and confirm "
+            "vault operator raft list-peers shows it as a voter before the next node joins"
+        )
+    empty = [node for node in peers if node_phase(probes[node["id"]]) == "empty"]
+    if not empty:
+        raise ValueError("every declared peer has already joined; nothing to install")
+    return empty[0]
+
+
+def check_selected_running(contract: dict, probes: dict[str, dict], selected: list[str]) -> None:
+    if not selected:
+        raise ValueError("no node was selected for this one-node stage")
+    nodes = [node for node in contract["spec"]["nodes"] if node["id"] in selected]
+    check_running(nodes, probes)
+    for node in nodes:
+        if node_phase(probes[node["id"]]) == "empty":
+            raise ValueError(f"{node['id']}: Vault is running but has not joined the Raft cluster")
+
+
+def raft_targets(contract: dict, node: dict) -> str:
+    """Raft addresses this node must reach: every other node's private (Raft) address."""
+    targets = []
+    for other in contract["spec"]["nodes"]:
+        address = other.get("private_address")
+        if other["id"] != node["id"] and address:
+            targets.extend(f"{address}:{port}" for port in RAFT_PORTS)
+    return ",".join(targets)
+
+
+def check_overlay_raft_path(contract: dict, probes: dict[str, dict]) -> None:
+    """Every node reaches every other node's Raft address; the old node must answer.
+
+    "refused" still proves the path (nothing listens yet on a node that has not
+    joined); "blocked" means the overlay or its access policy drops the packets.
+    """
+    legacy = single(contract, LEGACY_GROUP, "legacy source node")
+    for node in contract["spec"]["nodes"]:
+        reach = probes[node["id"]].get("reach") or {}
+        for other in contract["spec"]["nodes"]:
+            address = other.get("private_address")
+            if other["id"] == node["id"] or not address:
+                continue
+            for port in RAFT_PORTS:
+                result = reach.get(f"{address}:{port}")
+                if result not in ("open", "refused"):
+                    raise ValueError(
+                        f"{node['id']} cannot reach {other['id']} at {address}:{port} over the overlay; "
+                        "check XConnect and the access policy for tcp 8200/8201"
+                    )
+                if other["id"] == legacy["id"] and result != "open":
+                    raise ValueError(f"{legacy['id']} does not answer on {address}:{port} from {node['id']}")
+
+
+def addresses(host: str) -> set[str]:
+    try:
+        return {item[4][0] for item in socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)}
+    except OSError:
+        return set()
+
+
+def dns_points_at_legacy(service_host: str, legacy_address: str) -> bool:
+    """Conservative: an unresolvable service name counts as still on the old node."""
+    service = addresses(service_host)
+    return not service or bool(service & addresses(legacy_address))
+
+
+def check_service_dns_moved(contract: dict, vault_addr: str) -> None:
+    legacy = single(contract, LEGACY_GROUP, "legacy source node")
+    host = urlparse(vault_addr).hostname or ""
+    if dns_points_at_legacy(host, legacy["address"]):
+        raise ValueError(f"{host} still resolves to {legacy['id']}; switch the service DNS to the new entry point first")
+
+
+def service_health(vault_addr: str) -> dict:
+    url = vault_addr.rstrip("/") + "/v1/sys/health?standbycode=200&perfstandbyok=true"
+    try:
+        with urllib.request.urlopen(url, timeout=15) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        try:
+            return json.load(error)
+        except ValueError:
+            return {}
+    except (OSError, ValueError):
+        return {}
+
+
+def check_service_endpoint(contract: dict, probes: dict[str, dict], vault_addr: str) -> None:
+    """The public service address answers, unsealed, as the declared nodes' cluster."""
+    if not vault_addr.startswith("https://"):
+        raise ValueError("the service address must be https")
+    health = service_health(vault_addr)
+    if health.get("initialized") is not True or health.get("sealed") is not False:
+        raise ValueError(f"{vault_addr} is not answering as an initialized, unsealed Vault")
+    clusters = {health_of(probes[node["id"]]).get("cluster_id") for node in new_nodes(contract)}
+    if health.get("cluster_id") not in clusters - {None}:
+        raise ValueError(f"{vault_addr} answers for a different Vault cluster than the declared nodes")
+
+
+def check_observation_window(observation: dict, now: datetime | None = None) -> None:
+    """The old peer stays until the new entry point has served for the declared window."""
+    switched = str(observation.get("dns_switched_at") or "")
+    if not switched:
+        raise ValueError(
+            "declare spec.migration.observation.dns_switched_at (UTC) in GitOps when the service DNS moves; "
+            "the old peer is kept for the observation window after that"
+        )
+    try:
+        moment = datetime.fromisoformat(switched.replace("Z", "+00:00"))
+    except ValueError:
+        raise ValueError("spec.migration.observation.dns_switched_at is not an ISO 8601 time") from None
+    if moment.tzinfo is None:
+        raise ValueError("spec.migration.observation.dns_switched_at must carry a UTC offset")
+    hours = observation.get("hours", DEFAULT_OBSERVE_HOURS)
+    if not isinstance(hours, int) or hours < 1:
+        raise ValueError("spec.migration.observation.hours must be a positive integer")
+    ends = moment + timedelta(hours=hours)
+    current = now or datetime.now(timezone.utc)
+    if current < ends:
+        raise ValueError(
+            f"observation window runs until {ends.isoformat()}; keep the old peer until then "
+            "(roll back by pointing the service DNS at the old node)"
+        )
+
+
+def verify(
+    contract: dict,
+    checks: list[str],
+    probes: dict[str, dict],
+    selected: list[str] | None = None,
+    vault_addr: str = "",
+    observation: dict | None = None,
+) -> list[str]:
     unknown = set(checks) - CHECKS
     if unknown:
         raise ValueError(f"unknown checks: {sorted(unknown)}")
@@ -405,10 +573,20 @@ def verify(contract: dict, checks: list[str], probes: dict[str, dict]) -> list[s
             check_legacy_raft(contract, probes)
         elif check == "legacy-standby":
             check_legacy_standby(contract, probes)
-        elif check == "new-nodes-empty":
-            check_new_nodes_empty(contract, probes)
         elif check == "vault-port-guard":
             check_port_guard(contract, probes)
+        elif check == "next-peer":
+            next_peer(contract, probes)
+        elif check == "selected-running":
+            check_selected_running(contract, probes, selected or [])
+        elif check == "overlay-raft-path":
+            check_overlay_raft_path(contract, probes)
+        elif check == "service-dns-moved":
+            check_service_dns_moved(contract, vault_addr)
+        elif check == "service-endpoint":
+            check_service_endpoint(contract, probes, vault_addr)
+        elif check == "observation-window":
+            check_observation_window(observation or {})
     return warnings
 
 
@@ -446,6 +624,15 @@ def summary(contract: dict, probes: dict[str, dict], title: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def probe_all(contract: dict, key: Path, known_hosts: Path, gateway_state: str, with_paths: bool) -> dict[str, dict]:
+    return {
+        node["id"]: probe(
+            node, key, known_hosts, gateway_state, raft_targets(contract, node) if with_paths else ""
+        )
+        for node in contract["spec"]["nodes"]
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--contract", type=Path, required=True)
@@ -456,26 +643,37 @@ def main() -> None:
     parser.add_argument("--interval", type=int, default=15)
     parser.add_argument("--gateway-state", default="")
     parser.add_argument("--title", default="Vault node state")
+    parser.add_argument("--selected", default="", help="comma-separated node ids a one-node stage changed")
+    parser.add_argument("--vault-addr", default="", help="service address for service-* checks")
+    parser.add_argument("--observation", default="{}", help="spec.migration.observation as JSON")
+    parser.add_argument(
+        "--select-next-peer", type=Path, metavar="GITHUB_OUTPUT",
+        help="after the checks pass, write node=<the next peer to install or join>",
+    )
     args = parser.parse_args()
     contract = validate(json.loads(args.contract.read_text(encoding="utf-8")))
     checks = [check for check in args.checks.split(",") if check]
+    selected = [node for node in args.selected.split(",") if node]
+    observation = json.loads(args.observation or "{}")
     error: ValueError | None = None
     warnings: list[str] = []
+    chosen: dict | None = None
     for attempt in range(max(args.attempts, 1)):
         if attempt:
             time.sleep(args.interval)
-        probes = {
-            node["id"]: probe(node, args.key, args.known_hosts, args.gateway_state)
-            for node in contract["spec"]["nodes"]
-        }
+        probes = probe_all(contract, args.key, args.known_hosts, args.gateway_state, "overlay-raft-path" in checks)
         try:
-            warnings = verify(contract, checks, probes)
+            warnings = verify(contract, checks, probes, selected, args.vault_addr, observation)
+            if args.select_next_peer:
+                chosen = next_peer(contract, probes)
             error = None
             break
         except ValueError as failure:
             error = failure
     report = summary(contract, probes, args.title)
     report += "".join(f"\n> ⚠️ {warning}\n" for warning in warnings)
+    if chosen is not None:
+        report += f"\nNext node for this stage: **{chosen['id']}** (one node per dispatch)\n"
     print(report)
     for warning in warnings:
         print(f"::warning::{warning}")
@@ -485,6 +683,9 @@ def main() -> None:
             stream.write(report + "\n")
     if error is not None:
         raise SystemExit(f"::error::{error}")
+    if chosen is not None and args.select_next_peer:
+        with args.select_next_peer.open("a", encoding="utf-8") as stream:
+            stream.write(f"node={chosen['id']}\n")
     print(f"Verified: {', '.join(checks) or 'state report only'}")
 
 
