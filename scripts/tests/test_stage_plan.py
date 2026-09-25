@@ -169,6 +169,14 @@ class StagePlanTests(unittest.TestCase):
         self.assertLess(order.index("xconnect-gateway"), order.index("xconnect-one"))
         self.assertLess(order.index("xconnect-one"), order.index("migrate-join"))
 
+    def test_operator_invitation_changes_no_host(self):
+        operator = entry("xconnect-operator-invite")
+        self.assertEqual(operator["tags"], [])
+        self.assertEqual(operator["action"], "")
+        self.assertEqual(operator["token"], "xconnect")
+        self.assertEqual(operator["requires"], ["access", "gateway-enrolled"])
+        self.assertEqual(operator["xconnect"], "operator")
+
     def test_github_outputs(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "out"

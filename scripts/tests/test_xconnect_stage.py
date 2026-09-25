@@ -194,6 +194,53 @@ class OneTests(unittest.TestCase):
             module.probe = original
 
 
+class OperatorInviteTests(unittest.TestCase):
+    DOC = {"spec": {"operator_devices": [{
+        "id": "xconnect-darwin-haitaodemacbook-pro.local", "enrollment": "short-lived-single-use-invite",
+    }]}}
+    VAULT_ENV = {**ENV, "VAULT_ADDR": "https://vault.example", "VAULT_TOKEN": "vault-token"}
+
+    def test_invitation_is_bound_to_the_declared_device_and_written_only_to_vault(self):
+        posted, written = [], []
+
+        def post(url, token, body):
+            posted.append(body)
+            reply = response(device_id="xconnect-darwin-haitaodemacbook-pro.local", role="one", platform="darwin")
+            return 201, reply
+
+        def write(addr, token, path, data):
+            written.append((addr, token, path, data))
+            return 204
+
+        result = module.operator_invite(topology(), self.DOC, GATEWAY_KEY, "kv/data/CICD/shared/xconnect-operator-invite",
+                                        self.VAULT_ENV, post, write)
+        self.assertEqual(posted[0]["bootstrap"]["invite"]["platform"], "darwin")
+        self.assertEqual(posted[0]["bootstrap"]["invite"]["role"], "one")
+        self.assertEqual(written[0][2], "kv/data/CICD/shared/xconnect-operator-invite")
+        self.assertEqual(written[0][3]["join_uri"], "xconnect://join/abc123")
+        # The returned summary (printed to the job summary) never contains the join URI.
+        self.assertNotIn("join_uri", result)
+        self.assertNotIn("xconnect://", str(result))
+
+    def test_refuses_bad_paths_missing_vault_login_and_failed_writes(self):
+        ok_post = lambda *_: (201, response(device_id="xconnect-darwin-haitaodemacbook-pro.local", role="one",
+                                            platform="darwin"))
+        with self.assertRaisesRegex(ValueError, "invalid Vault KV path"):
+            module.operator_invite(topology(), self.DOC, GATEWAY_KEY, "secret/../x", self.VAULT_ENV, ok_post)
+        with self.assertRaisesRegex(ValueError, "VAULT_TOKEN"):
+            module.operator_invite(topology(), self.DOC, GATEWAY_KEY, "kv/data/a", ENV, ok_post)
+        with self.assertRaisesRegex(ValueError, "HTTP 403"):
+            module.operator_invite(topology(), self.DOC, GATEWAY_KEY, "kv/data/a", self.VAULT_ENV, ok_post,
+                                   lambda *_: 403)
+
+    def test_exactly_one_well_formed_operator_device(self):
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            module.operator_device({"spec": {"operator_devices": []}})
+        with self.assertRaisesRegex(ValueError, "single-use"):
+            module.operator_device({"spec": {"operator_devices": [{"id": "mac", "enrollment": "short-lived-single-use-invite"}]}})
+        self.assertEqual(module.operator_device(self.DOC), ("xconnect-darwin-haitaodemacbook-pro.local", "darwin"))
+
+
 class ArchitectureTests(unittest.TestCase):
     def test_one_architecture_for_all_targets(self):
         nodes = [{"id": "a"}, {"id": "b"}]

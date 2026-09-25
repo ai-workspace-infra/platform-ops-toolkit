@@ -195,6 +195,7 @@ run unless its prerequisites hold. The probe needs no Vault token.
 | 6 | `xconnect-gateway-frontend` | SSH | Caddy on node 0: TLS 443 for `vault-xconnect.svc.plus`, only `/xconnect` forwarded | point `vault-xconnect.svc.plus` at node 0 |
 | 7 | `xconnect-gateway` | SSH (not Raft: the old node joins over this overlay) | installs the verified runtime, `init`, issues a one-use invitation bound to the Gateway key, enrolls, starts Xray + sync; confirms `gateway-running` | check the Gateway in the Zero portal |
 | 8 | `xconnect-one` | Gateway enrolled | enrolls vault-prod-1/2 and, while `spec.migration` is declared, the existing vault.svc.plus node (M4) as One; one invitation per node that has not joined | record overlay IPs in GitOps (`fixed_nodes[].xconnect.overlay_ip`, `spec.migration.source.overlay_address`) |
+| 9 | `xconnect-operator-invite` | Gateway enrolled | issues a one-use invitation for the operator device declared in GitOps and writes it to `kv/data/CICD/shared/xconnect-operator-invite` (CI can create/update, never read); no host change | on the Mac within 30 min: `vault kv get -field=join_uri kv/CICD/shared/xconnect-operator-invite`, then `xconnect join` |
 
 `xconnect-gateway` needs, in `kv/data/CICD/shared/xconnect`: `ZERO_SERVICE_TOKEN`,
 `ZERO_OWNER_EMAIL` and `VLESS_ID` for the shared network (not the UAT values).

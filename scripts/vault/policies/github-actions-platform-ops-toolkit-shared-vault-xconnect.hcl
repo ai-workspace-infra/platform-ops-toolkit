@@ -13,3 +13,8 @@ path "kv/data/CICD/domains/svc.plus" {
 path "kv/data/CICD/github-app/daily-snapshot" {
   capabilities = ["read"]
 }
+# C5: CI stores the operator device's one-use invitation here; it cannot
+# read it back. The operator reads it with their own Vault login.
+path "kv/data/CICD/shared/xconnect-operator-invite" {
+  capabilities = ["create", "update"]
+}
