@@ -148,18 +148,54 @@ def check_invite(response: dict, topology: dict, role: str, device_id: str, plat
     return join_uri
 
 
+# An explicit client name: edge firewalls commonly reject urllib's default
+# "Python-urllib/x.y" User-Agent with 403 before the request reaches Zero.
+USER_AGENT = "platform-ops-toolkit-xconnect-stage/1"
+
+
+def refusal(error: urllib.error.HTTPError) -> dict:
+    """A short, secret-free reason for a refused request, for the job log.
+
+    Only the responding server, the content type and Zero's own error fields
+    are kept; a non-JSON body (an edge or firewall page) is only named.
+    """
+    headers = error.headers or {}
+    reason = {
+        "server": str(headers.get("Server", "")).strip()[:40],
+        "content_type": str(headers.get("Content-Type", "")).split(";")[0][:60],
+    }
+    if headers.get("CF-RAY"):
+        reason["cf_ray"] = str(headers.get("CF-RAY"))[:40]
+    try:
+        payload = json.loads(error.read(4096) or b"{}")
+    except (OSError, ValueError):
+        payload = None
+    if isinstance(payload, dict):
+        for field in ("error", "code", "message", "reason"):
+            if isinstance(payload.get(field), str):
+                reason[field] = payload[field][:200]
+    else:
+        reason["body"] = "not JSON (likely an edge or firewall response, not Zero)"
+    return reason
+
+
 def post_json(url: str, token: str, body: dict) -> tuple[int, dict]:
     request = urllib.request.Request(
         url,
         data=json.dumps(body).encode(),
-        headers={"X-Service-Token": token, "Content-Type": "application/json"},
+        headers={
+            "X-Service-Token": token,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": USER_AGENT,
+        },
         method="POST",
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             return response.status, json.load(response)
     except urllib.error.HTTPError as error:
-        return error.code, {}
+        return error.code, {"refusal": refusal(error)}
 
 
 def request_join_uri(topology: dict, role: str, device_id: str, gateway_key: str, env: dict[str, str],
@@ -170,7 +206,8 @@ def request_join_uri(topology: dict, role: str, device_id: str, gateway_key: str
     body = bootstrap_request(topology, role, device_id, gateway_key, owner, vless_id, expires or expires_at(), platform)
     status, response = post(topology["controller"].rstrip("/") + BOOTSTRAP_PATH, token, body)
     if status != 201:
-        raise ValueError(f"Zero did not issue the {role} invitation for {device_id}: HTTP {status}")
+        detail = json.dumps(response.get("refusal") or {}, sort_keys=True)
+        raise ValueError(f"Zero did not issue the {role} invitation for {device_id}: HTTP {status} {detail}")
     return check_invite(response, topology, role, device_id, platform)
 
 

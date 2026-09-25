@@ -167,8 +167,18 @@ class VerifyVaultStageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unknown checks"):
             module.verify(contract, ["arbitrary-shell"], probes)
         report = module.summary(contract, probes, "Before test")
-        self.assertIn("| vault-0 | active | raft | 1.21.4 | cluster- |", report)
-        self.assertIn("| vault-1 | standby |", report)
+        self.assertIn("| vault-0 | - | 10.81.0.2 | - | gateway enrolled; no overlay IP | active | raft | 1.21.4 | cluster- |", report)
+
+    def test_report_shows_address_user_and_live_overlay_ip(self):
+        contract, probes = fixture()
+        contract["spec"]["nodes"][1].update({"address": "34.1.2.3", "ssh_user": "sa_1"})
+        probes["vault-1"]["overlay"] = [{"interface": "xconone0", "address": "10.79.0.3"}]
+        report = module.summary(contract, probes, "State")
+        self.assertIn("| vault-1 | 34.1.2.3 | 10.81.0.3 | sa_1 | overlay 10.79.0.3 | standby |", report)
+        probes["vault-0"]["gateway"] = {"exists": True, "enrolled": False, "public_key": "A" * 43 + "="}
+        self.assertIn("| vault-0 | - | 10.81.0.2 | - | gateway identity; no overlay IP |", module.summary(contract, probes, "State"))
+        probes["vault-2"] = {"reachable": False}
+        self.assertIn("| vault-2 | - | 10.81.0.4 | - | - | unreachable |", module.summary(contract, probes, "State"))
 
 
 def migration_fixture():
