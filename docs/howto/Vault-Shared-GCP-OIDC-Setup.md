@@ -35,6 +35,11 @@ The declarations are stored separately by role name:
 - `scripts/vault/roles/github-actions-platform-ops-toolkit-shared-vault-xconnect.json`
 - `scripts/vault/policies/github-actions-platform-ops-toolkit-shared-vault-xconnect.hcl`
 
+The node, monitoring, and XConnect JWT roles bind to
+`.github/workflows/vault-server.yml@refs/heads/main`. After changing the
+workflow filename, an administrator must run `--apply` again; `--check` now
+rejects a role still bound to the previous filename.
+
 The bootstrap role is restricted to this repository, the `prod` GitHub
 Environment, the bootstrap workflow, and `main`. It can read only the shared
 bootstrap/state records and write the shared runtime OIDC record. The runtime
@@ -136,7 +141,15 @@ identity, and writes runtime identity metadata to
 
 ## 5. Run Vault infrastructure plan/apply
 
-After bootstrap apply succeeds, dispatch **Vault shared GCP infrastructure**:
+After bootstrap apply succeeds, dispatch **Vault server** (`.github/workflows/vault-server.yml`).
+Its default GitOps service declaration is
+`resources/svc.plus/shared/vault/server.yaml`; the GCP adapter reads
+`resources/xworktech.com/shared/gcp/vault-shared.yaml`. The first workflow job
+checks the environment, Vault JWT roles and KV paths, project, network, and
+the declared XConnect topology. For another environment, supply its reviewed
+service and provider manifest paths and provision the corresponding scoped
+Vault roles before dispatching. The node-stage action itself consumes the
+provider-neutral `NodeDeployment` contract:
 
 ```text
 cloud_provider = gcp-cloud
@@ -150,6 +163,9 @@ Vault API port 8200. If the plan is correct, dispatch again with
 `deploy_action = apply` and complete the protected `prod` Environment approval.
 
 For a hosted-runner Vault installation, dispatch `deploy_action=apply`,
+`service_stage=node-preflight`, `connection_mode=bootstrap-public`, and
+the reviewed `playbooks_ref` first. This verifies the three live hosts,
+GitOps-pinned SSH host keys, and short-lived OS Login access. Then run
 `service_stage=vault-shared-leader`, `connection_mode=bootstrap-public`, and
 the reviewed `playbooks_ref`. The installation job temporarily opens TCP/22
 to the three Vault-tagged VMs, compares live SSH host keys to GitOps pins,
@@ -159,6 +175,13 @@ the workflow was canceled. Initialize and unseal node 0 manually from a
 secured operator terminal; then run `service_stage=vault-shared-peers` and
 unseal nodes 1 and 2 manually. Run `service_stage=node-process-metrics` to
 install node exporter, process exporter, and Vector.
+
+The peers stage checks that node 0 is initialized and unsealed. Monitoring
+and XConnect stages check that all three nodes are unsealed and report the
+same cluster ID with one active and two standby nodes. From the secured
+operator terminal, also run `vault operator raft list-peers` with a current
+operator credential and verify all three nodes are voters before changing
+the public SSH policy. GitHub Actions does not receive this credential.
 
 XConnect Zero network/policy creation, Gateway and One enrollment, DNS cutover,
 and the zero-trust SSH adapter remain separate checkpoints. Do not remove the

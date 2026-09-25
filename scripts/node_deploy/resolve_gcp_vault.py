@@ -14,6 +14,7 @@ from render_inventory import validate
 
 
 STAGES = [
+    "node-preflight",
     "vault-shared-leader",
     "vault-shared-peers",
     "node-process-metrics",
@@ -21,6 +22,7 @@ STAGES = [
     "xconnect-one",
 ]
 STAGE_TARGETS = {
+    "node-preflight": ["vault_shared_nodes"],
     "vault-shared-leader": ["vault_shared_leader"],
     "vault-shared-peers": ["vault_shared_peers"],
     "node-process-metrics": ["vault_shared_nodes"],
@@ -31,8 +33,10 @@ STAGE_TARGETS = {
 
 def resolve(
     manifest: dict,
+    service: dict,
     instances: list[dict],
     project_id: str,
+    environment: str,
     ssh_user: str,
     topology: dict | None = None,
 ) -> dict:
@@ -40,30 +44,53 @@ def resolve(
         raise ValueError("expected GCPWorkloadNamespace manifest")
     metadata = manifest["metadata"]
     spec = manifest["spec"]
-    if (metadata.get("environment"), spec.get("project_id")) != ("shared", project_id):
-        raise ValueError("shared GCP project identity does not match GitOps")
+    if (metadata.get("environment"), spec.get("project_id")) != (environment, project_id):
+        raise ValueError("GCP environment or project identity does not match GitOps")
+    if service.get("kind") != "VaultServerDeployment" or service.get("metadata", {}).get("environment") != environment:
+        raise ValueError("Vault service declaration belongs to another environment")
+    service_spec = service["spec"]
+    storage = service_spec["storage"]
+    if storage.get("backend") != "raft" or storage.get("address_scope") != "private":
+        raise ValueError("Vault service must use private Raft storage")
+    if service_spec.get("stages") != STAGES:
+        raise ValueError("Vault service stages do not match the reviewed runner")
     if spec.get("enable_oslogin") is not True or spec.get("enable_iap_ssh") is not False:
         raise ValueError("shared Vault deployment requires OS Login and direct allowlisted SSH")
     access_mode = spec.get("ssh_access_mode", "bootstrap-public")
+    if access_mode not in {
+        service_spec["access"]["bootstrap"],
+        service_spec["access"]["steady_state"],
+    }:
+        raise ValueError("GCP SSH access mode is not declared by the Vault service")
     if access_mode == "bootstrap-public":
         if not spec.get("ssh_source_ranges"):
             raise ValueError("bootstrap-public requires an explicit public SSH /32 allowlist")
     elif access_mode == "xconnect-zero":
         if spec.get("ssh_source_ranges") or topology is None:
             raise ValueError("xconnect-zero requires no public SSH allowlist and a verified topology")
-        if topology.get("kind") != "XConnectOneNodeSet" or topology.get("metadata", {}).get("environment") != "shared":
-            raise ValueError("invalid shared XConnect topology")
+        if topology.get("kind") != "XConnectOneNodeSet" or topology.get("metadata", {}).get("environment") != environment:
+            raise ValueError("XConnect topology belongs to another environment")
         overlay_network = ipaddress.ip_network(topology["spec"]["network"]["cidr"], strict=True)
         network_id = topology["spec"]["network"]["id"]
-        if network_id != "net_shared_vault":
-            raise ValueError("wrong shared XConnect network")
+        if network_id != topology["spec"].get("control_plane", {}).get("network_id"):
+            raise ValueError("XConnect topology and control plane network identities differ")
     else:
         raise ValueError("unsupported SSH access mode")
     declared = spec["resources"]["vault_nodes"]
-    if len(declared) != 3 or sorted(node.get("xconnect_role") for node in declared) != [
-        "gateway", "one", "one"
-    ]:
-        raise ValueError("expected one gateway and two One nodes")
+    service_nodes = service_spec["nodes"]
+    service_roles = {node["id"]: node["xconnect_role"] for node in service_nodes}
+    declared_roles = {node["name"]: node["xconnect_role"] for node in declared}
+    if (
+        len(declared) != 3
+        or len(service_roles) != 3
+        or declared_roles != service_roles
+        or sorted(service_roles.values()) != ["gateway", "one", "one"]
+        or storage.get("members") != 3
+        or storage.get("leader") not in service_roles
+        or service_roles[storage["leader"]] != "gateway"
+        or set(storage.get("peers", [])) != set(service_roles) - {storage["leader"]}
+    ):
+        raise ValueError("GCP nodes do not match the provider-neutral Vault service declaration")
     live = {(item.get("name"), item.get("zone", "").split("/")[-1]): item for item in instances}
     nodes = []
     for node in declared:
@@ -119,7 +146,7 @@ def resolve(
         "kind": "NodeDeployment",
         "metadata": {"name": metadata["name"]},
         "spec": {
-            "environment": "shared",
+            "environment": environment,
             "stages": STAGES,
             "stage_targets": STAGE_TARGETS,
             "nodes": nodes,
@@ -131,16 +158,22 @@ def resolve(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--service-manifest", type=Path, required=True)
     parser.add_argument("--instances", type=Path, required=True)
     parser.add_argument("--project-id", required=True)
+    parser.add_argument("--environment", required=True)
     parser.add_argument("--ssh-user", required=True)
     parser.add_argument("--xconnect-topology", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     manifest = yaml.safe_load(args.manifest.read_text(encoding="utf-8"))
+    service = yaml.safe_load(args.service_manifest.read_text(encoding="utf-8"))
+    expected_topology = Path("gitops") / service["spec"]["access"]["xconnect_topology"]
+    if args.xconnect_topology != expected_topology:
+        raise SystemExit("XConnect topology path differs from the reviewed Vault service declaration")
     instances = json.loads(args.instances.read_text(encoding="utf-8"))
     topology = yaml.safe_load(args.xconnect_topology.read_text(encoding="utf-8")) if args.xconnect_topology else None
-    contract = resolve(manifest, instances, args.project_id, args.ssh_user, topology)
+    contract = resolve(manifest, service, instances, args.project_id, args.environment, args.ssh_user, topology)
     args.output.write_text(json.dumps(contract, indent=2) + "\n", encoding="utf-8")
     args.output.chmod(0o600)
     print(f"resolved {len(contract['spec']['nodes'])} GCP Vault nodes into {args.output}")

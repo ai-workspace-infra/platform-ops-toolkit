@@ -16,6 +16,7 @@ IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
 HOSTNAME = re.compile(r"^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?:\.(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?))*$")
 ALLOWED_AUTH_ADAPTERS = {"gcp-oslogin-ephemeral", "ssh-certificate", "ephemeral-ssh-key"}
 ALLOWED_STAGES = {
+    "node-preflight",
     "vault-shared-leader",
     "vault-shared-peers",
     "node-process-metrics",

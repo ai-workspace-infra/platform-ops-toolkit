@@ -30,27 +30,39 @@ def fixture():
         {"name": node["name"], "zone": node["zone"], "status": "RUNNING", "networkInterfaces": [{"networkIP": f"10.81.0.{index + 2}", "accessConfigs": [{"natIP": f"35.1.2.{index + 3}"}]}]}
         for index, node in enumerate(declared)
     ]
-    return manifest, instances
+    service = {
+        "kind": "VaultServerDeployment",
+        "metadata": {"environment": "shared"},
+        "spec": {
+            "storage": {"backend": "raft", "address_scope": "private", "members": 3,
+                        "leader": "vault-prod-0", "peers": ["vault-prod-1", "vault-prod-2"]},
+            "nodes": [{"id": node["name"], "xconnect_role": node["xconnect_role"]} for node in declared],
+            "stages": resolver.STAGES,
+            "access": {"bootstrap": "bootstrap-public", "steady_state": "xconnect-zero",
+                       "xconnect_topology": "vpn-overlay/shared/xconnect-vault-shared.yaml"},
+        },
+    }
+    return manifest, service, instances
 
 
 class GcpVaultResolutionTests(unittest.TestCase):
     def test_resolves_public_ssh_and_private_raft_addresses(self):
-        manifest, instances = fixture()
-        result = resolver.resolve(manifest, instances, "open-platform-prod", "gha_1234567890")
+        manifest, service, instances = fixture()
+        result = resolver.resolve(manifest, service, instances, "open-platform-prod", "shared", "gha_1234567890")
         self.assertEqual(result["spec"]["nodes"][0]["address"], "35.1.2.3")
         self.assertEqual(result["spec"]["nodes"][0]["private_address"], "10.81.0.2")
         self.assertIn("vault_shared_leader", result["spec"]["nodes"][0]["groups"])
         self.assertIn("xconnect_one", result["spec"]["nodes"][1]["groups"])
 
     def test_rejects_wrong_project_or_missing_vm(self):
-        manifest, instances = fixture()
+        manifest, service, instances = fixture()
         with self.assertRaises(ValueError):
-            resolver.resolve(manifest, instances, "other-project", "gha_1234567890")
+            resolver.resolve(manifest, service, instances, "other-project", "shared", "gha_1234567890")
         with self.assertRaises(ValueError):
-            resolver.resolve(manifest, instances[:2], "open-platform-prod", "gha_1234567890")
+            resolver.resolve(manifest, service, instances[:2], "open-platform-prod", "shared", "gha_1234567890")
 
     def test_zero_trust_requires_assigned_overlay_ip_and_internal_dns(self):
-        manifest, instances = fixture()
+        manifest, service, instances = fixture()
         manifest["spec"]["ssh_access_mode"] = "xconnect-zero"
         manifest["spec"]["ssh_source_ranges"] = []
         topology = {
@@ -58,6 +70,7 @@ class GcpVaultResolutionTests(unittest.TestCase):
             "metadata": {"environment": "shared"},
             "spec": {
                 "network": {"id": "net_shared_vault", "cidr": "10.79.0.0/24"},
+                "control_plane": {"network_id": "net_shared_vault"},
                 "gateway": {"id": "vault-prod-0", "xconnect": {"overlay_ip": "10.79.0.1", "internal_dns": "vault-prod-0.shared.internal"}},
                 "fixed_nodes": [
                     {"id": "vault-prod-1", "xconnect": {"overlay_ip": "10.79.0.3", "internal_dns": "vault-prod-1.shared.internal"}},
@@ -65,12 +78,23 @@ class GcpVaultResolutionTests(unittest.TestCase):
                 ],
             },
         }
-        result = resolver.resolve(manifest, instances, "open-platform-prod", "gha_1234567890", topology)
+        result = resolver.resolve(manifest, service, instances, "open-platform-prod", "shared", "gha_1234567890", topology)
         self.assertEqual(result["spec"]["nodes"][0]["address"], "vault-prod-0.shared.internal")
         self.assertEqual(result["spec"]["nodes"][0]["overlay_address"], "10.79.0.1")
         topology["spec"]["fixed_nodes"][0]["xconnect"].pop("internal_dns")
         with self.assertRaises(ValueError):
-            resolver.resolve(manifest, instances, "open-platform-prod", "gha_1234567890", topology)
+            resolver.resolve(manifest, service, instances, "open-platform-prod", "shared", "gha_1234567890", topology)
+
+    def test_rejects_cross_environment_manifest_and_topology(self):
+        manifest, service, instances = fixture()
+        with self.assertRaisesRegex(ValueError, "environment"):
+            resolver.resolve(manifest, service, instances, "open-platform-prod", "uat", "gha_1234567890")
+
+    def test_rejects_provider_nodes_that_differ_from_service_declaration(self):
+        manifest, service, instances = fixture()
+        manifest["spec"]["resources"]["vault_nodes"][1]["xconnect_role"] = "gateway"
+        with self.assertRaisesRegex(ValueError, "provider-neutral"):
+            resolver.resolve(manifest, service, instances, "open-platform-prod", "shared", "gha_1234567890")
 
 
 if __name__ == "__main__":
