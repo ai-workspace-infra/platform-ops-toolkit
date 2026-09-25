@@ -29,8 +29,8 @@ class VaultServerEntryTests(unittest.TestCase):
         self.assertFalse((ROOT / ".github/workflows/vault-shared-gcp-iac.yml").exists())
         self.assertEqual(self.inputs["deploy_action"]["options"], ["none", "plan", "apply"])
         self.assertEqual(self.inputs["connection_mode"]["options"], ["bootstrap-public"])
-        self.assertNotIn("xconnect-gateway", self.inputs["service_stage"]["options"])
-        self.assertEqual(self.inputs["playbooks_ref"]["default"], "f226989802734f4106d8b6f268b4f02f4eb08a65")
+        self.assertIn("xconnect-one", self.inputs["service_stage"]["options"])
+        self.assertEqual(self.inputs["playbooks_ref"]["default"], "e8a99d8bd4a1a9df1b94fa29f4843ff8672194de")
 
     def test_gateway_tls_is_read_with_the_scoped_xconnect_role_only_when_needed(self):
         steps = steps_by_name(self.jobs["node-stage"]["steps"])
@@ -47,6 +47,50 @@ class VaultServerEntryTests(unittest.TestCase):
         env = steps["Execute provider-neutral Vault node stage"]["env"]
         self.assertIn("steps.gateway_tls.outputs.VAULT_GATEWAY_TLS_KEY_B64", env["VAULT_GATEWAY_TLS_KEY_B64"])
         self.assertIn("xconnect-gateway-frontend", self.inputs["service_stage"]["options"])
+
+    def test_xconnect_enrollment_credentials_are_scoped_and_only_read_for_xconnect_stages(self):
+        steps = steps_by_name(self.jobs["node-stage"]["steps"])
+        read = steps["Read XConnect enrollment credentials"]
+        self.assertEqual(read["if"], "${{ steps.stage.outputs.xconnect != '' }}")
+        self.assertEqual(read["with"]["role"], "${{ needs.declaration.outputs.xconnect_role }}")
+        self.assertIs(read["with"]["exportEnv"], False)
+        # Each line is "<path> <field> | <OUTPUT> ;"; the path may be an expression with spaces.
+        paths = {line.strip().rsplit(maxsplit=4)[0] for line in read["with"]["secrets"].splitlines() if line.strip()}
+        self.assertEqual(paths, {
+            "${{ needs.declaration.outputs.xconnect_secret_path }}",
+            "kv/data/CICD/domains/svc.plus",
+            "kv/data/CICD/github-app/daily-snapshot",
+        })
+        token = steps["Create a read-only XConnect release token"]
+        self.assertEqual(token["with"]["owner"], "ai-workspace-xstream")
+        self.assertEqual(token["with"]["repositories"], "XConnect-One,XConnect-Gateway")
+        download = steps["Download the reviewed XConnect runtime"]["run"]
+        self.assertIn("xconnect_stage.py arch", download)
+        self.assertIn("xconnect_artifacts.sh", download)
+        self.assertIn("openssl x509", download)
+        stage = steps["Execute provider-neutral Vault node stage"]
+        for name in ("ZERO_SERVICE_TOKEN", "ZERO_OWNER_EMAIL", "XCONNECT_VLESS_ID"):
+            self.assertIn(f"steps.xconnect_secrets.outputs.{name}", stage["env"][name])
+        self.assertEqual(stage["with"]["xconnect_role"], "${{ steps.stage.outputs.xconnect }}")
+        self.assertIn('"${RUNNER_TEMP}/xconnect"', steps["Remove runner-private node files"]["run"])
+
+    def test_node_stage_issues_invitations_only_before_enrollment_tags(self):
+        action = load(NODE_STAGE)
+        run = next(step for step in action["runs"]["steps"] if step["name"] == "Apply the stage playbook tags")["run"]
+        self.assertIn('if [[ "${tag}" != *-identity ]]; then', run)
+        self.assertIn('xconnect_stage.py" vars', run)
+        self.assertIn("rm -f --", run)
+        self.assertIn("/secrets/*.invite", run)
+
+    def test_shared_xconnect_policy_grants_only_what_enrollment_reads(self):
+        policy = (ROOT / "scripts/vault/policies/github-actions-platform-ops-toolkit-shared-vault-xconnect.hcl").read_text()
+        paths = sorted(line.split('"')[1] for line in policy.splitlines() if line.startswith("path "))
+        self.assertEqual(paths, [
+            "kv/data/CICD/domains/svc.plus",
+            "kv/data/CICD/github-app/daily-snapshot",
+            "kv/data/CICD/shared/xconnect",
+        ])
+        self.assertEqual(policy.count('capabilities = ["read"]'), 3)
 
     def test_it_is_a_single_workflow_file(self):
         # The node stage was previously a separate reusable workflow with

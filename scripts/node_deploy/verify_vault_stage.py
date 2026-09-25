@@ -30,6 +30,7 @@ GATEWAY_GROUP = "xconnect_gateway"
 LEGACY_GROUP = "vault_legacy_source"
 VAULT_UNIT = "vault"
 MONITORING_UNITS = ("node-exporter", "process-exporter", "vector")
+GATEWAY_UNITS = ("xconnect-gateway-xray", "xconnect-gateway-sync.timer")
 VAULT_PORTS = (8200, 8201)
 LOOPBACK = {"127.0.0.1", "::1", "localhost"}
 GUARD_TABLE = "vault_port_guard"
@@ -69,10 +70,26 @@ for line in run("ss", "-Hltn").stdout.splitlines():
         address, _, port = fields[3].rpartition(":")
         if port in ("8200", "8201"):
             listeners.append({"address": address.strip("[]"), "port": int(port)})
+def gateway(path):
+    # Report only whether the Gateway enrolled and its public WireGuard key;
+    # the device credential itself never leaves the node.
+    if not path:
+        return {"exists": False, "enrolled": False, "public_key": ""}
+    result = run("sudo", "-n", "cat", path)
+    if result.returncode != 0:
+        return {"exists": False, "enrolled": False, "public_key": ""}
+    try:
+        state = json.loads(result.stdout)
+    except ValueError:
+        return {"exists": True, "enrolled": False, "public_key": ""}
+    credential = (state.get("device_credential") or {}).get("credential") or ""
+    return {"exists": True, "enrolled": bool(credential), "public_key": str(state.get("wireguard_public_key") or "")}
+
 disk = os.statvfs("/")
 seal = api("/v1/sys/seal-status") or {}
 print(json.dumps({
     "sudo": run("sudo", "-n", "true").returncode == 0,
+    "machine": os.uname().machine,
     "swap_kb": swap_kb,
     "free_mb": disk.f_bavail * disk.f_frsize // 1048576,
     "health": api("/v1/sys/health?standbycode=200&sealedcode=200&uninitcode=200"),
@@ -81,7 +98,7 @@ print(json.dumps({
     "version": seal.get("version"),
     "units": {unit: run("systemctl", "is-active", unit).stdout.strip() for unit in units.split(",") if unit},
     "vault_enabled": run("systemctl", "is-enabled", "vault").stdout.strip(),
-    "gateway_state": bool(gateway_state) and run("sudo", "-n", "test", "-s", gateway_state).returncode == 0,
+    "gateway": gateway(gateway_state),
     "init_file": bool(init_file) and run("sudo", "-n", "test", "-e", init_file).returncode == 0,
     "port_guard": run("sudo", "-n", "nft", "list", "table", "inet", guard_table).returncode == 0,
     "listeners": listeners,
@@ -90,7 +107,7 @@ print(json.dumps({
 
 
 def probe(node: dict, key: Path, known_hosts: Path, gateway_state: str) -> dict:
-    units = ",".join((VAULT_UNIT, *MONITORING_UNITS))
+    units = ",".join((VAULT_UNIT, *MONITORING_UNITS, *GATEWAY_UNITS))
     init_file = INIT_FILE if LEGACY_GROUP in node.get("groups", []) else ""
     for value in (gateway_state, init_file):
         if not SAFE_ARGUMENT.fullmatch(value):
@@ -243,10 +260,38 @@ def check_monitoring(nodes: list[dict], probes: dict[str, dict]) -> None:
             raise ValueError(f"{node['id']}: monitoring units are not active: {', '.join(stopped)}")
 
 
+WIREGUARD_KEY = re.compile(r"^[A-Za-z0-9+/]{43}=$")
+
+
+def gateway_status(probe_state: dict) -> dict:
+    status = probe_state.get("gateway") or {}
+    return {
+        "exists": status.get("exists") is True,
+        "enrolled": status.get("enrolled") is True,
+        "public_key": status.get("public_key") if WIREGUARD_KEY.fullmatch(str(status.get("public_key") or "")) else "",
+    }
+
+
 def check_gateway_enrolled(contract: dict, probes: dict[str, dict]) -> None:
+    # state.json exists right after `init`; only a stored credential is enrollment.
     gateway = single(contract, GATEWAY_GROUP, "XConnect Gateway")
-    if probes[gateway["id"]].get("gateway_state") is not True:
-        raise ValueError(f"{gateway['id']}: XConnect Gateway enrollment state is missing")
+    if not gateway_status(probes[gateway["id"]])["enrolled"]:
+        raise ValueError(f"{gateway['id']}: XConnect Gateway is not enrolled with Zero")
+
+
+def check_gateway_identity(contract: dict, probes: dict[str, dict]) -> None:
+    gateway = single(contract, GATEWAY_GROUP, "XConnect Gateway")
+    if not gateway_status(probes[gateway["id"]])["public_key"]:
+        raise ValueError(f"{gateway['id']}: XConnect Gateway has no local WireGuard identity yet")
+
+
+def check_gateway_running(contract: dict, probes: dict[str, dict]) -> None:
+    check_gateway_enrolled(contract, probes)
+    gateway = single(contract, GATEWAY_GROUP, "XConnect Gateway")
+    units = probes[gateway["id"]].get("units", {})
+    stopped = [unit for unit in GATEWAY_UNITS if units.get(unit) != "active"]
+    if stopped:
+        raise ValueError(f"{gateway['id']}: XConnect Gateway units are not active: {', '.join(stopped)}")
 
 
 def check_legacy_unsealed(contract: dict, probes: dict[str, dict]) -> None:
@@ -346,6 +391,10 @@ def verify(contract: dict, checks: list[str], probes: dict[str, dict]) -> list[s
             check_monitoring(new_nodes(contract), probes)
         elif check == "gateway-enrolled":
             check_gateway_enrolled(contract, probes)
+        elif check == "gateway-identity":
+            check_gateway_identity(contract, probes)
+        elif check == "gateway-running":
+            check_gateway_running(contract, probes)
         elif check == "legacy-unsealed":
             check_legacy_unsealed(contract, probes)
         elif check == "legacy-report":

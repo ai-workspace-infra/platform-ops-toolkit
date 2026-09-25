@@ -84,6 +84,41 @@ STAGES: dict[str, dict] = {
             "then dispatch xconnect-gateway once it is enabled."
         ),
     },
+    "xconnect-gateway": {
+        "path": "any",
+        "ssh": "new",
+        # Only SSH access: on the migration path the old node joins the new
+        # cluster over this overlay, so the Gateway cannot wait for Raft.
+        "requires": ["access"],
+        "playbook": SHARED_PLAYBOOK,
+        # identity creates the WireGuard key; the control plane then issues a
+        # one-use invitation bound to it (xconnect_stage.py) before enrollment.
+        "tags": ["xconnect-gateway-identity", "xconnect-gateway"],
+        "confirms": ["gateway-running"],
+        "secrets": ["xconnect"],
+        "xconnect": "gateway",
+        "next": (
+            "Check the Gateway in the Zero portal, then enroll the other nodes with "
+            "xconnect-one once it is enabled."
+        ),
+    },
+    "xconnect-one": {
+        "path": "any",
+        # New peers, plus the existing vault.svc.plus node while
+        # spec.migration is declared (M4): it reaches the new cluster only
+        # through this overlay.
+        "ssh": "cluster",
+        "requires": ["access", "gateway-enrolled"],
+        "playbook": SHARED_PLAYBOOK,
+        "tags": ["xconnect-one"],
+        "secrets": ["xconnect"],
+        "xconnect": "one",
+        "next": (
+            "Record each node's overlay IP in the GitOps topology (and "
+            "spec.migration.source.overlay_address for the existing node), then "
+            "enroll the operator Mac with a one-use invitation."
+        ),
+    },
     "fresh-leader": {
         "path": "fresh",
         "ssh": "new",
@@ -183,32 +218,6 @@ STAGES: dict[str, dict] = {
         "confirm": "REMOVE-LEGACY-VAULT-PEER",
         "next": "Rekey, rotate and revoke the old root token by hand (M7) before calling the migration done.",
     },
-    "xconnect-gateway": {
-        "path": "any",
-        "ssh": "new",
-        "requires": ["access"],
-        "playbook": SHARED_PLAYBOOK,
-        "tags": ["xconnect-gateway"],
-        "secrets": ["xconnect"],
-        "enabled": False,
-        "reason": (
-            "The shared Gateway needs a Caddy frontend for the service domain on "
-            "the Gateway node, reviewed XConnect release artifacts, and a CI step "
-            "that issues its one-use Zero invitation. None of these exist yet."
-        ),
-        "next": "Dispatch xconnect-one.",
-    },
-    "xconnect-one": {
-        "path": "any",
-        "ssh": "new",
-        "requires": ["access", "gateway-enrolled"],
-        "playbook": SHARED_PLAYBOOK,
-        "tags": ["xconnect-one"],
-        "secrets": ["xconnect", "observability"],
-        "enabled": False,
-        "reason": "One enrollment needs the Gateway stage and one-use One invitations.",
-        "next": "Enroll the operator Mac, verify overlay IPs and internal DNS.",
-    },
 }
 
 DEFAULTS = {
@@ -220,6 +229,7 @@ DEFAULTS = {
     "token": "",
     "confirm": "",
     "auto": False,
+    "xconnect": "",
     "enabled": True,
 }
 
@@ -233,6 +243,8 @@ CHECKS = {
     "raft-quorum-new",
     "monitoring-running",
     "gateway-enrolled",
+    "gateway-identity",
+    "gateway-running",
     "legacy-unsealed",
     "legacy-report",
     "legacy-overlay",
@@ -277,6 +289,7 @@ def output_values(result: dict) -> dict[str, str]:
         "needs_observability": "true" if "observability" in result["secrets"] else "false",
         "needs_xconnect": "true" if "xconnect" in result["secrets"] else "false",
         "needs_tls": "true" if "tls" in result["secrets"] else "false",
+        "xconnect": result["xconnect"],
         # Only the vault-legacy-{convert,rollback,retire} playbook tags read
         # this; it is harmless for every other stage/tag.
         "extra_vars": json.dumps({"vault_legacy_migration_confirm": result["confirm"]}),

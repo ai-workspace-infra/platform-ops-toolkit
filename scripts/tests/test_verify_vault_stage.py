@@ -12,6 +12,9 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(module)
 
 
+GATEWAY_KEY = "A" * 43 + "="
+
+
 def fixture():
     nodes = [
         {"id": "vault-0", "private_address": "10.81.0.2",
@@ -30,7 +33,10 @@ def fixture():
             "health": {"initialized": True, "sealed": False, "cluster_id": "cluster-a", "standby": index != 0},
             "leader": {"is_self": index == 0, "leader_cluster_address": "https://10.81.0.2:8201"},
             "units": {"vault": "active", "node-exporter": "active", "process-exporter": "active", "vector": "active"},
-            "gateway_state": index == 0,
+            "gateway": (
+                {"exists": True, "enrolled": True, "public_key": GATEWAY_KEY}
+                if index == 0 else {"exists": False, "enrolled": False, "public_key": ""}
+            ),
             "storage_type": "raft",
             "version": "1.21.4",
             "free_mb": 20000,
@@ -125,9 +131,36 @@ class VerifyVaultStageTests(unittest.TestCase):
         probes["vault-1"]["units"]["vector"] = "inactive"
         with self.assertRaisesRegex(ValueError, "vector"):
             module.verify(contract, ["monitoring-running"], probes)
-        probes["vault-0"]["gateway_state"] = False
-        with self.assertRaisesRegex(ValueError, "Gateway enrollment"):
+        probes["vault-0"]["gateway"] = {"exists": False, "enrolled": False, "public_key": ""}
+        with self.assertRaisesRegex(ValueError, "not enrolled"):
             module.verify(contract, ["gateway-enrolled"], probes)
+
+    def test_init_alone_is_identity_not_enrollment(self):
+        contract, probes = fixture()
+        probes["vault-0"]["gateway"] = {"exists": True, "enrolled": False, "public_key": GATEWAY_KEY}
+        module.verify(contract, ["gateway-identity"], probes)
+        with self.assertRaisesRegex(ValueError, "not enrolled"):
+            module.verify(contract, ["gateway-enrolled"], probes)
+        probes["vault-0"]["gateway"]["public_key"] = "not-a-key"
+        with self.assertRaisesRegex(ValueError, "no local WireGuard identity"):
+            module.verify(contract, ["gateway-identity"], probes)
+
+    def test_gateway_running_needs_enrollment_and_both_units(self):
+        contract, probes = fixture()
+        probes["vault-0"]["units"].update({"xconnect-gateway-xray": "active", "xconnect-gateway-sync.timer": "active"})
+        module.verify(contract, ["gateway-running"], probes)
+        probes["vault-0"]["units"]["xconnect-gateway-sync.timer"] = "inactive"
+        with self.assertRaisesRegex(ValueError, "sync.timer"):
+            module.verify(contract, ["gateway-running"], probes)
+        probes["vault-0"]["units"]["xconnect-gateway-sync.timer"] = "active"
+        probes["vault-0"]["gateway"]["enrolled"] = False
+        with self.assertRaisesRegex(ValueError, "not enrolled"):
+            module.verify(contract, ["gateway-running"], probes)
+
+    def test_remote_probe_never_prints_the_device_credential(self):
+        probe_source = module.REMOTE_PROBE
+        self.assertIn('"enrolled": bool(credential)', probe_source)
+        self.assertNotIn('"credential": credential', probe_source)
 
     def test_rejects_unknown_checks_and_reports_state(self):
         contract, probes = fixture()

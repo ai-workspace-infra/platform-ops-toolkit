@@ -25,6 +25,7 @@ ALLOWED_STAGES = {
     "vault-shared-peers",
     "node-process-metrics",
     "vault-gateway-frontend",
+    "xconnect-gateway-identity",
     "xconnect-gateway",
     "xconnect-one",
 }
