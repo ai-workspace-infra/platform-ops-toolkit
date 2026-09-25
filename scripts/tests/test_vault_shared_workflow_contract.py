@@ -30,7 +30,23 @@ class VaultServerEntryTests(unittest.TestCase):
         self.assertEqual(self.inputs["deploy_action"]["options"], ["none", "plan", "apply"])
         self.assertEqual(self.inputs["connection_mode"]["options"], ["bootstrap-public"])
         self.assertNotIn("xconnect-gateway", self.inputs["service_stage"]["options"])
-        self.assertEqual(self.inputs["playbooks_ref"]["default"], "00aa9fe3f18e4ea060173974b5529c0502b2d8a0")
+        self.assertEqual(self.inputs["playbooks_ref"]["default"], "f226989802734f4106d8b6f268b4f02f4eb08a65")
+
+    def test_gateway_tls_is_read_with_the_scoped_xconnect_role_only_when_needed(self):
+        steps = steps_by_name(self.jobs["node-stage"]["steps"])
+        read = steps["Read the Gateway TLS certificate"]
+        self.assertEqual(read["if"], "${{ steps.stage.outputs.needs_tls == 'true' }}")
+        self.assertEqual(read["with"]["role"], "${{ needs.declaration.outputs.xconnect_role }}")
+        self.assertIs(read["with"]["exportToken"], False)
+        paths = {line.split()[0] for line in read["with"]["secrets"].splitlines() if line.strip()}
+        self.assertEqual(paths, {"kv/data/CICD/domains/svc.plus"})
+        self.assertEqual(
+            self.jobs["declaration"]["outputs"]["xconnect_role"],
+            "${{ steps.declaration.outputs.xconnect_role }}",
+        )
+        env = steps["Execute provider-neutral Vault node stage"]["env"]
+        self.assertIn("steps.gateway_tls.outputs.VAULT_GATEWAY_TLS_KEY_B64", env["VAULT_GATEWAY_TLS_KEY_B64"])
+        self.assertIn("xconnect-gateway-frontend", self.inputs["service_stage"]["options"])
 
     def test_it_is_a_single_workflow_file(self):
         # The node stage was previously a separate reusable workflow with

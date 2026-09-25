@@ -18,6 +18,7 @@ STAGES = [
     "vault-shared-leader",
     "vault-shared-peers",
     "node-process-metrics",
+    "vault-gateway-frontend",
     "xconnect-gateway",
     "xconnect-one",
 ]
@@ -27,6 +28,7 @@ STAGE_TARGETS = {
     "vault-shared-leader": ["vault_shared_leader"],
     "vault-shared-peers": ["vault_shared_peers"],
     "node-process-metrics": ["vault_shared_nodes"],
+    "vault-gateway-frontend": ["xconnect_gateway"],
     "xconnect-gateway": ["xconnect_gateway"],
     "xconnect-one": ["xconnect_one"],
 }

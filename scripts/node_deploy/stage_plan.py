@@ -68,6 +68,22 @@ STAGES: dict[str, dict] = {
         "token": "snapshot",
         "next": "Keep the encrypted snapshot off-site; run a restore drill before migrating.",
     },
+    "xconnect-gateway-frontend": {
+        "path": "any",
+        "ssh": "new",
+        "requires": ["access"],
+        "playbook": SHARED_PLAYBOOK,
+        # Caddy on the Gateway node: TLS 443 for its own hostname, only
+        # /xconnect forwarded to the Gateway Xray socket (playbooks role
+        # vhosts/vault_gateway_frontend). Needed before the old node can
+        # reach the overlay, so it does not wait for Raft quorum.
+        "tags": ["vault-gateway-frontend"],
+        "secrets": ["tls"],
+        "next": (
+            "Point the Gateway hostname's DNS at the Gateway node's public IP, "
+            "then dispatch xconnect-gateway once it is enabled."
+        ),
+    },
     "fresh-leader": {
         "path": "fresh",
         "ssh": "new",
@@ -260,6 +276,7 @@ def output_values(result: dict) -> dict[str, str]:
         "auto": "true" if result["auto"] else "false",
         "needs_observability": "true" if "observability" in result["secrets"] else "false",
         "needs_xconnect": "true" if "xconnect" in result["secrets"] else "false",
+        "needs_tls": "true" if "tls" in result["secrets"] else "false",
         # Only the vault-legacy-{convert,rollback,retire} playbook tags read
         # this; it is harmless for every other stage/tag.
         "extra_vars": json.dumps({"vault_legacy_migration_confirm": result["confirm"]}),
