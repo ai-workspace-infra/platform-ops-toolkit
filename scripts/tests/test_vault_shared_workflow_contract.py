@@ -30,7 +30,7 @@ class VaultServerEntryTests(unittest.TestCase):
         self.assertEqual(self.inputs["deploy_action"]["options"], ["none", "plan", "apply"])
         self.assertEqual(self.inputs["connection_mode"]["options"], ["bootstrap-public"])
         self.assertIn("xconnect-one", self.inputs["service_stage"]["options"])
-        self.assertEqual(self.inputs["playbooks_ref"]["default"], "e8a99d8bd4a1a9df1b94fa29f4843ff8672194de")
+        self.assertEqual(self.inputs["playbooks_ref"]["default"], "55792ee24efd3af91564b6831ba66e7ba243c212")
 
     def test_gateway_tls_is_read_with_the_scoped_xconnect_role_only_when_needed(self):
         steps = steps_by_name(self.jobs["node-stage"]["steps"])
@@ -89,8 +89,28 @@ class VaultServerEntryTests(unittest.TestCase):
             "kv/data/CICD/domains/svc.plus",
             "kv/data/CICD/github-app/daily-snapshot",
             "kv/data/CICD/shared/xconnect",
+            "kv/data/CICD/shared/xconnect-operator-invite",
         ])
         self.assertEqual(policy.count('capabilities = ["read"]'), 3)
+        # CI can store the operator invitation but never read it back.
+        invite_block = policy.split('path "kv/data/CICD/shared/xconnect-operator-invite"')[1]
+        self.assertIn('capabilities = ["create", "update"]', invite_block)
+        self.assertNotIn("read", invite_block.split("}")[0])
+
+    def test_operator_invitation_goes_to_vault_after_the_stage_gates(self):
+        steps = self.jobs["node-stage"]["steps"]
+        names = [step["name"] for step in steps]
+        invite = steps_by_name(steps)["Issue the operator device invitation into Vault"]
+        self.assertEqual(invite["if"], "${{ steps.stage.outputs.stage == 'xconnect-operator-invite' }}")
+        self.assertLess(names.index("Execute provider-neutral Vault node stage"), names.index(invite["name"]))
+        self.assertIn("xconnect_stage.py operator-invite", invite["run"])
+        self.assertEqual(invite["env"]["INVITE_PATH"], "${{ needs.declaration.outputs.xconnect_secret_path }}-operator-invite")
+        login = steps_by_name(steps)["Log in with the stage's scoped Vault role"]
+        self.assertIn("steps.stage.outputs.token == 'xconnect' && needs.declaration.outputs.xconnect_role", login["with"]["role"])
+        # The operator stage installs nothing, so no release token or download.
+        for name in ("Create a read-only XConnect release token", "Download the reviewed XConnect runtime"):
+            self.assertNotIn("operator", steps_by_name(steps)[name]["if"])
+            self.assertIn("xconnect == 'gateway'", steps_by_name(steps)[name]["if"])
 
     def test_it_is_a_single_workflow_file(self):
         # The node stage was previously a separate reusable workflow with

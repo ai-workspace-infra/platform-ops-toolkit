@@ -19,6 +19,14 @@ services). This script owns what only the control plane may do:
 existing vault.svc.plus node (M4): every node in the xconnect_one group that
 has not joined gets its own invitation.
 
+    xconnect_stage.py operator-invite --topology T --contract C --key K \
+        --known-hosts H --gateway-state S --vault-path kv/data/...
+
+issues a one-use invitation for the operator device declared in GitOps (C5)
+and writes it straight to Vault (VAULT_ADDR / VAULT_TOKEN, a create/update
+grant only); the operator reads it with their own Vault login. It never
+touches disk or logs.
+
 Secrets come from the environment (ZERO_SERVICE_TOKEN, ZERO_OWNER_EMAIL,
 XCONNECT_VLESS_ID) and never appear in the output; invitation join URIs are
 written only to 0600 files in the runner-private --secrets-dir.
@@ -94,7 +102,7 @@ def expires_at(now: datetime | None = None) -> str:
 
 
 def bootstrap_request(topology: dict, role: str, device_id: str, gateway_key: str, owner: str, vless_id: str,
-                      expires: str) -> dict:
+                      expires: str, platform: str = "linux") -> dict:
     return {
         "owner_email": owner,
         "bootstrap": {
@@ -116,12 +124,12 @@ def bootstrap_request(topology: dict, role: str, device_id: str, gateway_key: st
                 "transport_mode": topology["transport_mode"],
                 "transport_host": topology["transport_host"],
             },
-            "invite": {"device_id": device_id, "platform": "linux", "role": role, "expires_at": expires},
+            "invite": {"device_id": device_id, "platform": platform, "role": role, "expires_at": expires},
         },
     }
 
 
-def check_invite(response: dict, topology: dict, role: str, device_id: str) -> str:
+def check_invite(response: dict, topology: dict, role: str, device_id: str, platform: str = "linux") -> str:
     """Fail closed unless the invitation is bound to exactly this device."""
     invite = response.get("invite") or {}
     bound = (
@@ -129,7 +137,7 @@ def check_invite(response: dict, topology: dict, role: str, device_id: str) -> s
         and invite.get("network_id") == topology["network_id"]
         and invite.get("device_id") == device_id
         and invite.get("role") == role
-        and invite.get("platform") == "linux"
+        and invite.get("platform") == platform
         and invite.get("remaining_uses") == 1
     )
     if not bound:
@@ -154,16 +162,21 @@ def post_json(url: str, token: str, body: dict) -> tuple[int, dict]:
         return error.code, {}
 
 
-def issue_invite(topology: dict, role: str, device_id: str, gateway_key: str, secrets_dir: Path,
-                 env: dict[str, str], post=post_json) -> Path:
+def request_join_uri(topology: dict, role: str, device_id: str, gateway_key: str, env: dict[str, str],
+                     post=post_json, platform: str = "linux", expires: str | None = None) -> str:
     token, owner, vless_id = (env.get(name, "") for name in ("ZERO_SERVICE_TOKEN", "ZERO_OWNER_EMAIL", "XCONNECT_VLESS_ID"))
     if not (token and owner and vless_id):
         raise ValueError("ZERO_SERVICE_TOKEN, ZERO_OWNER_EMAIL and XCONNECT_VLESS_ID are required to issue an invitation")
-    body = bootstrap_request(topology, role, device_id, gateway_key, owner, vless_id, expires_at())
+    body = bootstrap_request(topology, role, device_id, gateway_key, owner, vless_id, expires or expires_at(), platform)
     status, response = post(topology["controller"].rstrip("/") + BOOTSTRAP_PATH, token, body)
     if status != 201:
         raise ValueError(f"Zero did not issue the {role} invitation for {device_id}: HTTP {status}")
-    join_uri = check_invite(response, topology, role, device_id)
+    return check_invite(response, topology, role, device_id, platform)
+
+
+def issue_invite(topology: dict, role: str, device_id: str, gateway_key: str, secrets_dir: Path,
+                 env: dict[str, str], post=post_json) -> Path:
+    join_uri = request_join_uri(topology, role, device_id, gateway_key, env, post)
     secrets_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     path = secrets_dir / f"{device_id}.invite"
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -251,10 +264,56 @@ def one_invites(topology: dict, contract: dict, key: Path, known_hosts: Path, ga
     return invites
 
 
+OPERATOR_DEVICE = re.compile(r"^xconnect-(darwin|linux|windows)-[a-z0-9][a-z0-9._-]{0,100}$")
+VAULT_KV_PATH = re.compile(r"^kv/data/[A-Za-z0-9/_-]+$")
+
+
+def operator_device(doc: dict) -> tuple[str, str]:
+    """The single operator device declared in GitOps, and its platform."""
+    devices = doc["spec"].get("operator_devices") or []
+    if len(devices) != 1:
+        raise ValueError("exactly one operator device must be declared in the XConnect topology")
+    device_id = str(devices[0].get("id", ""))
+    match = OPERATOR_DEVICE.fullmatch(device_id)
+    if not match or devices[0].get("enrollment") != "short-lived-single-use-invite":
+        raise ValueError("the operator device must be xconnect-<platform>-<name> with a single-use invite enrollment")
+    return device_id, match.group(1)
+
+
+def vault_write(vault_addr: str, token: str, path: str, data: dict) -> int:
+    request = urllib.request.Request(
+        f"{vault_addr.rstrip('/')}/v1/{path}",
+        data=json.dumps({"data": data}).encode(),
+        headers={"X-Vault-Token": token, "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.status
+    except urllib.error.HTTPError as error:
+        return error.code
+
+
+def operator_invite(topology: dict, doc: dict, gateway_key: str, vault_path: str, env: dict[str, str],
+                    post=post_json, write=vault_write) -> dict:
+    if not VAULT_KV_PATH.fullmatch(vault_path):
+        raise ValueError("invalid Vault KV path for the operator invitation")
+    if not (env.get("VAULT_ADDR", "").startswith("https://") and env.get("VAULT_TOKEN")):
+        raise ValueError("VAULT_ADDR (https) and VAULT_TOKEN are required to store the operator invitation")
+    device_id, platform = operator_device(doc)
+    expires = expires_at()
+    join_uri = request_join_uri(topology, "one", device_id, gateway_key, env, post, platform, expires)
+    status = write(env["VAULT_ADDR"], env["VAULT_TOKEN"], vault_path,
+                   {"join_uri": join_uri, "device_id": device_id, "expires_at": expires})
+    if status not in (200, 204):
+        raise ValueError(f"could not store the operator invitation in Vault: HTTP {status}")
+    return {"device_id": device_id, "platform": platform, "expires_at": expires, "vault_path": vault_path}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["arch", "vars"])
-    parser.add_argument("--role", choices=ROLES, required=True)
+    parser.add_argument("command", choices=["arch", "vars", "operator-invite"])
+    parser.add_argument("--role", choices=ROLES)
     parser.add_argument("--topology", type=Path)
     parser.add_argument("--contract", type=Path, required=True)
     parser.add_argument("--artifacts", type=Path)
@@ -263,9 +322,23 @@ def main() -> None:
     parser.add_argument("--key", type=Path)
     parser.add_argument("--known-hosts", type=Path)
     parser.add_argument("--gateway-state", default="")
+    parser.add_argument("--vault-path", default="")
     args = parser.parse_args()
+    if args.command != "operator-invite" and not args.role:
+        parser.error("--role is required")
 
     contract = validate(json.loads(args.contract.read_text(encoding="utf-8")))
+    if args.command == "operator-invite":
+        if not (args.topology and args.key and args.known_hosts):
+            raise SystemExit("::error::operator-invite needs --topology, --key and --known-hosts")
+        try:
+            gateway_key = enrolled_gateway_key(contract, args.key, args.known_hosts, args.gateway_state)
+            doc = yaml.safe_load(args.topology.read_text(encoding="utf-8"))
+            result = operator_invite(load_topology(args.topology), doc, gateway_key, args.vault_path, dict(os.environ))
+        except ValueError as error:
+            raise SystemExit(f"::error::{error}") from None
+        print(json.dumps(result, sort_keys=True))
+        return
     if args.command == "arch":
         if not (args.key and args.known_hosts):
             raise SystemExit("::error::arch needs --key and --known-hosts")

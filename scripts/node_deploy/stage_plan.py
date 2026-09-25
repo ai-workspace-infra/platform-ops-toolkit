@@ -119,6 +119,22 @@ STAGES: dict[str, dict] = {
             "enroll the operator Mac with a one-use invitation."
         ),
     },
+    "xconnect-operator-invite": {
+        "path": "any",
+        # SSH only to read the enrolled Gateway's public key.
+        "ssh": "new",
+        "requires": ["access", "gateway-enrolled"],
+        # No host change: the runner issues a one-use invitation for the
+        # operator device declared in GitOps and writes it straight to Vault
+        # (create/update only); the operator reads it with their own login.
+        "token": "xconnect",
+        "secrets": ["xconnect"],
+        "xconnect": "operator",
+        "next": (
+            "On the operator Mac, within 30 minutes: vault kv get -field=join_uri "
+            "kv/CICD/shared/xconnect-operator-invite, then xconnect join with it."
+        ),
+    },
     "fresh-leader": {
         "path": "fresh",
         "ssh": "new",
@@ -254,7 +270,7 @@ CHECKS = {
     "vault-port-guard",
 }
 ACTIONS = {"", "snapshot", "cutover", "remove-legacy"}
-TOKENS = {"", "snapshot", "raft-operator"}
+TOKENS = {"", "snapshot", "raft-operator", "xconnect"}
 
 
 def plan(stage: str, confirm: str = "", migration: bool | None = None) -> dict:

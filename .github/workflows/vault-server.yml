@@ -33,7 +33,7 @@ on:
         type: choice
         required: true
         default: none
-        options: [none, node-preflight, node-process-metrics, vault-raft-verify, vault-snapshot, xconnect-gateway-frontend, xconnect-gateway, xconnect-one, fresh-leader, fresh-peers, migrate-auto, migrate-preflight, migrate-convert, migrate-rollback, migrate-join, migrate-cutover, migrate-remove]
+        options: [none, node-preflight, node-process-metrics, vault-raft-verify, vault-snapshot, xconnect-gateway-frontend, xconnect-gateway, xconnect-one, xconnect-operator-invite, fresh-leader, fresh-peers, migrate-auto, migrate-preflight, migrate-convert, migrate-rollback, migrate-join, migrate-cutover, migrate-remove]
       connection_mode:
         description: Current supported SSH transport for the hosted installation job.
         type: choice
@@ -69,7 +69,7 @@ on:
         description: Reviewed playbooks commit for Vault node configuration.
         type: string
         required: true
-        default: e8a99d8bd4a1a9df1b94fa29f4843ff8672194de
+        default: 55792ee24efd3af91564b6831ba66e7ba243c212
 
 permissions:
   contents: read
@@ -401,7 +401,7 @@ jobs:
             kv/data/CICD/github-app/daily-snapshot app_private_key | XCONNECT_APP_PRIVATE_KEY
 
       - name: Create a read-only XConnect release token
-        if: ${{ steps.stage.outputs.xconnect != '' }}
+        if: ${{ steps.stage.outputs.xconnect == 'gateway' || steps.stage.outputs.xconnect == 'one' }}
         id: xconnect_release
         uses: actions/create-github-app-token@v3
         with:
@@ -411,7 +411,7 @@ jobs:
           repositories: XConnect-One,XConnect-Gateway
 
       - name: Download the reviewed XConnect runtime
-        if: ${{ steps.stage.outputs.xconnect != '' }}
+        if: ${{ steps.stage.outputs.xconnect == 'gateway' || steps.stage.outputs.xconnect == 'one' }}
         shell: bash
         env:
           XCONNECT_ROLE: ${{ steps.stage.outputs.xconnect }}
@@ -445,7 +445,7 @@ jobs:
         with:
           url: ${{ needs.declaration.outputs.vault_addr }}
           method: jwt
-          role: ${{ steps.stage.outputs.token == 'snapshot' && needs.declaration.outputs.snapshot_role || needs.declaration.outputs.raft_operator_role }}
+          role: ${{ steps.stage.outputs.token == 'snapshot' && needs.declaration.outputs.snapshot_role || steps.stage.outputs.token == 'xconnect' && needs.declaration.outputs.xconnect_role || needs.declaration.outputs.raft_operator_role }}
           jwtGithubAudience: vault
           exportToken: true
 
@@ -509,6 +509,27 @@ jobs:
           xconnect_topology: ${{ github.workspace }}/gitops/${{ needs.declaration.outputs.xconnect_topology }}
           xconnect_dir: ${{ runner.temp }}/xconnect
           gateway_state: /var/lib/xconnect-gateway/${{ needs.declaration.outputs.environment }}/state.json
+
+      # C5: after the stage gates (access, gateway-enrolled) passed above.
+      - name: Issue the operator device invitation into Vault
+        if: ${{ steps.stage.outputs.stage == 'xconnect-operator-invite' }}
+        shell: bash
+        env:
+          NODE_CONTRACT: ${{ steps.access.outputs.contract }}
+          XCONNECT_TOPOLOGY: gitops/${{ needs.declaration.outputs.xconnect_topology }}
+          GATEWAY_STATE: /var/lib/xconnect-gateway/${{ needs.declaration.outputs.environment }}/state.json
+          INVITE_PATH: ${{ needs.declaration.outputs.xconnect_secret_path }}-operator-invite
+          VAULT_ADDR: ${{ needs.declaration.outputs.vault_addr }}
+          ZERO_SERVICE_TOKEN: ${{ steps.xconnect_secrets.outputs.ZERO_SERVICE_TOKEN }}
+          ZERO_OWNER_EMAIL: ${{ steps.xconnect_secrets.outputs.ZERO_OWNER_EMAIL }}
+          XCONNECT_VLESS_ID: ${{ steps.xconnect_secrets.outputs.XCONNECT_VLESS_ID }}
+        run: |
+          set -euo pipefail
+          python3 scripts/node_deploy/xconnect_stage.py operator-invite \
+            --topology "${XCONNECT_TOPOLOGY}" --contract "${NODE_CONTRACT}" \
+            --key "${NODE_ACCESS_DIR}/id_ed25519" --known-hosts "${SSH_KNOWN_HOSTS}" \
+            --gateway-state "${GATEWAY_STATE}" --vault-path "${INVITE_PATH}" \
+            | tee -a "${GITHUB_STEP_SUMMARY}"
 
       - name: Close access to the existing node
         if: ${{ always() && needs.declaration.outputs.open_legacy == 'true' }}
