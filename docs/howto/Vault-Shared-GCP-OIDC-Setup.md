@@ -168,6 +168,13 @@ secured operator terminal; then run `service_stage=vault-shared-peers` and
 unseal nodes 1 and 2 manually. Run `service_stage=node-process-metrics` to
 install node exporter, process exporter, and Vector.
 
+The peers stage checks that node 0 is initialized and unsealed. Monitoring
+and XConnect stages check that all three nodes are unsealed and report the
+same cluster ID with one active and two standby nodes. From the secured
+operator terminal, also run `vault operator raft list-peers` with a current
+operator credential and verify all three nodes are voters before changing
+the public SSH policy. GitHub Actions does not receive this credential.
+
 XConnect Zero network/policy creation, Gateway and One enrollment, DNS cutover,
 and the zero-trust SSH adapter remain separate checkpoints. Do not remove the
 operator `/32` SSH allowlist until all three overlay addresses and internal DNS

@@ -37,6 +37,9 @@ runs:
         test -s "${SSH_KNOWN_HOSTS}"
         export ANSIBLE_HOST_KEY_CHECKING=True
         export ANSIBLE_SSH_COMMON_ARGS="-o UserKnownHostsFile=${SSH_KNOWN_HOSTS} -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=ssh-ed25519"
+        python3 scripts/node_deploy/verify_vault_stage.py \
+          --contract "${NODE_CONTRACT}" --stage "${DEPLOY_STAGE}" \
+          --key "${ANSIBLE_PRIVATE_KEY_FILE}" --known-hosts "${SSH_KNOWN_HOSTS}"
         if [[ "${DEPLOY_STAGE}" == node-preflight ]]; then
           ready=",${NODE_AUTH_ADAPTERS_READY},"
           while IFS= read -r adapter; do
