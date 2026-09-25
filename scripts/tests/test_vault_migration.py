@@ -98,7 +98,9 @@ class LegacyContractTests(unittest.TestCase):
         self.assertEqual(node["private_address"], "10.79.0.10")
         self.assertIn("vault_legacy_source", node["groups"])
         self.assertIn("vault_shared_leader", node["groups"])
+        self.assertIn("xconnect_one", node["groups"])
         self.assertEqual(contract["spec"]["stage_targets"], {
+            "xconnect-one": ["xconnect_one"],
             "vault-legacy-convert": ["vault_legacy_source"],
             "vault-legacy-rollback": ["vault_legacy_source"],
             "vault-legacy-retire": ["vault_legacy_source"],
@@ -110,8 +112,14 @@ class LegacyContractTests(unittest.TestCase):
         self.assertEqual([node["id"] for node in merged["spec"]["nodes"]], ["vault-prod-0", "jp-xhttp-contabo"])
         self.assertEqual(
             set(merged["spec"]["stages"]),
-            {"vault-shared-peers", "vault-single-raft", "vault-legacy-convert", "vault-legacy-rollback", "vault-legacy-retire"},
+            {"vault-shared-peers", "vault-single-raft", "vault-legacy-convert", "vault-legacy-rollback", "vault-legacy-retire",
+             "xconnect-one"},
         )
+        # M4: the old node is enrolled as One alongside the new peers.
+        one_targets = merged["spec"]["stage_targets"]["xconnect-one"]
+        self.assertIn("jp-xhttp-contabo", [
+            node["id"] for node in merged["spec"]["nodes"] if set(node["groups"]) & set(one_targets)
+        ])
         self.assertEqual(merged["spec"]["connection"], {"mode": "bootstrap-public"})
 
     def test_merge_rejects_duplicates_and_mixed_environments(self):

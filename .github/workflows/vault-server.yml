@@ -33,7 +33,7 @@ on:
         type: choice
         required: true
         default: none
-        options: [none, node-preflight, node-process-metrics, vault-raft-verify, vault-snapshot, xconnect-gateway-frontend, xconnect-gateway, fresh-leader, fresh-peers, migrate-auto, migrate-preflight, migrate-convert, migrate-rollback, migrate-join, migrate-cutover, migrate-remove]
+        options: [none, node-preflight, node-process-metrics, vault-raft-verify, vault-snapshot, xconnect-gateway-frontend, xconnect-gateway, xconnect-one, fresh-leader, fresh-peers, migrate-auto, migrate-preflight, migrate-convert, migrate-rollback, migrate-join, migrate-cutover, migrate-remove]
       connection_mode:
         description: Current supported SSH transport for the hosted installation job.
         type: choice

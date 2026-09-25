@@ -115,8 +115,10 @@ class StagePlanTests(unittest.TestCase):
         self.assertIn("Rekey", entry("migrate-remove")["next"])
 
     def test_unwired_or_unknown_stages_fail_closed(self):
-        with self.assertRaisesRegex(ValueError, "not available yet"):
-            module.plan("xconnect-one")
+        disabled = [name for name in module.STAGES if not entry(name)["enabled"]]
+        for name in disabled:
+            with self.assertRaisesRegex(ValueError, "not available yet"):
+                module.plan(name)
         with self.assertRaisesRegex(ValueError, "unknown node stage"):
             module.plan("arbitrary-shell")
 
@@ -156,6 +158,16 @@ class StagePlanTests(unittest.TestCase):
         self.assertEqual(lines["xconnect"], "gateway")
         self.assertEqual(lines["needs_xconnect"], "true")
         self.assertEqual(lines["tags"], "xconnect-gateway-identity,xconnect-gateway")
+
+    def test_one_enrollment_covers_new_peers_and_the_existing_node(self):
+        one = entry("xconnect-one")
+        self.assertTrue(one["enabled"])
+        self.assertEqual(one["ssh"], "cluster")
+        self.assertEqual(one["requires"], ["access", "gateway-enrolled"])
+        self.assertEqual(one["xconnect"], "one")
+        order = list(module.STAGES)
+        self.assertLess(order.index("xconnect-gateway"), order.index("xconnect-one"))
+        self.assertLess(order.index("xconnect-one"), order.index("migrate-join"))
 
     def test_github_outputs(self):
         with tempfile.TemporaryDirectory() as directory:

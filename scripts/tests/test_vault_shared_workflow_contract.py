@@ -29,7 +29,7 @@ class VaultServerEntryTests(unittest.TestCase):
         self.assertFalse((ROOT / ".github/workflows/vault-shared-gcp-iac.yml").exists())
         self.assertEqual(self.inputs["deploy_action"]["options"], ["none", "plan", "apply"])
         self.assertEqual(self.inputs["connection_mode"]["options"], ["bootstrap-public"])
-        self.assertNotIn("xconnect-one", self.inputs["service_stage"]["options"])
+        self.assertIn("xconnect-one", self.inputs["service_stage"]["options"])
         self.assertEqual(self.inputs["playbooks_ref"]["default"], "f226989802734f4106d8b6f268b4f02f4eb08a65")
 
     def test_gateway_tls_is_read_with_the_scoped_xconnect_role_only_when_needed(self):

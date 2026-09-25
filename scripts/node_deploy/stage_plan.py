@@ -104,17 +104,20 @@ STAGES: dict[str, dict] = {
     },
     "xconnect-one": {
         "path": "any",
-        "ssh": "new",
+        # New peers, plus the existing vault.svc.plus node while
+        # spec.migration is declared (M4): it reaches the new cluster only
+        # through this overlay.
+        "ssh": "cluster",
         "requires": ["access", "gateway-enrolled"],
         "playbook": SHARED_PLAYBOOK,
         "tags": ["xconnect-one"],
-        "secrets": ["xconnect", "observability"],
-        "enabled": False,
-        "reason": (
-            "The One role still joins unconditionally and needs a per-node "
-            "invitation; it must skip enrolled nodes first (C4)."
+        "secrets": ["xconnect"],
+        "xconnect": "one",
+        "next": (
+            "Record each node's overlay IP in the GitOps topology (and "
+            "spec.migration.source.overlay_address for the existing node), then "
+            "enroll the operator Mac with a one-use invitation."
         ),
-        "next": "Enroll the operator Mac, verify overlay IPs and internal DNS.",
     },
     "fresh-leader": {
         "path": "fresh",

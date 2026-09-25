@@ -11,9 +11,13 @@ services). This script owns what only the control plane may do:
   `*-identity` tag created; an enrolled node never gets (or consumes) one;
 * hand the playbook its variables as JSON extra-vars.
 
-    xconnect_stage.py arch --role gateway --contract C --key K --known-hosts H
-    xconnect_stage.py vars --role gateway --topology T --contract C \
+    xconnect_stage.py arch --role gateway|one --contract C --key K --known-hosts H
+    xconnect_stage.py vars --role gateway|one --topology T --contract C \
         --artifacts DIR --secrets-dir DIR [--invite --key K --known-hosts H]
+
+`one` covers the new peers and, while spec.migration is declared, the
+existing vault.svc.plus node (M4): every node in the xconnect_one group that
+has not joined gets its own invitation.
 
 Secrets come from the environment (ZERO_SERVICE_TOKEN, ZERO_OWNER_EMAIL,
 XCONNECT_VLESS_ID) and never appear in the output; invitation join URIs are
@@ -37,14 +41,15 @@ import yaml
 from render_inventory import validate
 from verify_vault_stage import GATEWAY_GROUP, gateway_status, members, probe, single
 
-ROLES = ("gateway",)
+ONE_GROUP = "xconnect_one"
+ROLES = ("gateway", "one")
 IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 HOSTNAME = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
 JOIN_URI = re.compile(r"^xconnect://join/\S+$")
 INVITE_MINUTES = 30
 BOOTSTRAP_PATH = "/api/internal/overlay/networks/bootstrap"
 ARCHITECTURES = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
-ROLE_GROUPS = {"gateway": GATEWAY_GROUP}
+ROLE_GROUPS = {"gateway": GATEWAY_GROUP, "one": ONE_GROUP}
 
 
 def load_topology(path: Path) -> dict:
@@ -68,6 +73,9 @@ def load_topology(path: Path) -> dict:
         "frontend": transport.get("frontend", "direct-tls"),
         "listen_socket": transport.get("listen_socket", ""),
         "gateway_state_dir": spec["runtime"]["gateway_state_dir"],
+        "one_state_dir": f"{spec['runtime']['state_dir_prefix']}/{doc['metadata']['environment']}",
+        "wireguard_interface": spec["runtime"].get("wireguard_interface", "xconone0"),
+        "xray_loopback_port": int(spec["runtime"].get("xray_loopback_udp_port", 51830)),
         "sync_interval": int(spec["runtime"].get("sync_interval_seconds", 300)),
     }
     if not topology["controller"].startswith("https://"):
@@ -197,6 +205,52 @@ def architecture(nodes: list[dict], probes: dict[str, dict]) -> str:
     return found.pop()
 
 
+def one_vars(topology: dict, artifacts: Path, secrets_dir: Path, invites: dict[str, Path]) -> dict:
+    # Extra-vars are templated per host, so one set of vars serves every node:
+    # each host picks its own invitation (if any) by inventory name == node id.
+    return {
+        "xconnect_one_enabled": True,
+        "xconnect_one_environment": topology["environment"],
+        "xconnect_one_state_dir": topology["one_state_dir"],
+        "xconnect_one_binary_source": str(artifacts / "xconnect"),
+        "xconnect_one_ca_certificate_source": str(secrets_dir / "trust-bundle.pem"),
+        "xconnect_one_device_id": "{{ inventory_hostname }}",
+        "xconnect_one_device_name": "{{ inventory_hostname }}",
+        "xconnect_one_expected_network_id": topology["network_id"],
+        "xconnect_one_expected_overlay_cidr": topology["cidr"],
+        "xconnect_one_expected_wireguard_interface": topology["wireguard_interface"],
+        "xconnect_one_expected_xray_loopback_port": topology["xray_loopback_port"],
+        "xconnect_one_sync_interval_seconds": topology["sync_interval"],
+        # Host metrics come from node-process-metrics; keep One to the overlay.
+        "xconnect_one_install_observability": False,
+        "xconnect_one_invite_files": {node_id: str(path) for node_id, path in sorted(invites.items())},
+        "xconnect_one_invite_file_source": "{{ (xconnect_one_invite_files | default({}))[inventory_hostname] | default('') }}",
+    }
+
+
+def enrolled_gateway_key(contract: dict, key: Path, known_hosts: Path, gateway_state: str) -> str:
+    gateway = single(contract, GATEWAY_GROUP, "XConnect Gateway")
+    status = gateway_status(probe(gateway, key, known_hosts, gateway_state))
+    if not (status["enrolled"] and status["public_key"]):
+        raise ValueError(f"{gateway['id']}: enroll the XConnect Gateway (xconnect-gateway) before any One")
+    return status["public_key"]
+
+
+def one_invites(topology: dict, contract: dict, key: Path, known_hosts: Path, gateway_state: str,
+                secrets_dir: Path) -> dict[str, Path]:
+    gateway_key = enrolled_gateway_key(contract, key, known_hosts, gateway_state)
+    state_file = f"{topology['one_state_dir']}/state.json"
+    invites = {}
+    for node in members(contract, ONE_GROUP):
+        # The probe's state-file reader is generic: for One, a present
+        # state.json is what the role itself treats as joined.
+        if gateway_status(probe(node, key, known_hosts, state_file))["exists"]:
+            print(f"{node['id']} has already joined; no invitation issued", file=sys.stderr)
+            continue
+        invites[node["id"]] = issue_invite(topology, "one", node["id"], gateway_key, secrets_dir, dict(os.environ))
+    return invites
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["arch", "vars"])
@@ -225,6 +279,17 @@ def main() -> None:
     if not (args.topology and args.artifacts and args.secrets_dir):
         raise SystemExit("::error::vars needs --topology, --artifacts and --secrets-dir")
     topology = load_topology(args.topology)
+    if args.role == "one":
+        invites = {}
+        if args.invite:
+            if not (args.key and args.known_hosts):
+                raise SystemExit("::error::--invite needs --key and --known-hosts to read live node state")
+            try:
+                invites = one_invites(topology, contract, args.key, args.known_hosts, args.gateway_state, args.secrets_dir)
+            except ValueError as error:
+                raise SystemExit(f"::error::{error}") from None
+        print(json.dumps(one_vars(topology, args.artifacts, args.secrets_dir, invites), sort_keys=True))
+        return
     invite = None
     if args.invite:
         if not (args.key and args.known_hosts):

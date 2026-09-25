@@ -17,8 +17,10 @@ import yaml
 
 from render_inventory import validate
 
-LEGACY_GROUPS = ["vault_legacy_source", "vault_shared_leader", "vault_single_node"]
+LEGACY_GROUPS = ["vault_legacy_source", "vault_shared_leader", "vault_single_node", "xconnect_one"]
 LEGACY_STAGES = {
+    # M4: the old node joins the shared XConnect network as a One node.
+    "xconnect-one": ["xconnect_one"],
     "vault-legacy-convert": ["vault_legacy_source"],
     "vault-legacy-rollback": ["vault_legacy_source"],
     "vault-legacy-retire": ["vault_legacy_source"],

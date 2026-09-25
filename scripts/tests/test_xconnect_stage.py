@@ -32,7 +32,9 @@ TOPOLOGY = {
             },
         },
         "control_plane": {"accounts_api_url": "https://accounts.svc.plus"},
-        "runtime": {"gateway_state_dir": "/var/lib/xconnect-gateway/shared", "sync_interval_seconds": 300},
+        "runtime": {"gateway_state_dir": "/var/lib/xconnect-gateway/shared", "sync_interval_seconds": 300,
+                    "state_dir_prefix": "/var/lib/xconnect-one", "wireguard_interface": "xconone0",
+                    "xray_loopback_udp_port": 51830},
         "gateway": {"id": "vault-prod-0"},
     },
 }
@@ -141,6 +143,55 @@ class VarsTests(unittest.TestCase):
         other = {"spec": {"nodes": [{"id": "vault-prod-9", "groups": ["xconnect_gateway"]}]}}
         with self.assertRaisesRegex(ValueError, "not the topology Gateway"):
             module.gateway_vars(topology(), other, Path("/b"), Path("/s"), None)
+
+
+class OneTests(unittest.TestCase):
+    def test_one_vars_pick_each_hosts_own_invitation(self):
+        values = module.one_vars(topology(), Path("/r/bin"), Path("/r/secrets"),
+                                 {"vault-prod-2": Path("/r/secrets/vault-prod-2.invite")})
+        self.assertEqual(values["xconnect_one_state_dir"], "/var/lib/xconnect-one/shared")
+        self.assertEqual(values["xconnect_one_binary_source"], "/r/bin/xconnect")
+        self.assertEqual(values["xconnect_one_expected_network_id"], "net_shared_vault")
+        self.assertEqual(values["xconnect_one_expected_xray_loopback_port"], 51830)
+        self.assertEqual(values["xconnect_one_invite_files"], {"vault-prod-2": "/r/secrets/vault-prod-2.invite"})
+        self.assertEqual(values["xconnect_one_device_id"], "{{ inventory_hostname }}")
+        self.assertIn("xconnect_one_invite_files", values["xconnect_one_invite_file_source"])
+        self.assertIs(values["xconnect_one_install_observability"], False)
+
+    def test_invitations_only_for_nodes_that_have_not_joined(self):
+        contract = {"spec": {"nodes": [
+            {"id": "vault-prod-0", "groups": ["xconnect_gateway"]},
+            {"id": "vault-prod-1", "groups": ["xconnect_one"]},
+            {"id": "vault-prod-2", "groups": ["xconnect_one"]},
+            {"id": "legacy", "groups": ["vault_legacy_source", "xconnect_one"]},
+        ]}}
+        states = {
+            ("vault-prod-0", "/g"): {"gateway": {"exists": True, "enrolled": True, "public_key": GATEWAY_KEY}},
+            ("vault-prod-1", "/var/lib/xconnect-one/shared/state.json"): {"gateway": {"exists": True}},
+            ("vault-prod-2", "/var/lib/xconnect-one/shared/state.json"): {"gateway": {"exists": False}},
+            ("legacy", "/var/lib/xconnect-one/shared/state.json"): {"gateway": {"exists": False}},
+        }
+        issued = []
+        original_probe, original_issue = module.probe, module.issue_invite
+        try:
+            module.probe = lambda node, key, hosts, path: states[(node["id"], path)]
+            module.issue_invite = lambda topo, role, device, gateway_key, directory, env: (
+                issued.append((role, device, gateway_key)) or Path(f"/s/{device}.invite"))
+            invites = module.one_invites(topology(), contract, Path("k"), Path("h"), "/g", Path("/s"))
+        finally:
+            module.probe, module.issue_invite = original_probe, original_issue
+        self.assertEqual(sorted(invites), ["legacy", "vault-prod-2"])
+        self.assertEqual(issued, [("one", "vault-prod-2", GATEWAY_KEY), ("one", "legacy", GATEWAY_KEY)])
+
+    def test_one_waits_for_an_enrolled_gateway(self):
+        contract = {"spec": {"nodes": [{"id": "vault-prod-0", "groups": ["xconnect_gateway"]}]}}
+        original = module.probe
+        try:
+            module.probe = lambda *_: {"gateway": {"exists": True, "enrolled": False, "public_key": GATEWAY_KEY}}
+            with self.assertRaisesRegex(ValueError, "enroll the XConnect Gateway"):
+                module.enrolled_gateway_key(contract, Path("k"), Path("h"), "/g")
+        finally:
+            module.probe = original
 
 
 class ArchitectureTests(unittest.TestCase):
