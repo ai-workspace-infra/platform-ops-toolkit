@@ -137,7 +137,7 @@ is no reusable workflow layer to keep that binding in sync with.
 
 1. IaC creates the nodes and the private Raft channel (8200/8201 from the
    subnet only). The GCP adapter re-checks the live firewall on every stage.
-2. `node-preflight`, `vault-shared-leader`, `vault-shared-peers`,
+2. `node-preflight`, `fresh-leader`, `fresh-peers`,
    `vault-raft-verify`, `node-process-metrics`: one dispatch each, gated on
    live state. Operators init/unseal between dispatches.
 3. XConnect Gateway and One: the stage gates exist, but dispatch stays disabled

@@ -57,9 +57,16 @@ done < <(
     "${contract_path}"
 )
 
+extra_args=()
+if [[ -n "${NODE_STAGE_EXTRA_VARS:-}" && "${NODE_STAGE_EXTRA_VARS}" != '{}' ]]; then
+  jq -e . >/dev/null <<<"${NODE_STAGE_EXTRA_VARS}" || { echo "NODE_STAGE_EXTRA_VARS is not valid JSON" >&2; exit 1; }
+  extra_args=(--extra-vars "${NODE_STAGE_EXTRA_VARS}")
+fi
+
 export ANSIBLE_HOST_KEY_CHECKING=True
 ansible-playbook \
   -i "${inventory}" \
   "${playbooks_root}/${playbook_path}" \
   --limit "${stage_limit}" \
-  --tags "${stage}"
+  --tags "${stage}" \
+  "${extra_args[@]}"

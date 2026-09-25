@@ -7,13 +7,16 @@ span several dispatches, so ordering is enforced by checking live node state
 Provider adapters only open and close SSH access; nothing here depends on
 the cloud that created the nodes.
 
-Two paths share these stages:
+Stage names are grouped by prefix so the dispatch dropdown reads in order:
 
-* fresh: a new environment is initialized by an operator (leader, peers).
-* migration: the existing vault.svc.plus node is converted in place to
+* ``node-*`` / ``vault-*``: shared by both paths (preflight, monitoring,
+  Raft verification, snapshot).
+* ``fresh-*``: a new environment that an operator initializes by hand.
+* ``migrate-*``: the existing vault.svc.plus node is converted in place to
   single-node Raft, the new nodes join it over XConnect, leadership moves to
   the new nodes and the old node is removed. The new nodes are never
-  initialized on this path.
+  initialized on this path. ``migrate-auto`` picks the next of these steps
+  from live state (see auto_migration.py) and stops at every manual gate.
 
 ``ssh`` selects which node sets the stage opens access to: ``new`` (provider
 adapter), ``legacy`` (the existing source node), ``all``, ``cluster`` (new
@@ -29,7 +32,10 @@ import sys
 from pathlib import Path
 
 SHARED_PLAYBOOK = "deploy_vault_shared_services.yml"
-SINGLE_PLAYBOOK = "deploy_vault_single_raft.yml"
+# Converts the existing node in place, then imports
+# deploy_vault_single_raft.yml to write the Raft config and start it; also
+# owns rollback and retire. Lives in playbooks: this is host configuration.
+LEGACY_PLAYBOOK = "deploy_vault_legacy_migration.yml"
 
 STAGES: dict[str, dict] = {
     "node-preflight": {
@@ -46,9 +52,23 @@ STAGES: dict[str, dict] = {
         "tags": ["node-process-metrics"],
         "confirms": ["monitoring-running"],
         "secrets": ["observability"],
-        "next": "Fresh: dispatch vault-shared-leader. Migration: dispatch legacy-preflight.",
+        "next": "Fresh: dispatch fresh-leader. Migration: dispatch migrate-auto (or migrate-preflight).",
     },
-    "vault-shared-leader": {
+    "vault-raft-verify": {
+        "path": "any",
+        "ssh": "cluster",
+        "requires": ["access", "raft-quorum"],
+        "next": "Take a snapshot with vault-snapshot.",
+    },
+    "vault-snapshot": {
+        "path": "any",
+        "ssh": "none",
+        "requires": [],
+        "action": "snapshot",
+        "token": "snapshot",
+        "next": "Keep the encrypted snapshot off-site; run a restore drill before migrating.",
+    },
+    "fresh-leader": {
         "path": "fresh",
         "ssh": "new",
         "requires": ["access", "no-foreign-cluster"],
@@ -57,10 +77,10 @@ STAGES: dict[str, dict] = {
         "confirms": ["leader-running"],
         "next": (
             "From a secured operator terminal, run vault operator init on the "
-            "leader and unseal it. Then dispatch vault-shared-peers."
+            "leader and unseal it. Then dispatch fresh-peers."
         ),
     },
-    "vault-shared-peers": {
+    "fresh-peers": {
         "path": "fresh",
         "ssh": "new",
         "requires": ["access", "leader-unsealed"],
@@ -72,49 +92,43 @@ STAGES: dict[str, dict] = {
             "shows every node as a voter, then dispatch vault-raft-verify."
         ),
     },
-    "vault-raft-verify": {
-        "path": "any",
-        "ssh": "cluster",
-        "requires": ["access", "raft-quorum"],
-        "next": "Take a snapshot with vault-snapshot.",
+    "migrate-auto": {
+        "path": "migration",
+        "ssh": "all",
+        "requires": ["access"],
+        "auto": True,
+        "confirm": "MIGRATE-VAULT-AUTO",
+        "next": "Do the manual step shown above (if any), then dispatch migrate-auto again.",
     },
-    "legacy-preflight": {
+    "migrate-preflight": {
         "path": "migration",
         "ssh": "legacy",
         "requires": ["access", "legacy-unsealed", "legacy-report"],
-        "next": "Dispatch legacy-convert-raft with confirm=CONVERT-VAULT-TO-RAFT in a maintenance window.",
+        "next": "Dispatch migrate-convert with confirm=CONVERT-VAULT-TO-RAFT in a maintenance window.",
     },
-    "legacy-convert-raft": {
+    "migrate-convert": {
         "path": "migration",
         "ssh": "legacy",
         "requires": ["access", "legacy-unsealed", "legacy-overlay"],
-        "action": "legacy-convert",
-        "playbook": SINGLE_PLAYBOOK,
-        "tags": ["vault-single-raft"],
+        "playbook": LEGACY_PLAYBOOK,
+        "tags": ["vault-legacy-convert", "vault-single-raft"],
         "confirms": ["leader-running", "vault-port-guard"],
         "confirm": "CONVERT-VAULT-TO-RAFT",
         "next": (
             "Unseal the converted node with its existing key, check vault.svc.plus, "
-            "then dispatch vault-snapshot. Roll back with legacy-convert-rollback."
+            "then dispatch vault-snapshot. Roll back with migrate-rollback."
         ),
     },
-    "legacy-convert-rollback": {
+    "migrate-rollback": {
         "path": "migration",
         "ssh": "legacy",
         "requires": ["access"],
-        "action": "legacy-rollback",
+        "playbook": LEGACY_PLAYBOOK,
+        "tags": ["vault-legacy-rollback"],
         "confirm": "ROLLBACK-VAULT-TO-POSTGRESQL",
         "next": "Unseal the restored PostgreSQL-backed Vault and investigate before retrying.",
     },
-    "vault-snapshot": {
-        "path": "any",
-        "ssh": "none",
-        "requires": [],
-        "action": "snapshot",
-        "token": "snapshot",
-        "next": "Keep the encrypted snapshot off-site; run a restore drill before migrating.",
-    },
-    "vault-join-legacy": {
+    "migrate-join": {
         "path": "migration",
         "ssh": "all",
         "requires": ["access", "legacy-raft", "new-nodes-empty"],
@@ -123,10 +137,10 @@ STAGES: dict[str, dict] = {
         "confirms": ["peers-running"],
         "next": (
             "Unseal each new node with the existing key, confirm raft list-peers "
-            "shows every node as a voter, then dispatch vault-cutover."
+            "shows every node as a voter, then dispatch migrate-cutover."
         ),
     },
-    "vault-cutover": {
+    "migrate-cutover": {
         "path": "migration",
         "ssh": "all",
         "requires": ["access", "raft-quorum"],
@@ -136,16 +150,20 @@ STAGES: dict[str, dict] = {
         "confirm": "MOVE-VAULT-LEADER",
         "next": (
             "The old node now forwards to the new leader. Move vault.svc.plus DNS to "
-            "the new entry point, then dispatch vault-remove-legacy."
+            "the new entry point, then dispatch migrate-remove."
         ),
     },
-    "vault-remove-legacy": {
+    "migrate-remove": {
         "path": "migration",
         "ssh": "all",
         "requires": ["access", "legacy-standby"],
         "action": "remove-legacy",
-        "confirms": ["raft-quorum-new"],
         "token": "raft-operator",
+        # The action removes the Raft peer via the Vault API; the playbook
+        # tag then stops and disables the now-orphaned Vault service.
+        "playbook": LEGACY_PLAYBOOK,
+        "tags": ["vault-legacy-retire"],
+        "confirms": ["raft-quorum-new"],
         "confirm": "REMOVE-LEGACY-VAULT-PEER",
         "next": "Rekey, rotate and revoke the old root token by hand (M7) before calling the migration done.",
     },
@@ -185,6 +203,7 @@ DEFAULTS = {
     "action": "",
     "token": "",
     "confirm": "",
+    "auto": False,
     "enabled": True,
 }
 
@@ -206,7 +225,7 @@ CHECKS = {
     "new-nodes-empty",
     "vault-port-guard",
 }
-ACTIONS = {"", "legacy-convert", "legacy-rollback", "snapshot", "cutover", "remove-legacy"}
+ACTIONS = {"", "snapshot", "cutover", "remove-legacy"}
 TOKENS = {"", "snapshot", "raft-operator"}
 
 
@@ -228,8 +247,9 @@ def plan(stage: str, confirm: str = "", migration: bool | None = None) -> dict:
     return {"stage": stage, **entry}
 
 
-def write_outputs(result: dict, output: Path) -> None:
-    values = {
+def output_values(result: dict) -> dict[str, str]:
+    return {
+        "stage": result["stage"],
         "playbook": result["playbook"],
         "tags": ",".join(result["tags"]),
         "requires": ",".join(result["requires"]),
@@ -237,10 +257,18 @@ def write_outputs(result: dict, output: Path) -> None:
         "action": result["action"],
         "token": result["token"],
         "ssh": result["ssh"],
+        "auto": "true" if result["auto"] else "false",
         "needs_observability": "true" if "observability" in result["secrets"] else "false",
         "needs_xconnect": "true" if "xconnect" in result["secrets"] else "false",
+        # Only the vault-legacy-{convert,rollback,retire} playbook tags read
+        # this; it is harmless for every other stage/tag.
+        "extra_vars": json.dumps({"vault_legacy_migration_confirm": result["confirm"]}),
         "next": result["next"],
     }
+
+
+def write_outputs(result: dict, output: Path, extra: dict[str, str] | None = None) -> None:
+    values = {**output_values(result), **(extra or {})}
     with output.open("a", encoding="utf-8") as stream:
         for name, value in values.items():
             stream.write(f"{name}={value}\n")

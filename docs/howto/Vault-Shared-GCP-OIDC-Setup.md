@@ -188,8 +188,8 @@ run unless its prerequisites hold. The probe needs no Vault token.
 | Order | `service_stage` | Requires (checked live) | Does | Then, manually |
 | --- | --- | --- | --- | --- |
 | 1 | `node-preflight` | SSH, sudo, no swap | nothing | — |
-| 2 | `vault-shared-leader` | same + no split cluster | installs Vault on node 0 | `vault operator init` + unseal node 0 |
-| 3 | `vault-shared-peers` | node 0 initialized and unsealed | installs Vault on nodes 1/2 | unseal nodes 1/2; `vault operator raft list-peers` |
+| 2 | `fresh-leader` | same + no split cluster | installs Vault on node 0 | `vault operator init` + unseal node 0 |
+| 3 | `fresh-peers` | node 0 initialized and unsealed | installs Vault on nodes 1/2 | unseal nodes 1/2; `vault operator raft list-peers` |
 | 4 | `vault-raft-verify` | all nodes unsealed, one cluster ID, one active, same private Raft leader | nothing | confirm all voters |
 | 5 | `node-process-metrics` | Raft quorum as above | node exporter, process exporter, Vector | — |
 | 6 | `xconnect-gateway`, `xconnect-one` | quorum; One also needs Gateway enrollment | not dispatchable yet | — |

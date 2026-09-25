@@ -28,16 +28,17 @@ init, unseal, quorum confirmation and rekey stay manual.
 
 | Stage | Path | Checks before | Does | Manual after |
 | --- | --- | --- | --- | --- |
+| `migrate-auto` | migration | live state | picks and runs the next `migrate-*` step below | whatever it names, then dispatch again |
 | `node-preflight` | any | SSH, sudo, no swap | — | — |
 | `node-process-metrics` | any | access | exporters + Vector | — |
-| `legacy-preflight` | migration | old node unsealed, disk, storage, key file | read-only report | — |
-| `legacy-convert-raft` | migration | old node unsealed, overlay address | backup, stop, PG→Raft in place, port guard, single-node Raft | unseal (existing key) |
-| `legacy-convert-rollback` | migration | access | restore PostgreSQL-backed Vault | unseal |
+| `migrate-preflight` | migration | old node unsealed, disk, storage, key file | read-only report | — |
+| `migrate-convert` | migration | old node unsealed, overlay address | backup, stop, PG→Raft in place, port guard, single-node Raft | unseal (existing key) |
+| `migrate-rollback` | migration | access | restore PostgreSQL-backed Vault | unseal |
 | `vault-snapshot` | any | — | Raft snapshot → age-encrypted → S3 | keep age key offline |
-| `vault-join-legacy` | migration | old node Raft + active, new nodes empty | new nodes join over overlay | unseal each; `raft list-peers` |
-| `vault-cutover` | migration | Raft quorum (old + new) | step old node down | move DNS |
-| `vault-remove-legacy` | migration | old node standby | remove old peer, stop old Vault | M7 rekey/rotate/revoke |
-| `vault-shared-leader` / `-peers` | fresh | access / leader unsealed | install | init + unseal / unseal |
+| `migrate-join` | migration | old node Raft + active, new nodes empty | new nodes join over overlay | unseal each; `raft list-peers` |
+| `migrate-cutover` | migration | Raft quorum (old + new) | step old node down | move DNS |
+| `migrate-remove` | migration | old node standby | remove old peer, stop old Vault | M7 rekey/rotate/revoke |
+| `fresh-leader` / `fresh-peers` | fresh | access / leader unsealed | install | init + unseal / unseal |
 | `vault-raft-verify` | any | Raft quorum | — | `raft list-peers` |
 
 ## GitOps additions for the migration
@@ -73,3 +74,4 @@ backup:
 | Date | Change |
 | --- | --- |
 | 2026-09-25 | Plan created; provider-neutral split and migration stages implemented (not yet run live) |
+| 2026-09-25 | Single workflow (#985); host-side migration moved to playbooks (playbooks#488); stages renamed into node-/vault-/fresh-/migrate- groups; `migrate-auto` added |

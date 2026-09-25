@@ -70,7 +70,7 @@ def plan_remove(config: list[dict], legacy: str, expected: list[str]) -> bool:
     if legacy not in members:
         return False
     if leader_of(config) not in expected:
-        raise ValueError("move leadership to a new node (vault-cutover) before removing the old one")
+        raise ValueError("move leadership to a new node (migrate-cutover) before removing the old one")
     unexpected = members - set(expected) - {legacy}
     if unexpected:
         raise ValueError(f"undeclared Raft members present: {', '.join(sorted(unexpected))}")
