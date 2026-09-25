@@ -118,10 +118,8 @@ cloud credentials.
 vault-server.yml (entry, provider = gcp-cloud)
   ├─ declaration      GitOps service + provider manifests → environment, Vault paths, mode
   ├─ gcp-shared       optional IaC plan/apply (gcp-iac-pipeline.yml)
-  └─ node-stage       uses vault-shared-iac.yml (provider-neutral, one stage)
-        ├─ declaration     stage plan (scripts/node_deploy/stage_plan.py)
-        ├─ node-stage      adapter open → host-key pin → gate → playbook → confirm → adapter close
-        └─ cleanup-node-access  adapter close again (always)
+  ├─ node-stage       adapter open → host-key pin → gate → playbook → confirm → adapter close
+  └─ cleanup-node-access  adapter close again (always)
 ```
 
 A provider adapter is a composite action with an `open` and a `close` phase.
@@ -129,12 +127,11 @@ A provider adapter is a composite action with an `open` and a `close` phase.
 `auth_adapter`; `close` revokes the credential and removes any temporary
 ingress. `.github/actions/node-access-gcp` is the only file that knows about
 Google WIF, OS Login, and GCP firewall rules. A VPS or other-cloud adapter
-adds one `open` step and one `close` step in `vault-shared-iac.yml`; the
-stage plan, gates, and playbooks stay the same.
+adds one `open` step and one `close` step to the `node-stage` job in
+`vault-server.yml`; the stage plan, gates, and playbooks stay the same.
 
-The Vault JWT roles bind `workflow_ref` to `vault-server.yml` on `main`. For a
-reusable workflow, GitHub keeps the caller in `workflow_ref`, so the roles do
-not change when stages run inside `vault-shared-iac.yml`.
+The Vault JWT roles bind `workflow_ref` to `vault-server.yml` on `main`; there
+is no reusable workflow layer to keep that binding in sync with.
 
 ## Rollout order
 

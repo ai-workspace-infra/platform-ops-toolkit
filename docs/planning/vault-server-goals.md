@@ -6,7 +6,7 @@ Goals are set by the project owner; each goal lists its tasks and the
 evidence that marks it done. `scripts/planning/sync_vault_server_project.sh`
 mirrors this file into the org GitHub Project (a "Goal" field on every issue).
 
-**Outcome:** pipeline-driven (`vault-server.yml` → `vault-shared-iac.yml`),
+**Outcome:** pipeline-driven (`vault-server.yml`, a single workflow),
 XConnect Gateway/One + Playbook + monitoring, move `vault.svc.plus` from its
 existing node to any cloud — Vault itself with local Raft storage, one or three
 nodes, no PostgreSQL dependency.
@@ -17,7 +17,7 @@ init, unseal, quorum confirmation and rekey stay manual.
 
 | Goal | Objective | Tasks | Done when | Owner target |
 | --- | --- | --- | --- | --- |
-| G1 Foundation | Provider-neutral pipeline merged and authorized | #959 A1, #960 A2, #961 A3 | `vault-server.yml` + `vault-shared-iac.yml` on `main`; GitOps declaration merged; all shared JWT roles `--check` OK; `prod` requires review | _set_ |
+| G1 Foundation | Provider-neutral pipeline merged and authorized | #959 A1, #960 A2, #961 A3 | `vault-server.yml` on `main`; GitOps declaration merged; all shared JWT roles `--check` OK; `prod` requires review | _set_ |
 | G2 New nodes observable | New nodes reachable, verified and monitored before any Vault change | #962 B1, #963 B2, #966 B5 | preflight green; private Raft rule verified live; node/process exporter + Vector metrics visible | _set_ |
 | G3 Zero-trust network | XConnect overlay joins new nodes, the old node, the operator Mac and CI | #967 C1 – #972 C6 | overlay IPs/internal DNS in GitOps; Mac-only SSH policy; public SSH rule removed | _set_ |
 | G4 Migration | Existing Vault converted in place and moved to the new cluster without data loss | #974, #975 M1 – #980 M6 | old node on Raft; encrypted snapshot off-site and restore drill passed; new nodes voters; leadership on a new node; old peer removed; CI reads never interrupted | _set_ |

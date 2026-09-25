@@ -144,12 +144,14 @@ identity, and writes runtime identity metadata to
 After bootstrap apply succeeds, dispatch **Vault server** (`.github/workflows/vault-server.yml`).
 Its default GitOps service declaration is
 `resources/svc.plus/shared/vault/server.yaml`; the GCP adapter reads
-`resources/xworktech.com/shared/gcp/vault-shared.yaml`. The first workflow job
+`resources/xworktech.com/shared/gcp/vault-shared.yaml`. Its `declaration` job
 checks the environment, Vault JWT roles and KV paths, project, network, and
-the declared XConnect topology. For another environment, supply its reviewed
-service and provider manifest paths and provision the corresponding scoped
-Vault roles before dispatching. The node-stage action itself consumes the
-provider-neutral `NodeDeployment` contract:
+the declared XConnect topology, and its `node-stage` job runs exactly one
+`service_stage` for exactly one `service_manifest` at a time. For another
+environment, supply its reviewed service and provider manifest paths and
+provision the corresponding scoped Vault roles before dispatching. The
+node-stage action itself consumes the provider-neutral `NodeDeployment`
+contract:
 
 ```text
 cloud_provider = gcp-cloud
@@ -165,8 +167,8 @@ Vault API port 8200. If the plan is correct, dispatch again with
 ### Node stages: one per dispatch
 
 `vault-server.yml` is the GCP entry point. It runs IaC (when
-`deploy_action` is `plan` or `apply`) and then calls the provider-neutral
-`vault-shared-iac.yml` for exactly one `service_stage`. Use
+`deploy_action` is `plan` or `apply`) and then runs its provider-neutral
+`node-stage` job for exactly one `service_stage`. Use
 `deploy_action=none` to run a node stage against existing VMs without another
 Terraform apply; `plan` cannot be combined with a node stage.
 

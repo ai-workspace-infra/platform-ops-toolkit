@@ -6,7 +6,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 ENTRY = ROOT / ".github/workflows/vault-server.yml"
-GENERIC = ROOT / ".github/workflows/vault-shared-iac.yml"
 GCP_ADAPTER = ROOT / ".github/actions/node-access-gcp/action.yml"
 NODE_STAGE = ROOT / ".github/actions/vault-node-stage/action.yml"
 
@@ -33,10 +32,16 @@ class VaultServerEntryTests(unittest.TestCase):
         self.assertNotIn("xconnect-gateway", self.inputs["service_stage"]["options"])
         self.assertEqual(self.inputs["playbooks_ref"]["default"], "7affb1d53001a248c1266ca747f8ba22980281aa")
 
+    def test_it_is_a_single_workflow_file(self):
+        # The node stage was previously a separate reusable workflow with
+        # exactly one caller; that indirection is gone, its jobs are inlined.
+        self.assertFalse((ROOT / ".github/workflows/vault-shared-iac.yml").exists())
+        self.assertNotIn("uses: ./.github/workflows/vault-shared-iac.yml", ENTRY.read_text(encoding="utf-8"))
+
     def test_iac_is_optional_and_node_stage_is_gated_on_its_result(self):
         self.assertIn("inputs.deploy_action != 'none'", self.jobs["gcp-shared"]["if"])
         node = self.jobs["node-stage"]
-        self.assertEqual(node["uses"], "./.github/workflows/vault-shared-iac.yml")
+        self.assertEqual(node["runs-on"], "ubuntu-latest")
         self.assertEqual(node["needs"], ["declaration", "gcp-shared"])
         condition = node["if"]
         self.assertIn("always()", condition)
@@ -44,46 +49,38 @@ class VaultServerEntryTests(unittest.TestCase):
         self.assertIn("inputs.deploy_action == 'apply' && needs.gcp-shared.result == 'success'", condition)
         self.assertIn("inputs.deploy_action == 'none' && needs.gcp-shared.result == 'skipped'", condition)
         self.assertIn("github.ref == 'refs/heads/main'", condition)
-        self.assertEqual(node["with"]["provider"], "${{ inputs.cloud_provider }}")
+        self.assertEqual(node["environment"], "${{ needs.declaration.outputs.github_environment }}")
 
     def test_plan_cannot_be_combined_with_a_node_stage(self):
         guard = steps_by_name(self.jobs["declaration"]["steps"])["Reject dispatch combinations that cannot run"]
         self.assertIn('"${DEPLOY_ACTION}" == plan && "${SERVICE_STAGE}" != none', guard["run"])
         self.assertIn("stage_plan.py", guard["run"])
 
-    def test_entry_has_no_cloud_login_or_ssh_logic(self):
-        source = ENTRY.read_text(encoding="utf-8")
-        for fragment in ("gcloud", "os-login", "firewall-rules", "vault-action", "open-platform-prod"):
-            self.assertNotIn(fragment, source)
-
-
-class ProviderNeutralStageTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.workflow = load(GENERIC)
-        cls.jobs = cls.workflow["jobs"]
-        cls.steps = steps_by_name(cls.jobs["node-stage"]["steps"])
-
-    def test_reusable_contract(self):
-        inputs = self.workflow[True]["workflow_call"]["inputs"]
-        self.assertEqual(
-            set(inputs),
-            {"stage", "provider", "service_manifest", "provider_manifest", "connection_mode", "gitops_repo_ref", "playbooks_ref", "confirm"},
-        )
-        self.assertEqual(self.jobs["node-stage"]["runs-on"], "ubuntu-latest")
-        self.assertEqual(self.jobs["node-stage"]["environment"], "${{ needs.declaration.outputs.github_environment }}")
-
-    def test_generic_workflow_contains_no_cloud_specific_commands(self):
-        source = GENERIC.read_text(encoding="utf-8")
-        for fragment in ("gcloud", "os-login", "google-github-actions", "open-platform-prod", "0.0.0.0/0"):
-            self.assertNotIn(fragment, source)
-
-    def test_declaration_checks_connection_mode_and_stage(self):
+    def test_declaration_checks_connection_mode_and_stage_once(self):
         steps = steps_by_name(self.jobs["declaration"]["steps"])
         self.assertIn("stage_plan.py", steps["Resolve the stage plan"]["run"])
         resolve = steps["Resolve environment, Vault paths and connection mode from GitOps"]["run"]
         self.assertIn("resolve_vault_server_declaration.py", resolve)
         self.assertIn('"${declared_mode}" == "${CONNECTION_MODE}"', resolve)
+        # Only one call to the resolver script now that declaration is one job.
+        self.assertEqual(ENTRY.read_text(encoding="utf-8").count("resolve_vault_server_declaration.py"), 1)
+
+
+class ProviderNeutralStageTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.workflow = load(ENTRY)
+        cls.jobs = cls.workflow["jobs"]
+        cls.steps = steps_by_name(cls.jobs["node-stage"]["steps"])
+
+    def test_node_stage_job_shape(self):
+        self.assertEqual(self.jobs["node-stage"]["runs-on"], "ubuntu-latest")
+        self.assertEqual(self.jobs["node-stage"]["environment"], "${{ needs.declaration.outputs.github_environment }}")
+
+    def test_node_stage_contains_no_cloud_specific_commands(self):
+        source = "\n".join(step.get("run", "") for step in self.jobs["node-stage"]["steps"])
+        for fragment in ("gcloud", "os-login", "google-github-actions", "open-platform-prod", "0.0.0.0/0"):
+            self.assertNotIn(fragment, source)
 
     def test_adapter_opens_and_closes_access_and_host_keys_are_pinned(self):
         open_step = self.steps["Open node access through the GCP adapter"]
@@ -109,7 +106,7 @@ class ProviderNeutralStageTests(unittest.TestCase):
 class MigrationWiringTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.workflow = load(GENERIC)
+        cls.workflow = load(ENTRY)
         cls.steps = steps_by_name(cls.workflow["jobs"]["node-stage"]["steps"])
 
     def test_one_run_key_is_shared_by_both_adapters(self):
