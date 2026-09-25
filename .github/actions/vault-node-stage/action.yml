@@ -58,6 +58,18 @@ inputs:
     description: JSON extra-vars for the playbook tags (for example the confirm phrase a destructive role asserts)
     required: false
     default: '{}'
+  xconnect_role:
+    description: XConnect role the stage enrolls (gateway), or empty for none
+    required: false
+    default: ''
+  xconnect_topology:
+    description: GitOps XConnect topology file, when xconnect_role is set
+    required: false
+    default: ''
+  xconnect_dir:
+    description: Runner-private directory holding the verified runtime (bin/) and secrets (secrets/)
+    required: false
+    default: ''
 runs:
   using: composite
   steps:
@@ -119,13 +131,34 @@ runs:
         ANSIBLE_PRIVATE_KEY_FILE: ${{ inputs.ssh_private_key }}
         SSH_KNOWN_HOSTS: ${{ inputs.known_hosts }}
         NODE_STAGE_EXTRA_VARS: ${{ inputs.extra_vars }}
+        XCONNECT_ROLE: ${{ inputs.xconnect_role }}
+        XCONNECT_TOPOLOGY: ${{ inputs.xconnect_topology }}
+        XCONNECT_DIR: ${{ inputs.xconnect_dir }}
+        GATEWAY_STATE: ${{ inputs.gateway_state }}
       run: |
         set -euo pipefail
         export ANSIBLE_HOST_KEY_CHECKING=True
         export ANSIBLE_SSH_COMMON_ARGS="-o IdentitiesOnly=yes -o UserKnownHostsFile=${SSH_KNOWN_HOSTS} -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=ssh-ed25519"
+        # One-use invitations live only in the runner-private secrets dir.
+        trap 'rm -f -- "${XCONNECT_DIR:-/nonexistent}"/secrets/*.invite' EXIT
+        base_vars="${NODE_STAGE_EXTRA_VARS:-}"
+        [[ -n "${base_vars}" ]] || base_vars='{}'
         IFS=, read -r -a tags <<<"${STAGE_TAGS}"
         for tag in "${tags[@]}"; do
-          bash "${GITHUB_WORKSPACE}/scripts/node_deploy/run_stage.sh" \
+          stage_vars="${base_vars}"
+          if [[ -n "${XCONNECT_ROLE}" ]]; then
+            # *-identity tags only install and init; the enrollment tag gets an
+            # invitation, issued only if the node is not enrolled yet.
+            invite=()
+            if [[ "${tag}" != *-identity ]]; then
+              invite=(--invite --key "${ANSIBLE_PRIVATE_KEY_FILE}" --known-hosts "${SSH_KNOWN_HOSTS}" --gateway-state "${GATEWAY_STATE}")
+            fi
+            xconnect_vars="$(python3 "${GITHUB_WORKSPACE}/scripts/node_deploy/xconnect_stage.py" vars \
+              --role "${XCONNECT_ROLE}" --topology "${XCONNECT_TOPOLOGY}" --contract "${NODE_CONTRACT}" \
+              --artifacts "${XCONNECT_DIR}/bin" --secrets-dir "${XCONNECT_DIR}/secrets" "${invite[@]}")"
+            stage_vars="$(jq -cn --argjson base "${base_vars}" --argjson xconnect "${xconnect_vars}" '$base + $xconnect')"
+          fi
+          NODE_STAGE_EXTRA_VARS="${stage_vars}" bash "${GITHUB_WORKSPACE}/scripts/node_deploy/run_stage.sh" \
             "${NODE_CONTRACT}" "${PLAYBOOK}" "${tag}" "${PLAYBOOKS_ROOT}"
         done
 

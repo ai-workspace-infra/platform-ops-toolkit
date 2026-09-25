@@ -116,7 +116,7 @@ class StagePlanTests(unittest.TestCase):
 
     def test_unwired_or_unknown_stages_fail_closed(self):
         with self.assertRaisesRegex(ValueError, "not available yet"):
-            module.plan("xconnect-gateway")
+            module.plan("xconnect-one")
         with self.assertRaisesRegex(ValueError, "unknown node stage"):
             module.plan("arbitrary-shell")
 
@@ -138,6 +138,24 @@ class StagePlanTests(unittest.TestCase):
         self.assertEqual(lines["needs_tls"], "true")
         self.assertEqual(lines["needs_xconnect"], "false")
         self.assertEqual(lines["token"], "")
+
+    def test_gateway_enrollment_runs_identity_then_enrollment_without_waiting_for_raft(self):
+        gateway = entry("xconnect-gateway")
+        self.assertTrue(gateway["enabled"])
+        self.assertEqual(gateway["tags"], ["xconnect-gateway-identity", "xconnect-gateway"])
+        self.assertEqual(gateway["requires"], ["access"])
+        self.assertEqual(gateway["confirms"], ["gateway-running"])
+        self.assertEqual(gateway["xconnect"], "gateway")
+        order = list(module.STAGES)
+        self.assertLess(order.index("xconnect-gateway-frontend"), order.index("xconnect-gateway"))
+        self.assertLess(order.index("xconnect-gateway"), order.index("migrate-join"))
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "out"
+            module.write_outputs(module.plan("xconnect-gateway", migration=True), output)
+            lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        self.assertEqual(lines["xconnect"], "gateway")
+        self.assertEqual(lines["needs_xconnect"], "true")
+        self.assertEqual(lines["tags"], "xconnect-gateway-identity,xconnect-gateway")
 
     def test_github_outputs(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -33,7 +33,7 @@ on:
         type: choice
         required: true
         default: none
-        options: [none, node-preflight, node-process-metrics, vault-raft-verify, vault-snapshot, xconnect-gateway-frontend, fresh-leader, fresh-peers, migrate-auto, migrate-preflight, migrate-convert, migrate-rollback, migrate-join, migrate-cutover, migrate-remove]
+        options: [none, node-preflight, node-process-metrics, vault-raft-verify, vault-snapshot, xconnect-gateway-frontend, xconnect-gateway, fresh-leader, fresh-peers, migrate-auto, migrate-preflight, migrate-convert, migrate-rollback, migrate-join, migrate-cutover, migrate-remove]
       connection_mode:
         description: Current supported SSH transport for the hosted installation job.
         type: choice
@@ -91,6 +91,7 @@ jobs:
       monitoring_role: ${{ steps.declaration.outputs.monitoring_role }}
       monitoring_secret_path: ${{ steps.declaration.outputs.monitoring_secret_path }}
       xconnect_role: ${{ steps.declaration.outputs.xconnect_role }}
+      xconnect_secret_path: ${{ steps.declaration.outputs.xconnect_secret_path }}
       xconnect_topology: ${{ steps.declaration.outputs.xconnect_topology }}
       provider_config: ${{ steps.declaration.outputs.provider_config }}
       migration: ${{ steps.declaration.outputs.migration }}
@@ -378,6 +379,66 @@ jobs:
             kv/data/CICD/domains/svc.plus tls_fullchain_pem_b64 | VAULT_GATEWAY_TLS_FULLCHAIN_B64 ;
             kv/data/CICD/domains/svc.plus tls_key_pem_b64 | VAULT_GATEWAY_TLS_KEY_B64
 
+      # XConnect enrollment: Zero service credentials, the public trust bundle
+      # the Gateway hands to One, and the GitHub App key that reads the
+      # private XConnect releases. All through the scoped xconnect role.
+      - name: Read XConnect enrollment credentials
+        if: ${{ steps.stage.outputs.xconnect != '' }}
+        id: xconnect_secrets
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ needs.declaration.outputs.vault_addr }}
+          method: jwt
+          role: ${{ needs.declaration.outputs.xconnect_role }}
+          jwtGithubAudience: vault
+          exportToken: false
+          exportEnv: false
+          secrets: |
+            ${{ needs.declaration.outputs.xconnect_secret_path }} ZERO_SERVICE_TOKEN | ZERO_SERVICE_TOKEN ;
+            ${{ needs.declaration.outputs.xconnect_secret_path }} ZERO_OWNER_EMAIL | ZERO_OWNER_EMAIL ;
+            ${{ needs.declaration.outputs.xconnect_secret_path }} VLESS_ID | XCONNECT_VLESS_ID ;
+            kv/data/CICD/domains/svc.plus tls_trust_bundle_pem_b64 | XCONNECT_TRUST_BUNDLE_B64 ;
+            kv/data/CICD/github-app/daily-snapshot app_private_key | XCONNECT_APP_PRIVATE_KEY
+
+      - name: Create a read-only XConnect release token
+        if: ${{ steps.stage.outputs.xconnect != '' }}
+        id: xconnect_release
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: Iv23liNwStpQIiXajhpb
+          private-key: ${{ steps.xconnect_secrets.outputs.XCONNECT_APP_PRIVATE_KEY }}
+          owner: ai-workspace-xstream
+          repositories: XConnect-One,XConnect-Gateway
+
+      - name: Download the reviewed XConnect runtime
+        if: ${{ steps.stage.outputs.xconnect != '' }}
+        shell: bash
+        env:
+          XCONNECT_ROLE: ${{ steps.stage.outputs.xconnect }}
+          XCONNECT_TOPOLOGY: gitops/${{ needs.declaration.outputs.xconnect_topology }}
+          NODE_CONTRACT: ${{ steps.access.outputs.contract }}
+          RELEASE_TOKEN: ${{ steps.xconnect_release.outputs.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          TRUST_BUNDLE_B64: ${{ steps.xconnect_secrets.outputs.XCONNECT_TRUST_BUNDLE_B64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          install -d -m 700 "${RUNNER_TEMP}/xconnect" "${RUNNER_TEMP}/xconnect/secrets"
+          arch="$(python3 scripts/node_deploy/xconnect_stage.py arch --role "${XCONNECT_ROLE}" \
+            --contract "${NODE_CONTRACT}" --key "${NODE_ACCESS_DIR}/id_ed25519" --known-hosts "${SSH_KNOWN_HOSTS}")"
+          eval "$(python3 - "${XCONNECT_TOPOLOGY}" <<'PY'
+          import shlex, sys, yaml
+          runtime = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))["spec"]["runtime"]
+          for name, key in (("GATEWAY_RELEASE_TAG", "gateway_release"), ("ONE_RELEASE_TAG", "cli_release"), ("XRAY_RELEASE_TAG", "xray_release")):
+              print(f"export {name}={shlex.quote(str(runtime.get(key, '')))}")
+          PY
+          )"
+          components=one
+          [[ "${XCONNECT_ROLE}" == gateway ]] && components=gateway
+          bash scripts/node_deploy/xconnect_artifacts.sh "${RUNNER_TEMP}/xconnect/bin" "${arch}" "${components}"
+          printf '%s' "${TRUST_BUNDLE_B64}" | base64 --decode > "${RUNNER_TEMP}/xconnect/secrets/trust-bundle.pem"
+          openssl x509 -in "${RUNNER_TEMP}/xconnect/secrets/trust-bundle.pem" -noout
+
       - name: Log in with the stage's scoped Vault role
         if: ${{ steps.stage.outputs.token != '' }}
         uses: hashicorp/vault-action@v4
@@ -426,6 +487,9 @@ jobs:
           VECTOR_AUTH_PASSWORD: ${{ steps.observability.outputs.VECTOR_AUTH_PASSWORD }}
           VAULT_GATEWAY_TLS_FULLCHAIN_B64: ${{ steps.gateway_tls.outputs.VAULT_GATEWAY_TLS_FULLCHAIN_B64 }}
           VAULT_GATEWAY_TLS_KEY_B64: ${{ steps.gateway_tls.outputs.VAULT_GATEWAY_TLS_KEY_B64 }}
+          ZERO_SERVICE_TOKEN: ${{ steps.xconnect_secrets.outputs.ZERO_SERVICE_TOKEN }}
+          ZERO_OWNER_EMAIL: ${{ steps.xconnect_secrets.outputs.ZERO_OWNER_EMAIL }}
+          XCONNECT_VLESS_ID: ${{ steps.xconnect_secrets.outputs.XCONNECT_VLESS_ID }}
         with:
           contract: ${{ steps.access.outputs.contract }}
           stage: ${{ steps.stage.outputs.stage }}
@@ -441,6 +505,9 @@ jobs:
           action: ${{ steps.stage.outputs.action }}
           vault_addr: ${{ needs.declaration.outputs.vault_addr }}
           extra_vars: ${{ steps.stage.outputs.extra_vars }}
+          xconnect_role: ${{ steps.stage.outputs.xconnect }}
+          xconnect_topology: ${{ github.workspace }}/gitops/${{ needs.declaration.outputs.xconnect_topology }}
+          xconnect_dir: ${{ runner.temp }}/xconnect
           gateway_state: /var/lib/xconnect-gateway/${{ needs.declaration.outputs.environment }}/state.json
 
       - name: Close access to the existing node
@@ -464,7 +531,7 @@ jobs:
       - name: Remove runner-private node files
         if: ${{ always() }}
         shell: bash
-        run: rm -rf -- "${NODE_ACCESS_DIR}" "${SSH_KNOWN_HOSTS}"
+        run: rm -rf -- "${NODE_ACCESS_DIR}" "${SSH_KNOWN_HOSTS}" "${RUNNER_TEMP}/xconnect"
 
   cleanup-node-access:
     name: Ensure temporary node access is closed

@@ -192,7 +192,16 @@ run unless its prerequisites hold. The probe needs no Vault token.
 | 3 | `fresh-peers` | node 0 initialized and unsealed | installs Vault on nodes 1/2 | unseal nodes 1/2; `vault operator raft list-peers` |
 | 4 | `vault-raft-verify` | all nodes unsealed, one cluster ID, one active, same private Raft leader | nothing | confirm all voters |
 | 5 | `node-process-metrics` | Raft quorum as above | node exporter, process exporter, Vector | — |
-| 6 | `xconnect-gateway`, `xconnect-one` | quorum; One also needs Gateway enrollment | not dispatchable yet | — |
+| 6 | `xconnect-gateway-frontend` | SSH | Caddy on node 0: TLS 443 for `vault-xconnect.svc.plus`, only `/xconnect` forwarded | point `vault-xconnect.svc.plus` at node 0 |
+| 7 | `xconnect-gateway` | SSH (not Raft: the old node joins over this overlay) | installs the verified runtime, `init`, issues a one-use invitation bound to the Gateway key, enrolls, starts Xray + sync; confirms `gateway-running` | check the Gateway in the Zero portal |
+| 8 | `xconnect-one` | Gateway enrolled | not dispatchable yet (C4) | — |
+
+`xconnect-gateway` needs, in `kv/data/CICD/shared/xconnect`: `ZERO_SERVICE_TOKEN`,
+`ZERO_OWNER_EMAIL` and `VLESS_ID` for the shared network (not the UAT values).
+The xconnect role also reads the `svc.plus` trust bundle and the GitHub App key
+that mints a read-only token for the private XConnect releases; re-apply the
+roles (`bootstrap_shared_gcp_roles.sh --apply`) after pulling this policy.
+Re-running the stage on an enrolled Gateway issues no invitation.
 
 Initialization and unsealing always happen in a secured operator terminal
 (see `docs/vault/operator-runbook.md` in `playbooks`). GitHub Actions never
