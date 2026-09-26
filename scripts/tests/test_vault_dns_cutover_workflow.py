@@ -21,7 +21,18 @@ class VaultDnsCutoverWorkflowTests(unittest.TestCase):
         self.assertEqual(self.inputs["dns_action"]["default"], "none")
         self.assertNotIn("CLOUDFLARE_API_TOKEN", self.inputs)
         self.assertEqual(len(self.inputs), 10)
-        self.assertIn("inputs.dns_action == 'none'", self.jobs["declaration"]["if"])
+        self.assertNotIn("if", self.jobs["declaration"])
+        self.assertIn("inputs.dns_action == 'none'", self.jobs["gcp-shared"]["if"])
+
+    def test_dns_runs_after_the_existing_vault_pipeline(self):
+        discovery = self.jobs["dns-discovery"]
+        self.assertEqual(
+            discovery["needs"],
+            ["declaration", "gcp-shared", "node-stage", "cleanup-node-access"],
+        )
+        self.assertIn("always()", discovery["if"])
+        self.assertIn("needs.declaration.result == 'success'", discovery["if"])
+        self.assertIn("needs.cleanup-node-access.result == 'skipped'", discovery["if"])
 
     def test_matrix_uses_reviewed_manifest_and_live_gcp_addresses(self):
         discovery = self.jobs["dns-discovery"]
