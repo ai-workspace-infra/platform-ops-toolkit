@@ -75,7 +75,9 @@ jobs:
     name: Validate ${{ matrix.node }} (${{ matrix.role }})
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: true
+      # Report every endpoint in one run; the cutover job still waits for the
+      # complete matrix to succeed before it can mutate DNS.
+      fail-fast: false
       matrix:
         include:
           - node: vault-prod-0
