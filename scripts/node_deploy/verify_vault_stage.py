@@ -105,6 +105,15 @@ def reach(target):
     except (OSError, ValueError):
         return "blocked"
 
+def overlay():
+    # IPv4 addresses on XConnect/WireGuard interfaces: the node's live overlay IPs.
+    found = []
+    for line in run("ip", "-4", "-o", "addr", "show").stdout.splitlines():
+        fields = line.split()
+        if len(fields) >= 4 and fields[1].startswith(("xcon", "wg")):
+            found.append({"interface": fields[1], "address": fields[3].split("/")[0]})
+    return found
+
 disk = os.statvfs("/")
 seal = api("/v1/sys/seal-status") or {}
 print(json.dumps({
@@ -123,6 +132,7 @@ print(json.dumps({
     "port_guard": run("sudo", "-n", "nft", "list", "table", "inet", guard_table).returncode == 0,
     "listeners": listeners,
     "reach": {target: reach(target) for target in targets.split(",") if target},
+    "overlay": overlay(),
 }))
 """
 
@@ -603,19 +613,34 @@ def describe(state: dict) -> str:
     return "active" if health.get("standby") is False else "standby"
 
 
+def xconnect_state(node: dict, state: dict) -> str:
+    """Gateway enrollment, or the overlay IPs live on the node's XConnect interfaces."""
+    if not state.get("reachable"):
+        return "-"
+    parts = []
+    if GATEWAY_GROUP in node.get("groups", []):
+        gateway = gateway_status(state)
+        parts.append("gateway enrolled" if gateway["enrolled"] else "gateway identity" if gateway["public_key"] else "gateway not set up")
+    addresses = [item.get("address") for item in state.get("overlay") or [] if item.get("address")]
+    parts.append(f"overlay {', '.join(addresses)}" if addresses else "no overlay IP")
+    return "; ".join(parts)
+
+
 def summary(contract: dict, probes: dict[str, dict], title: str) -> str:
     lines = [
         f"### {title}",
         "",
-        "| Node | Vault | Storage | Version | Cluster | sudo | swap | node-exporter | process-exporter | vector |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Node | Address | Raft address | SSH user | XConnect | Vault | Storage | Version | Cluster | sudo | swap | node-exporter | process-exporter | vector |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for node in contract["spec"]["nodes"]:
         state = probes[node["id"]]
         cluster = str(health_of(state).get("cluster_id") or "")[:8] or "-"
         units = state.get("units", {})
         lines.append(
-            f"| {node['id']} | {describe(state)} | {state.get('storage_type') or '-'} | "
+            f"| {node['id']} | {node.get('address', '-')} | {node.get('private_address') or '-'} | "
+            f"{node.get('ssh_user', '-')} | {xconnect_state(node, state)} | "
+            f"{describe(state)} | {state.get('storage_type') or '-'} | "
             f"{state.get('version') or '-'} | {cluster} | {state.get('sudo', '-')} | "
             f"{state.get('swap_kb', '-')} | "
             + " | ".join(units.get(unit, "-") or "-" for unit in MONITORING_UNITS)
