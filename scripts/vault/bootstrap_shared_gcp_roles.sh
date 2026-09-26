@@ -46,6 +46,7 @@ names=(
   github-actions-platform-ops-toolkit-shared-vault-legacy-ssh
   github-actions-platform-ops-toolkit-shared-vault-snapshot
   github-actions-platform-ops-toolkit-shared-vault-raft-operator
+  github-actions-platform-ops-toolkit-shared-xconnect-network
 )
 
 for name in "${names[@]}"; do
@@ -61,6 +62,9 @@ for name in "${names[@]}"; do
   elif [[ "${name}" == *-gcp-oidc-* ]]; then
     workflow_claim=job_workflow_ref
     workflow_value="ai-workspace-infra/platform-ops-toolkit/.github/workflows/gcp-iac-pipeline.yml@*"
+  elif [[ "${name}" == *-shared-xconnect-network ]]; then
+    workflow_claim=job_workflow_ref
+    workflow_value="ai-workspace-infra/platform-ops-toolkit/.github/workflows/xconnect-zero-cloud.yaml@refs/heads/main"
   else
     workflow_claim=workflow_ref
     workflow_value="ai-workspace-infra/platform-ops-toolkit/.github/workflows/vault-server.yml@refs/heads/main"
