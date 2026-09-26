@@ -139,6 +139,7 @@ runs:
         SERVICE_MANIFEST: ${{ inputs.service_manifest }}
         PROVIDER_MANIFEST: ${{ inputs.provider_manifest }}
         XCONNECT_TOPOLOGY: ${{ inputs.xconnect_topology }}
+        CONNECTION_MODE: ${{ inputs.connection_mode }}
       run: |
         set -euo pipefail
         contract="${WORK_DIR}/nodes.json"
@@ -154,7 +155,7 @@ runs:
           --ssh-user "${SSH_USER}" \
           --xconnect-topology "gitops/${XCONNECT_TOPOLOGY}" \
           --output "${contract}"
-        if jq -e 'any(.spec.nodes[]; has("overlay_address"))' "${contract}" >/dev/null; then
+        if [[ "${CONNECTION_MODE}" == "xconnect-zero" ]] && jq -e 'any(.spec.nodes[]; has("overlay_address"))' "${contract}" >/dev/null; then
           python3 - "${contract}" <<'PY'
         import json
         import socket
