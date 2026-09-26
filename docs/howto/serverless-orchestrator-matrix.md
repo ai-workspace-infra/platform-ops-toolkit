@@ -305,4 +305,7 @@ All runtime credentials use GitHub OIDC → Vault JWT:
 - Supabase connection contract: `kv/uat/serverless/supabase`.
 
 No JSON service-account private key is generated or uploaded. Cloud Run expects three immutable
-images in `asia-northeast1-docker.pkg.dev/xworktech/serverless/` with the same snapshot tag.
+images in the environment's GitOps-declared Artifact Registry, both in `asia-east1`:
+`asia-east1-docker.pkg.dev/open-platform-uat/serverless/` for UAT and
+`asia-east1-docker.pkg.dev/open-platform-prod/serverless/` for PROD. All three images
+must use the same immutable snapshot tag.

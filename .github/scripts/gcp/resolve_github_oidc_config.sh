@@ -23,8 +23,8 @@ config = YAML.load_file(ENV.fetch("CONFIG_FILE"))
 spec = config.fetch("spec")
 metadata = config.fetch("metadata")
 project_by_environment = {
-  "uat" => "xwork-open-platform-uat",
-  "prod" => "xwork-open-platform-prod",
+  "uat" => "open-platform-uat",
+  "prod" => "open-platform-prod",
   "shared" => "open-platform-prod"
 }
 expected_project = project_by_environment.fetch(environment)
