@@ -45,6 +45,11 @@ on:
         default: manifest
         type: choice
         options: [manifest, aws, gcp, vps, akamai-cloud]
+      nodes:
+        description: "Comma-separated Akamai resource_contract nodes to run (empty = all declared)"
+        required: false
+        default: ''
+        type: string
       destroy:
         description: "Destroy ephemeral UAT resources when this dispatch finishes"
         required: true
@@ -111,6 +116,7 @@ jobs:
         env:
           REQUESTED_PROVIDER: ${{ inputs.provider || 'manifest' }}
           TARGET_ENVIRONMENT: ${{ inputs.environment || 'uat' }}
+          SELECTED_NODES: ${{ inputs.nodes || '' }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -135,6 +141,12 @@ jobs:
               entry = dict(raw_entry)
               entry.setdefault('account', contract.get('account', ''))
               entries.append(entry)
+          selected_nodes = {node.strip() for node in os.environ['SELECTED_NODES'].split(',') if node.strip()}
+          if selected_nodes and adapter == 'akamai-cloud':
+              unknown = selected_nodes - {entry['node'] for entry in entries}
+              if unknown:
+                  raise SystemExit(f'nodes not declared in resource_contract.manifests: {sorted(unknown)}')
+              entries = [entry for entry in entries if entry['node'] in selected_nodes]
           akamai_matrix = {'include': entries}
           if adapter == 'akamai-cloud' and not akamai_matrix['include']:
               raise SystemExit('Akamai provider requires resource_contract.manifests')
