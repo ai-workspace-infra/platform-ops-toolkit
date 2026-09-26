@@ -1,11 +1,12 @@
 import importlib.util
+import io
 import json
 import stat
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+from urllib.error import HTTPError
 from pathlib import Path
 
 import yaml
@@ -46,6 +47,30 @@ CONTRACT = {"spec": {"nodes": [
     {"id": "vault-prod-1", "groups": ["vault_shared_nodes", "vault_shared_peers", "xconnect_one"]},
 ]}}
 ENV = {"ZERO_SERVICE_TOKEN": "service-token", "ZERO_OWNER_EMAIL": "ops@example.com", "XCONNECT_VLESS_ID": "vless-id"}
+
+
+class HTTPClientTests(unittest.TestCase):
+    def test_identifies_the_automation_client_to_the_edge(self):
+        class Reply(io.BytesIO):
+            status = 201
+        with patch.object(module.urllib.request, "urlopen", return_value=Reply(b'{"ok":true}')) as call:
+            self.assertEqual(module.post_json("https://accounts.svc.plus/test", "secret", {}), (201, {"ok": True}))
+        request = call.call_args.args[0]
+        self.assertEqual(request.get_header("User-agent"), module.HTTP_USER_AGENT)
+        self.assertEqual(request.get_header("Accept"), "application/json")
+
+    def test_edge_rejection_is_not_misreported_as_owner_denial(self):
+        error = HTTPError("https://accounts.svc.plus/test", 403, "Forbidden", {}, io.BytesIO(b"error code: 1010\n"))
+        with patch.object(module.urllib.request, "urlopen", side_effect=error):
+            status, body = module.post_json(error.url, "secret", {})
+        self.assertEqual(status, 403)
+        self.assertEqual(body, {"diagnostic": "cloudflare_browser_integrity_rejection"})
+
+    def test_application_error_diagnostic_does_not_echo_secrets(self):
+        error = HTTPError("https://accounts.svc.plus/test", 403, "Forbidden", {},
+                          io.BytesIO(json.dumps({"error": "forbidden", "token": "secret"}).encode()))
+        with patch.object(module.urllib.request, "urlopen", side_effect=error):
+            self.assertEqual(module.post_json(error.url, "secret", {}), (403, {"diagnostic": "forbidden"}))
 
 
 def topology():
@@ -129,62 +154,6 @@ class InvitationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "ZERO_SERVICE_TOKEN"):
                 module.issue_invite(topology(), "gateway", "vault-prod-0", GATEWAY_KEY, Path(directory),
                                     {**ENV, "ZERO_SERVICE_TOKEN": ""}, lambda *_: (201, response()))
-
-
-class ZeroClientTests(unittest.TestCase):
-    """post_json against a real local HTTP server."""
-
-    def serve(self, status, body, content_type, extra_headers=None):
-        seen = {}
-
-        class Handler(BaseHTTPRequestHandler):
-            server_version = (extra_headers or {}).get("Server", "zero")
-            sys_version = ""
-
-            def do_POST(self):
-                seen["user_agent"] = self.headers.get("User-Agent")
-                seen["token"] = self.headers.get("X-Service-Token")
-                self.rfile.read(int(self.headers.get("Content-Length", 0)))
-                self.send_response(status)
-                self.send_header("Content-Type", content_type)
-                for name, value in (extra_headers or {}).items():
-                    if name != "Server":
-                        self.send_header(name, value)
-                self.end_headers()
-                self.wfile.write(body)
-
-            def log_message(self, *args):
-                pass
-
-        server = HTTPServer(("127.0.0.1", 0), Handler)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-        self.addCleanup(server.shutdown)
-        return f"http://127.0.0.1:{server.server_port}/api", seen
-
-    def test_sends_an_explicit_user_agent_and_reports_zero_refusals_without_secrets(self):
-        url, seen = self.serve(403, json.dumps({"error": "forbidden", "message": "owner not allowed"}).encode(), "application/json")
-        status, response = module.post_json(url, "zero-secret-token", {"owner_email": "ops@example.com"})
-        self.assertEqual(status, 403)
-        self.assertEqual(seen["user_agent"], module.USER_AGENT)
-        self.assertEqual(seen["token"], "zero-secret-token")
-        self.assertEqual(response["refusal"]["error"], "forbidden")
-        self.assertEqual(response["refusal"]["message"], "owner not allowed")
-        self.assertNotIn("zero-secret-token", json.dumps(response))
-
-    def test_names_a_non_json_edge_refusal(self):
-        url, _ = self.serve(403, b"<html>Access denied</html>", "text/html; charset=UTF-8", {"Server": "cloudflare", "CF-RAY": "abc123"})
-        status, response = module.post_json(url, "zero-secret-token", {})
-        self.assertEqual(status, 403)
-        self.assertEqual(response["refusal"]["server"], "cloudflare")
-        self.assertEqual(response["refusal"]["cf_ray"], "abc123")
-        self.assertIn("not JSON", response["refusal"]["body"])
-        self.assertNotIn("Access denied", json.dumps(response))
-
-    def test_refused_invitation_error_carries_the_reason(self):
-        env = {"ZERO_SERVICE_TOKEN": "t", "ZERO_OWNER_EMAIL": "o@example.com", "XCONNECT_VLESS_ID": "v"}
-        post = lambda url, token, body: (403, {"refusal": {"error": "forbidden"}})
-        with self.assertRaisesRegex(ValueError, 'HTTP 403 .*"error": "forbidden"'):
-            module.request_join_uri(topology(), "gateway", "vault-prod-0", "A" * 43 + "=", env, post)
 
 
 class VarsTests(unittest.TestCase):
