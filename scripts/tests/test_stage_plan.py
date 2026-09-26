@@ -65,7 +65,7 @@ class StagePlanTests(unittest.TestCase):
         # XConnect path to the old cluster, then ONE node per dispatch.
         self.assertEqual(
             entry("migrate-join")["requires"],
-            ["access", "legacy-raft", "no-foreign-cluster", "overlay-raft-path", "next-peer"],
+            ["access", "legacy-raft", "no-foreign-cluster", "raft-overlay", "overlay-raft-path", "next-peer"],
         )
         self.assertTrue(entry("migrate-join")["one_node"])
         self.assertEqual(entry("migrate-join")["confirms"], ["selected-running"])

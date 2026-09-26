@@ -65,6 +65,14 @@ class VerifyVaultStageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "SSH probe failed"):
             module.verify(contract, ["access"], probes)
 
+    def test_access_reports_but_does_not_block_on_the_retiring_source_swap(self):
+        contract, probes = migration_fixture()
+        probes["legacy"]["swap_kb"] = 4194300
+        module.verify(contract, ["access"], probes)
+        probes["vault-1"]["swap_kb"] = 1024
+        with self.assertRaisesRegex(ValueError, "vault-1: swap"):
+            module.verify(contract, ["access"], probes)
+
     def test_leader_stage_accepts_fresh_nodes_but_not_a_split_cluster(self):
         contract, probes = fixture()
         fresh_install(probes)
@@ -167,8 +175,18 @@ class VerifyVaultStageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unknown checks"):
             module.verify(contract, ["arbitrary-shell"], probes)
         report = module.summary(contract, probes, "Before test")
-        self.assertIn("| vault-0 | active | raft | 1.21.4 | cluster- |", report)
-        self.assertIn("| vault-1 | standby |", report)
+        self.assertIn("| vault-0 | - | 10.81.0.2 | - | gateway enrolled; no overlay IP | active | raft | 1.21.4 | cluster- |", report)
+
+    def test_report_shows_address_user_and_live_overlay_ip(self):
+        contract, probes = fixture()
+        contract["spec"]["nodes"][1].update({"address": "34.1.2.3", "ssh_user": "sa_1"})
+        probes["vault-1"]["overlay"] = [{"interface": "xconone0", "address": "10.79.0.3"}]
+        report = module.summary(contract, probes, "State")
+        self.assertIn("| vault-1 | 34.1.2.3 | 10.81.0.3 | sa_1 | overlay 10.79.0.3 | standby |", report)
+        probes["vault-0"]["gateway"] = {"exists": True, "enrolled": False, "public_key": "A" * 43 + "="}
+        self.assertIn("| vault-0 | - | 10.81.0.2 | - | gateway identity; no overlay IP |", module.summary(contract, probes, "State"))
+        probes["vault-2"] = {"reachable": False}
+        self.assertIn("| vault-2 | - | 10.81.0.4 | - | - | unreachable |", module.summary(contract, probes, "State"))
 
 
 def migration_fixture():
@@ -274,6 +292,15 @@ class MigrationCheckTests(unittest.TestCase):
         probes["legacy"]["reach"]["10.81.0.4:8201"] = "blocked"
         with self.assertRaisesRegex(ValueError, "legacy cannot reach vault-2 at 10.81.0.4:8201"):
             module.verify(contract, ["overlay-raft-path"], probes)
+
+    def test_join_needs_every_raft_address_on_the_overlay(self):
+        contract, _ = migration_fixture()
+        for node in contract["spec"]["nodes"]:
+            node["overlay_address"] = node["private_address"]
+        module.verify(contract, ["raft-overlay"], {})
+        del contract["spec"]["nodes"][1]["overlay_address"]
+        with self.assertRaisesRegex(ValueError, "vault-1: no XConnect overlay IP recorded"):
+            module.verify(contract, ["raft-overlay"], {})
 
     def test_probe_targets_are_validated(self):
         self.assertTrue(module.SAFE_TARGETS.fullmatch("10.79.0.1:8200,10.79.0.1:8201"))
