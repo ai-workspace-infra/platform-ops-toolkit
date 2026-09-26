@@ -177,6 +177,26 @@ class GcpVaultResolutionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "provider-neutral"):
             resolver.resolve(manifest, service, instances, "open-platform-prod", "shared", "gha_1234567890")
 
+    def test_resolves_single_declared_gateway(self):
+        manifest, service, instances = fixture()
+        manifest["spec"]["resources"]["vault_nodes"] = manifest["spec"]["resources"]["vault_nodes"][:1]
+        instances = instances[:1]
+        service["spec"]["storage"] = {"backend": "raft", "address_scope": "private", "members": 1,
+                                        "leader": "vault-prod-0", "peers": []}
+        service["spec"]["nodes"] = service["spec"]["nodes"][:1]
+        result = resolver.resolve(manifest, service, instances, "open-platform-prod", "shared", "gha_1234567890")
+        self.assertEqual([node["id"] for node in result["spec"]["nodes"]], ["vault-prod-0"])
+
+    def test_rejects_two_node_scale(self):
+        manifest, service, instances = fixture()
+        manifest["spec"]["resources"]["vault_nodes"] = manifest["spec"]["resources"]["vault_nodes"][:2]
+        instances = instances[:2]
+        service["spec"]["storage"]["members"] = 2
+        service["spec"]["storage"]["peers"] = ["vault-prod-1"]
+        service["spec"]["nodes"] = service["spec"]["nodes"][:2]
+        with self.assertRaisesRegex(ValueError, "one or three"):
+            resolver.resolve(manifest, service, instances, "open-platform-prod", "shared", "gha_1234567890")
+
 
 if __name__ == "__main__":
     unittest.main()

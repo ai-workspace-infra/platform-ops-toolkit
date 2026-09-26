@@ -23,6 +23,7 @@ class VaultDnsCutoverWorkflowTests(unittest.TestCase):
         self.assertEqual(len(self.inputs), 10)
         self.assertNotIn("if", self.jobs["declaration"])
         self.assertIn("inputs.dns_action == 'none'", self.jobs["gcp-shared"]["if"])
+        self.assertIn("len(names) not in (1, 3)", "\n".join(step.get("run", "") for step in self.jobs["dns-discovery"]["steps"]))
 
     def test_dns_runs_after_the_existing_vault_pipeline(self):
         discovery = self.jobs["dns-discovery"]
@@ -33,6 +34,9 @@ class VaultDnsCutoverWorkflowTests(unittest.TestCase):
         self.assertIn("always()", discovery["if"])
         self.assertIn("needs.declaration.result == 'success'", discovery["if"])
         self.assertIn("needs.cleanup-node-access.result == 'skipped'", discovery["if"])
+        source = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("GCP_TARGETS", source)
+        self.assertIn("mapfile -t targets", source)
 
     def test_matrix_uses_reviewed_manifest_and_live_gcp_addresses(self):
         discovery = self.jobs["dns-discovery"]

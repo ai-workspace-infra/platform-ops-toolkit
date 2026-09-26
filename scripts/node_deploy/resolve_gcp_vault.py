@@ -171,12 +171,15 @@ def resolve(
     service_nodes = service_spec["nodes"]
     service_roles = {node["id"]: node["xconnect_role"] for node in service_nodes}
     declared_roles = {node["name"]: node["xconnect_role"] for node in declared}
+    node_count = len(declared)
+    if node_count not in {1, 3}:
+        raise ValueError("GCP Vault scale must be one or three nodes")
+    expected_roles = ["gateway"] if node_count == 1 else ["gateway", "one", "one"]
     if (
-        len(declared) != 3
-        or len(service_roles) != 3
+        len(service_roles) != node_count
         or declared_roles != service_roles
-        or sorted(service_roles.values()) != ["gateway", "one", "one"]
-        or storage.get("members") != 3
+        or sorted(service_roles.values()) != sorted(expected_roles)
+        or storage.get("members") != node_count
         or storage.get("leader") not in service_roles
         or service_roles[storage["leader"]] != "gateway"
         or set(storage.get("peers", [])) != set(service_roles) - {storage["leader"]}
@@ -245,14 +248,20 @@ def resolve(
         nodes.append(resolved)
     # A migration never initializes a new leader: the existing node leads.
     stages = [stage for stage in STAGES if not (migration and stage == "vault-shared-leader")]
+    declared_groups = {group for node in nodes for group in node["groups"]}
+    stage_targets = {
+        stage: STAGE_TARGETS[stage]
+        for stage in stages
+        if all(group in declared_groups for group in STAGE_TARGETS[stage])
+    }
     contract = {
         "apiVersion": "ops.svc.plus/v1alpha1",
         "kind": "NodeDeployment",
         "metadata": {"name": metadata["name"]},
         "spec": {
             "environment": environment,
-            "stages": stages,
-            "stage_targets": {stage: STAGE_TARGETS[stage] for stage in stages},
+            "stages": list(stage_targets),
+            "stage_targets": stage_targets,
             "connection": {"mode": access_mode},
             "nodes": nodes,
         },
