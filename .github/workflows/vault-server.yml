@@ -23,7 +23,7 @@ on:
         default: gcp-cloud
         options: [gcp-cloud]
       deploy_action:
-        description: IaC action. none runs only the selected node stage against existing nodes; plan cannot be combined with a node stage.
+        description: IaC action. Ignored when dns_action is selected; none runs only a node stage.
         type: choice
         required: true
         default: plan
@@ -33,13 +33,13 @@ on:
         type: choice
         required: true
         default: none
-        options: [none, node-preflight, node-process-metrics, vault-raft-verify, vault-snapshot, vault-service-verify, xconnect-gateway-frontend, xconnect-gateway, xconnect-one, xconnect-operator-invite, fresh-leader, fresh-peers, migrate-auto, migrate-preflight, migrate-convert, migrate-rollback, migrate-join, migrate-cutover, migrate-remove]
-      connection_mode:
-        description: Current supported SSH transport for the hosted installation job.
+        options: [none, node-preflight, node-process-metrics, vault-raft-verify, vault-snapshot, vault-service-verify, xconnect-gateway-frontend, vault-public-frontend, xconnect-gateway, xconnect-one, xconnect-operator-invite, fresh-leader, fresh-peers, migrate-auto, migrate-preflight, migrate-convert, migrate-rollback, migrate-join, migrate-cutover, migrate-remove]
+      dns_action:
+        description: Verify public Vault endpoints, switch to the three GCP A records, or restore the legacy A record.
         type: choice
         required: true
-        default: bootstrap-public
-        options: [bootstrap-public]
+        default: none
+        options: [none, verify, switch, rollback]
       gitops_repo_ref:
         description: GitOps ref containing the reviewed Vault resource declaration.
         type: string
@@ -59,9 +59,9 @@ on:
         description: Reviewed iac_modules commit containing the GCP Vault renderer and VM modules.
         type: string
         required: true
-        default: 815ad1c21dde0f2e579913d755bfe2d45da25e05
+        default: 8b223cf01b8fca51ce8e84e7aa407941044561d5
       confirm:
-        description: Confirmation phrase for stages that change a live Vault (MIGRATE-VAULT-AUTO for migrate-auto; a missing phrase is named in the error).
+        description: Confirmation phrase for live Vault stages or DNS switch/rollback (SWITCH-VAULT-DNS / ROLLBACK-VAULT-DNS).
         type: string
         required: false
         default: ''
@@ -69,7 +69,7 @@ on:
         description: Reviewed playbooks commit for Vault node configuration.
         type: string
         required: true
-        default: c26b995a1a30de71350f7101455e7dd13ef21c21
+        default: 20ac73b13fbe0bfae54faa7bb37fe082521b6e01
 
 permissions:
   contents: read
@@ -87,6 +87,7 @@ env:
 jobs:
   declaration:
     name: Resolve declaration and stage plan
+    if: ${{ inputs.dns_action == 'none' }}
     runs-on: ubuntu-latest
     outputs:
       environment: ${{ steps.declaration.outputs.environment }}
@@ -142,7 +143,7 @@ jobs:
           SERVICE_MANIFEST: ${{ inputs.service_manifest }}
           PROVIDER_MANIFEST: ${{ inputs.provider_manifest }}
           CLOUD_PROVIDER: ${{ inputs.cloud_provider }}
-          CONNECTION_MODE: ${{ inputs.connection_mode }}
+          CONNECTION_MODE: bootstrap-public
         run: |
           set -euo pipefail
           python3 -m pip install --disable-pip-version-check 'pyyaml==6.0.2'
@@ -273,7 +274,7 @@ jobs:
           service_manifest: ${{ inputs.service_manifest }}
           provider_manifest: ${{ inputs.provider_manifest }}
           xconnect_topology: ${{ needs.declaration.outputs.xconnect_topology }}
-          connection_mode: ${{ inputs.connection_mode }}
+          connection_mode: bootstrap-public
           work_dir: ${{ runner.temp }}/node-access/gcp
           ssh_key: ${{ runner.temp }}/node-access/id_ed25519
 
@@ -565,7 +566,7 @@ jobs:
         with:
           phase: close
           provider_config: ${{ needs.declaration.outputs.provider_config }}
-          connection_mode: ${{ inputs.connection_mode }}
+          connection_mode: bootstrap-public
           work_dir: ${{ runner.temp }}/node-access/gcp
           ssh_key: ${{ runner.temp }}/node-access/id_ed25519
 
@@ -595,6 +596,382 @@ jobs:
         with:
           phase: close
           provider_config: ${{ needs.declaration.outputs.provider_config }}
-          connection_mode: ${{ inputs.connection_mode }}
+          connection_mode: bootstrap-public
           work_dir: ${{ runner.temp }}/node-access/gcp
           ssh_key: ${{ runner.temp }}/node-access/id_ed25519
+
+  dns-discovery:
+    name: Resolve reviewed Vault DNS targets
+    if: ${{ inputs.dns_action != 'none' }}
+    runs-on: ubuntu-latest
+    environment: prod
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      domain: ${{ steps.manifest.outputs.domain }}
+      old_ip: ${{ steps.manifest.outputs.old_ip }}
+      matrix: ${{ steps.instances.outputs.matrix }}
+      prod_0_ip: ${{ steps.instances.outputs.prod_0_ip }}
+      prod_1_ip: ${{ steps.instances.outputs.prod_1_ip }}
+      prod_2_ip: ${{ steps.instances.outputs.prod_2_ip }}
+      expected_cluster: ${{ steps.cluster.outputs.cluster_id }}
+    steps:
+      - name: Require a production DNS-only dispatch
+        shell: bash
+        env:
+          SERVICE_STAGE: ${{ inputs.service_stage }}
+          DEPLOY_ACTION: ${{ inputs.deploy_action }}
+          GITOPS_REF: ${{ inputs.gitops_repo_ref }}
+          WORKFLOW_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          [[ "${WORKFLOW_REF}" == refs/heads/main && "${GITOPS_REF}" == main ]] || {
+            echo '::error::Vault DNS actions require main workflow and main GitOps declarations' >&2
+            exit 1
+          }
+          [[ "${SERVICE_STAGE}" == none && "${DEPLOY_ACTION}" != apply ]] || {
+            echo '::error::Run DNS separately from node stages and IaC apply' >&2
+            exit 1
+          }
+
+      - name: Checkout reviewed GitOps declaration
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: main
+          path: gitops
+          persist-credentials: false
+
+      - name: Resolve the Vault domain, roles and GCP identity
+        id: manifest
+        shell: bash
+        env:
+          SERVICE_MANIFEST: ${{ inputs.service_manifest }}
+          PROVIDER_MANIFEST: ${{ inputs.provider_manifest }}
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'pyyaml==6.0.2'
+          python3 - <<'PY'
+          import json, os, pathlib, yaml
+          root = pathlib.Path('gitops').resolve()
+          def load(relative):
+              path = (root / relative).resolve()
+              if not path.is_relative_to(root):
+                  raise SystemExit('manifest path escapes GitOps checkout')
+              return yaml.safe_load(path.read_text(encoding='utf-8'))
+          service = load(os.environ['SERVICE_MANIFEST'])['spec']
+          provider = load(os.environ['PROVIDER_MANIFEST'])['spec']
+          if service['service_domain'] != 'vault.svc.plus' or provider['project_id'] != 'open-platform-prod':
+              raise SystemExit('Vault DNS declaration does not match the production domain or project')
+          leader = service['storage']['leader']
+          names = [leader, *service['storage']['peers']]
+          machines = {item['name']: item for item in provider['resources']['vault_nodes']}
+          if len(names) != 3 or len(set(names)) != 3 or set(names) != set(machines):
+              raise SystemExit('Vault DNS requires exactly the reviewed three Raft nodes')
+          nodes = [{'name': name, 'zone': machines[name]['zone'],
+                    'role': 'leader' if name == leader else 'standby'} for name in names]
+          if not all(machines[name].get('public_ip') is True for name in names):
+              raise SystemExit('Every Vault DNS target must have a public IP')
+          values = {
+              'domain': service['service_domain'],
+              'old_ip': service['migration']['source']['address'],
+              'vault_addr': service['automation']['vault_addr'],
+              'node_role': service['automation']['node_role'],
+              'runtime_identity_path': service['automation']['runtime_identity_path'],
+              'project_id': provider['project_id'],
+              'network_name': provider['network_name'],
+              'nodes_json': json.dumps(nodes, separators=(',', ':')),
+          }
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
+              for key, value in values.items():
+                  print(f'{key}={value}', file=out)
+          PY
+
+      - name: Read the legacy cluster ID from its pinned public address
+        id: cluster
+        shell: bash
+        env:
+          DOMAIN: ${{ steps.manifest.outputs.domain }}
+          OLD_IP: ${{ steps.manifest.outputs.old_ip }}
+        run: |
+          set -euo pipefail
+          health="$(curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 20 \
+            --resolve "${DOMAIN}:443:${OLD_IP}" \
+            "https://${DOMAIN}/v1/sys/health?standbycode=200&perfstandbyok=true")"
+          cluster_id="$(jq -er '.cluster_id' <<<"${health}")"
+          [[ "${cluster_id}" =~ ^[a-f0-9-]{36}$ ]] || { echo '::error::invalid legacy cluster ID' >&2; exit 1; }
+          echo "cluster_id=${cluster_id}" >> "${GITHUB_OUTPUT}"
+
+      - name: Read the scoped GCP runtime identity
+        id: identity
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ steps.manifest.outputs.vault_addr }}
+          method: jwt
+          role: ${{ steps.manifest.outputs.node_role }}
+          jwtGithubAudience: vault
+          exportToken: false
+          secrets: |
+            ${{ steps.manifest.outputs.runtime_identity_path }} gcp_workload_identity_provider | GCP_WORKLOAD_IDENTITY_PROVIDER ;
+            ${{ steps.manifest.outputs.runtime_identity_path }} deploy_service_account | GCP_SERVICE_ACCOUNT_EMAIL ;
+            ${{ steps.manifest.outputs.runtime_identity_path }} gcp_oidc_audience | GCP_OIDC_AUDIENCE ;
+            ${{ steps.manifest.outputs.runtime_identity_path }} project_id | GCP_PROJECT_ID
+
+      - name: Authenticate to the declared GCP project
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ steps.identity.outputs.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ steps.identity.outputs.GCP_SERVICE_ACCOUNT_EMAIL }}
+          audience: ${{ steps.identity.outputs.GCP_OIDC_AUDIENCE }}
+          cleanup_credentials: true
+
+      - name: Install Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Resolve the three live public IPv4 addresses
+        id: instances
+        shell: bash
+        env:
+          PROJECT_ID: ${{ steps.manifest.outputs.project_id }}
+          VAULT_PROJECT_ID: ${{ steps.identity.outputs.GCP_PROJECT_ID }}
+          NODES_JSON: ${{ steps.manifest.outputs.nodes_json }}
+          OLD_IP: ${{ steps.manifest.outputs.old_ip }}
+          NETWORK_NAME: ${{ steps.manifest.outputs.network_name }}
+        run: |
+          set -euo pipefail
+          [[ "${PROJECT_ID}" == "${VAULT_PROJECT_ID}" ]] || { echo '::error::GCP identity belongs to another project' >&2; exit 1; }
+          gcloud compute instances list --project "${PROJECT_ID}" --format=json > "${RUNNER_TEMP}/vault-instances.json"
+          python3 - "${RUNNER_TEMP}/vault-instances.json" <<'PY'
+          import ipaddress, json, os, pathlib, sys
+          instances = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+          indexed = {(item['name'], item.get('zone', '').rsplit('/', 1)[-1]): item
+                     for item in instances}
+          nodes = json.loads(os.environ['NODES_JSON'])
+          matrix = []
+          values = {}
+          for index, node in enumerate(nodes):
+              instance = indexed.get((node['name'], node['zone']))
+              if not instance or instance.get('status') != 'RUNNING':
+                  raise SystemExit(f"{node['name']} is missing, stopped or in the wrong zone")
+              ips = [config.get('natIP') for nic in instance.get('networkInterfaces', [])
+                     if nic.get('network', '').endswith('/networks/' + os.environ['NETWORK_NAME'])
+                     for config in nic.get('accessConfigs', []) if config.get('natIP')]
+              if len(ips) != 1:
+                  raise SystemExit(f"{node['name']} does not have exactly one public IPv4 address")
+              ip = str(ipaddress.IPv4Address(ips[0]))
+              matrix.append({'node': node['name'], 'role': node['role'], 'ip': ip})
+              values[f'prod_{index}_ip'] = ip
+          old_ip = str(ipaddress.IPv4Address(os.environ['OLD_IP']))
+          matrix.append({'node': 'vault-legacy', 'role': 'legacy-standby', 'ip': old_ip})
+          values['matrix'] = json.dumps(matrix, separators=(',', ':'))
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
+              for key, value in values.items():
+                  print(f'{key}={value}', file=out)
+          PY
+
+  dns-validate-targets:
+    name: Validate ${{ matrix.node }} (${{ matrix.role }})
+    needs: dns-discovery
+    if: ${{ needs.dns-discovery.result == 'success' }}
+    runs-on: ubuntu-latest
+    strategy:
+      # Report every endpoint in one run; the cutover job still waits for the
+      # complete matrix to succeed before it can mutate DNS.
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.dns-discovery.outputs.matrix) }}
+    env:
+      ACTION: ${{ inputs.dns_action }}
+      DOMAIN: ${{ needs.dns-discovery.outputs.domain }}
+      EXPECTED_CLUSTER: ${{ needs.dns-discovery.outputs.expected_cluster }}
+      EXPECTED_VERSION: ${{ env.VAULT_DRILL_VERSION }}
+    steps:
+      - name: Validate the selected endpoint
+        shell: bash
+        env:
+          NODE: ${{ matrix.node }}
+          ROLE: ${{ matrix.role }}
+          IP: ${{ matrix.ip }}
+        run: |
+          set -euo pipefail
+          [[ "${DOMAIN}" =~ ^[A-Za-z0-9.-]+$ ]] || { echo '::error::invalid target_domain' >&2; exit 1; }
+          [[ "${IP}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || { echo "::error::${NODE} has an invalid IPv4 address" >&2; exit 1; }
+
+          # Rollback validates the old standby only. Verify/switch validate all
+          # three new nodes and skip the legacy row in this same matrix.
+          if [[ "${ACTION}" == rollback && "${NODE}" != vault-legacy ]]; then
+            echo "rollback: ${NODE} matrix row skipped"
+            exit 0
+          fi
+          if [[ "${ACTION}" != rollback && "${NODE}" == vault-legacy ]]; then
+            echo "${ACTION}: legacy matrix row skipped"
+            exit 0
+          fi
+
+          health="$(mktemp)"
+          trap 'rm -f -- "${health}"' EXIT
+          curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 20 \
+            --resolve "${DOMAIN}:443:${IP}" \
+            "https://${DOMAIN}/v1/sys/health?standbycode=200&perfstandbyok=true" \
+            -o "${health}"
+          jq -e --arg cluster "${EXPECTED_CLUSTER}" \
+                --arg version "${EXPECTED_VERSION}" \
+                --arg role "${ROLE}" \
+                '(.initialized == true) and (.sealed == false) and (.cluster_id == $cluster) and
+                 (if $role == "leader" then .standby == false and .version == $version
+                  elif $role == "standby" then .standby == true and .version == $version
+                  else .standby == true end)' "${health}" >/dev/null || {
+            echo "::error::${NODE} at ${IP} is not serving the expected Vault role/version/cluster" >&2
+            jq '{initialized,sealed,standby,cluster_id,version}' "${health}" >&2
+            exit 1
+          }
+          echo "${NODE} ${ROLE} ${IP}: Vault health verified"
+
+  dns-cutover:
+    name: Apply Vault DNS ${{ inputs.dns_action }}
+    needs: [dns-discovery, dns-validate-targets]
+    if: ${{ needs.dns-validate-targets.result == 'success' && (inputs.dns_action == 'switch' || inputs.dns_action == 'rollback') }}
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: Validate mutation parameters
+        shell: bash
+        env:
+          ACTION: ${{ inputs.dns_action }}
+          ZONE_ID: ''
+          CONFIRM: ${{ inputs.confirm }}
+          TTL: '60'
+          DOMAIN: ${{ needs.dns-discovery.outputs.domain }}
+        run: |
+          set -euo pipefail
+          [[ "${DOMAIN}" == vault.svc.plus ]] || { echo '::error::only vault.svc.plus is allowed by this workflow' >&2; exit 1; }
+          if [[ -n "${ZONE_ID}" ]]; then
+            [[ "${ZONE_ID}" =~ ^[A-Za-z0-9_-]{8,64}$ ]] || { echo '::error::invalid Cloudflare zone ID' >&2; exit 1; }
+          fi
+          [[ "${TTL}" =~ ^[1-9][0-9]{0,4}$ ]] || { echo '::error::TTL must be a positive integer' >&2; exit 1; }
+          expected="SWITCH-VAULT-DNS"
+          [[ "${ACTION}" == rollback ]] && expected="ROLLBACK-VAULT-DNS"
+          [[ "${CONFIRM}" == "${expected}" ]] || { echo "::error::confirm must equal ${expected}" >&2; exit 1; }
+
+      - name: Reconcile Cloudflare A records
+        shell: bash
+        env:
+          ACTION: ${{ inputs.dns_action }}
+          DOMAIN: ${{ needs.dns-discovery.outputs.domain }}
+          ZONE_ID_INPUT: ''
+          TTL: '60'
+          OLD_IP: ${{ needs.dns-discovery.outputs.old_ip }}
+          PROD_0_IP: ${{ needs.dns-discovery.outputs.prod_0_ip }}
+          PROD_1_IP: ${{ needs.dns-discovery.outputs.prod_1_ip }}
+          PROD_2_IP: ${{ needs.dns-discovery.outputs.prod_2_ip }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DNS_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_DNS_API_TOKEN must be configured in the prod environment}"
+          case "${ACTION}" in
+            switch) targets=("${PROD_0_IP}" "${PROD_1_IP}" "${PROD_2_IP}") ;;
+            rollback) targets=("${OLD_IP}") ;;
+            *) echo '::error::DNS mutation received an unsupported action' >&2; exit 1 ;;
+          esac
+
+          if [[ -n "${ZONE_ID_INPUT}" ]]; then
+            ZONE_ID="${ZONE_ID_INPUT}"
+          else
+            zone_name="${DOMAIN#*.}"
+            zones="$(curl --fail-with-body --silent --show-error --retry 3 \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              "https://api.cloudflare.com/client/v4/zones?name=${zone_name}&status=active&per_page=20")"
+            ZONE_ID="$(jq -er '.result | if length == 1 then .[0].id else error("expected exactly one active Cloudflare zone") end' <<<"${zones}")"
+          fi
+
+          response="$(curl --fail-with-body --silent --show-error --retry 3 \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records?type=A&name=${DOMAIN}&per_page=100")"
+          jq -e '.success == true' <<<"${response}" >/dev/null
+          jq -e '.result | length > 0' <<<"${response}" >/dev/null || {
+            echo '::error::no existing A record found for vault.svc.plus' >&2
+            exit 1
+          }
+
+          # Publish every new target before removing the old address. A failed
+          # create therefore leaves the existing DNS answer available.
+          for target in "${targets[@]}"; do
+            payload="$(jq -n --arg name "${DOMAIN}" --arg ip "${target}" --argjson ttl "${TTL}" \
+              '{type:"A",name:$name,content:$ip,ttl:$ttl,proxied:false}')"
+            mapfile -t matching_ids < <(jq -r --arg ip "${target}" '.result[] | select(.content == $ip) | .id' <<<"${response}")
+            if ((${#matching_ids[@]} == 0)); then
+              curl --fail-with-body --silent --show-error --retry 3 -X POST \
+                  -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+                  -H 'Content-Type: application/json' \
+                  --data "${payload}" "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records" \
+                | jq -e '.success == true' >/dev/null
+            else
+              for record_id in "${matching_ids[@]}"; do
+                curl --fail-with-body --silent --show-error --retry 3 -X PATCH \
+                    -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+                    -H 'Content-Type: application/json' \
+                    --data "${payload}" "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${record_id}" \
+                  | jq -e '.success == true' >/dev/null
+              done
+            fi
+          done
+
+          response="$(curl --fail-with-body --silent --show-error --retry 3 \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records?type=A&name=${DOMAIN}&per_page=100")"
+          jq -e '.success == true' <<<"${response}" >/dev/null
+          targets_json="$(printf '%s\n' "${targets[@]}" | jq -R . | jq -s .)"
+          for target in "${targets[@]}"; do
+            jq -e --arg ip "${target}" 'any(.result[]; .content == $ip and .proxied == false)' <<<"${response}" >/dev/null || {
+              echo "::error::target A record ${target} was not published" >&2
+              exit 1
+            }
+          done
+          mapfile -t stale_ids < <(jq -r --argjson targets "${targets_json}" \
+            '.result[] | select(.content as $ip | $targets | index($ip) | not) | .id' <<<"${response}")
+          for record_id in "${stale_ids[@]}"; do
+            curl --fail-with-body --silent --show-error --retry 3 -X DELETE \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${record_id}" \
+              | jq -e '.success == true' >/dev/null
+          done
+          printf 'DNS %s applied for %s: %s\n' "${ACTION}" "${DOMAIN}" "${targets[*]}" >> "${GITHUB_STEP_SUMMARY}"
+
+  dns-verify:
+    name: Verify DNS at resolver ${{ matrix.resolver }}
+    needs: [dns-discovery, dns-validate-targets, dns-cutover]
+    if: ${{ inputs.dns_action == 'switch' || inputs.dns_action == 'rollback' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        resolver: [1.1.1.1, 8.8.8.8, 9.9.9.9]
+    env:
+      ACTION: ${{ inputs.dns_action }}
+      DOMAIN: ${{ needs.dns-discovery.outputs.domain }}
+      OLD_IP: ${{ needs.dns-discovery.outputs.old_ip }}
+      PROD_0_IP: ${{ needs.dns-discovery.outputs.prod_0_ip }}
+      PROD_1_IP: ${{ needs.dns-discovery.outputs.prod_1_ip }}
+      PROD_2_IP: ${{ needs.dns-discovery.outputs.prod_2_ip }}
+    steps:
+      - name: Wait for the expected A records
+        shell: bash
+        env:
+          RESOLVER: ${{ matrix.resolver }}
+        run: |
+          set -euo pipefail
+          if [[ "${ACTION}" == switch ]]; then expected=("${PROD_0_IP}" "${PROD_1_IP}" "${PROD_2_IP}"); else expected=("${OLD_IP}"); fi
+          for attempt in {1..18}; do
+            mapfile -t actual < <(dig +short @"${RESOLVER}" "${DOMAIN}" A | sort -u)
+            ok=true
+            for ip in "${expected[@]}"; do printf '%s\n' "${actual[@]}" | grep -Fxq "${ip}" || ok=false; done
+            printf 'resolver=%s attempt=%s records=%s\n' "${RESOLVER}" "${attempt}" "${actual[*]:-none}"
+            if [[ "${ok}" == true ]] && { [[ "${ACTION}" == rollback ]] || ! printf '%s\n' "${actual[@]}" | grep -Fxq "${OLD_IP}"; }; then
+              printf 'DNS %s verified at resolver %s\n' "${ACTION}" "${RESOLVER}" >> "${GITHUB_STEP_SUMMARY}"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::DNS ${ACTION} did not converge at resolver ${RESOLVER}" >&2
+          exit 1
