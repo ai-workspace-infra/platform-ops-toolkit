@@ -1,0 +1,244 @@
+name: Vault DNS cutover
+
+# This workflow owns only the public A record for vault.svc.plus.  It never
+# changes Vault or Raft state.  The switch action is blocked until every new
+# public endpoint has passed the matrix health check.
+on:
+  workflow_dispatch:
+    inputs:
+      dns_action:
+        description: "verify checks the new endpoints; switch publishes three GCP A records; rollback restores the old node"
+        required: true
+        default: verify
+        type: choice
+        options: [verify, switch, rollback]
+      target_domain:
+        description: "Vault public hostname"
+        required: true
+        default: vault.svc.plus
+        type: string
+      cloudflare_zone_id:
+        description: "Cloudflare zone ID; required for switch or rollback"
+        required: false
+        default: ''
+        type: string
+      vault_prod_0_ip:
+        description: "vault-prod-0 public IPv4"
+        required: true
+        default: 35.221.167.104
+        type: string
+      vault_prod_1_ip:
+        description: "vault-prod-1 public IPv4"
+        required: true
+        default: 34.80.115.98
+        type: string
+      vault_prod_2_ip:
+        description: "vault-prod-2 public IPv4"
+        required: true
+        default: 35.234.62.210
+        type: string
+      old_ip:
+        description: "Legacy Vault public IPv4 used by rollback"
+        required: true
+        default: 46.250.251.132
+        type: string
+      expected_cluster_id:
+        description: "Expected Vault cluster ID"
+        required: true
+        default: 986a31dc-2ab8-42a0-de21-a7690ffcda3b
+        type: string
+      expected_version:
+        description: "Expected Vault version on the new endpoints"
+        required: true
+        default: 1.21.4
+        type: string
+      ttl:
+        description: "Cloudflare A record TTL in seconds"
+        required: true
+        default: '60'
+        type: string
+      confirm:
+        description: "Use SWITCH-VAULT-DNS or ROLLBACK-VAULT-DNS for a mutating action"
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vault-dns-cutover-${{ inputs.target_domain }}
+  cancel-in-progress: false
+
+jobs:
+  validate-targets:
+    name: Validate ${{ matrix.node }} (${{ matrix.role }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - node: vault-prod-0
+            role: leader
+            ip: ${{ inputs.vault_prod_0_ip }}
+          - node: vault-prod-1
+            role: standby
+            ip: ${{ inputs.vault_prod_1_ip }}
+          - node: vault-prod-2
+            role: standby
+            ip: ${{ inputs.vault_prod_2_ip }}
+          - node: vault-legacy
+            role: legacy-standby
+            ip: ${{ inputs.old_ip }}
+    env:
+      ACTION: ${{ inputs.dns_action }}
+      DOMAIN: ${{ inputs.target_domain }}
+      EXPECTED_CLUSTER: ${{ inputs.expected_cluster_id }}
+      EXPECTED_VERSION: ${{ inputs.expected_version }}
+    steps:
+      - name: Validate the selected endpoint
+        shell: bash
+        env:
+          NODE: ${{ matrix.node }}
+          ROLE: ${{ matrix.role }}
+          IP: ${{ matrix.ip }}
+        run: |
+          set -euo pipefail
+          [[ "${DOMAIN}" =~ ^[A-Za-z0-9.-]+$ ]] || { echo '::error::invalid target_domain' >&2; exit 1; }
+          [[ "${IP}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || { echo "::error::${NODE} has an invalid IPv4 address" >&2; exit 1; }
+
+          # Rollback validates the old standby only. Verify/switch validate all
+          # three new nodes and skip the legacy row in this same matrix.
+          if [[ "${ACTION}" == rollback && "${NODE}" != vault-legacy ]]; then
+            echo "rollback: ${NODE} matrix row skipped"
+            exit 0
+          fi
+          if [[ "${ACTION}" != rollback && "${NODE}" == vault-legacy ]]; then
+            echo "${ACTION}: legacy matrix row skipped"
+            exit 0
+          fi
+
+          health="$(mktemp)"
+          trap 'rm -f -- "${health}"' EXIT
+          curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 20 \
+            --resolve "${DOMAIN}:443:${IP}" \
+            "https://${DOMAIN}/v1/sys/health?standbycode=200&perfstandbyok=true" \
+            -o "${health}"
+          jq -e --arg cluster "${EXPECTED_CLUSTER}" \
+                --arg version "${EXPECTED_VERSION}" \
+                --arg role "${ROLE}" \
+                '(.initialized == true) and (.sealed == false) and (.cluster_id == $cluster) and
+                 (if $role == "leader" then .standby == false and .version == $version
+                  elif $role == "standby" then .standby == true and .version == $version
+                  else .standby == true end)' "${health}" >/dev/null || {
+            echo "::error::${NODE} at ${IP} is not serving the expected Vault role/version/cluster" >&2
+            jq '{initialized,sealed,standby,cluster_id,version}' "${health}" >&2
+            exit 1
+          }
+          echo "${NODE} ${ROLE} ${IP}: Vault health verified"
+
+  cutover:
+    name: Apply Vault DNS ${{ inputs.dns_action }}
+    needs: validate-targets
+    if: ${{ needs.validate-targets.result == 'success' && (inputs.dns_action == 'switch' || inputs.dns_action == 'rollback') }}
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: Validate mutation parameters
+        shell: bash
+        env:
+          ACTION: ${{ inputs.dns_action }}
+          ZONE_ID: ${{ inputs.cloudflare_zone_id }}
+          CONFIRM: ${{ inputs.confirm }}
+          TTL: ${{ inputs.ttl }}
+          DOMAIN: ${{ inputs.target_domain }}
+        run: |
+          set -euo pipefail
+          [[ "${DOMAIN}" == vault.svc.plus ]] || { echo '::error::only vault.svc.plus is allowed by this workflow' >&2; exit 1; }
+          [[ "${ZONE_ID}" =~ ^[A-Za-z0-9_-]{8,64}$ ]] || { echo '::error::invalid Cloudflare zone ID' >&2; exit 1; }
+          [[ "${TTL}" =~ ^[1-9][0-9]{0,4}$ ]] || { echo '::error::TTL must be a positive integer' >&2; exit 1; }
+          expected="SWITCH-VAULT-DNS"
+          [[ "${ACTION}" == rollback ]] && expected="ROLLBACK-VAULT-DNS"
+          [[ "${CONFIRM}" == "${expected}" ]] || { echo "::error::confirm must equal ${expected}" >&2; exit 1; }
+
+      - name: Reconcile Cloudflare A records
+        shell: bash
+        env:
+          ACTION: ${{ inputs.dns_action }}
+          DOMAIN: ${{ inputs.target_domain }}
+          ZONE_ID: ${{ inputs.cloudflare_zone_id }}
+          TTL: ${{ inputs.ttl }}
+          OLD_IP: ${{ inputs.old_ip }}
+          PROD_0_IP: ${{ inputs.vault_prod_0_ip }}
+          PROD_1_IP: ${{ inputs.vault_prod_1_ip }}
+          PROD_2_IP: ${{ inputs.vault_prod_2_ip }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_API_TOKEN must be configured in the prod environment}"
+          case "${ACTION}" in
+            switch) targets=("${PROD_0_IP}" "${PROD_1_IP}" "${PROD_2_IP}") ;;
+            rollback) targets=("${OLD_IP}") ;;
+            *) echo '::error::DNS mutation received an unsupported action' >&2; exit 1 ;;
+          esac
+
+          response="$(curl --fail-with-body --silent --show-error --retry 3 \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records?type=A&name=${DOMAIN}&per_page=100")"
+          jq -e '.success == true' <<<"${response}" >/dev/null
+          mapfile -t record_ids < <(jq -r '.result[].id' <<<"${response}")
+          ((${#record_ids[@]} > 0)) || { echo '::error::no existing A record found for vault.svc.plus' >&2; exit 1; }
+          for record_id in "${record_ids[@]}"; do
+            curl --fail-with-body --silent --show-error --retry 3 -X DELETE \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${record_id}" \
+              | jq -e '.success == true' >/dev/null
+          done
+          for target in "${targets[@]}"; do
+            jq -n --arg name "${DOMAIN}" --arg ip "${target}" --argjson ttl "${TTL}" \
+              '{type:"A",name:$name,content:$ip,ttl:$ttl,proxied:false}' \
+              | curl --fail-with-body --silent --show-error --retry 3 -X POST \
+                  -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+                  -H 'Content-Type: application/json' \
+                  --data @- "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records" \
+              | jq -e '.success == true' >/dev/null
+          done
+          printf 'DNS %s applied for %s: %s\n' "${ACTION}" "${DOMAIN}" "${targets[*]}" >> "${GITHUB_STEP_SUMMARY}"
+
+  verify-dns:
+    name: Verify DNS at resolver ${{ matrix.resolver }}
+    needs: [validate-targets, cutover]
+    if: ${{ inputs.dns_action == 'switch' || inputs.dns_action == 'rollback' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        resolver: [1.1.1.1, 8.8.8.8, 9.9.9.9]
+    env:
+      ACTION: ${{ inputs.dns_action }}
+      DOMAIN: ${{ inputs.target_domain }}
+      OLD_IP: ${{ inputs.old_ip }}
+      PROD_0_IP: ${{ inputs.vault_prod_0_ip }}
+      PROD_1_IP: ${{ inputs.vault_prod_1_ip }}
+      PROD_2_IP: ${{ inputs.vault_prod_2_ip }}
+    steps:
+      - name: Wait for the expected A records
+        shell: bash
+        env:
+          RESOLVER: ${{ matrix.resolver }}
+        run: |
+          set -euo pipefail
+          if [[ "${ACTION}" == switch ]]; then expected=("${PROD_0_IP}" "${PROD_1_IP}" "${PROD_2_IP}"); else expected=("${OLD_IP}"); fi
+          for attempt in {1..18}; do
+            mapfile -t actual < <(dig +short @"${RESOLVER}" "${DOMAIN}" A | sort -u)
+            ok=true
+            for ip in "${expected[@]}"; do printf '%s\n' "${actual[@]}" | grep -Fxq "${ip}" || ok=false; done
+            printf 'resolver=%s attempt=%s records=%s\n' "${RESOLVER}" "${attempt}" "${actual[*]:-none}"
+            if [[ "${ok}" == true ]] && { [[ "${ACTION}" == rollback ]] || ! printf '%s\n' "${actual[@]}" | grep -Fxq "${OLD_IP}"; }; then
+              printf 'DNS %s verified at resolver %s\n' "${ACTION}" "${RESOLVER}" >> "${GITHUB_STEP_SUMMARY}"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::DNS ${ACTION} did not converge at resolver ${RESOLVER}" >&2
+          exit 1
