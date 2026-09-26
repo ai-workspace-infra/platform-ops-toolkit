@@ -206,7 +206,9 @@ jobs:
   node-stage:
     name: Node stage (${{ inputs.service_stage }})
     needs: [declaration, gcp-shared]
-    if: ${{ always() && needs.declaration.result == 'success' && inputs.service_stage != 'none' && ((inputs.deploy_action == 'apply' && needs.gcp-shared.result == 'success') || (inputs.deploy_action == 'none' && needs.gcp-shared.result == 'skipped')) && github.ref == 'refs/heads/main' && inputs.gitops_repo_ref == 'main' }}
+    # Keep production mutation restricted to main/main.  Read-only verification
+    # may run from a reviewed codex ref against a reviewed GitOps declaration.
+    if: ${{ always() && needs.declaration.result == 'success' && inputs.service_stage != 'none' && ((inputs.deploy_action == 'apply' && needs.gcp-shared.result == 'success') || (inputs.deploy_action == 'none' && needs.gcp-shared.result == 'skipped')) && (github.ref == 'refs/heads/main' || (inputs.deploy_action == 'none' && startsWith(github.ref, 'refs/heads/codex/'))) && (inputs.gitops_repo_ref == 'main' || (inputs.deploy_action == 'none' && startsWith(inputs.gitops_repo_ref, 'codex/'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 70
     environment: ${{ needs.declaration.outputs.github_environment }}
