@@ -88,6 +88,7 @@ while [[ $# -gt 0 ]]; do
     --skip-api-enable) skip_api_enable=true; shift ;;
     --skip-bootstrap) skip_bootstrap=true; shift ;;
     --token-source) token_source="${2:?missing --token-source value}"; shift 2 ;;
+    --token-source=*) token_source="${1#*=}"; shift ;;
     --bootstrap-action) bootstrap_action="${2:?missing --bootstrap-action value}"; shift 2 ;;
     --provider) provider_resource_name="${2:?missing --provider value}"; shift 2 ;;
     --service-account) service_account_email="${2:?missing --service-account value}"; shift 2 ;;
