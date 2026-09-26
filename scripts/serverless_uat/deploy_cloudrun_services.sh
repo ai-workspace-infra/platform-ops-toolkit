@@ -173,12 +173,16 @@ for svc in "${SERVICES[@]}"; do
   echo "==> [Cloud Run] Deploying ${SERVICE_NAME} (min=${min_instances}, max=2)..."
 
   # Deploy and inject the service-specific runtime contract.
+  # Organization policy blocks the allUsers IAM member. Cloudflare Workers
+  # reach the public edge after routing, so disable the Cloud Run Invoker IAM
+  # check instead of writing an allUsers binding. This keeps redeploys
+  # idempotent across projects with iam.allowedPolicyMemberDomains enforced.
   gcloud run deploy "${SERVICE_NAME}" \
     --project="${GCP_PROJECT}" \
     --region="${GCP_REGION}" \
     --image="${IMAGE_URI}" \
     --platform=managed \
-    --allow-unauthenticated \
+    --no-invoker-iam-check \
     --min-instances="${min_instances}" \
     --max-instances=2 \
     --cpu=1 \
