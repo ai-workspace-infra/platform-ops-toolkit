@@ -30,7 +30,7 @@ class VaultServerEntryTests(unittest.TestCase):
         self.assertEqual(self.inputs["deploy_action"]["options"], ["none", "plan", "apply"])
         self.assertEqual(self.inputs["connection_mode"]["options"], ["bootstrap-public"])
         self.assertIn("xconnect-one", self.inputs["service_stage"]["options"])
-        self.assertEqual(self.inputs["playbooks_ref"]["default"], "9f3d6dd5b94ffad2a233b86558e8ea693d25c6dc")
+        self.assertEqual(self.inputs["playbooks_ref"]["default"], "9f3d6ddf118b58a0a0541f3623454fbd10dc347a")
 
     def test_gateway_tls_is_read_with_the_scoped_xconnect_role_only_when_needed(self):
         steps = steps_by_name(self.jobs["node-stage"]["steps"])
