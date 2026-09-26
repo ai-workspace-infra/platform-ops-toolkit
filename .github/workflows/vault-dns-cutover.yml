@@ -157,7 +157,9 @@ jobs:
         run: |
           set -euo pipefail
           [[ "${DOMAIN}" == vault.svc.plus ]] || { echo '::error::only vault.svc.plus is allowed by this workflow' >&2; exit 1; }
-          [[ "${ZONE_ID}" =~ ^[A-Za-z0-9_-]{8,64}$ ]] || { echo '::error::invalid Cloudflare zone ID' >&2; exit 1; }
+          if [[ -n "${ZONE_ID}" ]]; then
+            [[ "${ZONE_ID}" =~ ^[A-Za-z0-9_-]{8,64}$ ]] || { echo '::error::invalid Cloudflare zone ID' >&2; exit 1; }
+          fi
           [[ "${TTL}" =~ ^[1-9][0-9]{0,4}$ ]] || { echo '::error::TTL must be a positive integer' >&2; exit 1; }
           expected="SWITCH-VAULT-DNS"
           [[ "${ACTION}" == rollback ]] && expected="ROLLBACK-VAULT-DNS"
@@ -168,7 +170,7 @@ jobs:
         env:
           ACTION: ${{ inputs.dns_action }}
           DOMAIN: ${{ inputs.target_domain }}
-          ZONE_ID: ${{ inputs.cloudflare_zone_id }}
+          ZONE_ID_INPUT: ${{ inputs.cloudflare_zone_id }}
           TTL: ${{ inputs.ttl }}
           OLD_IP: ${{ inputs.old_ip }}
           PROD_0_IP: ${{ inputs.vault_prod_0_ip }}
@@ -183,6 +185,16 @@ jobs:
             rollback) targets=("${OLD_IP}") ;;
             *) echo '::error::DNS mutation received an unsupported action' >&2; exit 1 ;;
           esac
+
+          if [[ -n "${ZONE_ID_INPUT}" ]]; then
+            ZONE_ID="${ZONE_ID_INPUT}"
+          else
+            zone_name="${DOMAIN#*.}"
+            zones="$(curl --fail-with-body --silent --show-error --retry 3 \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              "https://api.cloudflare.com/client/v4/zones?name=${zone_name}&status=active&per_page=20")"
+            ZONE_ID="$(jq -er '.result | if length == 1 then .[0].id else error("expected exactly one active Cloudflare zone") end' <<<"${zones}")"
+          fi
 
           response="$(curl --fail-with-body --silent --show-error --retry 3 \
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \

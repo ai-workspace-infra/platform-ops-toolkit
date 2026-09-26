@@ -39,6 +39,7 @@ class VaultDnsCutoverWorkflowTests(unittest.TestCase):
         self.assertIn("SWITCH-VAULT-DNS", source)
         self.assertIn("ROLLBACK-VAULT-DNS", source)
         self.assertIn("proxied:false", source)
+        self.assertIn("expected exactly one active Cloudflare zone", source)
 
     def test_post_cutover_verification_checks_public_resolvers(self):
         verify = self.jobs["verify-dns"]
