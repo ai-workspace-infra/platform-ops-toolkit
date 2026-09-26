@@ -785,7 +785,7 @@ jobs:
       ACTION: ${{ inputs.dns_action }}
       DOMAIN: ${{ needs.dns-discovery.outputs.domain }}
       EXPECTED_CLUSTER: ${{ needs.dns-discovery.outputs.expected_cluster }}
-      EXPECTED_VERSION: ${{ env.VAULT_DRILL_VERSION }}
+      EXPECTED_VERSION: '1.21.4'
     steps:
       - name: Validate the selected endpoint
         shell: bash
