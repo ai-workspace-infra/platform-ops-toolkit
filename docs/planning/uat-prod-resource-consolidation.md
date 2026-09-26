@@ -1,7 +1,19 @@
 # UAT / PROD IaC 资源压缩评估
 
 目标：每个环境只保留 6 台基础节点，由它们承载 Vault、Observability、
-AI Aggregator Gateway 与 CPA，UAT / PROD 之间尽量共享同一套资源。
+AI Aggregator Gateway、CPA 与 XConnect，UAT / PROD 之间尽量共享同一套资源。
+
+## 0. 设计原则
+
+1. **ai-aggregator 可独立部署，也可混合部署。** Gateway / CPA 是逻辑节点。
+   独立模式下由 `resource_contract` 拉起专用实例（现有 Akamai 路径）；
+   混合模式下落到已有的 open-platform / agent-proxy 上。两种模式用同一份清单，
+   只切换放置方式。
+2. **XConnect Gateway / One（Zero 信任网络）可独立部署，也可混合部署。**
+   可以是专用节点（例如现在的 `tw-xconnect.svc.plus`），也可以与
+   agent-proxy 共用 Caddy 443（`frontend: caddy-unix-h2c`，路径 `/xconnect`），
+   互不抢占端口。
+3. **agent-proxy-\* 2C2G 可承载 XConnect Gateway/One 和 CPA-\*。**
 
 ## 1. 目标节点规格（GCP UAT）
 
@@ -21,20 +33,38 @@ GitOps 声明：`resources/xworktech.com/uat/gcp/*-workload.yaml`
 2C4G 选 `e2-custom-2-4096`，没有选 `e2-medium`。原因是 e2-medium 是共享核，
 持续算力只有 1 vCPU。
 
-## 2. 压缩方案
+## 2. 压缩方案（混合模式放置）
 
-| 服务 | 现状 | 压缩后 |
+| 服务 | 独立模式（现状） | 混合模式 |
 | --- | --- | --- |
 | vault.svc.plus | shared 3 节点 Raft（vault-prod-0..2） | open-platform（PROD）作为 leader，UAT 不再单独部署 Vault |
 | observability.svc.plus | Akamai open-platform 入口 | open-platform，UAT/PROD 共用一套，按 `environment` 标签区分 |
 | AI Gateway（Caddy + Kong + New API + LiteLLM） | 专用 gateway-01 | 每个环境的 open-platform（`caddy_mode: reuse-existing`） |
+| XConnect Gateway | 专用 `tw-xconnect.svc.plus` | agent-proxy-jp（与 Gateway / CPA 主区域同区，路径 `/xconnect`） |
+| XConnect One | 各业务节点 | open-platform、web-saas、ai-workspace、agent-proxy-us/sg |
 | cpa-codex-01 | 专用节点 | agent-proxy-jp |
 | cpa-claude-01 | 专用节点 | agent-proxy-us（Anthropic 出口区域最稳妥） |
 | cpa-grok-01 | 专用节点 | agent-proxy-sg |
 | cpa-codex-02 | 专用节点 | agent-proxy-jp（端口 8320，与 codex-01 的 8317 不冲突） |
 
-节点数：每个环境 6 + 5（AI Aggregator 专用）→ 6，Akamai 上 5 台
-g6-standard-1 全部下线。
+节点数：每个环境 6 + 5（AI Aggregator 专用）+ 1（XConnect Gateway）→ 6。
+Akamai 上 5 台 g6-standard-1 可以下线；独立模式仍然保留，需要时可以随时拉起。
+
+agent-proxy 2C2G 的内存预算（估算）：
+
+| 组件 | 内存 |
+| --- | --- |
+| OS + Caddy | ~350M |
+| agent-proxy（xray） | ~100M |
+| XConnect Gateway 或 One（xray + WireGuard） | ~100M |
+| CPA（CLIProxyAPI），每实例 | ~150M |
+| CodeAgent CLI（codex / claude-code / grok），运行时 | ~300–800M |
+| **合计** | **~1.0–1.5G，2G 可承载** |
+
+前提是不安装桌面（xrdp / KDE），只启用 `ai_desktop_cpa_codeagent`。
+agent-proxy-jp 同时承载 XConnect Gateway 和 2 个 codex CPA，是最紧的一台；
+如果 CodeAgent 需要并发常驻，把 codex-02 挪到 agent-proxy-sg，或者只把
+jp 升到 2C4G。
 
 ## 3. 风险与前置条件（必须先解决）
 
@@ -49,10 +79,10 @@ g6-standard-1 全部下线。
    Vault（约 0.5G）和 observability 栈（约 1–1.5G），会超出 4G。
    → 可选：PROD open-platform 升到 `e2-standard-2`（2C8G）或 4C8G；
    或者把 observability 挪到 ai-workspace（4C8G）。
-3. **agent-proxy 2C2G。** CLIProxyAPI 本身很轻，但 CPA 节点还带
-   `ai_desktop` CodeAgent（codex / claude-code / grok CLI），和 agent-proxy
-   叠加后 2G 很紧。→ 共享节点上关掉 desktop remote（xrdp），
-   保留 `ai_desktop_cpa_codeagent`。如果 CodeAgent 需要常驻，升到 2C4G。
+3. **agent-proxy 2C2G。** 预算见第 2 节。目前 GCP UAT 流程
+   （`uat-gcp-auto-deploy`）会对 CPA 执行 `deploy_ai_desktop.yml
+   ai_desktop_remote_enabled=true`，混合模式下必须改成与 Akamai 路径一致的
+   `ai_desktop_cpa_codeagent=true ai_desktop_remote_enabled=false`。
 4. **跨 VPC、跨区域的私网。** CPA 要求 `transport: private-network-required`，
    而 GCP 这 6 个 workload 各自独立 VPC，没有 NAT、也没有 peering。
    → Gateway 到 CPA 必须走 XConnect overlay（清单里已经分配了
@@ -68,15 +98,32 @@ g6-standard-1 全部下线。
 
 ## 4. IaC 改动清单
 
-1. gitops `topology/<env>/selfhost/ai-aggregator.yaml`：
-   把 `infrastructure.provider` 改为 `existing`，`nodes[].inventory_host`
-   指向 open-platform / agent-proxy-*，删掉 `resource_contract.manifests`。
-2. platform-ops-toolkit `ai-aggregator-v1.yml`：`resolve-provider` 已经接受
-   `existing`，但 UAT 还没有对应的 job。需要新增一个与 `prod-deploy`
-   同形的 `uat-existing-deploy`（只跑 Ansible，不建也不删资源）。
-3. iac_modules `gcp-cloud/modules/spot_vm`：生命周期参数化（见 3.1）。
-4. 切换完成后，删除 gitops 里 `resources/svc.plus/uat/akamai/ai-aggregator-*.yaml`
-   这 5 个声明。
+1. gitops `topology/<env>/selfhost/ai-aggregator.yaml`：给每个 `nodes[]`
+   增加放置字段，让两种模式共用一份清单：
+
+   ```yaml
+   nodes:
+     - id: gateway-01
+       placement: colocated        # dedicated | colocated
+       inventory_host: open-platform
+     - id: cpa-codex-01
+       placement: colocated
+       inventory_host: agent-proxy-jp
+   ```
+
+   `resource_contract.manifests` 只保留 `placement: dedicated` 的节点。
+   CPA 的 `network_endpoint` 改为 XConnect overlay 地址。
+2. gitops `vpn-overlay/<env>/xconnect-one-nodes.yaml`：采用同样的
+   `placement`。`gateway_ref` 可以指向专用节点，也可以指向 agent-proxy-jp；
+   agent-proxy-* 加入 `fixed_nodes`（`lifecycle: persistent`）。
+3. platform-ops-toolkit `ai-aggregator-v1.yml`：`resolve-provider` 按
+   `placement` 拆出两路。dedicated 节点走现有的 provider 矩阵；colocated
+   节点走一个新的 `uat-existing-deploy` job（与 `prod-deploy` 同形，只跑
+   Ansible，不建也不删资源，`--limit` 为 colocated 主机）。本分支新增的
+   `nodes` 输入已经可以对 dedicated 矩阵做子集选择。
+4. iac_modules `gcp-cloud/modules/spot_vm`：生命周期参数化（见 3.1）。
+5. 全部切到混合模式、稳定之后，再评估是否删除 gitops 里的
+   `resources/svc.plus/uat/akamai/ai-aggregator-*.yaml`；独立模式仍需要它们。
 
 ## 5. 过渡期
 
