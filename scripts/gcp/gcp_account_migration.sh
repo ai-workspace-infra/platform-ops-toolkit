@@ -195,13 +195,15 @@ case "${subcommand}" in
     [[ -n "${service_account_email}" ]] || service_account_email="${expected_service_account}"
     gcloud iam service-accounts describe "${service_account_email}" --project="${project_id}" --format='value(email)' >/dev/null || die "deploy Service Account not found"
     vault_session
+    # KV v2 PUT replaces the data object, so legacy project/region keys are
+    # removed and only the sensitive runtime identity fields remain.
     if [[ -n "${VAULT_TOKEN:-}" ]]; then
       payload="$(GCP_WIF_PROVIDER="${provider_resource_name}" GCP_SERVICE_ACCOUNT="${service_account_email}" jq -n '{data:{GCP_WORKLOAD_IDENTITY_PROVIDER:env.GCP_WIF_PROVIDER,GCP_SERVICE_ACCOUNT_EMAIL:env.GCP_SERVICE_ACCOUNT}}')"
       curl --fail --silent --show-error --header "X-Vault-Token: ${VAULT_TOKEN}" --header 'Content-Type: application/json' \
         --request POST --data-binary "${payload}" "${vault_addr%/}/v1/kv/data/${environment}/serverless/gcp" >/dev/null
       unset payload
     else
-      VAULT_ADDR="${vault_addr}" vault kv patch -mount=kv "${environment}/serverless/gcp" \
+      VAULT_ADDR="${vault_addr}" vault kv put -mount=kv "${environment}/serverless/gcp" \
         "GCP_WORKLOAD_IDENTITY_PROVIDER=${provider_resource_name}" \
         "GCP_SERVICE_ACCOUNT_EMAIL=${service_account_email}" >/dev/null
     fi
