@@ -45,7 +45,7 @@ role_body() {
     default_extensions: {},
     ttl: "30m",
     max_ttl: "30m",
-    algorithm_signer: "rsa-sha2-512"
+    algorithm_signer: "default"
   }'
 }
 
@@ -67,7 +67,7 @@ case "${mode}" in
     has_ca || { echo "${mount} has no CA; run --apply" >&2; exit 1; }
     vault read -format=json "${mount}/roles/${role}" |
       jq -e --arg principal "${principal}" \
-        '.data.allowed_users == $principal and .data.max_ttl == 1800 and .data.allow_user_certificates == true' >/dev/null || {
+        '.data.allowed_users == $principal and .data.max_ttl == 1800 and .data.allow_user_certificates == true and .data.algorithm_signer == "default"' >/dev/null || {
         echo "${mount}/roles/${role} differs from the declaration; run --apply" >&2
         exit 1
       }
