@@ -187,6 +187,8 @@ class OneTests(unittest.TestCase):
         self.assertEqual(values["xconnect_one_device_id"], "{{ inventory_hostname }}")
         self.assertIn("xconnect_one_invite_files", values["xconnect_one_invite_file_source"])
         self.assertIs(values["xconnect_one_install_observability"], False)
+        # Only the migration source leaves another XConnect network first.
+        self.assertEqual(values["xconnect_one_release_foreign_overlays"], "{{ 'vault_legacy_source' in group_names }}")
 
     def test_invitations_only_for_nodes_that_have_not_joined(self):
         contract = {"spec": {"nodes": [

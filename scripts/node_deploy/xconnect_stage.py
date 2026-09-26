@@ -257,6 +257,9 @@ def one_vars(topology: dict, artifacts: Path, secrets_dir: Path, invites: dict[s
         "xconnect_one_sync_interval_seconds": topology["sync_interval"],
         # Host metrics come from node-process-metrics; keep One to the overlay.
         "xconnect_one_install_observability": False,
+        # The migration source may already be a One on another network; every
+        # One binds the same loopback port, so only it leaves that network first.
+        "xconnect_one_release_foreign_overlays": "{{ 'vault_legacy_source' in group_names }}",
         "xconnect_one_invite_files": {node_id: str(path) for node_id, path in sorted(invites.items())},
         "xconnect_one_invite_file_source": "{{ (xconnect_one_invite_files | default({}))[inventory_hostname] | default('') }}",
     }

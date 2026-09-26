@@ -69,7 +69,7 @@ on:
         description: Reviewed playbooks commit for Vault node configuration.
         type: string
         required: true
-        default: 6c008407a86f2e01b40a4f94eea3f6bf7e10d1d4
+        default: 726e42ef3d61d8735130c5910c6147177715b350
 
 permissions:
   contents: read
