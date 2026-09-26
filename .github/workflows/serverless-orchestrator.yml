@@ -513,7 +513,31 @@ jobs:
           exportToken: true
           secrets: |
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_WORKLOAD_IDENTITY_PROVIDER | GCP_WORKLOAD_IDENTITY_PROVIDER ;
-            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL ;
+            kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
+
+      # The legacy service-repository pipelines publish to the retired
+      # xworktech/asia-northeast1 registry. Build the same immutable source tag
+      # here and push it with the target project's WIF identity, so a new
+      # open-platform project is self-contained and does not depend on the old
+      # account or registry.
+      - name: Create service-source GitHub App token
+        id: source_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: Iv23liNwStpQIiXajhpb
+          private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
+          owner: ai-workspace-services
+          repositories: ${{ matrix.service }}
+          permission-contents: read
+
+      - name: Checkout immutable service source
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-services/${{ matrix.service }}
+          ref: ${{ inputs.tag_ref }}
+          token: ${{ steps.source_token.outputs.token }}
+          path: service-source
 
       - name: Verify Vault GCP target matches GitOps project declaration
         run: ruby ./.github/scripts/serverless/validate_gcp_gitops_contract.rb
@@ -531,6 +555,31 @@ jobs:
 
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Verify target Artifact Registry repository
+        run: |
+          gcloud artifacts repositories describe serverless \
+            --location="${{ steps.gitops_gcp.outputs.region }}" \
+            --project="${{ steps.gitops_gcp.outputs.project_id }}" \
+            --format='value(name)'
+
+      - name: Authenticate Docker to target Artifact Registry
+        run: gcloud auth configure-docker "${{ steps.gitops_gcp.outputs.region }}-docker.pkg.dev" --quiet
+
+      - name: Build and publish target Cloud Run image
+        uses: docker/build-push-action@v6
+        with:
+          context: service-source
+          file: service-source/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.gitops_gcp.outputs.region }}-docker.pkg.dev/${{ steps.gitops_gcp.outputs.project_id }}/serverless/${{ matrix.service }}:${{ inputs.tag_ref }}
 
       - name: Wait for service image in Artifact Registry
         run: ./.github/scripts/serverless/wait_for_artifact_image.sh
