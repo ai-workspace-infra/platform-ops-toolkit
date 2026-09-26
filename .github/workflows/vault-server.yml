@@ -87,7 +87,6 @@ env:
 jobs:
   declaration:
     name: Resolve declaration and stage plan
-    if: ${{ inputs.dns_action == 'none' }}
     runs-on: ubuntu-latest
     outputs:
       environment: ${{ steps.declaration.outputs.environment }}
@@ -126,8 +125,16 @@ jobs:
         env:
           DEPLOY_ACTION: ${{ inputs.deploy_action }}
           SERVICE_STAGE: ${{ inputs.service_stage }}
+          DNS_ACTION: ${{ inputs.dns_action }}
         run: |
           set -euo pipefail
+          if [[ "${DNS_ACTION}" != none ]]; then
+            [[ "${SERVICE_STAGE}" == none && "${DEPLOY_ACTION}" != apply ]] || {
+              echo '::error::Run DNS separately from node stages and IaC apply' >&2
+              exit 1
+            }
+            exit 0
+          fi
           if [[ "${DEPLOY_ACTION}" == plan && "${SERVICE_STAGE}" != none ]]; then
             echo '::error::A node stage needs deploy_action=apply or deploy_action=none, not plan' >&2
             exit 1
@@ -191,7 +198,7 @@ jobs:
 
   gcp-shared:
     needs: declaration
-    if: ${{ inputs.cloud_provider == 'gcp-cloud' && inputs.deploy_action != 'none' }}
+    if: ${{ inputs.dns_action == 'none' && inputs.cloud_provider == 'gcp-cloud' && inputs.deploy_action != 'none' }}
     uses: ./.github/workflows/gcp-iac-pipeline.yml
     with:
       deploy_action: ${{ inputs.deploy_action }}
@@ -602,7 +609,8 @@ jobs:
 
   dns-discovery:
     name: Resolve reviewed Vault DNS targets
-    if: ${{ inputs.dns_action != 'none' }}
+    needs: [declaration, gcp-shared, node-stage, cleanup-node-access]
+    if: ${{ always() && inputs.dns_action != 'none' && needs.declaration.result == 'success' && needs.gcp-shared.result == 'skipped' && needs.node-stage.result == 'skipped' && needs.cleanup-node-access.result == 'skipped' }}
     runs-on: ubuntu-latest
     environment: prod
     permissions:
@@ -773,7 +781,7 @@ jobs:
   dns-validate-targets:
     name: Validate ${{ matrix.node }} (${{ matrix.role }})
     needs: dns-discovery
-    if: ${{ needs.dns-discovery.result == 'success' }}
+    if: ${{ always() && needs.dns-discovery.result == 'success' }}
     runs-on: ubuntu-latest
     strategy:
       # Report every endpoint in one run; the cutover job still waits for the
@@ -831,7 +839,7 @@ jobs:
   dns-cutover:
     name: Apply Vault DNS ${{ inputs.dns_action }}
     needs: [dns-discovery, dns-validate-targets]
-    if: ${{ needs.dns-validate-targets.result == 'success' && (inputs.dns_action == 'switch' || inputs.dns_action == 'rollback') }}
+    if: ${{ always() && needs.dns-discovery.result == 'success' && needs.dns-validate-targets.result == 'success' && (inputs.dns_action == 'switch' || inputs.dns_action == 'rollback') }}
     runs-on: ubuntu-latest
     environment: prod
     steps:
@@ -941,7 +949,7 @@ jobs:
   dns-verify:
     name: Verify DNS at resolver ${{ matrix.resolver }}
     needs: [dns-discovery, dns-validate-targets, dns-cutover]
-    if: ${{ inputs.dns_action == 'switch' || inputs.dns_action == 'rollback' }}
+    if: ${{ always() && needs.dns-discovery.result == 'success' && needs.dns-validate-targets.result == 'success' && needs.dns-cutover.result == 'success' && (inputs.dns_action == 'switch' || inputs.dns_action == 'rollback') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
