@@ -283,7 +283,13 @@ jobs:
             local address="$1"
             local import_id="$2"
             local log_file
-            if terraform -chdir="${tf_dir}" state list | grep -Fxq "${address}"; then
+            # Capture the complete state output before matching. Piping
+            # `terraform state list` into grep -q can close stdout early;
+            # Terraform's wrapper then reports EPIPE and the managed resource
+            # is incorrectly imported a second time.
+            local state_addresses
+            state_addresses="$(terraform -chdir="${tf_dir}" state list)"
+            if printf '%s\n' "${state_addresses}" | grep -Fqx "${address}"; then
               return 0
             fi
             log_file="$(mktemp "${RUNNER_TEMP}/terraform-import.XXXXXX")"
