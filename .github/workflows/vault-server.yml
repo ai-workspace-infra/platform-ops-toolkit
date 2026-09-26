@@ -781,7 +781,7 @@ jobs:
   dns-validate-targets:
     name: Validate ${{ matrix.node }} (${{ matrix.role }})
     needs: dns-discovery
-    if: ${{ needs.dns-discovery.result == 'success' }}
+    if: ${{ always() && needs.dns-discovery.result == 'success' }}
     runs-on: ubuntu-latest
     strategy:
       # Report every endpoint in one run; the cutover job still waits for the
@@ -839,7 +839,7 @@ jobs:
   dns-cutover:
     name: Apply Vault DNS ${{ inputs.dns_action }}
     needs: [dns-discovery, dns-validate-targets]
-    if: ${{ needs.dns-validate-targets.result == 'success' && (inputs.dns_action == 'switch' || inputs.dns_action == 'rollback') }}
+    if: ${{ always() && needs.dns-discovery.result == 'success' && needs.dns-validate-targets.result == 'success' && (inputs.dns_action == 'switch' || inputs.dns_action == 'rollback') }}
     runs-on: ubuntu-latest
     environment: prod
     steps:
@@ -949,7 +949,7 @@ jobs:
   dns-verify:
     name: Verify DNS at resolver ${{ matrix.resolver }}
     needs: [dns-discovery, dns-validate-targets, dns-cutover]
-    if: ${{ inputs.dns_action == 'switch' || inputs.dns_action == 'rollback' }}
+    if: ${{ always() && needs.dns-discovery.result == 'success' && needs.dns-validate-targets.result == 'success' && needs.dns-cutover.result == 'success' && (inputs.dns_action == 'switch' || inputs.dns_action == 'rollback') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
