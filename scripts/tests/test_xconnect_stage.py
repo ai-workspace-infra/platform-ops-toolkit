@@ -117,6 +117,8 @@ class InvitationTests(unittest.TestCase):
         self.assertEqual(network["gateway_wireguard_public_key"], GATEWAY_KEY)
         self.assertEqual(network["transport_server_name"], "vault-xconnect.svc.plus")
         self.assertEqual(network["gateway_id"], "vault-prod-0")
+        self.assertEqual((network["gateway_frontend"], network["gateway_listen_socket"]),
+                         ("caddy-unix-h2c", "/run/xconnect-gateway/xray.sock"))
         self.assertEqual(body["bootstrap"]["invite"],
                          {"device_id": "vault-prod-0", "platform": "linux", "role": "gateway",
                           "expires_at": "2026-09-25T05:00:00Z"})

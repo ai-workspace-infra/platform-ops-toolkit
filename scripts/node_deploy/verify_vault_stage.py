@@ -214,7 +214,10 @@ def check_access(nodes: list[dict], probes: dict[str, dict]) -> None:
             raise ValueError(f"{node['id']}: SSH probe failed over the pinned host key")
         if state.get("sudo") is not True:
             raise ValueError(f"{node['id']}: non-interactive sudo is unavailable for the short-lived login")
-        if state.get("swap_kb") != 0:
+        # Nodes this pipeline builds must run without swap. The migration
+        # source is an existing node being retired: its swap is reported in
+        # the node table, not made a precondition for moving off it.
+        if state.get("swap_kb") != 0 and LEGACY_GROUP not in node.get("groups", []):
             raise ValueError(f"{node['id']}: swap is enabled; Vault Raft nodes must run without swap")
 
 
