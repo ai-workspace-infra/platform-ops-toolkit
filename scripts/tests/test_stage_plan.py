@@ -55,6 +55,14 @@ class StagePlanTests(unittest.TestCase):
         self.assertLess(order.index("node-process-metrics"), order.index("migrate-preflight"))
         self.assertEqual(entry("node-process-metrics")["requires"], ["access"])
 
+    def test_raft_verify_is_a_read_only_migration_acceptance_gate(self):
+        self.assertEqual(
+            entry("vault-raft-verify")["requires"],
+            ["access", "raft-quorum", "legacy-standby", "raft-overlay", "overlay-raft-path"],
+        )
+        self.assertEqual(entry("vault-raft-verify")["action"], "")
+        self.assertEqual(entry("vault-raft-verify")["tags"], [])
+
     def test_migration_order_and_gates(self):
         order = list(module.STAGES)
         migration = ["migrate-auto", "migrate-preflight", "migrate-convert", "migrate-join", "migrate-cutover", "migrate-remove"]
