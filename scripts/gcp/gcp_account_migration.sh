@@ -151,6 +151,10 @@ vault_session() {
   VAULT_ADDR="${vault_addr}" vault token lookup >/dev/null 2>&1 || die "Vault session unavailable; run vault login"
 }
 
+adc_session() {
+  gcloud auth application-default print-access-token >/dev/null 2>&1 || die "ADC session unavailable or expired; run: gcloud auth application-default revoke --quiet && gcloud auth application-default login --no-browser --scopes=https://www.googleapis.com/auth/cloud-platform"
+}
+
 case "${subcommand}" in
   plan)
     show_status
@@ -158,6 +162,10 @@ case "${subcommand}" in
     if VAULT_ADDR="${vault_addr}" vault token lookup >/dev/null 2>&1; then echo "vault_session=available"; else echo "vault_session=unavailable"; fi
     ;;
   prepare)
+    if [[ "${skip_bootstrap}" != true ]]; then
+      adc_session
+      vault_session
+    fi
     if [[ "${link_billing}" == true ]]; then
       [[ -n "${billing_account}" ]] || die "--billing-account is required with --link-billing"
       gcloud billing projects link "${project_id}" --billing-account="${billing_account}"
