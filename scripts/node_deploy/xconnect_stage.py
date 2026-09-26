@@ -124,6 +124,10 @@ def bootstrap_request(topology: dict, role: str, device_id: str, gateway_key: st
                 "transport_path": topology["transport_path"],
                 "transport_mode": topology["transport_mode"],
                 "transport_host": topology["transport_host"],
+                # The Gateway's Xray frontend belongs to this network, not the
+                # whole Zero deployment: a Caddy-fronted Gateway shares :443.
+                "gateway_frontend": topology["frontend"],
+                "gateway_listen_socket": topology["listen_socket"],
             },
             "invite": {"device_id": device_id, "platform": platform, "role": role, "expires_at": expires},
         },

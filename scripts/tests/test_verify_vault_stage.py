@@ -65,6 +65,14 @@ class VerifyVaultStageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "SSH probe failed"):
             module.verify(contract, ["access"], probes)
 
+    def test_access_reports_but_does_not_block_on_the_retiring_source_swap(self):
+        contract, probes = migration_fixture()
+        probes["legacy"]["swap_kb"] = 4194300
+        module.verify(contract, ["access"], probes)
+        probes["vault-1"]["swap_kb"] = 1024
+        with self.assertRaisesRegex(ValueError, "vault-1: swap"):
+            module.verify(contract, ["access"], probes)
+
     def test_leader_stage_accepts_fresh_nodes_but_not_a_split_cluster(self):
         contract, probes = fixture()
         fresh_install(probes)
