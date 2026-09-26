@@ -33,7 +33,7 @@ Optional:
   --link-billing          allow prepare to link the billing account
   --skip-api-enable       do not enable APIs during prepare
   --skip-bootstrap        do not write the bootstrap KV during prepare
-  --token-source SOURCE   auto|adc|gcloud for bootstrap token (default: auto)
+  --token-source SOURCE   auto|adc|gcloud|explicit for bootstrap token (default: auto)
   --bootstrap-action A    plan|apply for dispatch (default: plan)
   --provider NAME         WIF provider resource name for finalize
   --service-account EMAIL deploy Service Account email for finalize
@@ -106,11 +106,30 @@ done
 [[ -n "${account_id}" && -f "${manifest}" && -f "${oidc_config}" ]] || die "account-id, GitOps manifest and OIDC config are required"
 [[ "${bootstrap_action}" == plan || "${bootstrap_action}" == apply ]] || die "bootstrap-action must be plan or apply"
 [[ "${vault_addr}" =~ ^https?://[^/]+/?$ ]] || die "invalid Vault address"
-[[ "${token_source}" == auto || "${token_source}" == adc || "${token_source}" == gcloud ]] || die "token-source must be auto, adc or gcloud"
+[[ "${token_source}" == auto || "${token_source}" == adc || "${token_source}" == gcloud || "${token_source}" == explicit ]] || die "token-source must be auto, adc, gcloud or explicit"
 
 command -v gcloud >/dev/null 2>&1 || die "gcloud is required"
 command -v ruby >/dev/null 2>&1 || die "ruby is required"
 command -v jq >/dev/null 2>&1 || die "jq is required"
+
+# When a caller supplies a short-lived token explicitly, use it for every
+# gcloud API call in this script. This keeps prepare non-interactive even when
+# the local ADC refresh token has expired or the active account was revoked.
+gcloud_access_token_file=""
+if [[ -n "${GCP_ACCESS_TOKEN:-}" ]]; then
+  gcloud_access_token_file="$(mktemp "${TMPDIR:-/tmp}/gcp-account-migration-token.XXXXXX")"
+  chmod 600 "${gcloud_access_token_file}"
+  printf '%s' "${GCP_ACCESS_TOKEN}" >"${gcloud_access_token_file}"
+  trap 'rm -f -- "${gcloud_access_token_file}"' EXIT
+fi
+
+gcloud_cmd() {
+  if [[ -n "${gcloud_access_token_file}" ]]; then
+    command gcloud --access-token-file="${gcloud_access_token_file}" "$@"
+  else
+    command gcloud "$@"
+  fi
+}
 
 gitops_values="$(GCP_GITOPS_MANIFEST="${manifest}" ruby -e '
   require "yaml"; d=YAML.safe_load(File.read(ENV.fetch("GCP_GITOPS_MANIFEST")), permitted_classes: [], permitted_symbols: [], aliases: false); g=d.fetch("global"); puts g.fetch("project_id"); puts g.fetch("region")
@@ -126,8 +145,12 @@ provider_id="$(sed -n '2p' <<<"${oidc_values}")"
 service_account_id="$(sed -n '3p' <<<"${oidc_values}")"
 [[ "$(sed -n '4p' <<<"${oidc_values}")" == "${project_id}" ]] || die "project does not match OIDC config"
 
-active_account="$(gcloud config get-value account 2>/dev/null)"
-project_number="$(gcloud projects describe "${project_id}" --format='value(projectNumber)')" || die "cannot read target project"
+if [[ -n "${gcloud_access_token_file}" ]]; then
+  active_account="explicit-access-token"
+else
+  active_account="$(gcloud_cmd config get-value account 2>/dev/null)"
+fi
+project_number="$(gcloud_cmd projects describe "${project_id}" --format='value(projectNumber)')" || die "cannot read target project"
 oidc_audience="https://iam.googleapis.com/projects/${project_number}/locations/global/workloadIdentityPools/${pool_id}/providers/${provider_id}"
 expected_service_account="${service_account_id}@${project_id}.iam.gserviceaccount.com"
 
@@ -137,14 +160,14 @@ show_status() {
   echo "project_number=${project_number}"
   echo "region=${region}"
   echo "active_gcloud_account=${active_account}"
-  echo "billing=$(gcloud billing projects describe "${project_id}" --format='value(billingEnabled,billingAccountName)' 2>/dev/null || true)"
+  echo "billing=$(gcloud_cmd billing projects describe "${project_id}" --format='value(billingEnabled,billingAccountName)' 2>/dev/null || true)"
   echo "wif_audience=${oidc_audience}"
   echo "deploy_service_account=${expected_service_account}"
 }
 
 show_api_state() {
   local enabled api missing=0
-  enabled="$(gcloud services list --enabled --project="${project_id}" --format='value(config.name)' 2>/dev/null || true)"
+  enabled="$(gcloud_cmd services list --enabled --project="${project_id}" --format='value(config.name)' 2>/dev/null || true)"
   for api in ${required_apis}; do
     if grep -Fxq "${api}" <<<"${enabled}"; then echo "api=${api}:enabled"; else echo "api=${api}:missing"; missing=1; fi
   done
@@ -161,7 +184,7 @@ adc_session() {
 }
 
 gcloud_session() {
-  gcloud auth print-access-token >/dev/null 2>&1
+  gcloud_cmd auth print-access-token >/dev/null 2>&1
 }
 
 bootstrap_token() {
@@ -172,8 +195,10 @@ bootstrap_token() {
     token="$(gcloud auth application-default print-access-token 2>/dev/null)" ||
       die "ADC token unavailable; use --token-source=gcloud or run gcloud auth application-default login"
   elif [[ "${token_source}" == gcloud ]]; then
-    token="$(gcloud auth print-access-token 2>/dev/null)" ||
+    token="$(gcloud_cmd auth print-access-token 2>/dev/null)" ||
       die "active gcloud account token unavailable; run gcloud auth login"
+  elif [[ "${token_source}" == explicit ]]; then
+    die "--token-source=explicit requires GCP_ACCESS_TOKEN"
   else
     token="$(gcloud auth application-default print-access-token 2>/dev/null || true)"
     if [[ -z "${token}" ]]; then
@@ -205,9 +230,9 @@ case "${subcommand}" in
     fi
     if [[ "${link_billing}" == true ]]; then
       [[ -n "${billing_account}" ]] || die "--billing-account is required with --link-billing"
-      gcloud billing projects link "${project_id}" --billing-account="${billing_account}"
+      gcloud_cmd billing projects link "${project_id}" --billing-account="${billing_account}"
     fi
-    [[ "${skip_api_enable}" == true ]] || gcloud services enable ${required_apis} --project="${project_id}"
+    [[ "${skip_api_enable}" == true ]] || gcloud_cmd services enable ${required_apis} --project="${project_id}"
     if [[ "${skip_bootstrap}" != true ]]; then
       GCP_ENVIRONMENT="${environment}" \
       GCP_ACCOUNT_ID="${account_id}" \
@@ -228,11 +253,11 @@ case "${subcommand}" in
     ;;
   finalize)
     if [[ -z "${provider_resource_name}" ]]; then
-      provider_resource_name="$(gcloud iam workload-identity-pools providers describe "${provider_id}" \
+      provider_resource_name="$(gcloud_cmd iam workload-identity-pools providers describe "${provider_id}" \
         --workload-identity-pool="${pool_id}" --location=global --project="${project_id}" --format='value(name)')" || die "WIF provider not found"
     fi
     [[ -n "${service_account_email}" ]] || service_account_email="${expected_service_account}"
-    gcloud iam service-accounts describe "${service_account_email}" --project="${project_id}" --format='value(email)' >/dev/null || die "deploy Service Account not found"
+    gcloud_cmd iam service-accounts describe "${service_account_email}" --project="${project_id}" --format='value(email)' >/dev/null || die "deploy Service Account not found"
     vault_session
     # KV v2 PUT replaces the data object, so legacy project/region keys are
     # removed and only the sensitive runtime identity fields remain.
