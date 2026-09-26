@@ -606,6 +606,9 @@ jobs:
           VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
           VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
           DEPLOY_ENV: ${{ inputs.vault_env_path || 'uat' }}
+          GCP_PROJECT_ID: ${{ steps.gitops_gcp.outputs.project_id }}
+          GCP_REGION: ${{ steps.gitops_gcp.outputs.region }}
+          GCP_ARTIFACT_REGISTRY_REGION: ${{ steps.gitops_gcp.outputs.region }}
           IMAGE_TAG: ${{ inputs.tag_ref }}
           DEPLOY_CLOUDFLARE: 'false'
           DEPLOY_CLOUD_RUN: 'true'
