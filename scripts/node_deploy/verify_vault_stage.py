@@ -362,6 +362,19 @@ def check_legacy_overlay(contract: dict) -> None:
         )
 
 
+def check_raft_overlay(contract: dict) -> None:
+    """Every node's Raft address is its recorded XConnect overlay IP (Raft over the overlay)."""
+    pending = [
+        node["id"] for node in contract["spec"]["nodes"]
+        if not node.get("overlay_address") or node.get("private_address") != node.get("overlay_address")
+    ]
+    if pending:
+        raise ValueError(
+            f"{', '.join(pending)}: no XConnect overlay IP recorded for Raft yet; enroll with xconnect-gateway / "
+            "xconnect-one and record the assigned IPs in GitOps first"
+        )
+
+
 def check_legacy_raft(contract: dict, probes: dict[str, dict]) -> None:
     legacy = single(contract, LEGACY_GROUP, "legacy source node")
     state = probes[legacy["id"]]
@@ -581,6 +594,8 @@ def verify(
             check_legacy_overlay(contract)
         elif check == "legacy-raft":
             check_legacy_raft(contract, probes)
+        elif check == "raft-overlay":
+            check_raft_overlay(contract)
         elif check == "legacy-standby":
             check_legacy_standby(contract, probes)
         elif check == "vault-port-guard":

@@ -83,18 +83,26 @@ def verify_private_raft_channel(manifest: dict, firewalls: list[dict], target_ta
         raise ValueError(f"no private Raft firewall rule for port(s) {', '.join(missing)} from {subnet}")
 
 
-def overlay_address_of(topology: dict | None, name: str) -> str:
+def overlay_address_of(topology: dict | None, name: str) -> str | None:
+    """The node's recorded XConnect overlay IP, or None until Zero has assigned one.
+
+    The overlay IPs only exist after xconnect-gateway / xconnect-one enroll the
+    nodes, so a missing IP must not block those stages; the Raft stages refuse
+    through the raft-overlay check instead.
+    """
     if topology is None:
         raise ValueError("Raft over the overlay needs the XConnect topology")
     spec = topology["spec"]
     members = [spec["gateway"], *spec.get("fixed_nodes", [])]
     target = next((member for member in members if member.get("id") == name), None)
     overlay_ip = (target or {}).get("xconnect", {}).get("overlay_ip")
+    if overlay_ip in (None, ""):
+        return None
     network = ipaddress.ip_network(spec["network"]["cidr"], strict=True)
     try:
         assigned = ipaddress.ip_address(overlay_ip)
     except (TypeError, ValueError):
-        raise ValueError(f"{name} has no assigned XConnect overlay IP for Raft") from None
+        raise ValueError(f"{name} overlay IP {overlay_ip!r} is not an IP address") from None
     if assigned not in network or assigned == network.network_address:
         raise ValueError(f"{name} overlay IP is outside the declared overlay")
     return str(assigned)
@@ -226,9 +234,12 @@ def resolve(
             resolved["address"] = internal_dns
             resolved["overlay_address"] = overlay_ip
         if raft_network == "overlay":
+            # Until the overlay IP is recorded the node keeps its VPC address;
+            # migrate-join refuses (raft-overlay) so Raft never uses it.
             overlay_ip = overlay_address_of(topology, name)
-            resolved["overlay_address"] = overlay_ip
-            resolved["private_address"] = overlay_ip
+            if overlay_ip:
+                resolved["overlay_address"] = overlay_ip
+                resolved["private_address"] = overlay_ip
         nodes.append(resolved)
     # A migration never initializes a new leader: the existing node leads.
     stages = [stage for stage in STAGES if not (migration and stage == "vault-shared-leader")]

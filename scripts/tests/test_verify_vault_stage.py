@@ -285,6 +285,15 @@ class MigrationCheckTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "legacy cannot reach vault-2 at 10.81.0.4:8201"):
             module.verify(contract, ["overlay-raft-path"], probes)
 
+    def test_join_needs_every_raft_address_on_the_overlay(self):
+        contract, _ = migration_fixture()
+        for node in contract["spec"]["nodes"]:
+            node["overlay_address"] = node["private_address"]
+        module.verify(contract, ["raft-overlay"], {})
+        del contract["spec"]["nodes"][1]["overlay_address"]
+        with self.assertRaisesRegex(ValueError, "vault-1: no XConnect overlay IP recorded"):
+            module.verify(contract, ["raft-overlay"], {})
+
     def test_probe_targets_are_validated(self):
         self.assertTrue(module.SAFE_TARGETS.fullmatch("10.79.0.1:8200,10.79.0.1:8201"))
         self.assertTrue(module.SAFE_TARGETS.fullmatch(""))
