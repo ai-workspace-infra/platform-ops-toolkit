@@ -9,6 +9,14 @@ on:
         required: true
         default: plan
         options: [plan, apply, destroy]
+      workloads:
+        description: >-
+          Comma-separated selfhost base workloads, run in order. Each name maps to
+          resources/xworktech.com/uat/gcp/<name>-workload.yaml in GitOps; add or
+          drop names to grow or shrink the base template.
+        type: string
+        required: true
+        default: open-platform,web-saas,ai-workspace,agent-proxy-jp,agent-proxy-us,agent-proxy-sg
       gcp_account_id:
         description: GCP account identifier used by the Vault JWT/WIF role.
         type: string
@@ -30,79 +38,49 @@ permissions:
   id-token: write
 
 jobs:
-  open-platform:
-    name: open-platform
-    uses: ./.github/workflows/gcp-iac-pipeline.yml
-    with:
-      deploy_action: ${{ inputs.deploy_action }}
-      vault_env_path: uat
-      gcp_account_id: ${{ inputs.gcp_account_id }}
-      gcp_resource_manifest: resources/xworktech.com/uat/gcp/open-platform-workload.yaml
-      gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
-      iac_ref: ${{ inputs.iac_ref }}
-    secrets: inherit
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.workloads.outputs.matrix }}
+    steps:
+      - name: Resolve workload list
+        id: workloads
+        env:
+          WORKLOADS: ${{ inputs.workloads }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
 
-  web-saas:
-    name: web-saas
-    needs: open-platform
-    uses: ./.github/workflows/gcp-iac-pipeline.yml
-    with:
-      deploy_action: ${{ inputs.deploy_action }}
-      vault_env_path: uat
-      gcp_account_id: ${{ inputs.gcp_account_id }}
-      gcp_resource_manifest: resources/xworktech.com/uat/gcp/web-saas-workload.yaml
-      gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
-      iac_ref: ${{ inputs.iac_ref }}
-    secrets: inherit
+          names = [name.strip() for name in os.environ['WORKLOADS'].split(',') if name.strip()]
+          if not names:
+              raise SystemExit('workloads must name at least one workload')
+          invalid = [name for name in names if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', name)]
+          if invalid:
+              raise SystemExit(f'invalid workload names: {invalid}')
+          if len(names) != len(set(names)):
+              raise SystemExit('workloads must not repeat')
+          matrix = {'workload': names}
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write(f"matrix={json.dumps(matrix, separators=(',', ':'))}\n")
+          print(matrix)
+          PY
 
-  ai-workspace:
-    name: ai-workspace
-    needs: web-saas
+  workload:
+    name: ${{ matrix.workload }}
+    needs: resolve
+    strategy:
+      # Keep the declared order and stop at the first failure.
+      max-parallel: 1
+      fail-fast: true
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
     uses: ./.github/workflows/gcp-iac-pipeline.yml
     with:
       deploy_action: ${{ inputs.deploy_action }}
       vault_env_path: uat
       gcp_account_id: ${{ inputs.gcp_account_id }}
-      gcp_resource_manifest: resources/xworktech.com/uat/gcp/ai-workspace-workload.yaml
-      gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
-      iac_ref: ${{ inputs.iac_ref }}
-    secrets: inherit
-
-  agent-proxy-jp:
-    name: agent-proxy-jp
-    needs: ai-workspace
-    uses: ./.github/workflows/gcp-iac-pipeline.yml
-    with:
-      deploy_action: ${{ inputs.deploy_action }}
-      vault_env_path: uat
-      gcp_account_id: ${{ inputs.gcp_account_id }}
-      gcp_resource_manifest: resources/xworktech.com/uat/gcp/agent-proxy-jp-workload.yaml
-      gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
-      iac_ref: ${{ inputs.iac_ref }}
-    secrets: inherit
-
-  agent-proxy-us:
-    name: agent-proxy-us
-    needs: agent-proxy-jp
-    uses: ./.github/workflows/gcp-iac-pipeline.yml
-    with:
-      deploy_action: ${{ inputs.deploy_action }}
-      vault_env_path: uat
-      gcp_account_id: ${{ inputs.gcp_account_id }}
-      gcp_resource_manifest: resources/xworktech.com/uat/gcp/agent-proxy-us-workload.yaml
-      gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
-      iac_ref: ${{ inputs.iac_ref }}
-    secrets: inherit
-
-  agent-proxy-sg:
-    name: agent-proxy-sg
-    needs: agent-proxy-us
-    uses: ./.github/workflows/gcp-iac-pipeline.yml
-    with:
-      deploy_action: ${{ inputs.deploy_action }}
-      vault_env_path: uat
-      gcp_account_id: ${{ inputs.gcp_account_id }}
-      gcp_resource_manifest: resources/xworktech.com/uat/gcp/agent-proxy-sg-workload.yaml
+      gcp_resource_manifest: resources/xworktech.com/uat/gcp/${{ matrix.workload }}-workload.yaml
       gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
       iac_ref: ${{ inputs.iac_ref }}
     secrets: inherit

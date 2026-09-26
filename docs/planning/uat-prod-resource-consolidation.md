@@ -15,11 +15,19 @@ AI Aggregator Gateway、CPA 与 XConnect，UAT / PROD 之间尽量共享同一�
    互不抢占端口。
 3. **agent-proxy-\* 2C2G 可承载 XConnect Gateway/One 和 CPA-\*。**
 
-## 1. 目标节点规格（GCP UAT）
+## 1. selfhost base 模版（GCP UAT）
 
-GitOps 声明：`resources/xworktech.com/uat/gcp/*-workload.yaml`
-（ai-workspace-infra/gitops，分支 `claude/gifted-cannon-t30xak`）。
-由 `.github/workflows/gcp-uat-workload-sequence.yml` 按顺序 plan/apply。
+下面 6 台是 selfhost 自建的 **base 模版**，可以增加，也可以缩减。
+每个 workload 对应一份独立声明 `resources/xworktech.com/uat/gcp/<name>-workload.yaml`
+（ai-workspace-infra/gitops），各自使用独立的 VPC、子网和 Terraform state。
+因此增加或删除一台，不会影响其他节点。
+
+`.github/workflows/gcp-uat-workload-sequence.yml` 的 `workloads` 输入决定
+这次运行哪些节点（默认就是下面 6 台），按列表顺序逐个 plan / apply / destroy：
+
+- 扩容：在 GitOps 里新增 `<name>-workload.yaml`（新子网不能与已有子网冲突），
+  再把 `<name>` 加进 `workloads`。
+- 缩容：`deploy_action=destroy workloads=<name>`，然后删除该声明。
 
 | 节点 | 规格 | GCP machine_type | Region | 子网 |
 | --- | --- | --- | --- | --- |
