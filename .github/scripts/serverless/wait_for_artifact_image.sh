@@ -26,6 +26,28 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
     exit 0
   fi
 
+  # Workload Identity Federation can allow the caller to read the tag while
+  # the image-summary endpoint briefly returns no digest (for example while a
+  # pushed multi-platform manifest is being indexed).  The exact tag is still
+  # an authoritative readiness signal for the following Cloud Run deploy.
+  if tags="$(gcloud artifacts docker tags list \
+    "${registry_region}-docker.pkg.dev/${project_id}/serverless/${service}" \
+    --filter="tag:${image_tag}" \
+    --format='value(tag)' 2>/dev/null)"; then
+    tag_ready=false
+    while IFS= read -r tag; do
+      if [[ "${tag}" == "${image_tag}" ]]; then
+        tag_ready=true
+        break
+      fi
+    done <<< "${tags}"
+
+    if [[ "${tag_ready}" == true ]]; then
+      echo "Artifact Registry tag is ready: ${registry_region}/serverless/${service}:${image_tag}"
+      exit 0
+    fi
+  fi
+
   if (( attempt < attempts )); then
     echo "Waiting for Artifact Registry image (${attempt}/${attempts}): ${registry_region}/serverless/${service}:${image_tag}"
     sleep "${interval_seconds}"
