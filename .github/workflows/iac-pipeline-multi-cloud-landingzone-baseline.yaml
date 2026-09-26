@@ -145,7 +145,7 @@ env:
 jobs:
   landingzone:
     name: "Deploy LandingZone Baseline"
-    if: env.CLOUD_PROVIDER != 'gcp-cloud'
+    if: (inputs.cloud_provider || github.event.inputs.cloud_provider || 'aws-cloud') != 'gcp-cloud'
     runs-on: ubuntu-latest
 
     steps:
