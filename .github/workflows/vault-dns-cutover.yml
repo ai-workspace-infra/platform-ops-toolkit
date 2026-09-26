@@ -18,7 +18,7 @@ on:
         default: vault.svc.plus
         type: string
       cloudflare_zone_id:
-        description: "Cloudflare zone ID; required for switch or rollback"
+        description: "Cloudflare zone ID; discovered from the domain when empty"
         required: false
         default: ''
         type: string
@@ -200,21 +200,51 @@ jobs:
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records?type=A&name=${DOMAIN}&per_page=100")"
           jq -e '.success == true' <<<"${response}" >/dev/null
-          mapfile -t record_ids < <(jq -r '.result[].id' <<<"${response}")
-          ((${#record_ids[@]} > 0)) || { echo '::error::no existing A record found for vault.svc.plus' >&2; exit 1; }
-          for record_id in "${record_ids[@]}"; do
+          jq -e '.result | length > 0' <<<"${response}" >/dev/null || {
+            echo '::error::no existing A record found for vault.svc.plus' >&2
+            exit 1
+          }
+
+          # Publish every new target before removing the old address. A failed
+          # create therefore leaves the existing DNS answer available.
+          for target in "${targets[@]}"; do
+            payload="$(jq -n --arg name "${DOMAIN}" --arg ip "${target}" --argjson ttl "${TTL}" \
+              '{type:"A",name:$name,content:$ip,ttl:$ttl,proxied:false}')"
+            mapfile -t matching_ids < <(jq -r --arg ip "${target}" '.result[] | select(.content == $ip) | .id' <<<"${response}")
+            if ((${#matching_ids[@]} == 0)); then
+              curl --fail-with-body --silent --show-error --retry 3 -X POST \
+                  -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+                  -H 'Content-Type: application/json' \
+                  --data "${payload}" "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records" \
+                | jq -e '.success == true' >/dev/null
+            else
+              for record_id in "${matching_ids[@]}"; do
+                curl --fail-with-body --silent --show-error --retry 3 -X PATCH \
+                    -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+                    -H 'Content-Type: application/json' \
+                    --data "${payload}" "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${record_id}" \
+                  | jq -e '.success == true' >/dev/null
+              done
+            fi
+          done
+
+          response="$(curl --fail-with-body --silent --show-error --retry 3 \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records?type=A&name=${DOMAIN}&per_page=100")"
+          jq -e '.success == true' <<<"${response}" >/dev/null
+          targets_json="$(printf '%s\n' "${targets[@]}" | jq -R . | jq -s .)"
+          for target in "${targets[@]}"; do
+            jq -e --arg ip "${target}" 'any(.result[]; .content == $ip and .proxied == false)' <<<"${response}" >/dev/null || {
+              echo "::error::target A record ${target} was not published" >&2
+              exit 1
+            }
+          done
+          mapfile -t stale_ids < <(jq -r --argjson targets "${targets_json}" \
+            '.result[] | select(.content as $ip | $targets | index($ip) | not) | .id' <<<"${response}")
+          for record_id in "${stale_ids[@]}"; do
             curl --fail-with-body --silent --show-error --retry 3 -X DELETE \
               -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
               "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${record_id}" \
-              | jq -e '.success == true' >/dev/null
-          done
-          for target in "${targets[@]}"; do
-            jq -n --arg name "${DOMAIN}" --arg ip "${target}" --argjson ttl "${TTL}" \
-              '{type:"A",name:$name,content:$ip,ttl:$ttl,proxied:false}' \
-              | curl --fail-with-body --silent --show-error --retry 3 -X POST \
-                  -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-                  -H 'Content-Type: application/json' \
-                  --data @- "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records" \
               | jq -e '.success == true' >/dev/null
           done
           printf 'DNS %s applied for %s: %s\n' "${ACTION}" "${DOMAIN}" "${targets[*]}" >> "${GITHUB_STEP_SUMMARY}"
