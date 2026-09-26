@@ -228,7 +228,7 @@ STAGES: dict[str, dict] = {
         "ssh": "all",
         # overlay-raft-path: XConnect connects the old cluster and the new
         # nodes (tcp 8200/8201 both ways) before anything joins.
-        "requires": ["access", "legacy-raft", "no-foreign-cluster", "overlay-raft-path", "next-peer"],
+        "requires": ["access", "legacy-raft", "no-foreign-cluster", "raft-overlay", "overlay-raft-path", "next-peer"],
         "playbook": SHARED_PLAYBOOK,
         "tags": ["vault-shared-peers"],
         "one_node": True,
@@ -311,6 +311,7 @@ CHECKS = {
     "next-peer",
     "selected-running",
     "overlay-raft-path",
+    "raft-overlay",
     "service-dns-moved",
     "service-endpoint",
     "observation-window",

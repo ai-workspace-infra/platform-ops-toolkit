@@ -129,8 +129,15 @@ class GcpVaultResolutionTests(unittest.TestCase):
         self.assertNotIn("vault-shared-leader", result["spec"]["stages"])
         self.assertEqual(result["spec"]["nodes"][0]["private_address"], "10.79.0.1")
         self.assertEqual(result["spec"]["nodes"][0]["address"], "35.1.2.3")
+        # Before Zero assigns an overlay IP the node keeps its VPC address, so
+        # the XConnect stages can run; migrate-join refuses via raft-overlay.
         topology["spec"]["fixed_nodes"][1]["xconnect"] = {}
-        with self.assertRaisesRegex(ValueError, "no assigned XConnect overlay IP"):
+        result = resolver.resolve(manifest, service, instances, "open-platform-prod", "shared", "gha_1234567890", topology)
+        pending = next(node for node in result["spec"]["nodes"] if node["id"] == "vault-prod-2")
+        self.assertNotIn("overlay_address", pending)
+        self.assertFalse(pending["private_address"].startswith("10.79."))
+        topology["spec"]["fixed_nodes"][1]["xconnect"] = {"overlay_ip": "192.168.1.9"}
+        with self.assertRaisesRegex(ValueError, "outside the declared overlay"):
             resolver.resolve(manifest, service, instances, "open-platform-prod", "shared", "gha_1234567890", topology)
 
     def test_contract_records_connection_mode(self):
