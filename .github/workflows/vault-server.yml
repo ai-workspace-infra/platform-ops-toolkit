@@ -623,6 +623,7 @@ jobs:
       prod_0_ip: ${{ steps.instances.outputs.prod_0_ip }}
       prod_1_ip: ${{ steps.instances.outputs.prod_1_ip }}
       prod_2_ip: ${{ steps.instances.outputs.prod_2_ip }}
+      gcp_targets: ${{ steps.instances.outputs.gcp_targets }}
       expected_cluster: ${{ steps.cluster.outputs.cluster_id }}
     steps:
       - name: Require a production DNS-only dispatch
@@ -675,8 +676,8 @@ jobs:
           leader = service['storage']['leader']
           names = [leader, *service['storage']['peers']]
           machines = {item['name']: item for item in provider['resources']['vault_nodes']}
-          if len(names) != 3 or len(set(names)) != 3 or set(names) != set(machines):
-              raise SystemExit('Vault DNS requires exactly the reviewed three Raft nodes')
+          if len(names) not in (1, 3) or len(set(names)) != len(names) or set(names) != set(machines):
+              raise SystemExit('Vault DNS requires the reviewed one-node or three-node Raft set')
           nodes = [{'name': name, 'zone': machines[name]['zone'],
                     'role': 'leader' if name == leader else 'standby'} for name in names]
           if not all(machines[name].get('public_ip') is True for name in names):
@@ -773,6 +774,7 @@ jobs:
           old_ip = str(ipaddress.IPv4Address(os.environ['OLD_IP']))
           matrix.append({'node': 'vault-legacy', 'role': 'legacy-standby', 'ip': old_ip})
           values['matrix'] = json.dumps(matrix, separators=(',', ':'))
+          values['gcp_targets'] = json.dumps([item['ip'] for item in matrix if item['node'] != 'vault-legacy'], separators=(',', ':'))
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
               for key, value in values.items():
                   print(f'{key}={value}', file=out)
@@ -873,12 +875,13 @@ jobs:
           PROD_0_IP: ${{ needs.dns-discovery.outputs.prod_0_ip }}
           PROD_1_IP: ${{ needs.dns-discovery.outputs.prod_1_ip }}
           PROD_2_IP: ${{ needs.dns-discovery.outputs.prod_2_ip }}
+          GCP_TARGETS: ${{ needs.dns-discovery.outputs.gcp_targets }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DNS_API_TOKEN }}
         run: |
           set -euo pipefail
           : "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_DNS_API_TOKEN must be configured in the prod environment}"
           case "${ACTION}" in
-            switch) targets=("${PROD_0_IP}" "${PROD_1_IP}" "${PROD_2_IP}") ;;
+            switch) mapfile -t targets < <(jq -r '.[]' <<<"${GCP_TARGETS}") ;;
             rollback) targets=("${OLD_IP}") ;;
             *) echo '::error::DNS mutation received an unsupported action' >&2; exit 1 ;;
           esac
@@ -962,6 +965,7 @@ jobs:
       PROD_0_IP: ${{ needs.dns-discovery.outputs.prod_0_ip }}
       PROD_1_IP: ${{ needs.dns-discovery.outputs.prod_1_ip }}
       PROD_2_IP: ${{ needs.dns-discovery.outputs.prod_2_ip }}
+      GCP_TARGETS: ${{ needs.dns-discovery.outputs.gcp_targets }}
     steps:
       - name: Wait for the expected A records
         shell: bash
@@ -969,7 +973,7 @@ jobs:
           RESOLVER: ${{ matrix.resolver }}
         run: |
           set -euo pipefail
-          if [[ "${ACTION}" == switch ]]; then expected=("${PROD_0_IP}" "${PROD_1_IP}" "${PROD_2_IP}"); else expected=("${OLD_IP}"); fi
+          if [[ "${ACTION}" == switch ]]; then mapfile -t expected < <(jq -r '.[]' <<<"${GCP_TARGETS}"); else expected=("${OLD_IP}"); fi
           for attempt in {1..18}; do
             mapfile -t actual < <(dig +short @"${RESOLVER}" "${DOMAIN}" A | sort -u)
             ok=true
