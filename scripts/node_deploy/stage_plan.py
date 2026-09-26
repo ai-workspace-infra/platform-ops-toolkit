@@ -115,6 +115,15 @@ STAGES: dict[str, dict] = {
             "then dispatch xconnect-gateway once it is enabled."
         ),
     },
+    "vault-public-frontend": {
+        "path": "any",
+        "ssh": "new",
+        "requires": ["access", "raft-quorum"],
+        "playbook": SHARED_PLAYBOOK,
+        "tags": ["vault-public-frontend"],
+        "secrets": ["tls"],
+        "next": "Verify all three public HTTPS endpoints, then switch Vault DNS.",
+    },
     "xconnect-gateway": {
         "path": "any",
         "ssh": "new",

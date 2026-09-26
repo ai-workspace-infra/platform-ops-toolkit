@@ -28,9 +28,11 @@ class VaultServerEntryTests(unittest.TestCase):
     def test_renamed_entry_keeps_one_stage_per_dispatch(self):
         self.assertFalse((ROOT / ".github/workflows/vault-shared-gcp-iac.yml").exists())
         self.assertEqual(self.inputs["deploy_action"]["options"], ["none", "plan", "apply"])
-        self.assertEqual(self.inputs["connection_mode"]["options"], ["bootstrap-public"])
+        self.assertNotIn("connection_mode", self.inputs)
+        self.assertIn("connection_mode: bootstrap-public", ENTRY.read_text(encoding="utf-8"))
         self.assertIn("xconnect-one", self.inputs["service_stage"]["options"])
-        self.assertEqual(self.inputs["playbooks_ref"]["default"], "c26b995a1a30de71350f7101455e7dd13ef21c21")
+        self.assertIn("vault-public-frontend", self.inputs["service_stage"]["options"])
+        self.assertEqual(self.inputs["playbooks_ref"]["default"], "20ac73b13fbe0bfae54faa7bb37fe082521b6e01")
 
     def test_gateway_tls_is_read_with_the_scoped_xconnect_role_only_when_needed(self):
         steps = steps_by_name(self.jobs["node-stage"]["steps"])
