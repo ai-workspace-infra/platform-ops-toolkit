@@ -270,6 +270,7 @@ jobs:
           PROVIDER_ID: ${{ steps.config.outputs.provider_id }}
           BOOTSTRAP_SERVICE_ACCOUNT_ID: terraform-bootstrap
           DEPLOY_SERVICE_ACCOUNT_ID: ${{ steps.config.outputs.service_account_id }}
+          TFVARS_FILE: ${{ runner.temp }}/gcp-oidc-bootstrap.tfvars.json
         run: |
           set -euo pipefail
           tf_dir="iac_modules/terraform-hcl-standard/gcp-cloud/bootstrap/identity"
@@ -286,7 +287,8 @@ jobs:
               return 0
             fi
             log_file="$(mktemp "${RUNNER_TEMP}/terraform-import.XXXXXX")"
-            if terraform -chdir="${tf_dir}" import -input=false -no-color "${address}" "${import_id}" >"${log_file}" 2>&1; then
+            if terraform -chdir="${tf_dir}" import -input=false -no-color \
+              -var-file="${TFVARS_FILE}" "${address}" "${import_id}" >"${log_file}" 2>&1; then
               echo "Imported existing ${address}."
             elif grep -Eqi '404|not found|does not exist|No matching .* found' "${log_file}"; then
               echo "${address} is absent; Terraform will create it."
