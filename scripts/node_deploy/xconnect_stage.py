@@ -56,6 +56,7 @@ HOSTNAME = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z
 JOIN_URI = re.compile(r"^xconnect://join/\S+$")
 INVITE_MINUTES = 30
 BOOTSTRAP_PATH = "/api/internal/overlay/networks/bootstrap"
+HTTP_USER_AGENT = "platform-ops-toolkit/1.0 (+https://github.com/ai-workspace-infra/platform-ops-toolkit)"
 ARCHITECTURES = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
 ROLE_GROUPS = {"gateway": GATEWAY_GROUP, "one": ONE_GROUP}
 
@@ -152,14 +153,29 @@ def post_json(url: str, token: str, body: dict) -> tuple[int, dict]:
     request = urllib.request.Request(
         url,
         data=json.dumps(body).encode(),
-        headers={"X-Service-Token": token, "Content-Type": "application/json"},
+        headers={"X-Service-Token": token, "Content-Type": "application/json",
+                 "Accept": "application/json", "User-Agent": HTTP_USER_AGENT},
         method="POST",
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             return response.status, json.load(response)
     except urllib.error.HTTPError as error:
-        return error.code, {}
+        # Return a fixed diagnostic, never the raw error body (which can echo
+        # request credentials). Distinguish an edge rejection from owner ACLs.
+        raw = error.read(4096)
+        diagnostic = "http_error"
+        if b"error code: 1010" in raw:
+            diagnostic = "cloudflare_browser_integrity_rejection"
+        else:
+            try:
+                value = json.loads(raw)
+                code = value.get("error") if isinstance(value, dict) else None
+                if code in {"forbidden", "owner_not_found", "not_found", "invalid_request", "device_conflict"}:
+                    diagnostic = code
+            except (ValueError, UnicodeError):
+                pass
+        return error.code, {"diagnostic": diagnostic}
 
 
 def request_join_uri(topology: dict, role: str, device_id: str, gateway_key: str, env: dict[str, str],
@@ -170,7 +186,8 @@ def request_join_uri(topology: dict, role: str, device_id: str, gateway_key: str
     body = bootstrap_request(topology, role, device_id, gateway_key, owner, vless_id, expires or expires_at(), platform)
     status, response = post(topology["controller"].rstrip("/") + BOOTSTRAP_PATH, token, body)
     if status != 201:
-        raise ValueError(f"Zero did not issue the {role} invitation for {device_id}: HTTP {status}")
+        diagnostic = response.get("diagnostic", "http_error")
+        raise ValueError(f"Zero did not issue the {role} invitation for {device_id}: HTTP {status} ({diagnostic})")
     return check_invite(response, topology, role, device_id, platform)
 
 

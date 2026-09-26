@@ -1,8 +1,12 @@
 import importlib.util
+import io
+import json
 import stat
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+from urllib.error import HTTPError
 from pathlib import Path
 
 import yaml
@@ -43,6 +47,30 @@ CONTRACT = {"spec": {"nodes": [
     {"id": "vault-prod-1", "groups": ["vault_shared_nodes", "vault_shared_peers", "xconnect_one"]},
 ]}}
 ENV = {"ZERO_SERVICE_TOKEN": "service-token", "ZERO_OWNER_EMAIL": "ops@example.com", "XCONNECT_VLESS_ID": "vless-id"}
+
+
+class HTTPClientTests(unittest.TestCase):
+    def test_identifies_the_automation_client_to_the_edge(self):
+        class Reply(io.BytesIO):
+            status = 201
+        with patch.object(module.urllib.request, "urlopen", return_value=Reply(b'{"ok":true}')) as call:
+            self.assertEqual(module.post_json("https://accounts.svc.plus/test", "secret", {}), (201, {"ok": True}))
+        request = call.call_args.args[0]
+        self.assertEqual(request.get_header("User-agent"), module.HTTP_USER_AGENT)
+        self.assertEqual(request.get_header("Accept"), "application/json")
+
+    def test_edge_rejection_is_not_misreported_as_owner_denial(self):
+        error = HTTPError("https://accounts.svc.plus/test", 403, "Forbidden", {}, io.BytesIO(b"error code: 1010\n"))
+        with patch.object(module.urllib.request, "urlopen", side_effect=error):
+            status, body = module.post_json(error.url, "secret", {})
+        self.assertEqual(status, 403)
+        self.assertEqual(body, {"diagnostic": "cloudflare_browser_integrity_rejection"})
+
+    def test_application_error_diagnostic_does_not_echo_secrets(self):
+        error = HTTPError("https://accounts.svc.plus/test", 403, "Forbidden", {},
+                          io.BytesIO(json.dumps({"error": "forbidden", "token": "secret"}).encode()))
+        with patch.object(module.urllib.request, "urlopen", side_effect=error):
+            self.assertEqual(module.post_json(error.url, "secret", {}), (403, {"diagnostic": "forbidden"}))
 
 
 def topology():
