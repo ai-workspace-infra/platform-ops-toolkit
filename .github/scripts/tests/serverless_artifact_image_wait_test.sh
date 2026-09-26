@@ -28,10 +28,21 @@ for key in ("GCP_PROJECT_ID", "GCP_ARTIFACT_REGISTRY_REGION", "CLOUD_RUN_SERVICE
     if key not in env:
         raise SystemExit(f"image readiness step must pass {key}")
 
+gitops = next((step for step in steps if step.get("name") == "Read GitOps GCP target"), None)
+if gitops is None:
+    raise SystemExit("cloud_run must load project and region from the GitOps GCP manifest")
+if gitops.get("id") != "gitops_gcp":
+    raise SystemExit("GitOps GCP target step must expose the gitops_gcp outputs")
+env = gitops.get("env", {})
+if "GCP_GITOPS_MANIFEST" not in env:
+    raise SystemExit("GitOps GCP target step must receive the manifest path")
+
 vault = next((step for step in steps if step.get("name") == "Authenticate to Vault with GitHub OIDC"), None)
 secrets = str((vault or {}).get("with", {}).get("secrets", ""))
-if "GCP_REGION | GCP_REGION" not in secrets:
-    raise SystemExit("cloud_run Vault contract must provide GCP_REGION for the registry readiness check")
+if "GCP_WORKLOAD_IDENTITY_PROVIDER" not in secrets or "GCP_SERVICE_ACCOUNT_EMAIL" not in secrets:
+    raise SystemExit("cloud_run Vault contract must provide only the WIF provider and deploy Service Account")
+if "GCP_PROJECT_ID | GCP_PROJECT_ID" in secrets or "GCP_REGION | GCP_REGION" in secrets:
+    raise SystemExit("cloud_run must not duplicate GitOps project or region in Vault")
 PY
 
 echo "serverless_artifact_image_wait_test: PASS"

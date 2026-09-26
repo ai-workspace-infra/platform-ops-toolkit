@@ -7,8 +7,8 @@ set -euo pipefail
 # 例外：UAT accounts 常驻 1 个实例，避免冷启动期间登录接口返回 503
 # -----------------------------------------------------------------------------
 
-GCP_PROJECT="${GCP_PROJECT_ID:-ai-workspace-uat-project}"
-GCP_REGION="${GCP_REGION:-asia-east1}"
+GCP_PROJECT="${GCP_PROJECT_ID:?GCP_PROJECT_ID must be supplied from the validated Vault/GitOps target}"
+GCP_REGION="${GCP_REGION:?GCP_REGION must be supplied from the validated Vault/GitOps target}"
 GCP_ARTIFACT_REGISTRY_REGION="${GCP_ARTIFACT_REGISTRY_REGION:-${GCP_REGION}}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 DEPLOY_ENV="${DEPLOY_ENV:-uat}"

@@ -33,8 +33,8 @@ vault_addr="${VAULT_ADDR:-https://vault.svc.plus}"
 action="${GCP_BOOTSTRAP_ACTION:-write}"
 
 case "${environment}" in
-  uat) default_project="xwork-open-platform-uat" ;;
-  prod) default_project="xwork-open-platform-prod" ;;
+  uat) default_project="open-platform-uat" ;;
+  prod) default_project="open-platform-prod" ;;
   shared) default_project="open-platform-prod" ;;
   *) echo "GCP_ENVIRONMENT must be uat, prod, or shared" >&2; exit 1 ;;
 esac

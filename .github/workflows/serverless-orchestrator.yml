@@ -486,6 +486,13 @@ jobs:
           sparse-checkout: |
             topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
             services/accounts/${{ inputs.vault_env_path || 'uat' }}/oauth/github.json
+            resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
+
+      - name: Read GitOps GCP target
+        id: gitops_gcp
+        run: ruby ./.github/scripts/serverless/read_gcp_gitops_target.rb
+        env:
+          GCP_GITOPS_MANIFEST: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
 
       # accounts rejects any browser Origin that is not on its CORS allowlist,
       # so the deploy has to pass this environment's console host through.
@@ -506,9 +513,15 @@ jobs:
           exportToken: true
           secrets: |
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_WORKLOAD_IDENTITY_PROVIDER | GCP_WORKLOAD_IDENTITY_PROVIDER ;
-            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL ;
-            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_PROJECT_ID | GCP_PROJECT_ID ;
-            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_REGION | GCP_REGION
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL
+
+      - name: Verify Vault GCP target matches GitOps project declaration
+        run: ruby ./.github/scripts/serverless/validate_gcp_gitops_contract.rb
+        env:
+          GCP_GITOPS_MANIFEST: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
+          GCP_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}
+          GCP_PROJECT_ID: ${{ steps.gitops_gcp.outputs.project_id }}
+          GCP_REGION: ${{ steps.gitops_gcp.outputs.region }}
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -522,8 +535,8 @@ jobs:
       - name: Wait for service image in Artifact Registry
         run: ./.github/scripts/serverless/wait_for_artifact_image.sh
         env:
-          GCP_PROJECT_ID: ${{ steps.vault.outputs.GCP_PROJECT_ID }}
-          GCP_ARTIFACT_REGISTRY_REGION: ${{ steps.vault.outputs.GCP_REGION }}
+          GCP_PROJECT_ID: ${{ steps.gitops_gcp.outputs.project_id }}
+          GCP_ARTIFACT_REGISTRY_REGION: ${{ steps.gitops_gcp.outputs.region }}
           CLOUD_RUN_SERVICE: ${{ matrix.service }}
           IMAGE_TAG: ${{ inputs.tag_ref }}
 
@@ -536,7 +549,7 @@ jobs:
         env:
           VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
           VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
-          GCP_PROJECT_ID: ${{ steps.vault.outputs.GCP_PROJECT_ID }}
+          GCP_PROJECT_ID: ${{ steps.gitops_gcp.outputs.project_id }}
 
       - name: Deploy Cloud Run service
         run: ./.github/scripts/platform-ops/deploy/uat_orchestrator_runner.sh
@@ -1148,6 +1161,22 @@ jobs:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
 
+      - name: Checkout GitOps GCP project declaration
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: main
+          path: gitops
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
+
+      - name: Read GitOps GCP target
+        id: gitops_gcp
+        run: ruby ./.github/scripts/serverless/read_gcp_gitops_target.rb
+        env:
+          GCP_GITOPS_MANIFEST: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
+
       - name: Load GCP deployment identity from Vault
         id: vault
         uses: hashicorp/vault-action@v4
@@ -1159,9 +1188,15 @@ jobs:
           exportToken: true
           secrets: |
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_WORKLOAD_IDENTITY_PROVIDER | GCP_WORKLOAD_IDENTITY_PROVIDER ;
-            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL ;
-            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_PROJECT_ID | GCP_PROJECT_ID ;
-            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_REGION | GCP_REGION
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL
+
+      - name: Verify Vault GCP target matches GitOps project declaration
+        run: ruby ./.github/scripts/serverless/validate_gcp_gitops_contract.rb
+        env:
+          GCP_GITOPS_MANIFEST: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
+          GCP_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}
+          GCP_PROJECT_ID: ${{ steps.gitops_gcp.outputs.project_id }}
+          GCP_REGION: ${{ steps.gitops_gcp.outputs.region }}
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -1176,8 +1211,8 @@ jobs:
         run: ./scripts/serverless_uat/destroy_ephemeral_compute.sh
         env:
           DEPLOY_ENV: ${{ inputs.vault_env_path || 'uat' }}
-          GCP_PROJECT_ID: ${{ steps.vault.outputs.GCP_PROJECT_ID }}
-          GCP_REGION: ${{ steps.vault.outputs.GCP_REGION }}
+          GCP_PROJECT_ID: ${{ steps.gitops_gcp.outputs.project_id }}
+          GCP_REGION: ${{ steps.gitops_gcp.outputs.region }}
 
   verify:
     name: Verify / Summary

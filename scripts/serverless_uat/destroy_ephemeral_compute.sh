@@ -6,8 +6,9 @@ set -euo pipefail
 # 仅删除 Cloud Run 临时服务，Supabase 数据库与 Cloudflare Pages 永久保留
 # -----------------------------------------------------------------------------
 
-GCP_PROJECT="${GCP_PROJECT_ID:-ai-workspace-uat-project}"
-GCP_REGION="${GCP_REGION:-asia-east1}"
+GCP_PROJECT="${GCP_PROJECT_ID:?GCP_PROJECT_ID must be supplied from the validated Vault/GitOps target}"
+GCP_REGION="${GCP_REGION:?GCP_REGION must be supplied from the validated Vault/GitOps target}"
+GCP_ARTIFACT_REGISTRY_REGION="${GCP_ARTIFACT_REGISTRY_REGION:-${GCP_REGION}}"
 DEPLOY_ENV="${DEPLOY_ENV:-uat}"
 
 case "${DEPLOY_ENV}" in
@@ -34,7 +35,7 @@ for svc in "${SERVICES[@]}"; do
 done
 
 echo "==> [Cleanup] Pruning older container image tags in Artifact Registry..."
-gcloud artifacts docker images list "asia-east1-docker.pkg.dev/${GCP_PROJECT}/serverless" \
+gcloud artifacts docker images list "${GCP_ARTIFACT_REGISTRY_REGION}-docker.pkg.dev/${GCP_PROJECT}/serverless" \
   --project="${GCP_PROJECT}" \
   --filter="createTime < -P2D" \
   --format="value(IMAGE)" 2>/dev/null | xargs -r -n 1 gcloud artifacts docker images delete --quiet || true
