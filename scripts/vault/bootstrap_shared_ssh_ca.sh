@@ -45,7 +45,7 @@ role_body() {
     default_extensions: {},
     ttl: "30m",
     max_ttl: "30m",
-    algorithm_signer: "rsa-sha2-512"
+    algorithm_signer: "default"
   }'
 }
 

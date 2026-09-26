@@ -1,11 +1,11 @@
-name: XConnect Zero Cloud Lab
+name: XConnect Zero Cloud and Network Bootstrap
 on:
   workflow_dispatch:
     inputs:
       deployment_profile:
-        description: Deployment profile; disposable AWS Spot cloud lab or persistent existing UAT One
+        description: UAT lab, existing UAT One, or GitOps-declared shared/prod/custom network bootstrap
         type: choice
-        options: [cloud-lab, existing-one]
+        options: [cloud-lab, existing-one, declared-network]
         required: false
         default: cloud-lab
       mode:
@@ -107,13 +107,29 @@ on:
         type: string
         required: false
         default: 'all'
+      network_environment:
+        description: Target declaration scope for declared-network (prod or custom); credentials always come from the isolated shared XConnect role
+        type: choice
+        options: [prod, custom]
+        required: false
+        default: custom
+      network_manifest:
+        description: GitOps-relative YAML declaration path; must be under vpn-overlay/networks/
+        type: string
+        required: false
+        default: ''
+      network_gitops_ref:
+        description: Immutable GitOps commit SHA containing the declared network
+        type: string
+        required: false
+        default: '28430b835c4275eea1921aa7fd98c96dbc2c50ef'
 permissions:
   contents: read
   id-token: write
 env:
   XCONNECT_VAULT_ROLE: github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab
 concurrency:
-  group: xconnect-cloud-lab
+  group: ${{ inputs.deployment_profile == 'declared-network' && 'xconnect-declared-network' || 'xconnect-cloud-lab' }}
   cancel-in-progress: false
 jobs:
   preflight:
@@ -139,8 +155,14 @@ jobs:
           bash .github/scripts/tests/xconnect_gateway_dns_contract_test.sh
           bash .github/scripts/tests/xconnect_xhttp_runtime_contract_test.sh
           bash .github/scripts/tests/xconnect_ai_aggregator_matrix_contract_test.sh
+          bash .github/scripts/tests/xconnect_declared_network_contract_test.sh
       - name: Validate runtime scripts and workflow inputs
         if: matrix.suite == 'runtime'
+        env:
+          SELECTED_PROFILE: ${{ inputs.deployment_profile }}
+          SELECTED_MODE: ${{ inputs.mode }}
+          NETWORK_MANIFEST_INPUT: ${{ inputs.network_manifest }}
+          NETWORK_GITOPS_REF_INPUT: ${{ inputs.network_gitops_ref }}
         run: |
           python3 -m unittest discover -s .github/scripts/xconnect-lab -p 'test_*.py'
           bash .github/scripts/tests/workflow_dispatch_input_limit_test.sh
@@ -150,10 +172,97 @@ jobs:
           bash -n .github/scripts/xconnect-lab/verify-xhttp-runtime.sh
           bash -n .github/scripts/xconnect-lab/enroll-node.sh
           bash -n .github/scripts/xconnect-existing-one-uat/deploy.sh
-          if [[ "${{ inputs.deployment_profile }}" == 'existing-one' && "${{ inputs.mode }}" == 'cleanup' ]]; then
+          bash -n .github/scripts/xconnect-network/bootstrap.sh
+          python3 -c 'import ast, pathlib; ast.parse(pathlib.Path(".github/scripts/xconnect-network/manifest.py").read_text())'
+          python3 -m unittest discover -s .github/scripts/xconnect-network -p 'test_*.py'
+          if [[ "$SELECTED_PROFILE" == 'existing-one' && "$SELECTED_MODE" == 'cleanup' ]]; then
             echo 'cleanup is only supported by the cloud-lab profile' >&2
             exit 1
           fi
+          if [[ "$SELECTED_PROFILE" == 'declared-network' ]]; then
+            [[ "$SELECTED_MODE" == 'dry-run' || "$SELECTED_MODE" == 'apply' ]] || {
+              echo 'declared-network supports only dry-run or apply; it never deletes a network' >&2
+              exit 1
+            }
+            [[ "$NETWORK_MANIFEST_INPUT" == vpn-overlay/networks/*.yaml || "$NETWORK_MANIFEST_INPUT" == vpn-overlay/networks/*.yml ]] || {
+              echo 'network_manifest must be a GitOps path under vpn-overlay/networks/' >&2
+              exit 1
+            }
+            [[ "$NETWORK_GITOPS_REF_INPUT" =~ ^[0-9a-f]{40}$ ]] || {
+              echo 'network_gitops_ref must be an immutable commit SHA' >&2
+              exit 1
+            }
+          fi
+
+  declared_network:
+    name: GitOps network / ${{ inputs.network_environment }} / ${{ inputs.mode }}
+    needs: preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.deployment_profile == 'declared-network'
+    runs-on: ubuntu-24.04
+    environment: prod
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install GitOps YAML parser
+        run: python3 -m pip install --disable-pip-version-check 'PyYAML==6.0.2'
+      - name: Authenticate using the dedicated shared-network Vault role
+        id: bootstrap
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-shared-xconnect-network
+          jwtGithubAudience: vault
+          exportEnv: false
+          secrets: |
+            kv/data/CICD/shared/xconnect ZERO_SERVICE_TOKEN | ZERO_SERVICE_TOKEN ;
+            kv/data/CICD/shared/xconnect VLESS_ID | VLESS_ID ;
+            kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
+      - name: Mint read-only GitOps checkout token
+        id: gitops-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: Iv23liNwStpQIiXajhpb
+          private-key: ${{ steps.bootstrap.outputs.APP_PRIVATE_KEY }}
+          owner: ai-workspace-infra
+          repositories: gitops
+      - uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.network_gitops_ref }}
+          token: ${{ steps.gitops-token.outputs.token }}
+          path: gitops
+          persist-credentials: false
+      - name: Validate GitOps declaration and build a private bootstrap request
+        id: declaration
+        env:
+          NETWORK_ENVIRONMENT: ${{ inputs.network_environment }}
+          NETWORK_MANIFEST: gitops/${{ inputs.network_manifest }}
+          VLESS_ID: ${{ steps.bootstrap.outputs.VLESS_ID }}
+          REQUEST_FILE: ${{ runner.temp }}/xconnect-network-request.json
+        run: python3 .github/scripts/xconnect-network/manifest.py
+      - name: Bootstrap the declared network and issue a one-use Gateway invitation
+        if: inputs.mode == 'apply'
+        env:
+          VAULT_ADDR: https://vault.svc.plus
+          VAULT_ROLE: github-actions-platform-ops-toolkit-shared-xconnect-network
+          ZERO_SERVICE_TOKEN: ${{ steps.bootstrap.outputs.ZERO_SERVICE_TOKEN }}
+          NETWORK_REQUEST_FILE: ${{ runner.temp }}/xconnect-network-request.json
+          NETWORK_ID: ${{ steps.declaration.outputs.network_id }}
+          ACCOUNTS_API_URL: ${{ steps.declaration.outputs.accounts_api_url }}
+          INVITATION_TTL_MINUTES: ${{ steps.declaration.outputs.invitation_ttl_minutes }}
+        run: bash .github/scripts/xconnect-network/bootstrap.sh
+      - name: Report dry-run boundary
+        if: inputs.mode == 'dry-run'
+        run: echo 'Declaration validated; no Zero API or Vault writes were performed.'
+      - name: Remove private generated request
+        if: always()
+        run: rm -f '${{ runner.temp }}/xconnect-network-request.json'
 
   resolve_ai_aggregator_matrix:
     name: Resolve AI Aggregator node matrix
