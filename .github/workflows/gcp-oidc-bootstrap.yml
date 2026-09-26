@@ -261,6 +261,54 @@ jobs:
           terraform -chdir=iac_modules/terraform-hcl-standard/gcp-cloud/bootstrap/identity fmt -check
           terraform -chdir=iac_modules/terraform-hcl-standard/gcp-cloud/bootstrap/identity validate -no-color
 
+      - name: Import existing GCP identities into Terraform state
+        env:
+          TF_VAR_access_token: ${{ steps.token.outputs.access_token }}
+          TF_VAR_project_id: ${{ steps.config.outputs.project_id }}
+          PROJECT_ID: ${{ steps.config.outputs.project_id }}
+          POOL_ID: ${{ steps.config.outputs.pool_id }}
+          PROVIDER_ID: ${{ steps.config.outputs.provider_id }}
+          BOOTSTRAP_SERVICE_ACCOUNT_ID: terraform-bootstrap
+          DEPLOY_SERVICE_ACCOUNT_ID: ${{ steps.config.outputs.service_account_id }}
+        run: |
+          set -euo pipefail
+          tf_dir="iac_modules/terraform-hcl-standard/gcp-cloud/bootstrap/identity"
+
+          # A project may already contain identities created before the
+          # current remote state was initialized. Import only addresses that
+          # are absent from state; a missing GCP resource is left for the
+          # normal Terraform apply to create.
+          import_if_existing() {
+            local address="$1"
+            local import_id="$2"
+            local log_file
+            if terraform -chdir="${tf_dir}" state list | grep -Fxq "${address}"; then
+              return 0
+            fi
+            log_file="$(mktemp "${RUNNER_TEMP}/terraform-import.XXXXXX")"
+            if terraform -chdir="${tf_dir}" import -input=false -no-color "${address}" "${import_id}" >"${log_file}" 2>&1; then
+              echo "Imported existing ${address}."
+            elif grep -Eqi '404|not found|does not exist|No matching .* found' "${log_file}"; then
+              echo "${address} is absent; Terraform will create it."
+            else
+              cat "${log_file}" >&2
+              exit 1
+            fi
+          }
+
+          import_if_existing \
+            'google_service_account.bootstrap' \
+            "projects/${PROJECT_ID}/serviceAccounts/${BOOTSTRAP_SERVICE_ACCOUNT_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
+          import_if_existing \
+            'google_iam_workload_identity_pool.github' \
+            "projects/${PROJECT_ID}/locations/global/workloadIdentityPools/${POOL_ID}"
+          import_if_existing \
+            'google_iam_workload_identity_pool_provider.github' \
+            "projects/${PROJECT_ID}/locations/global/workloadIdentityPools/${POOL_ID}/providers/${PROVIDER_ID}"
+          import_if_existing \
+            'google_service_account.github_actions' \
+            "projects/${PROJECT_ID}/serviceAccounts/${DEPLOY_SERVICE_ACCOUNT_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
+
       - name: Terraform plan
         id: plan
         env:
