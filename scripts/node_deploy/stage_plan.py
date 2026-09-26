@@ -66,7 +66,15 @@ STAGES: dict[str, dict] = {
     "vault-raft-verify": {
         "path": "any",
         "ssh": "cluster",
-        "requires": ["access", "raft-quorum"],
+        # Read-only migration acceptance gate: prove the old node is no longer
+        # leader and every Raft path uses the declared XConnect overlay.
+        "requires": [
+            "access",
+            "raft-quorum",
+            "legacy-standby",
+            "raft-overlay",
+            "overlay-raft-path",
+        ],
         "next": "Take a snapshot with vault-snapshot.",
     },
     "vault-snapshot": {
