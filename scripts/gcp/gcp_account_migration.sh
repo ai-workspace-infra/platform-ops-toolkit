@@ -33,6 +33,7 @@ Optional:
   --link-billing          allow prepare to link the billing account
   --skip-api-enable       do not enable APIs during prepare
   --skip-bootstrap        do not write the bootstrap KV during prepare
+  --token-source SOURCE   auto|adc|gcloud for bootstrap token (default: auto)
   --bootstrap-action A    plan|apply for dispatch (default: plan)
   --provider NAME         WIF provider resource name for finalize
   --service-account EMAIL deploy Service Account email for finalize
@@ -68,6 +69,7 @@ github_repository="${GITHUB_REPOSITORY:-ai-workspace-infra/platform-ops-toolkit}
 workflow="${GITHUB_WORKFLOW:-gcp-oidc-bootstrap.yml}"
 workflow_ref="${GITHUB_WORKFLOW_REF:-main}"
 required_apis="${GCP_REQUIRED_APIS:-run.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com sts.googleapis.com iamcredentials.googleapis.com}"
+token_source="${GCP_TOKEN_SOURCE:-auto}"
 link_billing=false
 skip_api_enable=false
 skip_bootstrap=false
@@ -85,6 +87,7 @@ while [[ $# -gt 0 ]]; do
     --link-billing) link_billing=true; shift ;;
     --skip-api-enable) skip_api_enable=true; shift ;;
     --skip-bootstrap) skip_bootstrap=true; shift ;;
+    --token-source) token_source="${2:?missing --token-source value}"; shift 2 ;;
     --bootstrap-action) bootstrap_action="${2:?missing --bootstrap-action value}"; shift 2 ;;
     --provider) provider_resource_name="${2:?missing --provider value}"; shift 2 ;;
     --service-account) service_account_email="${2:?missing --service-account value}"; shift 2 ;;
@@ -102,6 +105,7 @@ done
 [[ -n "${account_id}" && -f "${manifest}" && -f "${oidc_config}" ]] || die "account-id, GitOps manifest and OIDC config are required"
 [[ "${bootstrap_action}" == plan || "${bootstrap_action}" == apply ]] || die "bootstrap-action must be plan or apply"
 [[ "${vault_addr}" =~ ^https?://[^/]+/?$ ]] || die "invalid Vault address"
+[[ "${token_source}" == auto || "${token_source}" == adc || "${token_source}" == gcloud ]] || die "token-source must be auto, adc or gcloud"
 
 command -v gcloud >/dev/null 2>&1 || die "gcloud is required"
 command -v ruby >/dev/null 2>&1 || die "ruby is required"
@@ -152,7 +156,32 @@ vault_session() {
 }
 
 adc_session() {
-  gcloud auth application-default print-access-token >/dev/null 2>&1 || die "ADC session unavailable or expired; run: gcloud auth application-default revoke --quiet && gcloud auth application-default login --no-browser --scopes=https://www.googleapis.com/auth/cloud-platform"
+  gcloud auth application-default print-access-token >/dev/null 2>&1
+}
+
+gcloud_session() {
+  gcloud auth print-access-token >/dev/null 2>&1
+}
+
+bootstrap_token() {
+  local token=""
+  if [[ -n "${GCP_ACCESS_TOKEN:-}" ]]; then
+    token="${GCP_ACCESS_TOKEN}"
+  elif [[ "${token_source}" == adc ]]; then
+    token="$(gcloud auth application-default print-access-token 2>/dev/null)" ||
+      die "ADC token unavailable; use --token-source=gcloud or run gcloud auth application-default login"
+  elif [[ "${token_source}" == gcloud ]]; then
+    token="$(gcloud auth print-access-token 2>/dev/null)" ||
+      die "active gcloud account token unavailable; run gcloud auth login"
+  else
+    token="$(gcloud auth application-default print-access-token 2>/dev/null || true)"
+    if [[ -z "${token}" ]]; then
+      token="$(gcloud auth print-access-token 2>/dev/null || true)"
+    fi
+    [[ -n "${token}" ]] || die "no short-lived GCP token available; run gcloud auth login or use --skip-bootstrap"
+  fi
+  [[ -n "${token}" ]] || die "GCP access token is empty"
+  printf '%s' "${token}"
 }
 
 case "${subcommand}" in
@@ -160,11 +189,18 @@ case "${subcommand}" in
     show_status
     show_api_state || true
     if VAULT_ADDR="${vault_addr}" vault token lookup >/dev/null 2>&1; then echo "vault_session=available"; else echo "vault_session=unavailable"; fi
+    if [[ -n "${GCP_ACCESS_TOKEN:-}" ]] || adc_session || gcloud_session; then
+      echo "gcp_bootstrap_token=available (source=${token_source})"
+    else
+      echo "gcp_bootstrap_token=unavailable (source=${token_source}; use --skip-bootstrap or authenticate gcloud)"
+    fi
     ;;
   prepare)
     if [[ "${skip_bootstrap}" != true ]]; then
-      adc_session
       vault_session
+      # Resolve the short-lived token before changing billing or API state so a
+      # failed bootstrap credential check cannot leave a half-prepared project.
+      bootstrap_access_token="$(bootstrap_token)"
     fi
     if [[ "${link_billing}" == true ]]; then
       [[ -n "${billing_account}" ]] || die "--billing-account is required with --link-billing"
@@ -176,8 +212,10 @@ case "${subcommand}" in
       GCP_ACCOUNT_ID="${account_id}" \
       GCP_PROJECT_ID="${project_id}" \
       GCP_EXPECTED_PROJECT_ID="${project_id}" \
+      GCP_ACCESS_TOKEN="${bootstrap_access_token}" \
       VAULT_ADDR="${vault_addr}" \
         "${script_dir}/bootstrap_gcp_auth_kv.sh"
+      unset bootstrap_access_token
     fi
     echo "prepare complete; dispatch the GitHub OIDC bootstrap workflow"
     ;;
