@@ -181,6 +181,11 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   # Keep the logical project segment independent from the concrete provider
   # account/project identity. Hybrid UAT uses svc.plus for every cloud.
   state_project="${INPUT_STATE_PROJECT:-${STATE_PROJECT}}"
+  if [[ "${deployment_env}" == "uat" && -z "${INPUT_STATE_PROJECT:-}" ]]; then
+    # UAT's cross-provider matrix uses one logical project segment. The
+    # concrete provider account remains the next path component.
+    state_project="${AKAMAI_UAT_PROJECT}"
+  fi
   uat_akamai_region_namespace=false
   akamai_matrix_mode=false
   akamai_matrix_action=none

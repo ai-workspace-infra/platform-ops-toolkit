@@ -122,11 +122,6 @@ on:
         required: false
         default: ""
         type: string
-      state_project:
-        description: "Optional unified state project segment; hybrid matrix passes svc.plus"
-        required: false
-        default: ""
-        type: string
       akamai_account:
         description: "Akamai Cloud concrete account name/ID used by the state key; blank uses cloud_account or the environment profile"
         required: false
@@ -251,7 +246,6 @@ jobs:
     env:
       INPUT_CLOUD_PROVIDER:        ${{ github.event.inputs.cloud_provider }}
       INPUT_CLOUD_ACCOUNT:         ${{ github.event.inputs.cloud_account }}
-      INPUT_STATE_PROJECT:          ${{ github.event.inputs.state_project }}
       INPUT_VAULT_ENV_PATH:        ${{ github.event.inputs.vault_env_path }}
       INPUT_TARGET_DOMAINS:        ${{ github.event.inputs.target_domains }}
       INPUT_INSTANCE_PLAN:          ${{ inputs.instance_plan || github.event.inputs.instance_plan || '4C8G' }}

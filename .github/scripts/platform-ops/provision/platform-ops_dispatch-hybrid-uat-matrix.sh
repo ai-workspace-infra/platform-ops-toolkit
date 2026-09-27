@@ -74,10 +74,10 @@ dispatch_selfhost() {
   payload="$(jq -n \
     --arg ref "${CHILD_REF}" --arg runner_type "${RUNNER_TYPE}" --arg deploy_tag "${DEPLOY_TAG}" \
     --arg source_ref "${SOURCE_REF}" --arg operation "${child_operation}" --arg target_domains "${namespace}" \
-    --arg provider "${provider}" --arg account "${account}" --arg profile "${profile}" --arg state_project "svc.plus" \
+    --arg provider "${provider}" --arg account "${account}" --arg profile "${profile}" \
     --arg target_domain_base "${TARGET_DOMAIN_BASE}" --arg observability_endpoint "${OBSERVABILITY_ENDPOINT}" \
     --arg vault_addr "${VAULT_ADDR}" --arg gateway "${XCONNECT_GATEWAY_REF}" \
-    '{ref:$ref,inputs:{runner_type:$runner_type,deploy_tag:$deploy_tag,source_ref:$source_ref,offline_mode:"off",source_host:"install.svc.plus",source_domain_base:"svc.plus",target_domain_base:$target_domain_base,observability_endpoint:$observability_endpoint,operation:$operation,target_domains:$target_domains,cloud_provider:$provider,cloud_account:$account,state_project:$state_project,include_external_agent_proxy:"false",instance_plan:$profile,agent_proxy_plan:$profile,dns_mode:"none",vault_env_path:"uat",skip_stripe_catalog:"true",agent_controller_url:"https://accounts-serverless-uat.onwalk.net",vault_addr:$vault_addr,xconnect_gateway_ref:$gateway}}')"
+    '{ref:$ref,inputs:{runner_type:$runner_type,deploy_tag:$deploy_tag,source_ref:$source_ref,offline_mode:"off",source_host:"install.svc.plus",source_domain_base:"svc.plus",target_domain_base:$target_domain_base,observability_endpoint:$observability_endpoint,operation:$operation,target_domains:$target_domains,cloud_provider:$provider,cloud_account:$account,include_external_agent_proxy:"false",instance_plan:$profile,agent_proxy_plan:$profile,dns_mode:"none",vault_env_path:"uat",skip_stripe_catalog:"true",agent_controller_url:"https://accounts-serverless-uat.onwalk.net",vault_addr:$vault_addr,xconnect_gateway_ref:$gateway}}')"
   dispatch_and_wait selfhost-orchestrator.yml "${payload}" "${namespace} (${provider}, ${profile})"
 }
 
