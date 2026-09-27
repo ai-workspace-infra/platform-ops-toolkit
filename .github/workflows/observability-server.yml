@@ -280,7 +280,7 @@ jobs:
       matrix: ${{ fromJSON(needs.validate.outputs.matrix) }}
     env:
       VAULT_ADDR: https://vault.svc.plus
-      VAULT_ROLE: github-actions-platform-ops-toolkit-uat
+      VAULT_ROLE: github-actions-platform-ops-toolkit-uat-observability
       SOURCE_IP: ${{ inputs.source_ip }}
       TARGET_IP: ${{ needs.resolve_target.outputs.target_ip }}
       COMPONENT: ${{ matrix.component }}
@@ -344,7 +344,7 @@ jobs:
         with:
           url: https://vault.svc.plus
           method: jwt
-          role: github-actions-platform-ops-toolkit-uat
+          role: github-actions-platform-ops-toolkit-uat-observability
           jwtGithubAudience: vault
           secrets: |
             kv/data/CICD SSH_PRIVATE_DEPLOY_KEY_B64 | SSH_PRIVATE_DEPLOY_KEY_B64
@@ -392,7 +392,7 @@ jobs:
         with:
           url: https://vault.svc.plus
           method: jwt
-          role: github-actions-platform-ops-toolkit-uat
+          role: github-actions-platform-ops-toolkit-uat-observability
           jwtGithubAudience: vault
           secrets: |
             kv/data/CICD SSH_PRIVATE_DEPLOY_KEY_B64 | SSH_PRIVATE_DEPLOY_KEY_B64
@@ -432,7 +432,7 @@ jobs:
       id-token: write
     env:
       VAULT_ADDR: https://vault.svc.plus
-      VAULT_ROLE: github-actions-platform-ops-toolkit-uat
+      VAULT_ROLE: github-actions-platform-ops-toolkit-uat-observability
     steps:
       - name: Checkout toolkit
         uses: actions/checkout@v4

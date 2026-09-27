@@ -95,3 +95,24 @@ policies for the account's `LINODE_TOKEN` record and environment state record,
 and does not write any secret value. Run
 `bootstrap_akamai_cloud_kv.sh --apply --env all` separately to write the
 `LINODE_TOKEN` value.
+
+## Standalone Observability UAT role
+
+The Observability migration workflow uses the dedicated
+`github-actions-platform-ops-toolkit-uat-observability` role. Its JWT is bound
+to the `observability-server.yml` workflow on `main` in the GitHub `uat`
+environment; its policy grants read access only to the shared `kv/data/CICD`
+secret needed for the SSH key and DNS token. It does not inherit the general
+UAT role's application-secret write permissions.
+
+After review and merge, apply just this role and policy from an authenticated
+Vault admin session:
+
+```bash
+export VAULT_ADDR=https://vault.svc.plus
+vault policy write github-actions-platform-ops-toolkit-uat-observability \
+  scripts/vault/policies/github-actions-platform-ops-toolkit-uat-observability.hcl
+jq -c 'del(.role_name, .description)' \
+  scripts/vault/roles/github-actions-platform-ops-toolkit-uat-observability.json \
+  | vault write auth/jwt/role/github-actions-platform-ops-toolkit-uat-observability -
+```
