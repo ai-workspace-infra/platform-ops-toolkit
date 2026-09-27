@@ -169,6 +169,7 @@ for env in uat prod; do
     .bound_claims.repository == "ai-workspace-infra/platform-ops-toolkit" and
     (.bound_claims.job_workflow_ref | tostring | contains("iac-pipeline-multi-cloud")) and
     (.bound_claims.job_workflow_ref | index("ai-workspace-infra/platform-ops-toolkit/.github/workflows/gcp-iac-pipeline.yml@*") != null) and
+    (.bound_claims.job_workflow_ref | index("ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-orchestrator.yml@*") != null) and
     (.token_policies | index($role) != null) and
     .token_ttl == "20m" and .token_max_ttl == "20m"
   ' "${runtime_role}" >/dev/null || {
