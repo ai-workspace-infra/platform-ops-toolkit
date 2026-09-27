@@ -4,15 +4,31 @@ set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../platform-ops/provision/common_require_env.sh"
 require_env SNAPSHOT_STATUS_DIRECTORY GITHUB_OUTPUT
 
+deploy_env="${DEPLOY_ENV:-unknown}"
+[[ "${deploy_env}" =~ ^(sit|uat|prod|unknown)$ ]] || {
+  echo "::error::Unsupported DEPLOY_ENV: ${deploy_env}" >&2
+  exit 2
+}
+
 shopt -s nullglob
 files=("${SNAPSHOT_STATUS_DIRECTORY}"/*.jsonl)
 if [[ "${#files[@]}" -eq 0 ]]; then
   echo 'snapshot_status=[]' >> "${GITHUB_OUTPUT}"
+  if [[ -n "${SNAPSHOT_STATUS_OUTPUT:-}" ]]; then
+    mkdir -p "$(dirname "${SNAPSHOT_STATUS_OUTPUT}")"
+    printf '%s\n' '[]' > "${SNAPSHOT_STATUS_OUTPUT}"
+  fi
   exit 0
 fi
 
 status_json="$(jq -sc '.' "${files[@]}")"
+status_json="$(jq -c --arg environment "${deploy_env}" '[.[] | .environment = $environment]' <<<"${status_json}")"
 echo "snapshot_status=${status_json}" >> "${GITHUB_OUTPUT}"
+
+if [[ -n "${SNAPSHOT_STATUS_OUTPUT:-}" ]]; then
+  mkdir -p "$(dirname "${SNAPSHOT_STATUS_OUTPUT}")"
+  printf '%s\n' "${status_json}" > "${SNAPSHOT_STATUS_OUTPUT}"
+fi
 
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   {
@@ -32,10 +48,11 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     fi
     echo
 
-    echo '| Status | Organization | Repository | Tag | Commit SHA | Details |'
-    echo '|---|---|---|---|---|---|'
-    jq -sr '
-      sort_by(.organization, .repository)
+    echo '| Environment | Status | Organization | Repository | Tag | Commit SHA | Details |'
+    echo '|---|---|---|---|---|---|---|'
+    jq -sr --arg environment "${deploy_env}" '
+      map(.environment = $environment)
+      | sort_by(.organization, .repository)
       | .[]
       | (
           if .status == "build_succeeded" or .status == "created" or .status == "tag_created" or .status == "dispatched" then "🟢 Success"
@@ -45,7 +62,7 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
           else "🟡 Pending/Timeout"
           end
         ) as $badge
-      | [ $badge, .organization, .repository, .tag, (.sha[0:12] // "-"), .detail ]
+      | [ (.environment // "unknown"), $badge, .organization, .repository, .tag, (.sha[0:12] // "-"), .detail ]
       | map(tostring | gsub("\\|"; "\\\\|") | gsub("\\r?\\n"; " "))
       | "| " + join(" | ") + " |"
     ' "${files[@]}"

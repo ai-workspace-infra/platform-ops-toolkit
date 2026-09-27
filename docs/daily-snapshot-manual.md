@@ -46,6 +46,15 @@ workflow 会从各仓库当时的 `main` SHA 创建不可变的
 `daily-build-YYYY.MM.DD` tag，并继续执行目标仓库的构建触发流程。
 构建等待会同时按 tag 名和 SHA 匹配，避免误用同名历史运行。
 
+汇总 Job 会把本次运行的环境（`sit`、`uat` 或 `prod`）写入每条矩阵记录，
+并上传 `daily-snapshot-summary-<environment>` artifact。环境总览或其他只读同步器
+应读取该 artifact 的 `daily-snapshot-summary.json`，按 `environment`、组织和仓库
+展示状态；不要把 UAT 和 PROD 的同名 tag 或构建结果合并成一条资源记录。
+
+资源总览还必须遵守 [UAT / PROD resource aggregation contract](resource-aggregation-model.md)：
+GitOps 只代表 desired state，provider API、DNS、健康检查和部署 CMDB 才能证明
+observed state。只有声明而没有观察记录的资源必须显示为 `declared_only`。
+
 ## UAT 自动联动
 
 当 `deploy_env=uat` 且未使用 `repositories` 缩小范围时，快照矩阵全部构建成功后会自动：

@@ -385,4 +385,14 @@ jobs:
       - name: Publish unified snapshot matrix summary
         env:
           SNAPSHOT_STATUS_DIRECTORY: ${{ runner.temp }}/daily-snapshot-status
+          DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
+          SNAPSHOT_STATUS_OUTPUT: ${{ runner.temp }}/daily-snapshot-summary.json
         run: ${{ github.workspace }}/.github/scripts/snapshots/aggregate-daily-snapshot-status.sh
+
+      - name: Upload environment snapshot summary
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: daily-snapshot-summary-${{ inputs.deploy_env || 'uat' }}
+          path: ${{ runner.temp }}/daily-snapshot-summary.json
+          if-no-files-found: warn
