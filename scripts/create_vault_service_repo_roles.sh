@@ -25,6 +25,8 @@ export VAULT_ADDR="${VAULT_ADDR:-https://vault.svc.plus}"
 
 mode=apply
 akamai_env="${AKAMAI_OIDC_ENV:-all}"
+role_filter=""
+env_was_set=false
 while (($# > 0)); do
   case "$1" in
     --apply) mode=apply ;;
@@ -32,16 +34,26 @@ while (($# > 0)); do
     --env)
       (($# >= 2)) || { echo "--env requires uat, prod, or all" >&2; exit 2; }
       akamai_env="$2"
+      env_was_set=true
+      shift
+      ;;
+    --role)
+      (($# >= 2)) || { echo "--role requires a declared role name" >&2; exit 2; }
+      [[ -z "${role_filter}" ]] || { echo "--role may be specified only once" >&2; exit 2; }
+      role_filter="$2"
       shift
       ;;
     -h|--help)
       cat <<'EOF'
 Usage:
   scripts/create_vault_service_repo_roles.sh [--apply|--check] [--env uat|prod|all]
+  scripts/create_vault_service_repo_roles.sh [--apply|--check] --role <declared-role-name>
 
 The default remains --apply. When AKAMAI_ACCOUNT_UAT and/or
 AKAMAI_ACCOUNT_PROD is provided, the matching dynamic Akamai Cloud/Linode
-GitHub OIDC role and policy are also managed.
+GitHub OIDC role and policy are also managed. --role limits the operation to
+one declared JWT role and only the policies referenced by that role; it cannot
+be combined with --env and skips Akamai batch role management and cleanup.
 EOF
       exit 0
       ;;
@@ -73,8 +85,32 @@ done
 [[ -d "${ROLE_DIR}" ]] || { echo "Missing role directory: ${ROLE_DIR}" >&2; exit 1; }
 
 shopt -s nullglob
-policy_files=("${POLICY_DIR}"/*.hcl)
-role_files=("${ROLE_DIR}"/*.json)
+if [[ -n "${role_filter}" ]]; then
+  [[ "${role_filter}" =~ ^[A-Za-z0-9][A-Za-z0-9._%+@-]*[A-Za-z0-9]$ ]] || {
+    echo "Invalid role name: ${role_filter}" >&2
+    exit 2
+  }
+  [[ "${env_was_set}" == false ]] || {
+    echo "--role cannot be combined with --env" >&2
+    exit 2
+  }
+  role_file="${ROLE_DIR}/${role_filter}.json"
+  [[ -f "${role_file}" ]] || { echo "Missing role declaration: ${role_file}" >&2; exit 1; }
+  role_files=("${role_file}")
+  policy_files=()
+  while IFS= read -r policy_name; do
+    [[ "${policy_name}" =~ ^[A-Za-z0-9][A-Za-z0-9._%+@-]*[A-Za-z0-9]$ ]] || {
+      echo "Invalid policy reference in ${role_file}: ${policy_name}" >&2
+      exit 1
+    }
+    policy_file="${POLICY_DIR}/${policy_name}.hcl"
+    [[ -f "${policy_file}" ]] || { echo "Missing policy declaration: ${policy_file}" >&2; exit 1; }
+    policy_files+=("${policy_file}")
+  done < <(jq -er '.token_policies[]' "${role_file}")
+else
+  policy_files=("${POLICY_DIR}"/*.hcl)
+  role_files=("${ROLE_DIR}"/*.json)
+fi
 (( ${#policy_files[@]} > 0 )) || { echo "No policy declarations found." >&2; exit 1; }
 (( ${#role_files[@]} > 0 )) || { echo "No role declarations found." >&2; exit 1; }
 
@@ -142,7 +178,9 @@ for role_file in "${role_files[@]}"; do
   fi
 done
 
-if [[ -n "${AKAMAI_ACCOUNT_UAT:-}" || -n "${AKAMAI_ACCOUNT_PROD:-}" ]]; then
+if [[ -n "${role_filter}" ]]; then
+  echo "=== Skipping dynamic Akamai roles in targeted role mode ==="
+elif [[ -n "${AKAMAI_ACCOUNT_UAT:-}" || -n "${AKAMAI_ACCOUNT_PROD:-}" ]]; then
   echo "=== Provisioning dynamic Akamai Cloud/Linode OIDC roles ==="
   akamai_script="${SCRIPT_DIR}/vault/bootstrap_akamai_oidc_roles.sh"
   if [[ "$mode" == check ]]; then
@@ -154,11 +192,15 @@ else
   echo "=== Skipping dynamic Akamai roles (AKAMAI_ACCOUNT_* not provided) ==="
 fi
 
-echo "=== Cleaning up deprecated roles ==="
-# GCP bootstrap roles are managed declarations and must never be removed by
-# this entrypoint. Only this explicitly retired legacy role is cleaned up.
-vault delete auth/jwt/role/github-actions-platform-ops-toolkit-prod-tags 2>/dev/null ||
-  echo "  (github-actions-platform-ops-toolkit-prod-tags not present, skipped)"
+if [[ "${mode}" == apply && -z "${role_filter}" ]]; then
+  echo "=== Cleaning up deprecated roles ==="
+  # GCP bootstrap roles are managed declarations and must never be removed by
+  # this entrypoint. Only this explicitly retired legacy role is cleaned up.
+  vault delete auth/jwt/role/github-actions-platform-ops-toolkit-prod-tags 2>/dev/null ||
+    echo "  (github-actions-platform-ops-toolkit-prod-tags not present, skipped)"
+else
+  echo "=== Skipping deprecated-role cleanup ==="
+fi
 
 echo
 echo "========================================================================="

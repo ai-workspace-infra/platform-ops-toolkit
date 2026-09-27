@@ -105,14 +105,16 @@ environment; its policy grants read access only to the shared `kv/data/CICD`
 secret needed for the SSH key and DNS token. It does not inherit the general
 UAT role's application-secret write permissions.
 
-After review and merge, apply just this role and policy from an authenticated
-Vault admin session:
+After review and merge, apply just this role and its policy from an authenticated
+Vault admin session. The targeted mode writes only the selected role and its
+referenced policy; it does not run dynamic Akamai role management or deprecated
+role cleanup:
 
 ```bash
 export VAULT_ADDR=https://vault.svc.plus
-vault policy write github-actions-platform-ops-toolkit-uat-observability \
-  scripts/vault/policies/github-actions-platform-ops-toolkit-uat-observability.hcl
-jq -c 'del(.role_name, .description)' \
-  scripts/vault/roles/github-actions-platform-ops-toolkit-uat-observability.json \
-  | vault write auth/jwt/role/github-actions-platform-ops-toolkit-uat-observability -
+bash scripts/create_vault_service_repo_roles.sh --apply \
+  --role github-actions-platform-ops-toolkit-uat-observability
 ```
+
+Use `--check --role github-actions-platform-ops-toolkit-uat-observability` to
+confirm the declared policy and role already exist in Vault without writing.
