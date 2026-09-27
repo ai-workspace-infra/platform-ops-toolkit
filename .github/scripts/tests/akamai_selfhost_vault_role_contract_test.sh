@@ -23,4 +23,5 @@ print("akamai_selfhost_vault_role_contract: PASS")
 PY
 
 grep -Fq "github.event.inputs.vault_env_path == 'uat' && 'uat'" "${workflow}"
+grep -Fq "github.event_name == 'push' && github.ref == 'refs/heads/main' && 'uat'" "${workflow}"
 echo "akamai_selfhost_vault_role_contract: PASS"
