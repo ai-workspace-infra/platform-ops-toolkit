@@ -83,6 +83,9 @@ jobs:
     - name: Verify job gating is falsifiable
       run: python3 scripts/ci/workflow_gating_verify.py
 
+    - name: Verify Observability Vault jobs request OIDC tokens
+      run: python3 .github/scripts/tests/observability_oidc_permissions_contract_test.py
+
     # Over 25 workflow_dispatch inputs and the file stops being a workflow at
     # all -- callers included. Cheap to assert here, expensive to discover on
     # main.

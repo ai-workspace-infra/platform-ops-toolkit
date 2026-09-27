@@ -270,6 +270,9 @@ jobs:
       needs.resolve_target.result == 'success' && inputs.migration_mode != 'none' }}
     runs-on: ubuntu-latest
     environment: uat
+    permissions:
+      contents: read
+      id-token: write
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -321,6 +324,9 @@ jobs:
       needs.historical_data.result == 'success' }}
     runs-on: ubuntu-latest
     environment: uat
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       max-parallel: 3
@@ -368,6 +374,9 @@ jobs:
       (needs.verify_stores.result == 'success' || needs.verify_stores.result == 'skipped') }}
     runs-on: ubuntu-latest
     environment: uat
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout toolkit
         uses: actions/checkout@v4
@@ -418,6 +427,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: uat
+    permissions:
+      contents: read
+      id-token: write
     env:
       VAULT_ADDR: https://vault.svc.plus
       VAULT_ROLE: github-actions-platform-ops-toolkit-uat
