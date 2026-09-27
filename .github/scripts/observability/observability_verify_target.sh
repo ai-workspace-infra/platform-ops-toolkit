@@ -19,18 +19,24 @@ ssh "${ssh_args[@]}" "root@${TARGET_IP}" bash -s <<'REMOTE'
 set -euo pipefail
 python3 - <<'PY'
 import json, time, urllib.request
-url = 'http://127.0.0.1:3030/api/health'
-for _ in range(24):
-    try:
-        with urllib.request.urlopen(url, timeout=5) as response:
-            payload = json.load(response)
-        if payload.get('database') == 'ok':
-            break
-    except Exception:
-        pass
-    time.sleep(5)
-else:
-    raise SystemExit('Grafana API did not report database=ok')
+checks = {
+    'VictoriaMetrics': ('http://127.0.0.1:9090/metrics', False),
+    'VictoriaLogs': ('http://127.0.0.1:9428/metrics', False),
+    'VictoriaTraces': ('http://127.0.0.1:10428/metrics', False),
+    'Grafana': ('http://127.0.0.1:3030/api/health', True),
+}
+for name, (url, is_grafana) in checks.items():
+    for _ in range(24):
+        try:
+            with urllib.request.urlopen(url, timeout=5) as response:
+                payload = json.load(response) if is_grafana else None
+            if not is_grafana or payload.get('database') == 'ok':
+                break
+        except Exception:
+            pass
+        time.sleep(5)
+    else:
+        raise SystemExit(f'{name} health endpoint did not become ready: {url}')
 PY
 for container in xstream_victoriametrics xstream_victorialogs xstream_victoriatraces xstream_grafana; do
   test "$(docker inspect --format '{{.State.Running}}' "${container}")" = true
