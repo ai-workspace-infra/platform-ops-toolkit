@@ -4,6 +4,7 @@ set -euo pipefail
 : "${CLOUDFLARE_DNS_API_TOKEN:?CLOUDFLARE_DNS_API_TOKEN is required}"
 : "${DNS_ACTION:?DNS_ACTION is required}"
 : "${SOURCE_IP:?SOURCE_IP is required}"
+: "${SSH_PRIVATE_KEY_PATH:?SSH_PRIVATE_KEY_PATH is required}"
 readonly API="https://api.cloudflare.com/client/v4"
 readonly ZONE="svc.plus"
 readonly NAME="observability.svc.plus"
@@ -24,6 +25,34 @@ validate_ipv4() {
 import ipaddress, sys
 ipaddress.IPv4Address(sys.argv[1])
 PY
+}
+wait_for_dns() {
+  local expected_ip="$1" attempt resolver answer converged
+  for attempt in $(seq 1 30); do
+    converged=true
+    for resolver in 1.1.1.1 8.8.8.8 9.9.9.9; do
+      answer="$(dig +short @"${resolver}" "${NAME}" A | sort -u)"
+      if ! grep -Fxq "${expected_ip}" <<<"${answer}"; then converged=false; fi
+      printf 'resolver=%s attempt=%s records=%s\n' "${resolver}" "${attempt}" "${answer:-none}"
+    done
+    [[ "${converged}" == true ]] && return 0
+    sleep 10
+  done
+  return 1
+}
+restore_dns() {
+  local reason="$1" restore_payload
+  restore_payload="$(jq -cn --arg type A --arg name "${NAME}" --arg content "${current_ip}" \
+    --arg comment "Automatic rollback after observability ${reason} failure" \
+    --argjson ttl "${original_ttl}" --argjson proxied "${original_proxied}" \
+    --argjson tags "$(jq -c '.tags // []' <<<"${record}")" \
+    '{type:$type,name:$name,content:$content,ttl:$ttl,proxied:$proxied,comment:$comment,tags:$tags}')"
+  api PUT "${API}/zones/${zone_id}/dns_records/${record_id}" "${restore_payload}" >/dev/null
+  if [[ "${original_proxied}" == false ]] && ! wait_for_dns "${current_ip}"; then
+    echo "DNS ${reason} failed; Cloudflare restored ${NAME} to ${current_ip}, but public resolver propagation remains pending." >&2
+  else
+    echo "DNS ${reason} failed; restored ${NAME} to ${current_ip}." >&2
+  fi
 }
 validate_ipv4 "${SOURCE_IP}"
 case "${DNS_ACTION}" in
@@ -48,6 +77,8 @@ record="$(jq -cer '.result | if length == 1 then .[0] else error("expected exact
 current_ip="$(jq -er '.content' <<<"${record}")"
 validate_ipv4 "${current_ip}"
 record_id="$(jq -er '.id' <<<"${record}")"
+original_ttl="$(jq -er '.ttl' <<<"${record}")"
+original_proxied="$(jq -er '.proxied' <<<"${record}")"
 if [[ "${DNS_ACTION}" == cutover && "${current_ip}" != "${expected_ip}" ]]; then
   echo "Refusing cutover: current A record is ${current_ip}, expected source ${expected_ip}." >&2
   exit 1
@@ -62,58 +93,44 @@ fi
 
 payload="$(jq -cn --arg type A --arg name "${NAME}" --arg content "${desired_ip}" \
   --arg comment "$(jq -r '.comment // ""' <<<"${record}")" \
-  --argjson ttl "$(jq -r '.ttl' <<<"${record}")" \
-  --argjson proxied "$(jq -r '.proxied' <<<"${record}")" \
+  --argjson ttl 60 \
+  --argjson proxied false \
   --argjson tags "$(jq -c '.tags // []' <<<"${record}")" \
   '{type:$type,name:$name,content:$content,ttl:$ttl,proxied:$proxied,comment:$comment,tags:$tags}')"
 api PUT "${API}/zones/${zone_id}/dns_records/${record_id}" "${payload}" >/dev/null
 echo "Updated only ${NAME} A record: ${current_ip} -> ${desired_ip}. Waiting for Cloudflare DNS propagation."
 
-proxied="$(jq -r '.proxied' <<<"${record}")"
-propagated=false
-for _ in $(seq 1 36); do
-  answer="$(curl --fail --silent --show-error --retry 1 -H 'accept: application/dns-json' \
-    "https://cloudflare-dns.com/dns-query?name=${NAME}&type=A" || true)"
-  if [[ "${proxied}" == true ]]; then
-    if jq -e 'any(.Answer[]?; .type == 1)' >/dev/null <<<"${answer}"; then propagated=true; break; fi
-  elif jq -e --arg ip "${desired_ip}" 'any(.Answer[]?; .type == 1 and .data == $ip)' >/dev/null <<<"${answer}"; then
-    propagated=true; break
+if ! wait_for_dns "${desired_ip}"; then
+  if [[ "${DNS_ACTION}" == cutover ]]; then
+    restore_dns DNS
+  else
+    echo "DNS rollback was written to Cloudflare, but resolver propagation is still pending." >&2
   fi
-  sleep 5
-done
-if [[ "${propagated}" != true ]]; then
-  rollback_payload="$(jq -cn --arg type A --arg name "${NAME}" --arg content "${current_ip}" \
-    --arg comment "Automatic rollback after observability DNS verification failure" \
-    --argjson ttl "$(jq -r '.ttl' <<<"${record}")" --argjson proxied "$(jq -r '.proxied' <<<"${record}")" \
-    '{type:$type,name:$name,content:$content,ttl:$ttl,proxied:$proxied,comment:$comment}')"
-  api PUT "${API}/zones/${zone_id}/dns_records/${record_id}" "${rollback_payload}" >/dev/null
-  echo "DNS verification failed; restored ${NAME} to ${current_ip}." >&2
   exit 1
 fi
 updated_record="$(api GET "${API}/zones/${zone_id}/dns_records?type=A&name=${NAME}&per_page=100")"
 actual_ip="$(jq -er '.result | if length == 1 then .[0].content else error("expected exactly one A record after update") end' <<<"${updated_record}")"
 [[ "${actual_ip}" == "${desired_ip}" ]] || { echo "Cloudflare record verification found ${actual_ip}, expected ${desired_ip}." >&2; exit 1; }
+actual_proxied="$(jq -er '.result | if length == 1 then .[0].proxied else error("expected exactly one A record after update") end' <<<"${updated_record}")"
+[[ "${actual_proxied}" == false ]] || { echo "Cloudflare record ${NAME} must be DNS-only for direct origin validation." >&2; exit 1; }
 if [[ "${DNS_ACTION}" == cutover ]]; then
+  if ! ssh -i "${SSH_PRIVATE_KEY_PATH}" -o IdentitiesOnly=yes -o BatchMode=yes \
+    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 \
+    "root@${TARGET_IP}" 'systemctl restart caddy'; then
+    restore_dns Caddy
+    exit 1
+  fi
   healthy=false
-  for _ in $(seq 1 24); do
+  for _ in $(seq 1 36); do
     code="$(curl --connect-timeout 5 --max-time 10 --silent --show-error --output /dev/null \
       --write-out '%{http_code}' --resolve "${NAME}:443:${desired_ip}" "https://${NAME}/grafana/api/health" 2>/dev/null || true)"
     if [[ "${code}" == 200 ]]; then healthy=true; break; fi
     sleep 5
   done
   if [[ "${healthy}" != true ]]; then
-    rollback_payload="$(jq -cn --arg type A --arg name "${NAME}" --arg content "${current_ip}" \
-      --arg comment "Automatic rollback after observability HTTPS health check failure" \
-      --argjson ttl "$(jq -r '.ttl' <<<"${record}")" --argjson proxied "$(jq -r '.proxied' <<<"${record}")" \
-      '{type:$type,name:$name,content:$content,ttl:$ttl,proxied:$proxied,comment:$comment}')"
-    api PUT "${API}/zones/${zone_id}/dns_records/${record_id}" "${rollback_payload}" >/dev/null
-    echo "HTTPS verification failed on ${NAME}; restored DNS to ${current_ip}." >&2
+    restore_dns HTTPS
     exit 1
   fi
   echo "Verified public TLS and Grafana API health on ${NAME} at ${desired_ip}."
 fi
-if [[ "${proxied}" == true ]]; then
-  echo "Cloudflare record now targets ${desired_ip}; the proxied public DNS answer remains Cloudflare-owned."
-else
-  echo "Public DNS resolves ${NAME} to ${desired_ip}."
-fi
+echo "Public DNS resolves ${NAME} to ${desired_ip} via 1.1.1.1, 8.8.8.8, and 9.9.9.9."

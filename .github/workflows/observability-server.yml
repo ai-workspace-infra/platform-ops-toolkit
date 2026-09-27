@@ -69,10 +69,15 @@ on:
         default: none
         options: [none, cutover, rollback]
       confirm_dns_change:
-        description: "Confirm the requested change to the public observability.svc.plus DNS record"
+        description: "Acknowledge that this run changes the public observability.svc.plus DNS record"
         type: boolean
         required: true
         default: false
+      dns_confirmation:
+        description: "Type SWITCH-OBSERVABILITY-DNS or ROLLBACK-OBSERVABILITY-DNS to confirm the selected DNS action"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   actions: write
@@ -104,6 +109,7 @@ jobs:
           HISTORY_OMITTED: ${{ inputs.confirm_history_omission }}
           DNS_ACTION: ${{ inputs.dns_action }}
           DNS_CONFIRMED: ${{ inputs.confirm_dns_change }}
+          DNS_CONFIRMATION: ${{ inputs.dns_confirmation }}
         run: |
           set -euo pipefail
           [[ "${SOURCE_REF}" =~ ^[A-Za-z0-9._/-]+$ && "${SOURCE_REF}" != *..* ]] || {
@@ -135,8 +141,8 @@ jobs:
             echo 'final sync requires confirm_source_writers_paused=true' >&2; exit 1
           fi
           if [[ "${DNS_ACTION}" == cutover ]]; then
-            [[ "${DEPLOYMENT_ACTION}" != plan && "${DNS_CONFIRMED}" == true ]] || {
-              echo 'DNS cutover requires a deployed/existing target and confirm_dns_change=true' >&2; exit 1;
+            [[ "${DEPLOYMENT_ACTION}" == skip && "${DNS_CONFIRMED}" == true && "${DNS_CONFIRMATION}" == SWITCH-OBSERVABILITY-DNS ]] || {
+              echo 'DNS cutover requires a deployed/existing target, confirm_dns_change=true, and dns_confirmation=SWITCH-OBSERVABILITY-DNS' >&2; exit 1;
             }
             if [[ "${MIGRATION_MODE}" == none ]]; then
               [[ "${HISTORY_OMITTED}" == true ]] || {
@@ -148,11 +154,11 @@ jobs:
               }
             fi
           elif [[ "${DNS_ACTION}" == rollback ]]; then
-            [[ "${DEPLOYMENT_ACTION}" == skip && "${DNS_CONFIRMED}" == true ]] || {
-              echo 'DNS rollback requires deployment_action=skip and confirm_dns_change=true' >&2; exit 1;
+            [[ "${DEPLOYMENT_ACTION}" == skip && "${DNS_CONFIRMED}" == true && "${DNS_CONFIRMATION}" == ROLLBACK-OBSERVABILITY-DNS ]] || {
+              echo 'DNS rollback requires deployment_action=skip, confirm_dns_change=true, and dns_confirmation=ROLLBACK-OBSERVABILITY-DNS' >&2; exit 1;
             }
-          elif [[ "${DNS_CONFIRMED}" == true ]]; then
-            echo 'confirm_dns_change is only valid when dns_action=cutover or rollback' >&2; exit 1
+          elif [[ "${DNS_CONFIRMED}" == true || -n "${DNS_CONFIRMATION}" ]]; then
+            echo 'DNS confirmations are only valid when dns_action=cutover or rollback' >&2; exit 1
           fi
           if [[ "${MIGRATION_MODE}" != none && "${DEPLOYMENT_ACTION}" == plan ]]; then
             echo 'Historical migration requires deployment_action=deploy or skip' >&2; exit 1
@@ -463,8 +469,27 @@ jobs:
           jwtGithubAudience: vault
           secrets: |
             kv/data/CICD CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN
+      - name: Load SSH deployment key from Vault
+        id: ssh-vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ env.VAULT_ADDR }}
+          method: jwt
+          role: ${{ env.VAULT_ROLE }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD SSH_PRIVATE_DEPLOY_KEY_B64 | SSH_PRIVATE_DEPLOY_KEY_B64
+      - name: Configure SSH key for Caddy certificate refresh
+        env:
+          SSH_PRIVATE_DEPLOY_KEY_B64: ${{ steps.ssh-vault.outputs.SSH_PRIVATE_DEPLOY_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "${RUNNER_TEMP}/observability-ssh"
+          printf '%s' "${SSH_PRIVATE_DEPLOY_KEY_B64}" | base64 --decode > "${RUNNER_TEMP}/observability-ssh/id_deploy"
+          chmod 600 "${RUNNER_TEMP}/observability-ssh/id_deploy"
       - name: Change only the observability.svc.plus A record
         env:
+          SSH_PRIVATE_KEY_PATH: ${{ runner.temp }}/observability-ssh/id_deploy
           CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
           DNS_ACTION: ${{ inputs.dns_action }}
           SOURCE_IP: ${{ inputs.source_ip }}
