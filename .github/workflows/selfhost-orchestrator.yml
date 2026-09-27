@@ -464,6 +464,7 @@ jobs:
 
     - name: Configure GCP Credentials (OIDC)
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'gcp-cloud'
+      id: gcp_oidc
       uses: ./.github/actions/configure-gcp-oidc
       with:
         environment: ${{ steps.route.outputs.deployment_env }}
@@ -495,6 +496,11 @@ jobs:
           akamai-cloud)
           echo "TF_VAR_linode_token=${{ steps.akamai_vault.outputs.LINODE_TOKEN }}" >> "$GITHUB_ENV"
           echo "LINODE_TOKEN=${{ steps.akamai_vault.outputs.LINODE_TOKEN }}"       >> "$GITHUB_ENV"
+          ;;
+          gcp-cloud)
+          echo "TF_VAR_project_id=${{ steps.gcp_oidc.outputs.project_id }}"                    >> "$GITHUB_ENV"
+          echo "TF_VAR_deploy_service_account=${{ steps.gcp_oidc.outputs.service_account }}"    >> "$GITHUB_ENV"
+          echo "TF_VAR_workload_identity_provider=${{ steps.gcp_oidc.outputs.provider }}"        >> "$GITHUB_ENV"
           ;;
         esac
         echo "TF_STATE_ENDPOINT=${{ steps.vault.outputs.TF_STATE_ENDPOINT }}"     >> "$GITHUB_ENV"
