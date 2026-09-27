@@ -29,6 +29,7 @@ GitOps `main` 当前声明：
 - `spec.migration.raft_network: private`
 - `resources/xworktech.com/shared/gcp/vault-shared.yaml` 的 live shared 资源声明仅包含 `vault-prod-0`
 - `resources/xworktech.com/prod/gcp/open-platform-prod.yaml` 仍保留 `vault-prod-0/1/2` 三节点扩容模板；它不是本次 shared 工作区的实际资源清单
+- 该 prod provider 文件的全局默认网络为 `open-platform-prod`、机型为 `e2-standard-2`；本次 shared 资源声明明确覆盖为 `vault-shared`、`e2-highcpu-2`，实际 GCP 资源与 shared 覆盖值一致。
 - GCP VPC `vault-shared`，子网 `10.81.0.0/20`
 - 机器类型 `e2-highcpu-2`，Debian 12，50 GB `pd-balanced`
 
@@ -116,5 +117,6 @@ groups: vault_shared_nodes, xconnect_gateway, vault_shared_peers
 ## 7. 已知事项与后续动作
 
 - `resources/xworktech.com/prod/gcp/open-platform-prod.yaml` 与 `vpn-overlay/shared/xconnect-vault-shared.yaml` 仍保留三节点扩容模板，而 shared live 声明和 CMDB 只有 `vault-prod-0`；扩容前必须先恢复三节点资源声明并核对该拓扑。
+- 扩容或切换 provider 前还需显式确认网络、子网和机型覆盖，避免误用 prod provider 的旧默认值。
 - 旧节点和 GCP 节点因同一 Raft snapshot 拥有相同 `cluster_id`。两套独立 server 不得同时接受写流量；DNS 与人工切换必须保持单一 active 写入口。
 - 迁移流水线的 snapshot-first 保护门仍要求声明 off-site backup 配置；当前没有该 backup secret，因此本次数据恢复使用了已审计的直接 SSH snapshot/restore 路径。后续应补齐 backup 声明后再启用完整 `migrate-join` 自动路径。
