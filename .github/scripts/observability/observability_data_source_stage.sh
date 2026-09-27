@@ -12,12 +12,16 @@ mkdir -p "${root}"
 partition_count=0
 active_snapshots=()
 snapshot_endpoint=""
+source_stopped=false
 cleanup() {
   for snapshot in "${active_snapshots[@]}"; do
     curl --fail --silent --show-error -X POST --get --data-urlencode "path=${snapshot}" \
       "${snapshot_endpoint}" >/dev/null 2>&1 || true
   done
   docker rm -f "${snapshot_container:-}" >/dev/null 2>&1 || true
+  if [[ "${source_stopped}" == true ]]; then
+    docker start "${container}" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
 
@@ -63,6 +67,16 @@ case "${component}" in
     mapfile -t days < <(find "${volume_path}/partitions" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
     ((${#days[@]} > 0)) || { echo "${component} source has no data partitions" >&2; exit 1; }
     partition_count="${#days[@]}"
+    if [[ "${component}" == victoriatraces ]]; then
+      # VictoriaTraces v0.1.0 has no partition snapshot endpoint. Stop the
+      # source container and copy its partition tree while quiesced so the
+      # filesystem snapshot is consistent; cleanup restarts the service.
+      docker stop "${container}" >/dev/null
+      source_stopped=true
+      cp -a "${volume_path}/partitions/." "${root}/partitions/"
+      docker start "${container}" >/dev/null
+      source_stopped=false
+    else
     for day in "${days[@]}"; do
       [[ "${day}" =~ ^[0-9]{8}$ ]] || { echo "unexpected partition name ${day}" >&2; exit 1; }
       endpoint="http://127.0.0.1:${port}/internal/partition/snapshot/create?partition_prefix=${day}"
@@ -79,6 +93,7 @@ case "${component}" in
         active_snapshots=("${active_snapshots[@]:1}")
       done
     done
+    fi
     ;;
   *) echo "unsupported component ${component}" >&2; exit 2 ;;
 esac
