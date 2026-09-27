@@ -11,9 +11,11 @@ readonly expected_repository="ai-workspace-infra/platform-ops-toolkit"
 case "${expected_environment}" in
   prod)
     required_tag_subject="repo:${expected_repository}:ref:refs/tags/v*"
+    required_environment_subject="repo:${expected_repository}:environment:production"
     ;;
   uat)
     required_tag_subject="repo:${expected_repository}:ref:refs/tags/uat-daily-build-*"
+    required_environment_subject="repo:${expected_repository}:environment:uat"
     ;;
   *)
     echo "Unsupported AWS OIDC deployment environment: ${expected_environment}" >&2
@@ -45,8 +47,12 @@ jq -e \
   .spec.aws.role_arn == ("arn:aws:iam::" + .spec.aws.account_id + ":role/" + .spec.aws.role_name) and
   (.spec.subjects | type == "array") and
   (.spec.subjects | index("repo:" + $repository + ":ref:refs/heads/main")) and
-  (.spec.subjects | index($required_tag_subject))
-' --arg required_tag_subject "${required_tag_subject}" "${config_file}" >/dev/null || {
+  (.spec.subjects | index($required_tag_subject)) and
+  (.spec.subjects | index($required_environment_subject))
+' \
+  --arg required_tag_subject "${required_tag_subject}" \
+  --arg required_environment_subject "${required_environment_subject}" \
+  "${config_file}" >/dev/null || {
   echo "GitOps AWS OIDC declaration failed the ${expected_environment} trust contract: ${config_file}" >&2
   exit 1
 }

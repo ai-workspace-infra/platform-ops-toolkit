@@ -34,6 +34,8 @@ for required in \
   'refs/heads/main' \
   'refs/tags/v*' \
   'refs/tags/uat-daily-build-*' \
+  'environment:uat' \
+  'environment:production' \
   'Unsupported AWS OIDC deployment environment'; do
   grep -Fq -- "${required}" "${resolver}" || {
     echo "AWS OIDC resolver is missing required validation: ${required}" >&2
