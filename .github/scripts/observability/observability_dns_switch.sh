@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+trap 'status=$?; echo "::error::Observability DNS script failed at line ${LINENO} (exit ${status})." >&2; exit "${status}"' ERR
 
 : "${CLOUDFLARE_DNS_API_TOKEN:?CLOUDFLARE_DNS_API_TOKEN is required}"
 : "${DNS_ACTION:?DNS_ACTION is required}"
@@ -79,6 +80,7 @@ validate_ipv4 "${current_ip}"
 record_id="$(jq -er '.id' <<<"${record}")"
 original_ttl="$(jq -er '.ttl' <<<"${record}")"
 original_proxied="$(jq -er '.proxied' <<<"${record}")"
+echo "Resolved one ${NAME} A record: current=${current_ip}, ttl=${original_ttl}, proxied=${original_proxied}."
 if [[ "${DNS_ACTION}" == cutover && "${current_ip}" != "${expected_ip}" ]]; then
   echo "Refusing cutover: current A record is ${current_ip}, expected source ${expected_ip}." >&2
   exit 1
@@ -97,6 +99,7 @@ payload="$(jq -cn --arg type A --arg name "${NAME}" --arg content "${desired_ip}
   --argjson proxied false \
   --argjson tags "$(jq -c '.tags // []' <<<"${record}")" \
   '{type:$type,name:$name,content:$content,ttl:$ttl,proxied:$proxied,comment:$comment,tags:$tags}')"
+echo "Requesting ${DNS_ACTION}: ${current_ip} -> ${desired_ip}, TTL 60, DNS-only."
 api PUT "${API}/zones/${zone_id}/dns_records/${record_id}" "${payload}" >/dev/null
 echo "Updated only ${NAME} A record: ${current_ip} -> ${desired_ip}. Waiting for Cloudflare DNS propagation."
 
