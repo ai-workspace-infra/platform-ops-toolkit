@@ -3,8 +3,14 @@ name: Observability server
 on:
   workflow_dispatch:
     inputs:
+      deploy_env:
+        description: "Environment contract: UAT Akamai/Compose or PROD Flux/Kubernetes"
+        type: choice
+        required: true
+        default: uat
+        options: [uat, prod]
       deployment_action:
-        description: "plan/deploy the UAT target, or skip deployment for a later migration/cutover run"
+        description: "UAT target action; PROD only accepts plan or skip for declaration audit"
         type: choice
         required: true
         default: plan
@@ -16,7 +22,7 @@ on:
         default: 2C4G
         options: [2C4G, 4C8G]
       deploy_tag:
-        description: "Immutable UAT daily-build tag; required when deployment_action=deploy"
+        description: "Immutable UAT daily-build tag; required for UAT deploy"
         type: string
         required: false
         default: ""
@@ -31,10 +37,10 @@ on:
         required: true
         default: none
       source_ip:
-        description: "Current source host IPv4 for observability.svc.plus"
+        description: "Optional retired migration-source IPv4; required only for an explicit migration or rollback"
         type: string
-        required: true
-        default: 46.250.251.132
+        required: false
+        default: ""
       target_ip_override:
         description: "Existing target IPv4, required when deployment_action=skip and migration/cutover/verification is selected"
         type: string
@@ -94,7 +100,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: observability-server-uat-open-platform
+  group: observability-server-${{ inputs.deploy_env }}
   cancel-in-progress: false
 
 jobs:
@@ -103,13 +109,58 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
+      environment_matrix: ${{ steps.environment.outputs.matrix }}
+      runtime_model: ${{ steps.environment.outputs.runtime_model }}
+      cloud_provider: ${{ steps.environment.outputs.cloud_provider }}
+      vault_env_path: ${{ steps.environment.outputs.vault_env_path }}
+      cloud_account: ${{ steps.environment.outputs.cloud_account }}
+      target_domain_base: ${{ steps.environment.outputs.target_domain_base }}
+      source_domain_base: ${{ steps.environment.outputs.source_domain_base }}
+      source_host: ${{ steps.environment.outputs.source_host }}
       matrix: ${{ steps.plan.outputs.matrix }}
       mcp_matrix: ${{ steps.plan.outputs.mcp_matrix }}
       mcp_enabled: ${{ steps.plan.outputs.mcp_enabled }}
       mcp_services: ${{ steps.plan.outputs.mcp_services }}
     steps:
+      - name: Build selected environment contract
+        id: environment
+        env:
+          DEPLOY_ENV: ${{ inputs.deploy_env }}
+        run: |
+          set -euo pipefail
+          case "${DEPLOY_ENV}" in
+            uat)
+              matrix='{"include":[{"name":"uat","runtime_model":"akamai-compose","cloud_provider":"akamai-cloud","evidence":"observed-runtime"}]}'
+              runtime_model='akamai-compose'
+              cloud_provider='akamai-cloud'
+              cloud_account='manbuzhe2026'
+              target_domain_base='onwalk.net'
+              source_domain_base='svc.plus'
+              source_host='observability.svc.plus'
+              ;;
+            prod)
+              matrix='{"include":[{"name":"prod","runtime_model":"flux-kubernetes","cloud_provider":"kubernetes","evidence":"gitops-declaration"}]}'
+              runtime_model='flux-kubernetes'
+              cloud_provider='kubernetes'
+              cloud_account=''
+              target_domain_base='svc.plus'
+              source_domain_base='svc.plus'
+              source_host=''
+              ;;
+            *) echo "Unsupported deploy_env: ${DEPLOY_ENV}" >&2; exit 1 ;;
+          esac
+          echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
+          echo "runtime_model=${runtime_model}" >> "${GITHUB_OUTPUT}"
+          echo "cloud_provider=${cloud_provider}" >> "${GITHUB_OUTPUT}"
+          echo "vault_env_path=${DEPLOY_ENV}" >> "${GITHUB_OUTPUT}"
+          echo "cloud_account=${cloud_account}" >> "${GITHUB_OUTPUT}"
+          echo "target_domain_base=${target_domain_base}" >> "${GITHUB_OUTPUT}"
+          echo "source_domain_base=${source_domain_base}" >> "${GITHUB_OUTPUT}"
+          echo "source_host=${source_host}" >> "${GITHUB_OUTPUT}"
+
       - name: Validate run controls
         env:
+          DEPLOY_ENV: ${{ inputs.deploy_env }}
           DEPLOYMENT_ACTION: ${{ inputs.deployment_action }}
           DEPLOY_TAG: ${{ inputs.deploy_tag }}
           SOURCE_REF: ${{ inputs.source_ref }}
@@ -127,6 +178,17 @@ jobs:
           DNS_CONFIRMATION: ${{ inputs.dns_confirmation }}
         run: |
           set -euo pipefail
+          if [[ "${DEPLOY_ENV}" == prod ]]; then
+            [[ "${DEPLOYMENT_ACTION}" == plan || "${DEPLOYMENT_ACTION}" == skip ]] || {
+              echo 'PROD is Flux/Kubernetes managed; this workflow only audits its declaration with deployment_action=plan or skip' >&2; exit 1;
+            }
+            [[ "${MIGRATION_MODE}" == none && "${DNS_ACTION}" == none && "${VERIFY_EXISTING_TARGET}" == false ]] || {
+              echo 'PROD declaration audit cannot run UAT Compose migration, DNS, or SSH verification controls' >&2; exit 1;
+            }
+            [[ -z "${DEPLOY_TAG}" && -z "${SOURCE_IP}" && -z "${TARGET_IP}" ]] || {
+              echo 'PROD declaration audit does not accept UAT deploy tags or host IPs' >&2; exit 1;
+            }
+          fi
           [[ "${SOURCE_REF}" =~ ^[A-Za-z0-9._/-]+$ && "${SOURCE_REF}" != *..* ]] || {
             echo 'source_ref must be a simple reviewed Git ref' >&2; exit 1;
           }
@@ -167,6 +229,9 @@ jobs:
           if [[ "${MIGRATION_MODE}" == final && "${SOURCE_WRITERS_PAUSED}" != true ]]; then
             echo 'final sync requires confirm_source_writers_paused=true' >&2; exit 1
           fi
+          if [[ "${MIGRATION_MODE}" != none && -z "${SOURCE_IP}" ]]; then
+            echo 'Historical migration requires an explicit source_ip because the retired node has no default' >&2; exit 1
+          fi
           if [[ "${DNS_ACTION}" == cutover ]]; then
             [[ "${DEPLOYMENT_ACTION}" == skip && "${DNS_CONFIRMED}" == true && "${DNS_CONFIRMATION}" == SWITCH-OBSERVABILITY-DNS ]] || {
               echo 'DNS cutover requires a deployed/existing target, confirm_dns_change=true, and dns_confirmation=SWITCH-OBSERVABILITY-DNS' >&2; exit 1;
@@ -181,7 +246,7 @@ jobs:
               }
             fi
           elif [[ "${DNS_ACTION}" == rollback ]]; then
-            [[ "${DEPLOYMENT_ACTION}" == skip && "${DNS_CONFIRMED}" == true && "${DNS_CONFIRMATION}" == ROLLBACK-OBSERVABILITY-DNS ]] || {
+            [[ -n "${SOURCE_IP}" && "${DEPLOYMENT_ACTION}" == skip && "${DNS_CONFIRMED}" == true && "${DNS_CONFIRMATION}" == ROLLBACK-OBSERVABILITY-DNS ]] || {
               echo 'DNS rollback requires deployment_action=skip, confirm_dns_change=true, and dns_confirmation=ROLLBACK-OBSERVABILITY-DNS' >&2; exit 1;
             }
           elif [[ "${DNS_CONFIRMED}" == true || -n "${DNS_CONFIRMATION}" ]]; then
@@ -237,10 +302,90 @@ jobs:
               output.write("mcp_services=" + ("all" if selected == allowed else ",".join(name for name, _, _ in all_services if name in selected) or "none") + "\n")
           PY
 
+  audit_environment:
+    name: "Audit ${{ matrix.name }} ${{ matrix.runtime_model }} resources"
+    needs: validate
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJSON(needs.validate.outputs.environment_matrix) }}
+    steps:
+      - name: Checkout Playbooks
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ inputs.source_ref }}
+          path: playbooks
+
+      - name: Checkout GitOps
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: main
+          path: gitops
+
+      - name: Check UAT Akamai Compose source and live core
+        if: matrix.name == 'uat'
+        run: |
+          set -euo pipefail
+          grep -Eq '^observability\.svc\.plus[[:space:]]+ansible_host=45\.79\.175\.119([[:space:]]|$)' playbooks/inventory.ini
+          compose=playbooks/roles/docker/observability-server/templates/docker-compose.yml.j2
+          for service in grafana victoria-metrics victoria-logs victoria-traces; do
+            grep -Eq "^[[:space:]]{2}${service}:" "${compose}" || {
+              echo "Missing UAT Compose service: ${service}" >&2; exit 1;
+            }
+          done
+          curl --fail --silent --show-error --retry 4 --retry-all-errors --retry-delay 2 \
+            --connect-timeout 5 --max-time 20 https://observability.svc.plus/grafana/api/health \
+            | jq -e '.database == "ok"' >/dev/null
+          for path in victoriametrics victorialogs victoriatraces; do
+            curl --fail --silent --show-error --retry 4 --retry-all-errors --retry-delay 2 \
+              --connect-timeout 5 --max-time 20 "https://observability.svc.plus/${path}/metrics" >/dev/null
+          done
+          printf '### UAT Observability resource evidence\n\n- Runtime: Akamai Compose\n- Inventory target: 45.79.175.119\n- Evidence: live HTTP health and Playbooks source\n' >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Check PROD Flux and Kubernetes declaration
+        if: matrix.name == 'prod'
+        run: |
+          set -euo pipefail
+          ruby -e '
+            require "yaml"
+            flux = YAML.safe_load(File.read("gitops/environments/clusters/prod/observability-kustomization.yaml"))
+            abort "wrong Flux path" unless flux.dig("spec", "path") == "./services/observability"
+            values = YAML.safe_load(File.read("gitops/services/observability/observability-stack/values.yaml"))
+            server = values.fetch("server")
+            %w[victoriaMetrics victoriaLogs victoriaTraces].each do |name|
+              abort "#{name} is not enabled in PROD declaration" unless server.dig(name, "enabled") == true
+            end
+            grafana = server.dig("grafana", "enabled")
+            File.open(ENV.fetch("GITHUB_STEP_SUMMARY"), "a") do |f|
+              f.puts "### PROD Observability resource evidence"
+              f.puts
+              f.puts "- Runtime: Flux/Kubernetes"
+              f.puts "- VictoriaMetrics, VictoriaLogs, VictoriaTraces: enabled in GitOps"
+              f.puts "- Grafana enabled in PROD GitOps: #{grafana}"
+              f.puts "- Evidence type: desired declaration; no UAT runtime status was reused"
+            end
+          '
+
+      - name: Verify PROD Console aliases through the same Worker chain
+        if: matrix.name == 'prod'
+        run: |
+          set -euo pipefail
+          for host in console.svc.plus console-serverless-prod.svc.plus; do
+            headers="${RUNNER_TEMP}/${host}.headers"
+            status="$(curl --silent --show-error --output /dev/null --dump-header "${headers}" \
+              --write-out '%{http_code}' --retry 4 --retry-all-errors --retry-delay 2 \
+              --connect-timeout 5 --max-time 20 "https://${host}/")"
+            [[ "${status}" == 200 ]] || { echo "${host} returned HTTP ${status}" >&2; exit 1; }
+            route="$(awk 'BEGIN { IGNORECASE=1 } /^x-frontend-route:/ {gsub("\\r", "", $2); print $2}' "${headers}" | tail -1)"
+            [[ "${route}" == ssr-public ]] || { echo "${host} reached unexpected route: ${route:-missing}" >&2; exit 1; }
+            echo "- ${host}: HTTP 200 via ${route}" >> "${GITHUB_STEP_SUMMARY}"
+          done
+
   deploy_target:
     name: Deploy only the Observability service
-    needs: validate
-    if: inputs.deployment_action != 'skip'
+    needs: [validate, audit_environment]
+    if: inputs.deploy_env == 'uat' && inputs.deployment_action != 'skip'
     runs-on: ubuntu-latest
     outputs:
       child_run_id: ${{ steps.dispatch.outputs.child_run_id }}
@@ -260,6 +405,12 @@ jobs:
           DEPLOY_TAG: ${{ inputs.deploy_tag }}
           SOURCE_REF: ${{ inputs.source_ref }}
           OPEN_PLATFORM_MCP_SERVICES: ${{ needs.validate.outputs.mcp_services }}
+          CLOUD_PROVIDER: ${{ needs.validate.outputs.cloud_provider }}
+          VAULT_ENV_PATH: ${{ needs.validate.outputs.vault_env_path }}
+          CLOUD_ACCOUNT: ${{ needs.validate.outputs.cloud_account }}
+          TARGET_DOMAIN_BASE: ${{ needs.validate.outputs.target_domain_base }}
+          SOURCE_DOMAIN_BASE: ${{ needs.validate.outputs.source_domain_base }}
+          SOURCE_HOST: ${{ needs.validate.outputs.source_host }}
         run: |
           set -euo pipefail
           dispatch_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -269,18 +420,24 @@ jobs:
             --arg source_ref "${SOURCE_REF}" \
             --arg open_platform_mcp_services "${OPEN_PLATFORM_MCP_SERVICES}" \
             --arg instance_plan "${INSTANCE_PLAN}" \
+            --arg cloud_provider "${CLOUD_PROVIDER}" \
+            --arg vault_env_path "${VAULT_ENV_PATH}" \
+            --arg cloud_account "${CLOUD_ACCOUNT}" \
+            --arg target_domain_base "${TARGET_DOMAIN_BASE}" \
+            --arg source_domain_base "${SOURCE_DOMAIN_BASE}" \
+            --arg source_host "${SOURCE_HOST}" \
             '{ref:"main",inputs:{
               runner_type:"ubuntu-latest",
               operation:$operation,
               target_domains:"open-platform",
               open_platform_service:"observability",
-              cloud_provider:"akamai-cloud",
-              vault_env_path:"uat",
-              cloud_account:"manbuzhe2026",
-              akamai_account:"manbuzhe2026",
-              target_domain_base:"onwalk.net",
-              source_domain_base:"svc.plus",
-              source_host:"install.svc.plus",
+              cloud_provider:$cloud_provider,
+              vault_env_path:$vault_env_path,
+              cloud_account:$cloud_account,
+              akamai_account:$cloud_account,
+              target_domain_base:$target_domain_base,
+              source_domain_base:$source_domain_base,
+              source_host:$source_host,
               instance_plan:$instance_plan,
               dns_mode:"none",
               deploy_tag:$deploy_tag,
@@ -306,6 +463,7 @@ jobs:
     needs: [validate, deploy_target]
     if: >-
       ${{ always() && !cancelled() &&
+      inputs.deploy_env == 'uat' &&
       needs.validate.result == 'success' &&
       (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover' || inputs.verify_existing_target || needs.validate.outputs.mcp_enabled == 'true') &&
       (needs.deploy_target.result == 'success' || inputs.deployment_action == 'skip') }}
@@ -348,10 +506,10 @@ jobs:
     name: "Snapshot and restore ${{ matrix.component }}"
     needs: [validate, resolve_target]
     if: >-
-      ${{ always() && !cancelled() && needs.validate.result == 'success' &&
+      ${{ always() && !cancelled() && inputs.deploy_env == 'uat' && needs.validate.result == 'success' &&
       needs.resolve_target.result == 'success' && inputs.migration_mode != 'none' }}
     runs-on: ubuntu-latest
-    environment: uat
+    environment: ${{ inputs.deploy_env }}
     permissions:
       contents: read
       id-token: write
@@ -401,11 +559,11 @@ jobs:
     name: "Verify restored ${{ matrix.component }} history"
     needs: [validate, resolve_target, historical_data]
     if: >-
-      ${{ always() && !cancelled() && inputs.migration_mode != 'none' &&
+      ${{ always() && !cancelled() && inputs.deploy_env == 'uat' && inputs.migration_mode != 'none' &&
       needs.validate.result == 'success' && needs.resolve_target.result == 'success' &&
       needs.historical_data.result == 'success' }}
     runs-on: ubuntu-latest
-    environment: uat
+    environment: ${{ inputs.deploy_env }}
     permissions:
       contents: read
       id-token: write
@@ -448,6 +606,7 @@ jobs:
     needs: [validate, deploy_target, resolve_target, historical_data, verify_stores]
     if: >-
       ${{ always() && !cancelled() &&
+      inputs.deploy_env == 'uat' &&
       needs.validate.result == 'success' &&
       (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover' || inputs.verify_existing_target || needs.validate.outputs.mcp_enabled == 'true') &&
       (needs.deploy_target.result == 'success' || inputs.deployment_action == 'skip') &&
@@ -455,7 +614,7 @@ jobs:
       (needs.historical_data.result == 'success' || needs.historical_data.result == 'skipped') &&
       (needs.verify_stores.result == 'success' || needs.verify_stores.result == 'skipped') }}
     runs-on: ubuntu-latest
-    environment: uat
+    environment: ${{ inputs.deploy_env }}
     permissions:
       contents: read
       id-token: write
@@ -501,6 +660,7 @@ jobs:
     needs: [validate, deploy_target, resolve_target, historical_data, verify_stores, verify_target]
     if: >-
       ${{ always() && !cancelled() &&
+      inputs.deploy_env == 'uat' &&
       needs.validate.result == 'success' &&
       (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover' || needs.validate.outputs.mcp_enabled == 'true') &&
       (needs.deploy_target.result == 'success' || inputs.deployment_action == 'skip') &&
@@ -509,7 +669,7 @@ jobs:
       (needs.historical_data.result == 'success' || needs.historical_data.result == 'skipped') &&
       (needs.verify_stores.result == 'success' || needs.verify_stores.result == 'skipped') }}
     runs-on: ubuntu-latest
-    environment: uat
+    environment: ${{ inputs.deploy_env }}
     permissions:
       contents: read
       id-token: write
@@ -556,7 +716,7 @@ jobs:
     name: "${{ inputs.dns_action == 'rollback' && 'Rollback' || 'Cut over' }} observability.svc.plus"
     needs: [validate, resolve_target, historical_data, verify_stores, verify_target, verify_mcp_matrix]
     if: >-
-      ${{ always() && !cancelled() && inputs.dns_action != 'none' &&
+      ${{ always() && !cancelled() && inputs.deploy_env == 'uat' && inputs.dns_action != 'none' &&
       needs.validate.result == 'success' &&
       (needs.resolve_target.result == 'success' || (inputs.dns_action == 'rollback' && needs.resolve_target.result == 'skipped')) &&
       (needs.historical_data.result == 'success' || (inputs.dns_action == 'rollback' && needs.historical_data.result == 'skipped') || (inputs.dns_action == 'cutover' && inputs.migration_mode == 'none' && inputs.confirm_history_omission && needs.historical_data.result == 'skipped')) &&
@@ -570,7 +730,7 @@ jobs:
       (inputs.migration_mode == 'none' && inputs.confirm_history_omission && needs.historical_data.result == 'skipped' && needs.verify_stores.result == 'skipped')))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: uat
+    environment: ${{ inputs.deploy_env }}
     permissions:
       contents: read
       id-token: write
