@@ -173,8 +173,9 @@ rm -f "${akamai_plan_output}"
 
 for provider in aws-cloud gcp-cloud azure-cloud vultr-vps akamai-cloud; do
   provider_output="$(run_route env INPUT_CLOUD_PROVIDER="${provider}" INPUT_CLOUD_ACCOUNT=primary INPUT_OPERATION=plan INPUT_DNS_MODE=none)"
-  provider_state_project=platform-ops-toolkit
-  if [[ "${provider}" == akamai-cloud ]]; then provider_state_project=svc.plus; fi
+  # UAT uses the unified logical project segment for every Terraform
+  # provider; the concrete account remains the next state-key component.
+  provider_state_project=svc.plus
   assert_contains "${provider_output}" "cloud_provider=${provider}"
   assert_contains "${provider_output}" "provider_provisioner=terraform"
   assert_contains "${provider_output}" "state_key=terraform/uat/${provider_state_project}/${provider}/primary/web-saas/terraform.tfstate"
