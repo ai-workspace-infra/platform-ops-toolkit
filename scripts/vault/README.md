@@ -42,6 +42,34 @@ access token and never change AWS roles or policies.
 Review role and policy changes as security-sensitive changes. Do not store
 access tokens, private keys, or other secret values in this directory.
 
+## AWS OIDC bootstrap roles
+
+The repository declares separate Vault JWT roles for the controlled AWS OIDC
+bootstrap workflow:
+
+```text
+github-actions-platform-ops-toolkit-uat-aws-bootstrap
+github-actions-platform-ops-toolkit-prod-aws-bootstrap
+```
+
+Each role is bound to `aws-oidc-bootstrap.yml`, `refs/heads/main`, and its
+matching GitHub Environment (`uat` or `production`). Its policy can read only
+the matching environment's short-lived `aws-bootstrap` record and
+`iac_state` record. It does not grant access to application credentials.
+
+Apply or check one environment without touching other declarations:
+
+```bash
+export VAULT_ADDR=https://vault.svc.plus
+bash scripts/create_vault_service_repo_roles.sh --check \
+  --role github-actions-platform-ops-toolkit-uat-aws-bootstrap
+bash scripts/create_vault_service_repo_roles.sh --apply \
+  --role github-actions-platform-ops-toolkit-uat-aws-bootstrap
+```
+
+The script provisions the Vault role and policy only. AWS IAM OIDC trust
+reconciliation remains a separate, explicitly approved AWS bootstrap action.
+
 ## Apply
 
 Run with an authenticated Vault admin session:

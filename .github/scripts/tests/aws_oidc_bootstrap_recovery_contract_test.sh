@@ -138,9 +138,41 @@ done
 for required in \
   'aws-oidc-bootstrap.yml@*' \
   '"ref": "refs/heads/main"' \
+  '"environment": "production"' \
   '"token_ttl": "20m"'; do
   grep -Fq -- "${required}" "${vault_role}" || {
     echo "Vault bootstrap role declaration is missing contract: ${required}" >&2
+    exit 1
+  }
+done
+
+uat_vault_policy="${repo_root}/scripts/vault/policies/github-actions-platform-ops-toolkit-uat-aws-bootstrap.hcl"
+uat_vault_role="${repo_root}/scripts/vault/roles/github-actions-platform-ops-toolkit-uat-aws-bootstrap.json"
+test -f "${uat_vault_policy}" || {
+  echo "UAT AWS bootstrap policy declaration is missing: ${uat_vault_policy}" >&2
+  exit 1
+}
+test -f "${uat_vault_role}" || {
+  echo "UAT AWS bootstrap role declaration is missing: ${uat_vault_role}" >&2
+  exit 1
+}
+
+for required in \
+  'kv/data/CICD/uat/aws-bootstrap' \
+  'kv/data/CICD/uat/iac_state'; do
+  grep -Fq -- "${required}" "${uat_vault_policy}" || {
+    echo "UAT AWS bootstrap policy declaration is missing contract: ${required}" >&2
+    exit 1
+  }
+done
+
+for required in \
+  'aws-oidc-bootstrap.yml@*' \
+  '"ref": "refs/heads/main"' \
+  '"environment": "uat"' \
+  '"token_ttl": "20m"'; do
+  grep -Fq -- "${required}" "${uat_vault_role}" || {
+    echo "UAT AWS bootstrap role declaration is missing contract: ${required}" >&2
     exit 1
   }
 done
