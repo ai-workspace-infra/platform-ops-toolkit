@@ -25,6 +25,21 @@ test "$(docker inspect --format '{{.State.Running}}' "${container}")" = true || 
   echo "${container} is not running." >&2; exit 1;
 }
 
+# Assert that the enabled MCP container received the backend URL belonging to
+# this matrix component. Never print other environment entries because they
+# may contain credentials.
+case "${component}" in
+  grafana) expected_backend='GRAFANA_URL=http://grafana:3000' ;;
+  victoriametrics) expected_backend='VM_INSTANCE_ENTRYPOINT=http://victoria-metrics:8428' ;;
+  victorialogs) expected_backend='VL_INSTANCE_ENTRYPOINT=http://victoria-logs:9428' ;;
+  victoriatraces) expected_backend='VT_INSTANCE_ENTRYPOINT=http://victoria-traces:10428' ;;
+esac
+docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${container}" \
+  | grep --fixed-strings --line-regexp --quiet "${expected_backend}" || {
+    echo "${component} MCP is not configured for its matching backend." >&2; exit 1;
+  }
+echo "${component} MCP backend association verified."
+
 # Exercise the MCP Streamable HTTP initialize + tools/list flow, not just a TCP
 # connection. Do not print headers, environment values, tokens, or tool inputs.
 python3 - "${component}" "${port}" <<'PY'
@@ -138,13 +153,11 @@ REMOTE
 # Verify that the public gateway challenges unauthenticated MCP clients on the
 # target itself. The protocol handshake above exercises the internal service;
 # this guards the external Caddy route and its authentication boundary.
-for route in grafana victoriametrics victorialogs victoriatraces; do
-  status="$(curl --connect-timeout 8 --max-time 15 -k --silent --output /dev/null --write-out '%{http_code}' \
-    --resolve "observability.svc.plus:443:${TARGET_IP}" \
-    "https://observability.svc.plus/mcp/${route}/mcp")"
-  [[ "${status}" == 401 ]] || {
-    echo "Unauthenticated MCP ingress /mcp/${route}/mcp returned HTTP ${status}, expected 401." >&2
-    exit 1
-  }
-done
-echo "All four MCP endpoints completed protocol checks and require authentication at the HTTPS gateway."
+status="$(curl --connect-timeout 8 --max-time 15 -k --silent --output /dev/null --write-out '%{http_code}' \
+  --resolve "observability.svc.plus:443:${TARGET_IP}" \
+  "https://observability.svc.plus/mcp/${COMPONENT}/mcp")"
+[[ "${status}" == 401 ]] || {
+  echo "Unauthenticated MCP ingress /mcp/${COMPONENT}/mcp returned HTTP ${status}, expected 401." >&2
+  exit 1
+}
+echo "${COMPONENT} MCP completed protocol checks and requires authentication at the HTTPS gateway."

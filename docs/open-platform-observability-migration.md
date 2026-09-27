@@ -111,6 +111,7 @@ plan maps to `g6-standard-2` (4 GB RAM, 2 vCPUs, 80 GB disk).
 | --- | --- | --- |
 | `deployment_action` | `plan` (default), `infra`, `deploy`, `skip` | Validate, provision only, deploy the service, or skip deployment for a later sync/cutover run. |
 | `instance_plan` | `2C4G` (default), `4C8G` | Akamai size used when deployment runs. |
+| `mcp_services` | `none` (default), `all`, or comma-separated service names | Optional MCP adapters (`grafana`, `victoriametrics`, `victorialogs`, `victoriatraces`). Each selected adapter is deployed and verified against its matching core backend; Grafana and Victoria core services remain enabled independently. |
 | `deploy_tag` | empty | Required immutable UAT daily-build tag when `deployment_action=deploy`. |
 | `source_ref` | `main` | Reviewed ref used for toolkit, Playbooks, and child workflow inputs. |
 | `migration_mode` | `none` (default), `baseline`, `final` | Select no copy, live baseline snapshot, or final snapshot after source writers are paused. |

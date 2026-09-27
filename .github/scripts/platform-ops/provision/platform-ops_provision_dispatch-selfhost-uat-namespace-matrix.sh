@@ -46,6 +46,19 @@ WAIT_INTERVAL_SECONDS="${WAIT_INTERVAL_SECONDS:-15}"
   echo "::error::INCLUDE_EXTERNAL_AGENT_PROXY must be true or false" >&2
   exit 1
 }
+OPEN_PLATFORM_MCP_SERVICES="${OPEN_PLATFORM_MCP_SERVICES:-none}"
+case ",${OPEN_PLATFORM_MCP_SERVICES}," in
+  *,none,*|*,all,*) [[ "${OPEN_PLATFORM_MCP_SERVICES}" == none || "${OPEN_PLATFORM_MCP_SERVICES}" == all ]] || { echo "::error::none/all cannot be combined with named MCP services" >&2; exit 1; } ;;
+  *)
+    IFS=',' read -r -a mcp_items <<< "${OPEN_PLATFORM_MCP_SERVICES}"
+    declare -A mcp_seen=()
+    for item in "${mcp_items[@]}"; do
+      case "${item}" in grafana|victoriametrics|victorialogs|victoriatraces) ;; *) echo "::error::Unsupported MCP service: ${item}" >&2; exit 1 ;; esac
+      [[ -z "${mcp_seen[${item}]+x}" ]] || { echo "::error::Duplicate MCP service: ${item}" >&2; exit 1; }
+      mcp_seen["${item}"]=1
+    done
+    ;;
+esac
 [[ "${SKIP_STRIPE_CATALOG}" == true || "${SKIP_STRIPE_CATALOG}" == false ]] || {
   echo "::error::SKIP_STRIPE_CATALOG must be true or false" >&2
   exit 1
@@ -96,6 +109,7 @@ dispatch_and_wait() {
     --arg skip_stripe_catalog "${SKIP_STRIPE_CATALOG}" \
     --arg agent_controller_url "${child_agent_controller_url}" \
     --arg vault_addr "${VAULT_ADDR}" \
+    --arg open_platform_mcp_services "${OPEN_PLATFORM_MCP_SERVICES}" \
     '{ref:"main", inputs:{
       runner_type:$runner_type,
       deploy_tag:$deploy_tag,
@@ -119,7 +133,8 @@ dispatch_and_wait() {
       vault_env_path:$vault_env_path,
       skip_stripe_catalog:$skip_stripe_catalog,
       agent_controller_url:$agent_controller_url,
-      vault_addr:$vault_addr
+      vault_addr:$vault_addr,
+      open_platform_mcp_services:$open_platform_mcp_services
     }}')"
 
   gh api --method POST "repos/${GH_REPO}/actions/workflows/${CHILD_WORKFLOW}/dispatches" \
