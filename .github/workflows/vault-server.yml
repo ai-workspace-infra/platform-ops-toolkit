@@ -772,7 +772,7 @@ jobs:
               matrix.append({'node': node['name'], 'role': node['role'], 'ip': ip})
               values[f'prod_{index}_ip'] = ip
           old_ip = str(ipaddress.IPv4Address(os.environ['OLD_IP']))
-          matrix.append({'node': 'vault-legacy', 'role': 'legacy-standby', 'ip': old_ip})
+          matrix.append({'node': 'vault-legacy', 'role': 'legacy-independent', 'ip': old_ip})
           values['matrix'] = json.dumps(matrix, separators=(',', ':'))
           values['gcp_targets'] = json.dumps([item['ip'] for item in matrix if item['node'] != 'vault-legacy'], separators=(',', ':'))
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
@@ -808,8 +808,8 @@ jobs:
           [[ "${DOMAIN}" =~ ^[A-Za-z0-9.-]+$ ]] || { echo '::error::invalid target_domain' >&2; exit 1; }
           [[ "${IP}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || { echo "::error::${NODE} has an invalid IPv4 address" >&2; exit 1; }
 
-          # Rollback validates the old standby only. Verify/switch validate all
-          # three new nodes and skip the legacy row in this same matrix.
+          # Rollback validates the independent legacy endpoint. Verify/switch
+          # validate the declared GCP nodes and skip the legacy row.
           if [[ "${ACTION}" == rollback && "${NODE}" != vault-legacy ]]; then
             echo "rollback: ${NODE} matrix row skipped"
             exit 0
@@ -831,7 +831,7 @@ jobs:
                 '(.initialized == true) and (.sealed == false) and (.cluster_id == $cluster) and
                  (if $role == "leader" then .standby == false and .version == $version
                   elif $role == "standby" then .standby == true and .version == $version
-                  else .standby == true end)' "${health}" >/dev/null || {
+                  else (.standby == true or .standby == null) end)' "${health}" >/dev/null || {
             echo "::error::${NODE} at ${IP} is not serving the expected Vault role/version/cluster" >&2
             jq '{initialized,sealed,standby,cluster_id,version}' "${health}" >&2
             exit 1
