@@ -8,7 +8,7 @@ business services are independently deployable through
 | --- | --- | --- | --- |
 | `vault` | Vault | `deploy_vault_domain.yml` | `vault.svc.plus` |
 | `iam` | Zitadel | `deploy_iam_domain.yml` | `iam.svc.plus` |
-| `observability` | Grafana/VictoriaMetrics | `deploy_observability_domain.yml` | `observability.svc.plus` |
+| `observability` | Grafana/VictoriaMetrics/VictoriaLogs/VictoriaTraces | `deploy_observability_domain.yml` | `observability.svc.plus` |
 | `all` | All three, in dependency order | `setup-open-platform-domain.yml` | all above |
 
 ## Dispatch contract
@@ -34,9 +34,17 @@ For a focused UAT rollout, use the standalone
 It dispatches `Selfhost Orchestrator` with `target_domains=open-platform`,
 `open_platform_service=observability`, and `dns_mode=none`; its default Akamai
 shape is 2C4G, with 4C8G available when the workload needs more headroom. The
-old source remains the rollback endpoint. This deployment entry point does not
-copy historical VictoriaMetrics/VictoriaLogs/VictoriaTraces data or change DNS;
-those remain explicit migration and cutover steps.
+old source remains the rollback endpoint. The workflow exposes independent
+`deployment_action`, `migration_mode`, `data_components`, and `dns_action`
+controls. Historical stores run in a three-component matrix with a separate
+verification matrix. `baseline` uses live application snapshots; `final`
+requires explicit confirmation that source writers have been paused. DNS stays
+off by default. Optional `cutover` and `rollback` actions are limited to the
+`observability.svc.plus` A record and require explicit confirmation; cutover
+also requires all stores, successful verification, and an operator attestation
+that historical queries matched after baseline restore. See the
+[Observability migration runbook](open-platform-observability-migration.md) for
+parameters and recovery steps.
 
 ## Deployment-only mode
 
