@@ -4,6 +4,7 @@ set -euo pipefail
 : "${TARGET_IP:?TARGET_IP is required}"
 : "${SSH_PRIVATE_KEY_PATH:?SSH_PRIVATE_KEY_PATH is required}"
 : "${DASHBOARD_SOURCE:?DASHBOARD_SOURCE is required}"
+: "${DNS_ACTION:=none}"
 [[ "${TARGET_IP}" =~ ^[0-9.]+$ ]] || { echo "Target must be an IPv4 address." >&2; exit 2; }
 [[ -d "${DASHBOARD_SOURCE}" ]] || { echo "Dashboard source directory is missing." >&2; exit 1; }
 
@@ -46,8 +47,12 @@ if [[ "${actual_manifest}" != "${expected_manifest}" ]]; then
   exit 1
 fi
 
-http_code="$(curl --connect-timeout 8 --max-time 20 -k --silent --show-error --output /dev/null \
-  --write-out '%{http_code}' --resolve "observability.svc.plus:443:${TARGET_IP}" \
-  https://observability.svc.plus/grafana/)"
-[[ "${http_code}" == 200 || "${http_code}" == 302 ]] || { echo "Target HTTPS returned HTTP ${http_code}." >&2; exit 1; }
-echo "Target Grafana, four service containers, ${#expected[@]} dashboard JSON files, and HTTPS host routing are healthy."
+if [[ "${DNS_ACTION}" == cutover ]]; then
+  echo "Target Grafana, four service containers, and ${#expected[@]} Git-managed dashboard JSON files are ready for DNS cutover; HTTPS will be checked after certificate issuance."
+else
+  http_code="$(curl --connect-timeout 8 --max-time 20 -k --silent --show-error --output /dev/null \
+    --write-out '%{http_code}' --resolve "observability.svc.plus:443:${TARGET_IP}" \
+    https://observability.svc.plus/grafana/)"
+  [[ "${http_code}" == 200 || "${http_code}" == 302 ]] || { echo "Target HTTPS returned HTTP ${http_code}." >&2; exit 1; }
+  echo "Target Grafana, four service containers, ${#expected[@]} dashboard JSON files, and HTTPS host routing are healthy."
+fi

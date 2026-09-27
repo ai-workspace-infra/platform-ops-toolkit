@@ -93,6 +93,25 @@ fi
 updated_record="$(api GET "${API}/zones/${zone_id}/dns_records?type=A&name=${NAME}&per_page=100")"
 actual_ip="$(jq -er '.result | if length == 1 then .[0].content else error("expected exactly one A record after update") end' <<<"${updated_record}")"
 [[ "${actual_ip}" == "${desired_ip}" ]] || { echo "Cloudflare record verification found ${actual_ip}, expected ${desired_ip}." >&2; exit 1; }
+if [[ "${DNS_ACTION}" == cutover ]]; then
+  healthy=false
+  for _ in $(seq 1 24); do
+    code="$(curl --connect-timeout 5 --max-time 10 --silent --show-error --output /dev/null \
+      --write-out '%{http_code}' --resolve "${NAME}:443:${desired_ip}" "https://${NAME}/grafana/api/health" 2>/dev/null || true)"
+    if [[ "${code}" == 200 ]]; then healthy=true; break; fi
+    sleep 5
+  done
+  if [[ "${healthy}" != true ]]; then
+    rollback_payload="$(jq -cn --arg type A --arg name "${NAME}" --arg content "${current_ip}" \
+      --arg comment "Automatic rollback after observability HTTPS health check failure" \
+      --argjson ttl "$(jq -r '.ttl' <<<"${record}")" --argjson proxied "$(jq -r '.proxied' <<<"${record}")" \
+      '{type:$type,name:$name,content:$content,ttl:$ttl,proxied:$proxied,comment:$comment}')"
+    api PUT "${API}/zones/${zone_id}/dns_records/${record_id}" "${rollback_payload}" >/dev/null
+    echo "HTTPS verification failed on ${NAME}; restored DNS to ${current_ip}." >&2
+    exit 1
+  fi
+  echo "Verified public TLS and Grafana API health on ${NAME} at ${desired_ip}."
+fi
 if [[ "${proxied}" == true ]]; then
   echo "Cloudflare record now targets ${desired_ip}; the proxied public DNS answer remains Cloudflare-owned."
 else
