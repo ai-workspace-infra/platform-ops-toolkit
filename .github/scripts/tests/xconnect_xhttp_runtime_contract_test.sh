@@ -12,6 +12,9 @@ mkdir -p "$tmp_dir/one/runtime/revisions/abc"
 cat > "$tmp_dir/gateway.json" <<'JSON'
 {"inbounds":[{"listen":"0.0.0.0","port":443,"protocol":"vless","streamSettings":{"network":"xhttp","security":"tls","tlsSettings":{"rejectUnknownSni":true},"xhttpSettings":{"path":"/xconnect","mode":"auto","host":"tw-xconnect.svc.plus"}}}],"outbounds":[{"tag":"xconnect-wireguard","protocol":"freedom","settings":{"redirect":"127.0.0.1:51820"}}]}
 JSON
+cat > "$tmp_dir/gateway-caddy.json" <<'JSON'
+{"inbounds":[{"tag":"xconnect-vless-in","listen":"/run/xconnect-gateway/xray.sock,0660","protocol":"vless","streamSettings":{"network":"xhttp","xhttpSettings":{"path":"/xconnect","mode":"auto","host":"tw-xconnect.svc.plus"}}}],"outbounds":[{"tag":"xconnect-wireguard","protocol":"freedom","settings":{"redirect":"127.0.0.1:51820"}}]}
+JSON
 cat > "$tmp_dir/one/runtime/active.json" <<JSON
 {"xray_config_path":"$tmp_dir/one/runtime/revisions/abc/xray.json"}
 JSON
@@ -20,10 +23,15 @@ cat > "$tmp_dir/one/runtime/revisions/abc/xray.json" <<'JSON'
 JSON
 
 "$helper" gateway "$tmp_dir/gateway.json" - tw-xconnect.svc.plus /xconnect auto tw-xconnect.svc.plus >/dev/null
+"$helper" gateway "$tmp_dir/gateway-caddy.json" - tw-xconnect.svc.plus /xconnect auto tw-xconnect.svc.plus >/dev/null
 "$helper" one "$tmp_dir/one" tw-xconnect.svc.plus tw-xconnect.svc.plus /xconnect auto tw-xconnect.svc.plus >/dev/null
 
 if "$helper" gateway "$tmp_dir/gateway.json" - tw-xconnect.svc.plus /wrong auto tw-xconnect.svc.plus >/dev/null 2>&1; then
   echo 'Gateway verifier accepted an incorrect XHTTP path' >&2
+  exit 1
+fi
+if "$helper" gateway "$tmp_dir/gateway-caddy.json" - tw-xconnect.svc.plus /xconnect packet-up tw-xconnect.svc.plus >/dev/null 2>&1; then
+  echo 'Gateway Caddy/Unix verifier accepted an incorrect XHTTP mode' >&2
   exit 1
 fi
 if "$helper" one "$tmp_dir/one" tw-xconnect.svc.plus tw-xconnect.svc.plus /xconnect auto wrong.example >/dev/null 2>&1; then

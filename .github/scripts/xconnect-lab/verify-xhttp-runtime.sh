@@ -40,30 +40,39 @@ if [[ "$role" == one ]]; then
   echo "xhttp_runtime=valid role=one config=$config_path local_udp=127.0.0.1:51830 remote=$remote_address:443"
 elif [[ "$role" == gateway ]]; then
   config_path="$path"
-  jq -e \
-    --arg server_name "$server_name" \
+  runtime_mode=$(jq -er \
     --arg path "$xhttp_path" \
     --arg mode "$xhttp_mode" \
     --arg host "$xhttp_host" \
     '
-      (.inbounds | any(.[];
-        .listen == "0.0.0.0" and
-        .port == 443 and
+      first(.inbounds[] | select(
         .protocol == "vless" and
         .streamSettings.network == "xhttp" and
-        .streamSettings.security == "tls" and
-        .streamSettings.tlsSettings.rejectUnknownSni == true and
         .streamSettings.xhttpSettings.path == $path and
         .streamSettings.xhttpSettings.mode == $mode and
         .streamSettings.xhttpSettings.host == $host
-      )) and
+      )) |
+      if .listen == "0.0.0.0" and .port == 443 and
+         .streamSettings.security == "tls" and
+         .streamSettings.tlsSettings.rejectUnknownSni == true
+      then "direct-tls"
+      elif .listen == "/run/xconnect-gateway/xray.sock,0660" and
+           (.port == null) and (.streamSettings.security == null)
+      then "caddy-unix"
+      else empty
+      end
+    ' "$config_path")
+  jq -e \
+    --arg runtime_mode "$runtime_mode" \
+    '
+      ($runtime_mode == "direct-tls" or $runtime_mode == "caddy-unix") and
       (.outbounds | any(.[];
         .tag == "xconnect-wireguard" and
         .protocol == "freedom" and
         .settings.redirect == "127.0.0.1:51820"
       ))
     ' "$config_path" >/dev/null
-  echo "xhttp_runtime=valid role=gateway config=$config_path public_tcp=443 local_wireguard=127.0.0.1:51820"
+  echo "xhttp_runtime=valid role=gateway mode=$runtime_mode config=$config_path public_tcp=443 local_wireguard=127.0.0.1:51820"
 else
   echo "unsupported runtime role: $role" >&2
   exit 2

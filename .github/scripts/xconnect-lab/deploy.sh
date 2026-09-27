@@ -413,6 +413,51 @@ if ! ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- \
 fi
 echo 'gateway_xhttp_runtime=valid'
 
+echo 'Verify: Gateway Caddy edge contract when Xray uses the managed Unix socket'
+if ! ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- \
+  "$transport_server_name" "$xhttp_path" <<'GATEWAY_CADDY_VERIFY'
+set -euo pipefail
+server_name="$1"
+xhttp_path="$2"
+xray_config=/var/lib/xconnect-gateway/runtime/xray.json
+xray_socket=/run/xconnect-gateway/xray.sock
+
+if jq -e --arg socket "${xray_socket},0660" \
+  '.inbounds | any(.[]; .protocol == "vless" and .listen == $socket)' \
+  "$xray_config" >/dev/null; then
+  systemctl is-active --quiet caddy
+  test -S "$xray_socket"
+  caddy adapt --config /etc/caddy/Caddyfile 2>/dev/null | jq -e \
+    --arg server_name "$server_name" \
+    --arg path "$xhttp_path" \
+    --arg socket "unix/${xray_socket}" \
+    '
+      [
+        .apps.http.servers[]?
+        | select(any(.listen[]?; . == ":443"))
+        | .routes[]?
+        | select(any(.match[]?.host[]?; . == $server_name))
+        | .. | objects
+      ] as $route_nodes |
+      any($route_nodes[];
+        .handler? == "reverse_proxy" and
+        any(.upstreams[]?; .dial == $socket) and
+        any(.transport.versions[]?; . == "h2c")
+      ) and
+      any($route_nodes[];
+        any(.match[]?.path[]?; . == $path or . == ($path + "/*"))
+      )
+    ' >/dev/null
+  echo "caddy_xhttp_edge=valid server_name=$server_name path=$xhttp_path socket=$xray_socket"
+else
+  echo 'caddy_xhttp_edge=not-applicable mode=direct-tls'
+fi
+GATEWAY_CADDY_VERIFY
+then
+  echo 'Gateway Caddy edge contract verification failed.' >&2
+  exit 1
+fi
+
 # The persistent external Gateway is not a lab-owned application host. For
 # the private HTTP assertion only, expose a run-scoped marker on its existing
 # WireGuard address and remove it on every exit path. This does not create a
