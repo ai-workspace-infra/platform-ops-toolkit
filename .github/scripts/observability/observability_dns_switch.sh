@@ -79,7 +79,7 @@ current_ip="$(jq -er '.content' <<<"${record}")"
 validate_ipv4 "${current_ip}"
 record_id="$(jq -er '.id' <<<"${record}")"
 original_ttl="$(jq -er '.ttl' <<<"${record}")"
-original_proxied="$(jq -er '.proxied' <<<"${record}")"
+original_proxied="$(jq -r '.proxied' <<<"${record}")"
 echo "Resolved one ${NAME} A record: current=${current_ip}, ttl=${original_ttl}, proxied=${original_proxied}."
 if [[ "${DNS_ACTION}" == cutover && "${current_ip}" != "${expected_ip}" ]]; then
   echo "Refusing cutover: current A record is ${current_ip}, expected source ${expected_ip}." >&2
@@ -114,7 +114,7 @@ fi
 updated_record="$(api GET "${API}/zones/${zone_id}/dns_records?type=A&name=${NAME}&per_page=100")"
 actual_ip="$(jq -er '.result | if length == 1 then .[0].content else error("expected exactly one A record after update") end' <<<"${updated_record}")"
 [[ "${actual_ip}" == "${desired_ip}" ]] || { echo "Cloudflare record verification found ${actual_ip}, expected ${desired_ip}." >&2; exit 1; }
-actual_proxied="$(jq -er '.result | if length == 1 then .[0].proxied else error("expected exactly one A record after update") end' <<<"${updated_record}")"
+actual_proxied="$(jq -r '.result | if length == 1 then .[0].proxied else error("expected exactly one A record after update") end' <<<"${updated_record}")"
 [[ "${actual_proxied}" == false ]] || { echo "Cloudflare record ${NAME} must be DNS-only for direct origin validation." >&2; exit 1; }
 if [[ "${DNS_ACTION}" == cutover ]]; then
   if ! ssh -i "${SSH_PRIVATE_KEY_PATH}" -o IdentitiesOnly=yes -o BatchMode=yes \
