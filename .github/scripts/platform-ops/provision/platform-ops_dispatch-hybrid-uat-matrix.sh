@@ -70,15 +70,15 @@ dispatch_and_wait() {
 }
 
 dispatch_selfhost() {
-  local child_operation="$1" namespace="$2" provider="$3" account="$4" profile="$5" payload
+  local child_operation="$1" namespace="$2" provider="$3" account="$4" profile="$5" agent_profile="$6" payload
   payload="$(jq -n \
     --arg ref "${CHILD_REF}" --arg runner_type "${RUNNER_TYPE}" --arg deploy_tag "${DEPLOY_TAG}" \
     --arg source_ref "${SOURCE_REF}" --arg operation "${child_operation}" --arg target_domains "${namespace}" \
-    --arg provider "${provider}" --arg account "${account}" --arg profile "${profile}" \
+    --arg provider "${provider}" --arg account "${account}" --arg profile "${profile}" --arg agent_profile "${agent_profile}" \
     --arg target_domain_base "${TARGET_DOMAIN_BASE}" --arg observability_endpoint "${OBSERVABILITY_ENDPOINT}" \
     --arg vault_addr "${VAULT_ADDR}" --arg gateway "${XCONNECT_GATEWAY_REF}" \
-    '{ref:$ref,inputs:{runner_type:$runner_type,deploy_tag:$deploy_tag,source_ref:$source_ref,offline_mode:"off",source_host:"install.svc.plus",source_domain_base:"svc.plus",target_domain_base:$target_domain_base,observability_endpoint:$observability_endpoint,operation:$operation,target_domains:$target_domains,cloud_provider:$provider,cloud_account:$account,include_external_agent_proxy:"false",instance_plan:$profile,agent_proxy_plan:$profile,dns_mode:"none",vault_env_path:"uat",skip_stripe_catalog:"true",agent_controller_url:"https://accounts-serverless-uat.onwalk.net",vault_addr:$vault_addr,xconnect_gateway_ref:$gateway}}')"
-  dispatch_and_wait selfhost-orchestrator.yml "${payload}" "${namespace} (${provider}, ${profile})"
+    '{ref:$ref,inputs:{runner_type:$runner_type,deploy_tag:$deploy_tag,source_ref:$source_ref,offline_mode:"off",source_host:"install.svc.plus",source_domain_base:"svc.plus",target_domain_base:$target_domain_base,observability_endpoint:$observability_endpoint,operation:$operation,target_domains:$target_domains,cloud_provider:$provider,cloud_account:$account,include_external_agent_proxy:"false",instance_plan:$profile,agent_proxy_plan:$agent_profile,dns_mode:"none",vault_env_path:"uat",skip_stripe_catalog:"true",agent_controller_url:"https://accounts-serverless-uat.onwalk.net",vault_addr:$vault_addr,xconnect_gateway_ref:$gateway}}')"
+  dispatch_and_wait selfhost-orchestrator.yml "${payload}" "${namespace} (${provider}, ${profile}, agent=${agent_profile})"
 }
 
 dispatch_serverless() {
@@ -106,11 +106,12 @@ for row in "${rows[@]}"; do
   provider="$(jq -r '.provider' <<<"${row}")"
   account="$(account_for "$(jq -r '.account_kind' <<<"${row}")")"
   profile="$(jq -r '.profile' <<<"${row}")"
+  agent_profile="$(jq -r '.agent_profile // "1C2G"' <<<"${row}")"
   echo "::group::UAT hybrid ${order}/8 ${namespace} (${mode})"
   case "${OPERATION}" in plan) child_operation=plan; serverless_operation=plan ;; apply) child_operation=infra; serverless_operation=plan ;; deploy) child_operation=deploy; serverless_operation=deploy ;; esac
   case "${mode}" in
-    terraform) dispatch_selfhost "${child_operation}" "${namespace}" "${provider}" "${account}" "${profile}" ;;
-    terraform+serverless) dispatch_selfhost "${child_operation}" "${namespace}" "${provider}" "${account}" "${profile}"; dispatch_serverless "${serverless_operation}" ;;
+    terraform) dispatch_selfhost "${child_operation}" "${namespace}" "${provider}" "${account}" "${profile}" "${agent_profile}" ;;
+    terraform+serverless) dispatch_selfhost "${child_operation}" "${namespace}" "${provider}" "${account}" "${profile}" "${agent_profile}"; dispatch_serverless "${serverless_operation}" ;;
     existing+serverless) existing_node="$(jq -r '.existing_node // "vault-node-0"' <<<"${row}")"; echo "${namespace}: reusing existing ${provider} node ${existing_node}; no Terraform state mutation"; dispatch_serverless "${serverless_operation}" ;;
     existing) dispatch_existing "${namespace}" "$(jq -r '.resource_manifest' <<<"${row}")" "${account}" ;;
     *) echo "::error::unsupported management_mode ${mode}" >&2; exit 1 ;;

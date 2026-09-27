@@ -6,12 +6,12 @@
   "routing_mode": "selfhost-first",
   "frontend": "cloudflare-pages-workers",
   "resources": [
-    {"order":1,"namespace":"open-platform","target_domain":"open-platform","management_mode":"terraform","provider":"akamai-cloud","account_kind":"akamai","profile":"2C4G","region":"us-east","state_project":"svc.plus"},
+    {"order":1,"namespace":"open-platform","target_domain":"open-platform","management_mode":"terraform","provider":"akamai-cloud","account_kind":"akamai","profile":"2C4G","agent_profile":"1C2G","region":"us-east","state_project":"svc.plus"},
     {"order":2,"namespace":"web-saas","target_domain":"web-saas","management_mode":"existing+serverless","provider":"gcp-cloud","account_kind":"gcp","profile":"2C4G","region":"existing-vault-node-0","state_project":"svc.plus","existing_node":"vault-node-0","serverless_target":"web-saas"},
-    {"order":3,"namespace":"ai-workspace","target_domain":"ai-workspace","management_mode":"terraform","provider":"gcp-cloud","account_kind":"gcp","profile":"4C8G","capacity_type":"spot","region":"asia-east1","state_project":"svc.plus"},
-    {"order":4,"namespace":"agent-proxy-jp","target_domain":"agent-proxy-jp","management_mode":"terraform","provider":"aws-cloud","account_kind":"aws","profile":"2C2G","region":"ap-northeast-1","state_project":"svc.plus"},
-    {"order":5,"namespace":"agent-proxy-us","target_domain":"agent-proxy-us","management_mode":"terraform","provider":"gcp-cloud","account_kind":"gcp","profile":"2C2G","region":"us-central1","state_project":"svc.plus"},
-    {"order":6,"namespace":"agent-proxy-sg","target_domain":"agent-proxy-sg","management_mode":"terraform","provider":"akamai-cloud","account_kind":"akamai","profile":"2C2G","region":"sg-sin-2","state_project":"svc.plus"},
+    {"order":3,"namespace":"ai-workspace","target_domain":"ai-workspace","management_mode":"terraform","provider":"gcp-cloud","account_kind":"gcp","profile":"4C8G","agent_profile":"1C2G","capacity_type":"spot","region":"asia-east1","state_project":"svc.plus"},
+    {"order":4,"namespace":"agent-proxy-jp","target_domain":"agent-proxy-jp","management_mode":"terraform","provider":"aws-cloud","account_kind":"aws","profile":"2C2G","agent_profile":"2C2G","region":"ap-northeast-1","state_project":"svc.plus"},
+    {"order":5,"namespace":"agent-proxy-us","target_domain":"agent-proxy-us","management_mode":"terraform","provider":"gcp-cloud","account_kind":"gcp","profile":"2C2G","agent_profile":"2C2G","region":"us-central1","state_project":"svc.plus"},
+    {"order":6,"namespace":"agent-proxy-sg","target_domain":"agent-proxy-sg","management_mode":"terraform","provider":"akamai-cloud","account_kind":"akamai","profile":"2C2G","agent_profile":"2C2G","region":"sg-sin-2","state_project":"svc.plus"},
     {"order":7,"namespace":"agent-proxy-tw","target_domain":"agent-proxy-tw","management_mode":"existing","provider":"ulighthost","account_kind":"existing","profile":"existing","region":"tw","existing_node":"tw-01","resource_manifest":"resources/svc.plus/uat/ulighthost/xconnect.yaml"},
     {"order":8,"namespace":"agent-proxy-ph","target_domain":"agent-proxy-ph","management_mode":"existing","provider":"ulighthost","account_kind":"existing","profile":"existing","region":"ph","existing_node":"ph-01","resource_manifest":"resources/svc.plus/uat/ulighthost/xconnect.yaml"}
   ]
