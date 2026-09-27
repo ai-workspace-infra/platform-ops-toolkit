@@ -509,6 +509,7 @@ jobs:
       (needs.historical_data.result == 'success' || needs.historical_data.result == 'skipped') &&
       (needs.verify_stores.result == 'success' || needs.verify_stores.result == 'skipped') }}
     runs-on: ubuntu-latest
+    environment: uat
     permissions:
       contents: read
       id-token: write
