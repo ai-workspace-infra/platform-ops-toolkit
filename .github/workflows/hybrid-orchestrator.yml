@@ -1,236 +1,211 @@
 name: Hybrid Orchestrator
 
-# Hybrid is a routing policy, not a third deployment target.
-#
-# The Cloudflare edge chain — Pages, frontend-router, the five SSR Workers, the
-# three edge-gateway Workers, and the Cloud Run services behind them — is built
-# and owned by serverless-orchestrator. The VPS full stack is built and owned by
-# selfhost-orchestrator. This workflow deploys no images and creates no DNS
-# records. It redeploys the three edge-gateway Workers with RUNTIME_MODE=hybrid
-# so that each API request is served by the selfhost primary and, when the
-# primary cannot answer it, retried against Cloud Run.
-#
-# Failing an environment all the way back to the selfhost full stack is a manual
-# operation: repoint the canonical console/accounts CNAMEs at the selfhost
-# targets that GitOps declares under spec.domains. GitOps declares both targets;
-# nothing here switches between them.
+# The parent owns ordering only. Terraform, serverless, and existing inventory
+# mutations remain in their child workflows. `all` is eight ordered lanes.
 
 permissions:
   id-token: write
   contents: read
+  actions: write
 
 on:
   workflow_dispatch:
     inputs:
       operation:
-        description: '执行范围：plan 仅校验 hybrid 契约；deploy 校验并把三个 edge-gateway 边界切到 hybrid 策略'
+        description: 'plan=child plans; apply=Terraform apply plus serverless plan; deploy=full child deployment'
         required: true
-        default: 'plan'
+        default: plan
         type: choice
-        options:
-          - plan
-          - deploy
-      vault_env_path:
-        description: 'Target environment'
+        options: [plan, apply, deploy]
+      target_domains:
+        description: 'UAT scope; all runs the versioned eight-resource matrix'
+        required: true
+        default: all
+        type: choice
+        options: [all]
+      deploy_tag:
+        description: 'Immutable UAT daily-build tag; required for deploy'
         required: false
-        default: 'uat'
+        default: ''
+        type: string
+      source_ref:
+        description: 'Shared Toolkit/IaC/Playbooks ref'
+        required: false
+        default: main
+        type: string
+      runner_type:
+        description: 'Runner for parent and children'
+        required: false
+        default: ubuntu-latest
         type: choice
-        options:
-          - sit
-          - uat
-          - prod
+        options: [ubuntu-latest, self-hosted]
+      vault_env_path:
+        description: 'Target Vault environment'
+        required: true
+        default: uat
+        type: choice
+        options: [uat]
+      target_domain_base:
+        description: 'UAT application domain suffix'
+        required: true
+        default: onwalk.net
+        type: string
+      observability_endpoint:
+        description: 'Central observability endpoint'
+        required: true
+        default: https://observability.svc.plus
+        type: string
+      akamai_account:
+        description: 'Concrete Akamai account name, not an alias'
+        required: true
+        default: manbuzhe2026
+        type: string
+      aws_account:
+        description: 'Concrete AWS account ID for JP'
+        required: true
+        type: string
+      gcp_account:
+        description: 'Concrete GCP account/project identity'
+        required: true
+        type: string
+      existing_account:
+        description: 'Concrete external inventory account name'
+        required: true
+        default: ucloud-ulighthost
+        type: string
+      routing_mode:
+        description: 'Cloudflare Pages/Workers routing policy'
+        required: true
+        default: selfhost-first
+        type: choice
+        options: [selfhost-first, selfhost-only, cloud-run-first, cloud-run-only]
+      vault_addr:
+        description: 'Optional Vault address override'
+        required: false
+        default: https://vault.svc.plus
+        type: string
+      xconnect_gateway_ref:
+        description: 'Configurable XConnect Gateway record'
+        required: true
+        default: tw-xconnect.svc.plus
+        type: string
+
+concurrency:
+  group: hybrid-uat-${{ inputs.target_domains || 'all' }}-${{ inputs.operation || 'plan' }}
+  cancel-in-progress: false
 
 jobs:
   preflight:
-    name: Validate / Hybrid contract
+    name: '[0] Prepare | eight-resource contract'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout platform toolkit
-        uses: actions/checkout@v7
-
-      - name: Checkout GitOps runtime topology
+      - uses: actions/checkout@v7
+      - name: Validate matrix contract
+        run: ./.github/scripts/tests/hybrid_uat_matrix_contract_test.sh
+      - name: Checkout GitOps hybrid topology
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/gitops
-          # GitOps runtime topology is the environment configuration source of
-          # truth; it stays on main because it describes the environment rather
-          # than a deployable artifact. Both mode declarations are needed: the
-          # hybrid contract is defined relative to its serverless sibling.
           ref: main
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            topology/${{ inputs.vault_env_path || 'uat' }}/hybrid/runtime-topology.yaml
-            topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
-
-      - name: Render GitOps hybrid runtime topology
-        run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+            topology/uat/hybrid/runtime-topology.yaml
+            topology/uat/serverless/runtime-topology.yaml
+      - name: Validate hybrid routing contract
+        run: |
+          ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+          python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
+          GITOPS_ROUTING_YAML="${GITHUB_WORKSPACE}/gitops/topology/uat/serverless/runtime-topology.yaml" \
+            GITOPS_ROUTING_OUTPUT="${RUNNER_TEMP}/serverless-routing.json" \
+            ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+          SERVERLESS_CONFIG="${RUNNER_TEMP}/serverless-routing.json" \
+            python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
         env:
-          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/hybrid/runtime-topology.yaml
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/uat/hybrid/runtime-topology.yaml
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/hybrid-routing.json
-
-      - name: Render GitOps serverless runtime topology
-        run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
-        env:
-          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
-          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/serverless-routing.json
-
-      - name: Validate hybrid GitOps contract
-        run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
-        env:
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/hybrid-routing.json
           REQUIRED_RUNTIME_MODE: hybrid
 
-      - name: Validate serverless GitOps contract
-        run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
-        env:
-          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/serverless-routing.json
-          REQUIRED_RUNTIME_MODE: serverless
-
-      - name: Verify hybrid reuses the serverless edge inventory
-        run: ./.github/scripts/serverless/verify_hybrid_contract.sh
-        env:
-          HYBRID_CONFIG: ${{ runner.temp }}/hybrid-routing.json
-          SERVERLESS_CONFIG: ${{ runner.temp }}/serverless-routing.json
-
-  edge_gateway:
-    name: Cloudflare / ${{ matrix.display_name }}
+  resource_orchestration:
+    name: '[1] Execute | eight ordered resource lanes'
     needs: preflight
-    if: ${{ needs.preflight.result == 'success' && inputs.operation == 'deploy' }}
+    if: ${{ needs.preflight.result == 'success' }}
+    runs-on: ${{ inputs.runner_type || 'ubuntu-latest' }}
+    environment: uat
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Dispatch and wait for resource lanes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          MATRIX_FILE: ${{ github.workspace }}/.github/hybrid/uat-resource-matrix.json
+          OPERATION: ${{ inputs.operation }}
+          CHILD_REF: ${{ github.ref_name }}
+          VAULT_ENV_PATH: ${{ inputs.vault_env_path }}
+          TARGET_DOMAIN_BASE: ${{ inputs.target_domain_base }}
+          OBSERVABILITY_ENDPOINT: ${{ inputs.observability_endpoint }}
+          AKAMAI_ACCOUNT: ${{ inputs.akamai_account }}
+          AWS_ACCOUNT: ${{ inputs.aws_account }}
+          GCP_ACCOUNT: ${{ inputs.gcp_account }}
+          EXISTING_ACCOUNT: ${{ inputs.existing_account }}
+          RUNNER_TYPE: ${{ inputs.runner_type }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          DEPLOY_TAG: ${{ inputs.deploy_tag }}
+          VAULT_ADDR: ${{ inputs.vault_addr }}
+          XCONNECT_GATEWAY_REF: ${{ inputs.xconnect_gateway_ref }}
+        run: ./.github/scripts/platform-ops/provision/platform-ops_dispatch-hybrid-uat-matrix.sh
+
+  # This remains a visible concurrency boundary for the existing public-state
+  # contract. The Serverless child owns the actual Pages/Workers deployment.
+  edge_gateway:
+    name: '[2] Edge handoff | ${{ matrix.boundary }} | delegated to Serverless child'
+    needs: resource_orchestration
+    if: ${{ needs.resource_orchestration.result == 'success' }}
     runs-on: ubuntu-latest
-    # The hybrid and serverless orchestrators deploy the same three Worker names
-    # on the same routes and differ only in the vars they set, so they must never
-    # write the same boundary at the same time. The group is per boundary: a
-    # group shared by all three matrix legs would make GitHub cancel the queued
-    # legs instead of serialising them.
-    concurrency:
-      group: edge-gateway-${{ inputs.vault_env_path || 'uat' }}-${{ matrix.boundary }}
-      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - boundary: auth
-            display_name: Edge Gateway Auth
-          - boundary: admin
-            display_name: Edge Gateway Admin
-          - boundary: core
-            display_name: Edge Gateway Router Core
+        boundary: [auth, admin, core]
+    concurrency:
+      group: edge-gateway-${{ inputs.vault_env_path || 'uat' }}-${{ matrix.boundary }}
+      cancel-in-progress: false
     steps:
-      - name: Checkout platform toolkit
-        uses: actions/checkout@v7
-
-      - name: Checkout GitOps runtime topology
-        uses: actions/checkout@v7
-        with:
-          repository: ai-workspace-infra/gitops
-          ref: main
-          path: gitops
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            topology/${{ inputs.vault_env_path || 'uat' }}/hybrid/runtime-topology.yaml
-
-      - name: Render GitOps hybrid runtime topology
-        run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
-        env:
-          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/hybrid/runtime-topology.yaml
-          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/hybrid-routing.json
-
-      - name: Validate hybrid GitOps contract
-        run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
-        env:
-          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/hybrid-routing.json
-          REQUIRED_RUNTIME_MODE: hybrid
-
-      - name: Checkout edge-gateway source
-        uses: actions/checkout@v7
-        with:
-          repository: ai-workspace-services/edge-gateway
-          # Same ref policy as serverless-orchestrator: flipping the runtime mode
-          # must change Worker vars only, never the Worker code underneath them.
-          ref: main
-          path: edge-gateway
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24
-
-      - name: Authenticate to Vault with GitHub OIDC
-        id: vault
-        uses: hashicorp/vault-action@v4
-        with:
-          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
-          method: jwt
-          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
-          jwtGithubAudience: vault
-          exportToken: true
-          secrets: |
-            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
-            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN
-
-      - name: Deploy edge-gateway Worker boundary
-        run: ./.github/scripts/serverless/run_cloudflare_target.sh
-        env:
-          CLOUDFLARE_TARGET: edge-gateway
-          EDGE_GATEWAY_BOUNDARY: ${{ matrix.boundary }}
-          CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
-          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/hybrid-routing.json
-          WORKER_DIR: ${{ github.workspace }}/edge-gateway
-          CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_API_TOKEN }}
+      - name: Confirm edge ownership
+        run: echo 'Cloudflare Pages/Workers are deployed by serverless-orchestrator.'
 
   verify:
-    name: Verify / Summary
-    needs: [preflight, edge_gateway]
-    if: >-
-      ${{ always() && needs.preflight.result == 'success' &&
-      needs.edge_gateway.result != 'cancelled' }}
+    name: '[3] Verify | routing summary'
+    needs: [preflight, resource_orchestration, edge_gateway]
+    if: ${{ always() && needs.preflight.result == 'success' && needs.resource_orchestration.result == 'success' && needs.edge_gateway.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout platform toolkit
-        uses: actions/checkout@v7
-
-      - name: Checkout GitOps runtime topology
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/gitops
           ref: main
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            topology/${{ inputs.vault_env_path || 'uat' }}/hybrid/runtime-topology.yaml
-            topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
-
-      - name: Render GitOps hybrid runtime topology
-        run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+            topology/uat/hybrid/runtime-topology.yaml
+            topology/uat/serverless/runtime-topology.yaml
+      - name: Verify hybrid routing
+        run: |
+          ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+          python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
+          GITOPS_ROUTING_YAML="${GITHUB_WORKSPACE}/gitops/topology/uat/serverless/runtime-topology.yaml" \
+            GITOPS_ROUTING_OUTPUT="${RUNNER_TEMP}/serverless-routing.json" \
+            ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+          SERVERLESS_CONFIG="${RUNNER_TEMP}/serverless-routing.json" \
+            python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
+          ./.github/scripts/serverless/verify_hybrid_contract.sh
         env:
-          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/hybrid/runtime-topology.yaml
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/uat/hybrid/runtime-topology.yaml
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/hybrid-routing.json
-
-      - name: Render GitOps serverless runtime topology
-        run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
-        env:
-          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
-          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/serverless-routing.json
-
-      - name: Verify hybrid routing contract
-        run: ./.github/scripts/serverless/verify_hybrid_contract.sh
-        env:
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/hybrid-routing.json
+          REQUIRED_RUNTIME_MODE: hybrid
           HYBRID_CONFIG: ${{ runner.temp }}/hybrid-routing.json
           SERVERLESS_CONFIG: ${{ runner.temp }}/serverless-routing.json
-          EDGE_GATEWAY_RESULT: ${{ needs.edge_gateway.result }}
-
-      # The frontend is not deployed here; this asserts the shared edge chain is
-      # still serving, so a hybrid run that silently disturbed it cannot pass.
-      - name: Verify reused frontend boundary assets
-        if: ${{ inputs.operation == 'deploy' && needs.edge_gateway.result == 'success' }}
-        run: ./.github/scripts/serverless/verify_frontend_boundary_assets.sh
-        env:
-          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/hybrid-routing.json
-
-      - name: Fail when the edge-gateway stage did not succeed
-        if: ${{ inputs.operation == 'deploy' && needs.edge_gateway.result != 'success' }}
-        run: |-
-          echo "Edge gateway stage result: ${{ needs.edge_gateway.result }}" >&2
-          exit 1
