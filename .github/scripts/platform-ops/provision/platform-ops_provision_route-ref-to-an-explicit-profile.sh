@@ -16,7 +16,6 @@ SOURCE_DOMAIN_BASE_DEFAULT="svc.plus"
 TARGET_DOMAIN_BASE_DEFAULT="onwalk.net"
 STATE_PROJECT="platform-ops-toolkit"
 AKAMAI_UAT_PROJECT="svc.plus"
-state_project="${STATE_PROJECT}"
 REGISTRY_PATH="${GITHUB_WORKSPACE:-${PWD}}/config/iac_provider_registry.json"
 ENVIRONMENT_DEFAULTS_PATH="${GITHUB_WORKSPACE:-${PWD}}/config/iac_environment_defaults.json"
 
@@ -179,13 +178,20 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   
   cloud_provider="${INPUT_CLOUD_PROVIDER:-$(default_provider_for_environment "${deployment_env}")}"
   set_provider_metadata
-  state_project="${STATE_PROJECT}"
+  # Keep the logical project segment independent from the concrete provider
+  # account/project identity. Hybrid UAT uses svc.plus for every cloud.
+  state_project="${INPUT_STATE_PROJECT:-${STATE_PROJECT}}"
+  if [[ "${deployment_env}" == "uat" && -z "${INPUT_STATE_PROJECT:-}" ]]; then
+    # UAT's cross-provider matrix uses one logical project segment. The
+    # concrete provider account remains the next path component.
+    state_project="${AKAMAI_UAT_PROJECT}"
+  fi
   uat_akamai_region_namespace=false
   akamai_matrix_mode=false
   akamai_matrix_action=none
   akamai_matrix_workspaces=""
   if [[ "${deployment_env}" == "uat" && "${cloud_provider}" == "akamai-cloud" ]]; then
-    state_project="${AKAMAI_UAT_PROJECT}"
+    state_project="${INPUT_STATE_PROJECT:-${AKAMAI_UAT_PROJECT}}"
     case "${requested_target_domains}" in
       web-saas|open-platform|ai-workspace)
         terraform_namespace="${requested_target_domains}"
@@ -246,10 +252,12 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     fi
   else
     terraform_namespace="${rf}"
-    if [[ "${deployment_env}" == "uat" && "${requested_target_domains}" =~ ^agent-proxy-(jp|us|sg)$ ]]; then
-      echo "::error::Regional Agent Proxy namespaces are available only with cloud_provider=akamai-cloud in UAT." >&2
-      exit 1
-    fi
+    # Hybrid UAT deliberately assigns the three regional Agent Proxy
+    # namespaces to different Terraform providers (AWS/JP, GCP/US,
+    # Akamai/SG). Keep the namespace in target_domains so the child workflow
+    # selects the split GitOps declaration and the same namespace becomes the
+    # state/workspace suffix. The Akamai-specific branch above still maps its
+    # playbook target to agent-proxy for backwards-compatible CMDB handling.
   fi
   if [[ "${deployment_env}" != "uat" || "${cloud_provider}" != "akamai-cloud" ]]; then
     resource_file="${deployment_env}/${rf}"

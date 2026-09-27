@@ -346,9 +346,12 @@ jobs:
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/vultr/all-in-one.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/web-saas.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/agent-proxy.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/agent-proxy-jp.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/action-runner.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/gcp/web-saas.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/gcp/agent-proxy.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/gcp/ai-workspace.yaml
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/gcp/agent-proxy-us.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/azure/web-saas.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/azure/agent-proxy.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/akamai/web-saas.yaml
@@ -364,7 +367,7 @@ jobs:
       if: >-
         ${{ steps.route.outputs.run_application_deploy == 'true' &&
         steps.route.outputs.terraform_action != 'destroy' &&
-        contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
+        contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'),
         steps.route.outputs.target_domains) }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_resolve-agent-proxy-service-origins.sh
       env:
@@ -461,10 +464,11 @@ jobs:
 
     - name: Configure GCP Credentials (OIDC)
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'gcp-cloud'
-      uses: google-github-actions/auth@v2
+      uses: ./.github/actions/configure-gcp-oidc
       with:
-        workload_identity_provider: 'projects/123456789/locations/global/workloadIdentityPools/my-pool/providers/my-provider'
-        service_account: 'my-service-account@my-project.iam.gserviceaccount.com'
+        environment: ${{ steps.route.outputs.deployment_env }}
+        account_id: ${{ steps.route.outputs.account }}
+        vault_addr: ${{ env.VAULT_ADDR }}
 
     - name: Configure Azure Credentials (OIDC)
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'azure-cloud'
@@ -681,7 +685,7 @@ jobs:
       if: >-
         ${{ steps.route.outputs.run_application_deploy == 'true' &&
         steps.route.outputs.terraform_action == 'apply' &&
-        contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), steps.route.outputs.target_domains) }}
+        contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), steps.route.outputs.target_domains) }}
       env:
         VAULT_ENV_PATH: ${{ steps.route.outputs.vault_env_path }}
       run: |-
@@ -1371,7 +1375,7 @@ jobs:
       (needs.deploy_infra_platform.result == 'success' ||
       needs.deploy_infra_platform.result == 'skipped' ||
       !contains(fromJSON('["all","infra-platform","open-platform"]'), needs.provision.outputs.target_domains)) &&
-      (needs.deploy_agent_proxy.result == 'success' || !contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
+      (needs.deploy_agent_proxy.result == 'success' || !contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       (needs.deploy_agent_proxy_non_iac.result == 'success' || needs.provision.outputs.hosts_agent_proxy_non_iac == '[]' || !contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       (needs.deploy_ai_workspace.result == 'success' || !contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.target_domains)) &&
       needs.provision.outputs.terraform_action == 'apply' &&
@@ -1661,7 +1665,7 @@ jobs:
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
       needs.switch_dns.result == 'success' &&
-      contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
+      contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
       needs.provision.outputs.hosts_agent_proxy_iac != '[]' &&
       needs.provision.outputs.hosts_agent_proxy_iac != '' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
@@ -1826,7 +1830,7 @@ jobs:
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
-      contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
+      contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
       needs.provision.outputs.hosts_agent_proxy_iac != '[]' &&
       needs.provision.outputs.hosts_agent_proxy_iac != '' }}
     strategy:
@@ -2277,10 +2281,10 @@ jobs:
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
       (needs.deploy_agent_proxy.result == 'success' ||
-      !contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
+      !contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       (needs.deploy_agent_proxy_non_iac.result == 'success' ||
       needs.provision.outputs.hosts_agent_proxy_non_iac == '[]' ||
-      !contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
+      !contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
@@ -2371,15 +2375,15 @@ jobs:
         # The billing fan-out uses the same contract in every environment.
         # billing_service_base_url is derived from deployment_env, preserving
         # strict production/UAT endpoint and data-plane separation.
-        VECTOR_BILLING_INGEST_ENABLED: ${{ contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && 'true' || 'false' }}
+        VECTOR_BILLING_INGEST_ENABLED: ${{ contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && 'true' || 'false' }}
         VECTOR_BILLING_INGEST_ADDRESS: 127.0.0.1:8686
         VECTOR_BILLING_INGEST_URL: ${{ format('{0}/v1/ingest/snapshots', needs.provision.outputs.billing_service_base_url) }}
-        VECTOR_SNAPSHOT_URL: ${{ contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && 'http://127.0.0.1:8686' || '' }}
+        VECTOR_SNAPSHOT_URL: ${{ contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && 'http://127.0.0.1:8686' || '' }}
         OBSERVABILITY_ENDPOINT: ${{ github.event.inputs.observability_endpoint || 'https://observability.svc.plus' }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_monitor_agent.sh
 
     - name: Verify Xray to Billing ingest chain
-      if: ${{ contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) }}
+      if: ${{ contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) }}
       working-directory: playbooks
       env:
         MATRIX_HOST: ${{ matrix.host }}
