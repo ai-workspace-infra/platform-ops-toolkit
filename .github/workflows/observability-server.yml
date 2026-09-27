@@ -94,6 +94,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      mcp_matrix: ${{ steps.plan.outputs.mcp_matrix }}
     steps:
       - name: Validate run controls
         env:
@@ -178,6 +179,7 @@ jobs:
             *) echo "Unsupported data_components: ${DATA_COMPONENTS}" >&2; exit 1 ;;
           esac
           echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
+          echo 'mcp_matrix={"include":[{"component":"grafana","container":"xstream_mcp_grafana","port":"8000"},{"component":"victoriametrics","container":"xstream_mcp_victoriametrics","port":"8088"},{"component":"victorialogs","container":"xstream_mcp_victorialogs","port":"8083"},{"component":"victoriatraces","container":"xstream_mcp_victoriatraces","port":"8082"}]}' >> "${GITHUB_OUTPUT}"
 
   deploy_target:
     name: Deploy only the Observability service
@@ -433,9 +435,57 @@ jobs:
           DNS_ACTION: ${{ inputs.dns_action }}
         run: .github/scripts/observability/observability_verify_target.sh
 
+  verify_mcp_matrix:
+    name: "Verify ${{ matrix.component }} MCP protocol and backend auth"
+    needs: [validate, deploy_target, resolve_target, historical_data, verify_stores, verify_target]
+    if: >-
+      ${{ always() && !cancelled() &&
+      needs.validate.result == 'success' &&
+      (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover') &&
+      (needs.deploy_target.result == 'success' || inputs.deployment_action == 'skip') &&
+      needs.resolve_target.result == 'success' &&
+      needs.verify_target.result == 'success' &&
+      (needs.historical_data.result == 'success' || needs.historical_data.result == 'skipped') &&
+      (needs.verify_stores.result == 'success' || needs.verify_stores.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.validate.outputs.mcp_matrix) }}
+    env:
+      TARGET_IP: ${{ needs.resolve_target.outputs.target_ip }}
+      COMPONENT: ${{ matrix.component }}
+      CONTAINER: ${{ matrix.container }}
+      PORT: ${{ matrix.port }}
+    steps:
+      - name: Checkout toolkit
+        uses: actions/checkout@v4
+      - name: Load SSH deployment key from Vault
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-uat-observability
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD SSH_PRIVATE_DEPLOY_KEY_B64 | SSH_PRIVATE_DEPLOY_KEY_B64
+      - name: Configure SSH key
+        env:
+          SSH_PRIVATE_DEPLOY_KEY_B64: ${{ steps.vault.outputs.SSH_PRIVATE_DEPLOY_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "${RUNNER_TEMP}/observability-ssh"
+          printf '%s' "${SSH_PRIVATE_DEPLOY_KEY_B64}" | base64 --decode > "${RUNNER_TEMP}/observability-ssh/id_deploy"
+          chmod 600 "${RUNNER_TEMP}/observability-ssh/id_deploy"
+      - name: Check MCP container, streamable HTTP handshake, tools, and backend credentials
+        env:
+          SSH_PRIVATE_KEY_PATH: ${{ runner.temp }}/observability-ssh/id_deploy
+        run: .github/scripts/observability/observability_verify_mcp.sh
+
   dns_switch:
     name: "${{ inputs.dns_action == 'rollback' && 'Rollback' || 'Cut over' }} observability.svc.plus"
-    needs: [validate, resolve_target, historical_data, verify_stores, verify_target]
+    needs: [validate, resolve_target, historical_data, verify_stores, verify_target, verify_mcp_matrix]
     if: >-
       ${{ always() && !cancelled() && inputs.dns_action != 'none' &&
       needs.validate.result == 'success' &&
@@ -443,8 +493,10 @@ jobs:
       (needs.historical_data.result == 'success' || (inputs.dns_action == 'rollback' && needs.historical_data.result == 'skipped') || (inputs.dns_action == 'cutover' && inputs.migration_mode == 'none' && inputs.confirm_history_omission && needs.historical_data.result == 'skipped')) &&
       (needs.verify_stores.result == 'success' || (inputs.dns_action == 'rollback' && needs.verify_stores.result == 'skipped') || (inputs.dns_action == 'cutover' && inputs.migration_mode == 'none' && inputs.confirm_history_omission && needs.verify_stores.result == 'skipped')) &&
       (needs.verify_target.result == 'success' || (inputs.dns_action == 'rollback' && needs.verify_target.result == 'skipped')) &&
+      (needs.verify_mcp_matrix.result == 'success' || (inputs.dns_action == 'rollback' && needs.verify_mcp_matrix.result == 'skipped')) &&
       (inputs.dns_action == 'rollback' ||
       (needs.verify_target.result == 'success' &&
+      needs.verify_mcp_matrix.result == 'success' &&
       ((needs.historical_data.result == 'success' && needs.verify_stores.result == 'success') ||
       (inputs.migration_mode == 'none' && inputs.confirm_history_omission && needs.historical_data.result == 'skipped' && needs.verify_stores.result == 'skipped')))) }}
     runs-on: ubuntu-latest
