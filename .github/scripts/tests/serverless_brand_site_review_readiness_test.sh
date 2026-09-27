@@ -32,12 +32,18 @@ path="/${url#*://*/}"
 [[ "${url}" == */ ]] && path="/"
 status=200
 location=""
+exit_code=0
 body="<html><body>XWork Technologies LLC support@xworktech.com © 2026 XWork Technologies LLC</body></html>"
 case "${path}" in
   /robots.txt) body=$'User-agent: *\nAllow: /\nSitemap: https://xworktech.com/sitemap.xml' ;;
   /sitemap.xml) body='<urlset><url><loc>https://xworktech.com/</loc></url></urlset>' ;;
 esac
 case "${MODE:-ok}" in
+  status_then_timeout)
+    # The real curl can report the HTTP status before exiting non-zero while a
+    # large response body is still being transferred.
+    exit_code=28
+    ;;
   redirect_off_domain) [[ "${path}" == "/products/xworkmate" ]] && { status=302; location="https://svc.plus/products/xworkmate"; } ;;
   redirect_same_domain) [[ "${path}" == "/docs" ]] && { status=307; location="https://xworktech.com/support"; } ;;
   missing_legal_name) [[ "${path}" == "/" ]] && body="<html>Acme</html>" ;;
@@ -50,6 +56,7 @@ esac
 if [[ "${write}" == *"%{http_code}"* ]]; then
   printf '%s %s' "${status}" "${location}"
 fi
+exit "${exit_code}"
 EOF_CURL
 chmod +x "${test_dir}/bin/dig" "${test_dir}/bin/curl"
 
@@ -71,6 +78,7 @@ expect_fail() {
 }
 
 expect_pass ok
+expect_pass status_then_timeout
 expect_fail redirect_off_domain "leaves xworktech.com"
 expect_fail redirect_same_domain "expected 200"
 expect_fail missing_legal_name "legal name"
