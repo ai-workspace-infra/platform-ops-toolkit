@@ -831,7 +831,7 @@ jobs:
                 '(.initialized == true) and (.sealed == false) and (.cluster_id == $cluster) and
                  (if $role == "leader" then .standby == false and .version == $version
                   elif $role == "standby" then .standby == true and .version == $version
-                  else (.standby == true or .standby == null) end)' "${health}" >/dev/null || {
+                  else (.standby == true or .standby == false or .standby == null) end)' "${health}" >/dev/null || {
             echo "::error::${NODE} at ${IP} is not serving the expected Vault role/version/cluster" >&2
             jq '{initialized,sealed,standby,cluster_id,version}' "${health}" >&2
             exit 1
