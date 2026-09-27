@@ -25,6 +25,11 @@ on:
         type: string
         required: true
         default: main
+      mcp_services:
+        description: "Optional MCP adapters: none, all, or comma-separated grafana,victoriametrics,victorialogs,victoriatraces"
+        type: string
+        required: true
+        default: none
       source_ip:
         description: "Current source host IPv4 for observability.svc.plus"
         type: string
@@ -95,6 +100,8 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       mcp_matrix: ${{ steps.plan.outputs.mcp_matrix }}
+      mcp_enabled: ${{ steps.plan.outputs.mcp_enabled }}
+      mcp_services: ${{ steps.plan.outputs.mcp_services }}
     steps:
       - name: Validate run controls
         env:
@@ -105,6 +112,7 @@ jobs:
           TARGET_IP: ${{ inputs.target_ip_override }}
           MIGRATION_MODE: ${{ inputs.migration_mode }}
           DATA_COMPONENTS: ${{ inputs.data_components }}
+          MCP_SERVICES: ${{ inputs.mcp_services }}
           SOURCE_WRITERS_PAUSED: ${{ inputs.confirm_source_writers_paused }}
           TARGET_HISTORY_VERIFIED: ${{ inputs.confirm_target_historical_queries }}
           HISTORY_OMITTED: ${{ inputs.confirm_history_omission }}
@@ -116,6 +124,10 @@ jobs:
           [[ "${SOURCE_REF}" =~ ^[A-Za-z0-9._/-]+$ && "${SOURCE_REF}" != *..* ]] || {
             echo 'source_ref must be a simple reviewed Git ref' >&2; exit 1;
           }
+          if [[ "${MCP_SERVICES}" != none ]]; then
+            [[ "${DEPLOYMENT_ACTION}" != plan && "${DEPLOYMENT_ACTION}" != infra ]] || { echo 'MCP verification requires deployment_action=deploy or skip' >&2; exit 1; }
+            [[ "${DEPLOYMENT_ACTION}" != skip || -n "${TARGET_IP}" ]] || { echo 'target_ip_override is required to verify MCP on an existing target' >&2; exit 1; }
+          fi
           python3 - "${SOURCE_IP}" "${TARGET_IP}" <<'PY'
           import ipaddress, sys
           for value in sys.argv[1:]:
@@ -169,6 +181,7 @@ jobs:
         id: plan
         env:
           DATA_COMPONENTS: ${{ inputs.data_components }}
+          MCP_SERVICES: ${{ inputs.mcp_services }}
         run: |
           set -euo pipefail
           case "${DATA_COMPONENTS}" in
@@ -179,7 +192,36 @@ jobs:
             *) echo "Unsupported data_components: ${DATA_COMPONENTS}" >&2; exit 1 ;;
           esac
           echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
-          echo 'mcp_matrix={"include":[{"component":"grafana","container":"xstream_mcp_grafana","port":"8000"},{"component":"victoriametrics","container":"xstream_mcp_victoriametrics","port":"8088"},{"component":"victorialogs","container":"xstream_mcp_victorialogs","port":"8083"},{"component":"victoriatraces","container":"xstream_mcp_victoriatraces","port":"8082"}]}' >> "${GITHUB_OUTPUT}"
+          python3 - <<'PY'
+          import json, os
+          all_services = [
+              ("grafana", "xstream_mcp_grafana", 8000),
+              ("victoriametrics", "xstream_mcp_victoriametrics", 8088),
+              ("victorialogs", "xstream_mcp_victorialogs", 8083),
+              ("victoriatraces", "xstream_mcp_victoriatraces", 8082),
+          ]
+          raw = os.environ["MCP_SERVICES"]
+          allowed = {name for name, _, _ in all_services}
+          if raw == "all":
+              selected = allowed
+          elif raw == "none":
+              selected = set()
+          else:
+              items = raw.split(",")
+              if any(not item or item.strip() != item or item not in allowed for item in items):
+                  raise SystemExit("mcp_services must be none, all, or a comma-separated list of supported service names")
+              if len(set(items)) != len(items):
+                  raise SystemExit("mcp_services cannot contain duplicate service names")
+              selected = set(items)
+          include = [
+              {"component": name, "container": container, "port": str(port), "enabled": name in selected}
+              for name, container, port in all_services
+          ]
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("mcp_matrix=" + json.dumps({"include": include}, separators=(",", ":")) + "\n")
+              output.write("mcp_enabled=" + str(bool(selected)).lower() + "\n")
+              output.write("mcp_services=" + ("all" if selected == allowed else ",".join(name for name, _, _ in all_services if name in selected) or "none") + "\n")
+          PY
 
   deploy_target:
     name: Deploy only the Observability service
@@ -203,6 +245,7 @@ jobs:
           INSTANCE_PLAN: ${{ inputs.instance_plan }}
           DEPLOY_TAG: ${{ inputs.deploy_tag }}
           SOURCE_REF: ${{ inputs.source_ref }}
+          OPEN_PLATFORM_MCP_SERVICES: ${{ needs.validate.outputs.mcp_services }}
         run: |
           set -euo pipefail
           dispatch_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -210,6 +253,7 @@ jobs:
             --arg operation "${DEPLOYMENT_ACTION}" \
             --arg deploy_tag "${DEPLOY_TAG}" \
             --arg source_ref "${SOURCE_REF}" \
+            --arg open_platform_mcp_services "${OPEN_PLATFORM_MCP_SERVICES}" \
             --arg instance_plan "${INSTANCE_PLAN}" \
             '{ref:"main",inputs:{
               runner_type:"ubuntu-latest",
@@ -226,7 +270,8 @@ jobs:
               instance_plan:$instance_plan,
               dns_mode:"none",
               deploy_tag:$deploy_tag,
-              source_ref:$source_ref
+              source_ref:$source_ref,
+              open_platform_mcp_services:$open_platform_mcp_services
             }}')"
           gh api --method POST "repos/${GH_REPO}/actions/workflows/selfhost-orchestrator.yml/dispatches" --input - <<<"${payload}" >/dev/null
           run_id=""
@@ -248,7 +293,7 @@ jobs:
     if: >-
       ${{ always() && !cancelled() &&
       needs.validate.result == 'success' &&
-      (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover') &&
+      (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover' || needs.validate.outputs.mcp_enabled == 'true') &&
       (needs.deploy_target.result == 'success' || inputs.deployment_action == 'skip') }}
     runs-on: ubuntu-latest
     outputs:
@@ -390,7 +435,7 @@ jobs:
     if: >-
       ${{ always() && !cancelled() &&
       needs.validate.result == 'success' &&
-      (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover') &&
+      (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover' || needs.validate.outputs.mcp_enabled == 'true') &&
       (needs.deploy_target.result == 'success' || inputs.deployment_action == 'skip') &&
       needs.resolve_target.result == 'success' &&
       (needs.historical_data.result == 'success' || needs.historical_data.result == 'skipped') &&
@@ -441,10 +486,10 @@ jobs:
     if: >-
       ${{ always() && !cancelled() &&
       needs.validate.result == 'success' &&
-      (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover') &&
+      (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover' || needs.validate.outputs.mcp_enabled == 'true') &&
       (needs.deploy_target.result == 'success' || inputs.deployment_action == 'skip') &&
-      needs.resolve_target.result == 'success' &&
-      needs.verify_target.result == 'success' &&
+      needs.resolve_target.result == 'success' && needs.verify_target.result == 'success' &&
+      (needs.validate.outputs.mcp_enabled == 'true') &&
       (needs.historical_data.result == 'success' || needs.historical_data.result == 'skipped') &&
       (needs.verify_stores.result == 'success' || needs.verify_stores.result == 'skipped') }}
     runs-on: ubuntu-latest
@@ -459,8 +504,10 @@ jobs:
       PORT: ${{ matrix.port }}
     steps:
       - name: Checkout toolkit
+        if: matrix.enabled
         uses: actions/checkout@v4
       - name: Load SSH deployment key from Vault
+        if: matrix.enabled
         id: vault
         uses: hashicorp/vault-action@v4
         with:
@@ -471,6 +518,7 @@ jobs:
           secrets: |
             kv/data/CICD SSH_PRIVATE_DEPLOY_KEY_B64 | SSH_PRIVATE_DEPLOY_KEY_B64
       - name: Configure SSH key
+        if: matrix.enabled
         env:
           SSH_PRIVATE_DEPLOY_KEY_B64: ${{ steps.vault.outputs.SSH_PRIVATE_DEPLOY_KEY_B64 }}
         run: |
@@ -479,6 +527,7 @@ jobs:
           printf '%s' "${SSH_PRIVATE_DEPLOY_KEY_B64}" | base64 --decode > "${RUNNER_TEMP}/observability-ssh/id_deploy"
           chmod 600 "${RUNNER_TEMP}/observability-ssh/id_deploy"
       - name: Check MCP container, streamable HTTP handshake, tools, and backend credentials
+        if: matrix.enabled
         env:
           SSH_PRIVATE_KEY_PATH: ${{ runner.temp }}/observability-ssh/id_deploy
         run: .github/scripts/observability/observability_verify_mcp.sh
@@ -493,10 +542,10 @@ jobs:
       (needs.historical_data.result == 'success' || (inputs.dns_action == 'rollback' && needs.historical_data.result == 'skipped') || (inputs.dns_action == 'cutover' && inputs.migration_mode == 'none' && inputs.confirm_history_omission && needs.historical_data.result == 'skipped')) &&
       (needs.verify_stores.result == 'success' || (inputs.dns_action == 'rollback' && needs.verify_stores.result == 'skipped') || (inputs.dns_action == 'cutover' && inputs.migration_mode == 'none' && inputs.confirm_history_omission && needs.verify_stores.result == 'skipped')) &&
       (needs.verify_target.result == 'success' || (inputs.dns_action == 'rollback' && needs.verify_target.result == 'skipped')) &&
-      (needs.verify_mcp_matrix.result == 'success' || (inputs.dns_action == 'rollback' && needs.verify_mcp_matrix.result == 'skipped')) &&
+      (needs.verify_mcp_matrix.result == 'success' || ((inputs.dns_action == 'rollback' || (needs.validate.outputs.mcp_enabled != 'true')) && needs.verify_mcp_matrix.result == 'skipped')) &&
       (inputs.dns_action == 'rollback' ||
       (needs.verify_target.result == 'success' &&
-      needs.verify_mcp_matrix.result == 'success' &&
+      ((needs.validate.outputs.mcp_enabled != 'true') || needs.verify_mcp_matrix.result == 'success') &&
       ((needs.historical_data.result == 'success' && needs.verify_stores.result == 'success') ||
       (inputs.migration_mode == 'none' && inputs.confirm_history_omission && needs.historical_data.result == 'skipped' && needs.verify_stores.result == 'skipped')))) }}
     runs-on: ubuntu-latest

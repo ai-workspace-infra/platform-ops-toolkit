@@ -101,6 +101,11 @@ on:
         default: "all"
         type: choice
         options: [all, vault, iam, observability]
+      open_platform_mcp_services:
+        description: "Optional MCP adapters: none, all, or comma-separated grafana,victoriametrics,victorialogs,victoriatraces"
+        required: false
+        default: "none"
+        type: string
       cloud_provider:
         description: "云服务商（按 provider registry 选择；UAT 默认 Akamai Cloud；ULightHost existing 由 external adapter 处理）"
         required: true
@@ -746,6 +751,7 @@ jobs:
         AGENT_PROXY_PLAN: ${{ github.event.inputs.agent_proxy_plan || '1C2G' }}
         DNS_MODE: ${{ github.event.inputs.dns_mode || 'none' }}
         OPEN_PLATFORM_SERVICE: ${{ github.event.inputs.open_platform_service || 'all' }}
+        OPEN_PLATFORM_MCP_SERVICES: ${{ github.event.inputs.open_platform_mcp_services || 'none' }}
         SKIP_STRIPE_CATALOG: ${{ github.event.inputs.skip_stripe_catalog || 'false' }}
         AGENT_CONTROLLER_URL: ${{ github.event.inputs.agent_controller_url || '' }}
         VAULT_ADDR: ${{ github.event.inputs.vault_addr || 'https://vault.svc.plus' }}
@@ -972,6 +978,7 @@ jobs:
           needs.provision.outputs.cloud_provider == 'akamai-cloud' &&
           'http://127.0.0.1:8200' || '' }}
         OPEN_PLATFORM_SERVICE: ${{ github.event.inputs.open_platform_service || 'all' }}
+        OPEN_PLATFORM_MCP_SERVICES: ${{ github.event.inputs.open_platform_mcp_services || 'none' }}
         # The explicit deployment-only mode permits a fresh IAM unit to start
         # before environment-scoped business secrets are migrated. Normal
         # service deployments keep strict Vault secret validation.
