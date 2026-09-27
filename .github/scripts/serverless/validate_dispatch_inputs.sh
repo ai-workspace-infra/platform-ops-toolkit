@@ -80,13 +80,20 @@ case "${target_domains}" in
     ;;
 esac
 
-# Other domains are selected through cloud_provider. It is currently wired only
-# for Vultr; the other choices intentionally fail before deployment while
-# remaining visible as reserved multi-cloud options.
-if [[ "${cloud_provider}" != "vultr-vps" ]]; then
-  echo "CLOUD_PROVIDER=${cloud_provider} is reserved for a future multi-cloud environment replica path; currently use vultr-vps" >&2
-  exit 2
-fi
+# The serverless workload itself remains Cloud Run/Cloudflare based.  The
+# provider input identifies the surrounding hybrid environment and must not
+# reject a read-only plan merely because another lane uses GCP, Akamai, AWS,
+# Azure, or Vultr.  Resource creation for those lanes remains owned by the
+# selfhost/IaC workflows; this validator only accepts the shared provider
+# registry values.
+case "${cloud_provider}" in
+  aws-cloud|gcp-cloud|azure-cloud|vultr-vps|akamai-cloud)
+    ;;
+  *)
+    echo "CLOUD_PROVIDER=${cloud_provider} is not registered for the hybrid environment" >&2
+    exit 2
+    ;;
+esac
 
 case "${serverless_dns_mode}" in
   none|uat-records|prod-cutover)

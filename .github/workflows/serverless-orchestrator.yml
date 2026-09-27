@@ -33,15 +33,16 @@ on:
           - agent-proxy
           - web-saas + agent-proxy
       cloud_provider:
-        description: '其它业务域的云服务商 (多云选项为预留; 当前环境副本链路仅接通 vultr-vps，选择其它云会在 preflight 阶段明确失败)'
+        description: '混合环境关联的云服务商；serverless 运行时仍由 Cloud Run/Cloudflare 承载，资源创建由对应 IaC workflow 负责'
         required: false
-        default: 'vultr-vps'
+        default: 'gcp-cloud'
         type: choice
         options:
           - aws-cloud
           - gcp-cloud
           - azure-cloud
           - vultr-vps
+          - akamai-cloud
       vault_env_path:
         description: 'Target environment'
         required: false

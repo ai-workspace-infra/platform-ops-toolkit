@@ -102,8 +102,15 @@ if OPERATION=plan TARGET_DOMAINS=agent-proxy CLOUD_PROVIDER=vultr-vps VAULT_ENV_
   exit 1
 fi
 
-if OPERATION=plan TARGET_DOMAINS=all CLOUD_PROVIDER=gcp-cloud VAULT_ENV_PATH=uat DEPLOY_CLOUDFLARE=true DEPLOY_CLOUD_RUN=true "${validate_script}" >/dev/null 2>&1; then
-  echo "unwired environment replica provider unexpectedly succeeded" >&2
+for provider in aws-cloud gcp-cloud azure-cloud akamai-cloud; do
+  OPERATION=plan TARGET_DOMAINS=all CLOUD_PROVIDER="${provider}" VAULT_ENV_PATH=uat DEPLOY_CLOUDFLARE=true DEPLOY_CLOUD_RUN=true "${validate_script}" >/dev/null || {
+    echo "registered hybrid provider ${provider} was rejected during plan" >&2
+    exit 1
+  }
+done
+
+if OPERATION=plan TARGET_DOMAINS=all CLOUD_PROVIDER=unsupported-cloud VAULT_ENV_PATH=uat DEPLOY_CLOUDFLARE=true DEPLOY_CLOUD_RUN=true "${validate_script}" >/dev/null 2>&1; then
+  echo "unregistered environment replica provider unexpectedly succeeded" >&2
   exit 1
 fi
 
