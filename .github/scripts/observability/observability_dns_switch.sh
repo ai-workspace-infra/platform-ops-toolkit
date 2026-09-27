@@ -81,9 +81,15 @@ record_id="$(jq -er '.id' <<<"${record}")"
 original_ttl="$(jq -er '.ttl' <<<"${record}")"
 original_proxied="$(jq -r '.proxied' <<<"${record}")"
 echo "Resolved one ${NAME} A record: current=${current_ip}, ttl=${original_ttl}, proxied=${original_proxied}."
+already_at_desired=false
 if [[ "${DNS_ACTION}" == cutover && "${current_ip}" != "${expected_ip}" ]]; then
-  echo "Refusing cutover: current A record is ${current_ip}, expected source ${expected_ip}." >&2
-  exit 1
+  if [[ "${current_ip}" == "${desired_ip}" ]]; then
+    already_at_desired=true
+    echo "DNS already points ${NAME} at ${desired_ip}; continuing with idempotent TLS/origin verification."
+  else
+    echo "Refusing cutover: current A record is ${current_ip}, expected source ${expected_ip}." >&2
+    exit 1
+  fi
 fi
 if [[ "${DNS_ACTION}" == rollback ]]; then
   if [[ -n "${expected_ip}" ]]; then
@@ -93,15 +99,19 @@ if [[ "${DNS_ACTION}" == rollback ]]; then
   fi
 fi
 
-payload="$(jq -cn --arg type A --arg name "${NAME}" --arg content "${desired_ip}" \
-  --arg comment "$(jq -r '.comment // ""' <<<"${record}")" \
-  --argjson ttl 60 \
-  --argjson proxied false \
-  --argjson tags "$(jq -c '.tags // []' <<<"${record}")" \
-  '{type:$type,name:$name,content:$content,ttl:$ttl,proxied:$proxied,comment:$comment,tags:$tags}')"
-echo "Requesting ${DNS_ACTION}: ${current_ip} -> ${desired_ip}, TTL 60, DNS-only."
-api PUT "${API}/zones/${zone_id}/dns_records/${record_id}" "${payload}" >/dev/null
-echo "Updated only ${NAME} A record: ${current_ip} -> ${desired_ip}. Waiting for Cloudflare DNS propagation."
+if [[ "${already_at_desired}" != true ]]; then
+  payload="$(jq -cn --arg type A --arg name "${NAME}" --arg content "${desired_ip}" \
+    --arg comment "$(jq -r '.comment // ""' <<<"${record}")" \
+    --argjson ttl 60 \
+    --argjson proxied false \
+    --argjson tags "$(jq -c '.tags // []' <<<"${record}")" \
+    '{type:$type,name:$name,content:$content,ttl:$ttl,proxied:$proxied,comment:$comment,tags:$tags}')"
+  echo "Requesting ${DNS_ACTION}: ${current_ip} -> ${desired_ip}, TTL 60, DNS-only."
+  api PUT "${API}/zones/${zone_id}/dns_records/${record_id}" "${payload}" >/dev/null
+  echo "Updated only ${NAME} A record: ${current_ip} -> ${desired_ip}. Waiting for Cloudflare DNS propagation."
+else
+  echo "Skipping DNS write because ${NAME} already has the desired A record. Waiting for resolver convergence."
+fi
 
 if ! wait_for_dns "${desired_ip}"; then
   if [[ "${DNS_ACTION}" == cutover ]]; then
