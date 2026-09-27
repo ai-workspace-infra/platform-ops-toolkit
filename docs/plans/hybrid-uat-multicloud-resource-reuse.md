@@ -4,7 +4,7 @@
 
 ## 目标与入口
 
-`hybrid-orchestrator.yml` 是顶层 orchestrator，增加 `target_domains=all` 的 UAT 编排入口；它只调度 `selfhost-orchestrator.yml` 和 `serverless-orchestrator.yml`，不直接渲染 Terraform 或执行 Playbook。Selfhost 再根据 GitOps 矩阵路由到各 provider 的 IaC、existing adapter 和 Playbooks；Serverless 负责 Supabase、Cloud Run 与 Cloudflare 前端。一次选择 `all` 后，Hybrid 按下表顺序逐项等待子流程完成；每项都记录资源来源、state 或 existing 身份、健康检查与子运行链接。失败即停止后续项，不把已成功项当成待回滚的临时资源。`plan` 只做配置和只读事实核对，`deploy` 才调用子流程。
+`hybrid-orchestrator.yml` 是唯一的顶层 orchestrator，增加 `target_domains=all` 的 UAT 编排入口；它只编排和调用 `selfhost-orchestrator.yml` 与 `serverless-orchestrator.yml`，不直接渲染 Terraform、执行 Playbook 或复制两个子工作流的实现。Selfhost 再根据 GitOps 矩阵路由到各 provider 的 IaC、existing adapter、PostgreSQL 后端和 Playbooks；Serverless 负责 Supabase、Cloud Run 与 Cloudflare 前端。一次选择 `all` 后，Hybrid 按下表顺序逐项等待子流程完成；每项都记录资源来源、state 或 existing 身份、健康检查与子运行链接。失败即停止后续项，不把已成功项当成待回滚的临时资源。`plan` 只做配置和只读事实核对，`deploy` 才调用子流程。
 
 | 顺序 | 业务域 | 目标位置与规格 | 管理方式 | 工作负载 |
 | --- | --- | --- | --- | --- |
@@ -17,7 +17,17 @@
 | 7 | `agent-proxy-tw` | 现有 TW 节点 | external inventory + Vault；无 Terraform 创建/销毁 | 对现有节点执行相同应用角色 |
 | 8 | `agent-proxy-ph` | 现有 PH 节点 | external inventory + Vault；无 Terraform 创建/销毁 | 对现有节点执行相同应用角色 |
 
-前端默认链路为 Cloudflare Pages 静态资源 + Cloudflare frontend-router/SSR/edge-gateway Workers；Cloud Run 与 Selfhost 按已验证的 Hybrid 策略服务 API。沿用 GitOps `topology/uat/hybrid/runtime-topology.yaml` 的现有域名和 Cloudflare 资源，不新建第二套前端入口。`Cloudpage` 在此按 Cloudflare Pages 理解。
+前端默认链路为 Cloudflare Pages 静态资源 + Cloudflare frontend-router/SSR/edge-gateway Workers。Worker 是唯一公网 SSR/API gateway，默认采用 `selfhost-first` 路由：优先把 SSR 和后端 API 请求送到 Selfhost API，由 Selfhost API 访问 PostgreSQL；Cloud Run 是可配置的回退、溢出或指定路由目标，不是默认主流量入口。沿用 GitOps `topology/uat/hybrid/runtime-topology.yaml` 的现有域名和 Cloudflare 资源，不新建第二套前端入口。`Cloudpage` 在此统一指 Cloudflare Pages。
+
+```text
+Client
+  -> Cloudflare Pages (静态前端)
+  -> Cloudflare Worker (SSR + API gateway)
+       -> Selfhost API -> PostgreSQL        # 默认、低成本主路径
+       -> Cloud Run API                     # 健康回退/溢出/显式路由
+```
+
+Worker 不直接连接 PostgreSQL，也不持有数据库管理员凭据。默认只有 `GET`、`HEAD` 等安全请求允许在 Selfhost 不健康时自动回退 Cloud Run；写请求继续固定到 Selfhost 单写 API，除非 Cloud Run 已使用同一数据写入契约、幂等键和事务边界并通过专门验收。这样可以降低 Cloud Run 流量成本，同时避免自动故障切换产生双写、重复提交或数据库分叉。
 
 ## 编排契约
 
@@ -27,6 +37,19 @@
 4. Web SaaS 顺序是：Hybrid 等待 Selfhost 完成目标主机准备与业务部署 → 调用 Serverless `web-saas` 部署/验证（Supabase、Cloud Run、Pages/Workers）→ 校验 Hybrid edge-gateway 模式。Hybrid 只传递部署版本和环境上下文；Supabase 的写入职责需先与现有 Hybrid 单写者契约统一，不在编排层暗中更改数据库主从关系。
 5. 各 Agent Proxy 与 Accounts 注册、XConnect Gateway/One 联动、监控心跳和区域域名验证均随本区域步骤完成。TW/PH 只走 external-node job。每步成功后才进入下一步，最终摘要列出八项实际执行结果、资源 ID、state key 或 existing 引用、子流水线链接与前端入口检查。
 6. Hybrid `plan` 检查所有上述声明和目前的 Cloudflare 复用契约，不调用 `apply`、业务部署或 DNS 更新；`deploy` 在所有输入和资源事实核对通过后才能扇出。每个子运行必须由可追踪的关联 ID 识别，避免并行的 Actions 运行被误认成自己的结果。
+7. Hybrid 向两个子工作流传递同一个不可变发布版本、Git ref、环境、关联 ID 和路由配置。子工作流必须提供稳定的 `workflow_call` 输入/输出；Hybrid 只消费输出的主机清单、origin URL、部署状态和健康状态，不读取子工作流内部 job 名称。
+8. Serverless 发布 Cloudflare Pages/Workers 后，将 Selfhost origin 和 Cloud Run origin 写入环境绑定或 Worker 配置；禁止把 origin、账号或区域硬编码在 Worker 源码。默认 `routing_mode=selfhost-first`，并允许以后显式选择 `cloud-run-first`、`selfhost-only` 或 `cloud-run-only`，但每次选择都必须出现在运行摘要中。
+
+## Hybrid 流量调度契约
+
+`selfhost-first` 的目标是把稳定流量留在已付费或低边际成本的 Selfhost 节点，仅在必要时使用 Cloud Run。落地时至少包含以下控制面：
+
+- Selfhost 与 Cloud Run 分别提供不访问外部依赖的存活检查，以及验证数据库/关键依赖的就绪检查；Worker 只依据就绪状态执行回退。
+- Worker 使用短时熔断状态、严格超时和有限重试。一次请求最多选择一个写入 origin，不能在响应不确定时把写请求重放到另一个 origin。
+- 可按路径、请求方法、租户或发布比例覆盖路由；默认 SSR 与 API 都走 Selfhost，明确标记的异步、突发或隔离工作负载才走 Cloud Run。
+- PostgreSQL 仍由 Selfhost API 负责访问。Supabase 的身份、存储、实时能力或副本职责与业务主库职责分开声明，不能仅因 Serverless 被调用就改变数据主从关系。
+- Pages/Workers 发布失败不应回滚已成功创建的基础设施；Hybrid 停止后续步骤并给出可重试的子流程和关联 ID。
+- 最终摘要输出 Pages deployment、Worker version、Selfhost origin、Cloud Run origin、实际 routing mode、健康状态和回退演练结果，但不输出凭据。
 
 ## 现状差距与落地顺序
 
