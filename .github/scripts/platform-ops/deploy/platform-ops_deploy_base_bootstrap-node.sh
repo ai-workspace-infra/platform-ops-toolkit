@@ -87,8 +87,8 @@ fi
 # Accept none, all, or a comma-separated selection from the orchestration input.
 if [[ "${playbook}" == "deploy_observability_domain.yml" ]]; then
   selected="${OPEN_PLATFORM_MCP_SERVICES:-none}"
-  case ",${selected}," in
-    *,*,,*|,*,,*|*, ,*) echo "Invalid OPEN_PLATFORM_MCP_SERVICES=${selected}" >&2; exit 2 ;;
+  case "${selected}" in
+    ,*|*,|*,,*|*[[:space:]]*) echo "Invalid OPEN_PLATFORM_MCP_SERVICES=${selected}" >&2; exit 2 ;;
   esac
   if [[ "${selected}" == all ]]; then
     selected="grafana,victoriametrics,victorialogs,victoriatraces"
