@@ -149,6 +149,9 @@ grep -Fq 'child_agent_controller_url="https://accounts-serverless-uat.onwalk.net
 grep -Fq 'if [[ -z "${child_agent_controller_url}" && "${namespace}" == agent-proxy-* ]]; then' "${matrix_deploy_script}"
 grep -Fq -- '--arg agent_controller_url "${child_agent_controller_url}"' "${matrix_deploy_script}"
 grep -Fq 'selfhost deploy run' "${matrix_deploy_script}"
+grep -Fq 'id: gcp_oidc' "${matrix_workflow}"
+grep -Fq 'TF_VAR_deploy_service_account=${{ steps.gcp_oidc.outputs.service_account }}' "${matrix_workflow}"
+grep -Fq 'TF_VAR_workload_identity_provider=${{ steps.gcp_oidc.outputs.provider }}' "${matrix_workflow}"
 python3 - "${matrix_workflow}" <<'PY'
 from pathlib import Path
 import sys
