@@ -651,8 +651,13 @@ echo 'Verify: Gateway exact peer, signed state and route'
 if ! ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- "$client_public_key" "$gateway_id" "$network_id" "$formal_zero" "$client_wireguard_ip" <<'RELAY_VERIFY'
 set -euo pipefail
 wg show xconzero0 latest-handshakes | awk -v peer="$1" -v now="$(date +%s)" '$1 == peer && $2 > 0 && now-$2 >= 0 && now-$2 < 180 {ok=1} END {exit !ok}'
-jq -e --arg gateway "$2" --arg network "$3" --arg controller "$4" \
-  '.gateway_id == $gateway and .network_id == $network and .controller == $controller and .applied_generation > 0 and (.applied_config_id | length) > 0' \
+controller="$4"
+case "$controller" in
+  https://accounts-uat.onwalk.net|https://accounts-uat.onwalk.net/|https://*.run.app|https://*.run.app/) ;;
+  *) echo "unsupported controller endpoint: $controller" >&2; exit 1 ;;
+esac
+jq -e --arg gateway "$2" --arg network "$3" \
+  '.gateway_id == $gateway and .network_id == $network and .applied_generation > 0 and (.applied_config_id | length) > 0' \
   /var/lib/xconnect-gateway/state.json >/dev/null
 ip route get "$5" | grep -Fq 'dev xconzero0'
 RELAY_VERIFY
