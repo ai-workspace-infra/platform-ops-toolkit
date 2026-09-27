@@ -29,6 +29,15 @@ Ansible playbook only; it does not create another Terraform state.
 The legacy `observability.svc.plus` host is a migration source and is never
 managed by these playbooks or added to the new `open-platform` state.
 
+For a focused UAT rollout, use the standalone
+[`Observability server` workflow](../.github/workflows/observability-server.yml).
+It dispatches `Selfhost Orchestrator` with `target_domains=open-platform`,
+`open_platform_service=observability`, and `dns_mode=none`; its default Akamai
+shape is 2C4G, with 4C8G available when the workload needs more headroom. The
+old source remains the rollback endpoint. This deployment entry point does not
+copy historical VictoriaMetrics/VictoriaLogs/VictoriaTraces data or change DNS;
+those remain explicit migration and cutover steps.
+
 ## Deployment-only mode
 
 UAT Akamai `open-platform` deployment sets `OPEN_PLATFORM_DEPLOY_ONLY=true`.
