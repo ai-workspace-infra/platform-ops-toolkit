@@ -12,6 +12,9 @@ set -euo pipefail
 #
 # A role declaration contains a human-readable "description" and "role_name".
 # Those metadata fields are stripped before the remaining JSON is sent to Vault.
+# Environment-specific bootstrap roles are declared under scripts/vault/roles
+# and are therefore handled by the same validation and targeted --role path as
+# every other service-repository role.
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 POLICY_DIR="${VAULT_POLICY_DEFINITION_DIR:-${SCRIPT_DIR}/vault/policies}"
@@ -49,7 +52,9 @@ Usage:
   scripts/create_vault_service_repo_roles.sh [--apply|--check] [--env uat|prod|all]
   scripts/create_vault_service_repo_roles.sh [--apply|--check] --role <declared-role-name>
 
-The default remains --apply. When AKAMAI_ACCOUNT_UAT and/or
+The default remains --apply. All checked-in role/policy declarations are
+validated and managed in normal mode, including the dedicated UAT and PROD
+AWS OIDC bootstrap roles. When AKAMAI_ACCOUNT_UAT and/or
 AKAMAI_ACCOUNT_PROD is provided, the matching dynamic Akamai Cloud/Linode
 GitHub OIDC role and policy are also managed. --role limits the operation to
 one declared JWT role and only the policies referenced by that role; it cannot
