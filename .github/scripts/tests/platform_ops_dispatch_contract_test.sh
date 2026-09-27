@@ -124,6 +124,11 @@ matrix_deploy_script="${repo_root}/.github/scripts/platform-ops/provision/platfo
 grep -Fq 'Dispatch ordered UAT selfhost namespace deployments' "${matrix_workflow}"
 grep -Fq 'CHILD_WORKFLOW: selfhost-orchestrator.yml' "${matrix_workflow}"
 grep -Fq 'OBSERVABILITY_ENDPOINT: ${{ github.event.inputs.observability_endpoint || '\''https://observability.svc.plus'\'' }}' "${matrix_workflow}"
+grep -Fq 'OBSERVE_EXPECTED_CODES: "200,404,401"' "${matrix_workflow}"
+if grep -Fq 'OBSERVE_EXPECTED_CODES: "200,404,200"' "${matrix_workflow}"; then
+  echo "Bridge health contract must not treat the protected unauthenticated endpoint as public" >&2
+  exit 1
+fi
 grep -Fq 'contains(fromJSON('"'"'' "${matrix_workflow}"
 grep -Fq '"ai-workspace","agent-proxy-jp","agent-proxy-us","agent-proxy-sg"' "${matrix_workflow}"
 grep -Fq 'repository: ai-workspace-lab/xworkmate-bridge' "${matrix_workflow}"
