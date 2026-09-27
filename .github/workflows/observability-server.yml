@@ -36,10 +36,15 @@ on:
         required: true
         default: 46.250.251.132
       target_ip_override:
-        description: "Existing target IPv4, required when deployment_action=skip and migration/cutover is selected"
+        description: "Existing target IPv4, required when deployment_action=skip and migration/cutover/verification is selected"
         type: string
         required: false
         default: ""
+      verify_existing_target:
+        description: "Read-only verification of an existing target and the current source node; requires deployment_action=skip and target_ip_override"
+        type: boolean
+        required: true
+        default: false
       migration_mode:
         description: "none leaves stores untouched; baseline copies live snapshots; final performs the last sync"
         type: choice
@@ -110,6 +115,7 @@ jobs:
           SOURCE_REF: ${{ inputs.source_ref }}
           SOURCE_IP: ${{ inputs.source_ip }}
           TARGET_IP: ${{ inputs.target_ip_override }}
+          VERIFY_EXISTING_TARGET: ${{ inputs.verify_existing_target }}
           MIGRATION_MODE: ${{ inputs.migration_mode }}
           DATA_COMPONENTS: ${{ inputs.data_components }}
           MCP_SERVICES: ${{ inputs.mcp_services }}
@@ -127,6 +133,14 @@ jobs:
           if [[ "${MCP_SERVICES}" != none ]]; then
             [[ "${DEPLOYMENT_ACTION}" != plan && "${DEPLOYMENT_ACTION}" != infra ]] || { echo 'MCP verification requires deployment_action=deploy or skip' >&2; exit 1; }
             [[ "${DEPLOYMENT_ACTION}" != skip || -n "${TARGET_IP}" ]] || { echo 'target_ip_override is required to verify MCP on an existing target' >&2; exit 1; }
+          fi
+          if [[ "${VERIFY_EXISTING_TARGET}" == true ]]; then
+            [[ "${DEPLOYMENT_ACTION}" == skip && -n "${TARGET_IP}" ]] || {
+              echo 'verify_existing_target=true requires deployment_action=skip and target_ip_override' >&2; exit 1;
+            }
+            [[ "${MIGRATION_MODE}" == none && "${DNS_ACTION}" == none ]] || {
+              echo 'Read-only verification cannot be combined with migration or DNS changes' >&2; exit 1;
+            }
           fi
           python3 - "${SOURCE_IP}" "${TARGET_IP}" <<'PY'
           import ipaddress, sys
@@ -293,7 +307,7 @@ jobs:
     if: >-
       ${{ always() && !cancelled() &&
       needs.validate.result == 'success' &&
-      (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover' || needs.validate.outputs.mcp_enabled == 'true') &&
+      (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover' || inputs.verify_existing_target || needs.validate.outputs.mcp_enabled == 'true') &&
       (needs.deploy_target.result == 'success' || inputs.deployment_action == 'skip') }}
     runs-on: ubuntu-latest
     outputs:
@@ -435,7 +449,7 @@ jobs:
     if: >-
       ${{ always() && !cancelled() &&
       needs.validate.result == 'success' &&
-      (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover' || needs.validate.outputs.mcp_enabled == 'true') &&
+      (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover' || inputs.verify_existing_target || needs.validate.outputs.mcp_enabled == 'true') &&
       (needs.deploy_target.result == 'success' || inputs.deployment_action == 'skip') &&
       needs.resolve_target.result == 'success' &&
       (needs.historical_data.result == 'success' || needs.historical_data.result == 'skipped') &&
@@ -476,6 +490,8 @@ jobs:
         env:
           SSH_PRIVATE_KEY_PATH: ${{ runner.temp }}/observability-ssh/id_deploy
           TARGET_IP: ${{ needs.resolve_target.outputs.target_ip }}
+          SOURCE_IP: ${{ inputs.source_ip }}
+          VERIFY_SOURCE_NODE: ${{ inputs.verify_existing_target }}
           DASHBOARD_SOURCE: playbooks/roles/docker/observability-server/files
           DNS_ACTION: ${{ inputs.dns_action }}
         run: .github/scripts/observability/observability_verify_target.sh
