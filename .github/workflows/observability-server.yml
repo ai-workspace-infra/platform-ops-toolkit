@@ -1,0 +1,118 @@
+name: Observability server
+
+# Focused entry point for the observability service unit on the permanent
+# Akamai UAT open-platform node. Infrastructure and host configuration remain
+# owned by Selfhost Orchestrator; this workflow fixes its service selection and
+# keeps DNS cutover out of the deployment run.
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "plan validates the route; infra provisions only; deploy provisions and installs observability"
+        type: choice
+        required: true
+        default: plan
+        options: [plan, infra, deploy]
+      instance_plan:
+        description: "Akamai plan for open-platform (2C4G is the default)"
+        type: choice
+        required: true
+        default: 2C4G
+        options: [2C4G, 4C8G]
+      deploy_tag:
+        description: "Immutable UAT playbooks/application release tag; required for deploy"
+        type: string
+        required: false
+        default: ""
+      source_ref:
+        description: "Reviewed ref shared by toolkit, playbooks, GitOps and IaC inputs"
+        type: string
+        required: true
+        default: main
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: observability-server-uat-open-platform
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Run isolated open-platform observability deployment
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout toolkit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate dispatch inputs
+        env:
+          OPERATION: ${{ inputs.operation }}
+          DEPLOY_TAG: ${{ inputs.deploy_tag }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          set -euo pipefail
+          [[ "${SOURCE_REF}" =~ ^[A-Za-z0-9._/-]+$ && "${SOURCE_REF}" != *..* ]] || {
+            echo 'source_ref must be a simple reviewed Git ref' >&2; exit 1;
+          }
+          if [[ "${OPERATION}" == deploy ]]; then
+            [[ "${DEPLOY_TAG}" =~ ^(uat-)?daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?$ ]] || {
+              echo 'deploy requires an immutable UAT daily-build tag' >&2; exit 1;
+            }
+          elif [[ -n "${DEPLOY_TAG}" ]]; then
+            echo 'deploy_tag is only accepted for operation=deploy' >&2; exit 1
+          fi
+
+      - name: Dispatch the open-platform service unit and wait
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          OPERATION: ${{ inputs.operation }}
+          INSTANCE_PLAN: ${{ inputs.instance_plan }}
+          DEPLOY_TAG: ${{ inputs.deploy_tag }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          set -euo pipefail
+          dispatch_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          payload="$(jq -n \
+            --arg operation "${OPERATION}" \
+            --arg deploy_tag "${DEPLOY_TAG}" \
+            --arg source_ref "${SOURCE_REF}" \
+            --arg instance_plan "${INSTANCE_PLAN}" \
+            '{ref:"main",inputs:{
+              runner_type:"ubuntu-latest",
+              operation:$operation,
+              target_domains:"open-platform",
+              open_platform_service:"observability",
+              cloud_provider:"akamai-cloud",
+              vault_env_path:"uat",
+              cloud_account:"manbuzhe2026",
+              akamai_account:"manbuzhe2026",
+              target_domain_base:"onwalk.net",
+              source_domain_base:"svc.plus",
+              source_host:"install.svc.plus",
+              instance_plan:$instance_plan,
+              dns_mode:"none",
+              deploy_tag:$deploy_tag,
+              source_ref:$source_ref
+            }}')"
+          gh api --method POST \
+            "repos/${GH_REPO}/actions/workflows/selfhost-orchestrator.yml/dispatches" \
+            --input - <<<"${payload}" >/dev/null
+
+          run_id=""
+          for _ in $(seq 1 45); do
+            run_id="$(gh run list --repo "${GH_REPO}" \
+              --workflow selfhost-orchestrator.yml --event workflow_dispatch --limit 50 \
+              --json databaseId,createdAt,headBranch \
+              --jq "[.[] | select(.headBranch == \"main\" and .createdAt >= \"${dispatch_started}\")] | sort_by(.createdAt) | last | .databaseId // empty")"
+            [[ -n "${run_id}" ]] && break
+            sleep 2
+          done
+          [[ -n "${run_id}" ]] || { echo 'Could not locate the child deployment run' >&2; exit 1; }
+          echo "Watching Selfhost Orchestrator run ${run_id} (open-platform / observability, ${INSTANCE_PLAN})"
+          gh run watch "${run_id}" --repo "${GH_REPO}" --interval 15 --exit-status --compact
