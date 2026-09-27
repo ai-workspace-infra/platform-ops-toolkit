@@ -21,6 +21,8 @@ jq -e '
   ([.resources[] | select(.management_mode == "existing") | .provider] | unique) == ["ulighthost"] and
   ([.resources[] | select(.management_mode == "terraform") | .profile] ==
     ["2C4G","4C8G","2C2G","2C2G","2C2G"]) and
+  ([.resources[] | select(.management_mode == "terraform") | .agent_profile] ==
+    ["1C2G","1C2G","2C2G","2C2G","2C2G"]) and
   .resources[2].capacity_type == "spot" and
   .resources[0].profile == "2C4G" and
   .resources[1].existing_node == "vault-node-0" and
