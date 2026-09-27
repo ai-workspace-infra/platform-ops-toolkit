@@ -57,6 +57,11 @@ on:
         type: boolean
         required: true
         default: false
+      confirm_history_omission:
+        description: "Explicitly accept that historical metrics, logs, and traces will not be copied to the new target"
+        type: boolean
+        required: true
+        default: false
       dns_action:
         description: "Only the observability.svc.plus A record is changed"
         type: choice
@@ -96,6 +101,7 @@ jobs:
           DATA_COMPONENTS: ${{ inputs.data_components }}
           SOURCE_WRITERS_PAUSED: ${{ inputs.confirm_source_writers_paused }}
           TARGET_HISTORY_VERIFIED: ${{ inputs.confirm_target_historical_queries }}
+          HISTORY_OMITTED: ${{ inputs.confirm_history_omission }}
           DNS_ACTION: ${{ inputs.dns_action }}
           DNS_CONFIRMED: ${{ inputs.confirm_dns_change }}
         run: |
@@ -129,9 +135,18 @@ jobs:
             echo 'final sync requires confirm_source_writers_paused=true' >&2; exit 1
           fi
           if [[ "${DNS_ACTION}" == cutover ]]; then
-            [[ "${DEPLOYMENT_ACTION}" != plan && "${MIGRATION_MODE}" == final && "${DATA_COMPONENTS}" == all && "${SOURCE_WRITERS_PAUSED}" == true && "${TARGET_HISTORY_VERIFIED}" == true && "${DNS_CONFIRMED}" == true ]] || {
-              echo 'DNS cutover requires final sync of all stores, paused source writers, verified historical queries, and confirm_dns_change=true' >&2; exit 1;
+            [[ "${DEPLOYMENT_ACTION}" != plan && "${DNS_CONFIRMED}" == true ]] || {
+              echo 'DNS cutover requires a deployed/existing target and confirm_dns_change=true' >&2; exit 1;
             }
+            if [[ "${MIGRATION_MODE}" == none ]]; then
+              [[ "${HISTORY_OMITTED}" == true ]] || {
+                echo 'DNS cutover without history migration requires confirm_history_omission=true' >&2; exit 1;
+              }
+            else
+              [[ "${MIGRATION_MODE}" == final && "${DATA_COMPONENTS}" == all && "${SOURCE_WRITERS_PAUSED}" == true && "${TARGET_HISTORY_VERIFIED}" == true ]] || {
+                echo 'DNS cutover with history migration requires final sync of all stores, paused source writers, and verified historical queries' >&2; exit 1;
+              }
+            fi
           elif [[ "${DNS_ACTION}" == rollback ]]; then
             [[ "${DEPLOYMENT_ACTION}" == skip && "${DNS_CONFIRMED}" == true ]] || {
               echo 'DNS rollback requires deployment_action=skip and confirm_dns_change=true' >&2; exit 1;
@@ -409,6 +424,7 @@ jobs:
           SSH_PRIVATE_KEY_PATH: ${{ runner.temp }}/observability-ssh/id_deploy
           TARGET_IP: ${{ needs.resolve_target.outputs.target_ip }}
           DASHBOARD_SOURCE: playbooks/roles/docker/observability-server/files
+          DNS_ACTION: ${{ inputs.dns_action }}
         run: .github/scripts/observability/observability_verify_target.sh
 
   dns_switch:
@@ -418,12 +434,13 @@ jobs:
       ${{ always() && !cancelled() && inputs.dns_action != 'none' &&
       needs.validate.result == 'success' &&
       (needs.resolve_target.result == 'success' || (inputs.dns_action == 'rollback' && needs.resolve_target.result == 'skipped')) &&
-      (needs.historical_data.result == 'success' || (inputs.dns_action == 'rollback' && needs.historical_data.result == 'skipped')) &&
-      (needs.verify_stores.result == 'success' || (inputs.dns_action == 'rollback' && needs.verify_stores.result == 'skipped')) &&
+      (needs.historical_data.result == 'success' || (inputs.dns_action == 'rollback' && needs.historical_data.result == 'skipped') || (inputs.dns_action == 'cutover' && inputs.migration_mode == 'none' && inputs.confirm_history_omission && needs.historical_data.result == 'skipped')) &&
+      (needs.verify_stores.result == 'success' || (inputs.dns_action == 'rollback' && needs.verify_stores.result == 'skipped') || (inputs.dns_action == 'cutover' && inputs.migration_mode == 'none' && inputs.confirm_history_omission && needs.verify_stores.result == 'skipped')) &&
       (needs.verify_target.result == 'success' || (inputs.dns_action == 'rollback' && needs.verify_target.result == 'skipped')) &&
       (inputs.dns_action == 'rollback' ||
-      (needs.historical_data.result == 'success' && needs.verify_stores.result == 'success' &&
-      needs.verify_target.result == 'success')) }}
+      (needs.verify_target.result == 'success' &&
+      ((needs.historical_data.result == 'success' && needs.verify_stores.result == 'success') ||
+      (inputs.migration_mode == 'none' && inputs.confirm_history_omission && needs.historical_data.result == 'skipped' && needs.verify_stores.result == 'skipped')))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: uat
