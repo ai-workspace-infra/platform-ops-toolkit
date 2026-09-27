@@ -697,21 +697,6 @@ jobs:
                   print(f'{key}={value}', file=out)
           PY
 
-      - name: Read the legacy cluster ID from its pinned public address
-        id: cluster
-        shell: bash
-        env:
-          DOMAIN: ${{ steps.manifest.outputs.domain }}
-          OLD_IP: ${{ steps.manifest.outputs.old_ip }}
-        run: |
-          set -euo pipefail
-          health="$(curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 20 \
-            --resolve "${DOMAIN}:443:${OLD_IP}" \
-            "https://${DOMAIN}/v1/sys/health?standbycode=200&perfstandbyok=true")"
-          cluster_id="$(jq -er '.cluster_id' <<<"${health}")"
-          [[ "${cluster_id}" =~ ^[a-f0-9-]{36}$ ]] || { echo '::error::invalid legacy cluster ID' >&2; exit 1; }
-          echo "cluster_id=${cluster_id}" >> "${GITHUB_OUTPUT}"
-
       - name: Read the scoped GCP runtime identity
         id: identity
         uses: hashicorp/vault-action@v4
@@ -779,6 +764,28 @@ jobs:
               for key, value in values.items():
                   print(f'{key}={value}', file=out)
           PY
+
+      - name: Read the expected cluster ID from the selected Vault endpoint
+        id: cluster
+        shell: bash
+        env:
+          ACTION: ${{ inputs.dns_action }}
+          DOMAIN: ${{ steps.manifest.outputs.domain }}
+          OLD_IP: ${{ steps.manifest.outputs.old_ip }}
+          PROD_0_IP: ${{ steps.instances.outputs.prod_0_ip }}
+        run: |
+          set -euo pipefail
+          # Verification and cutover validate the current GCP node. Rollback
+          # is the only operation that intentionally validates the retired
+          # migration source.
+          endpoint="${PROD_0_IP}"
+          if [[ "${ACTION}" == rollback ]]; then endpoint="${OLD_IP}"; fi
+          health="$(curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 20 \
+            --resolve "${DOMAIN}:443:${endpoint}" \
+            "https://${DOMAIN}/v1/sys/health?standbycode=200&perfstandbyok=true")"
+          cluster_id="$(jq -er '.cluster_id' <<<"${health}")"
+          [[ "${cluster_id}" =~ ^[a-f0-9-]{36}$ ]] || { echo '::error::invalid Vault cluster ID' >&2; exit 1; }
+          echo "cluster_id=${cluster_id}" >> "${GITHUB_OUTPUT}"
 
   dns-validate-targets:
     name: Validate ${{ matrix.node }} (${{ matrix.role }})
