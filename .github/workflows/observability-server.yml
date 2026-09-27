@@ -1,34 +1,73 @@
 name: Observability server
 
-# Focused entry point for the observability service unit on the permanent
-# Akamai UAT open-platform node. Infrastructure and host configuration remain
-# owned by Selfhost Orchestrator; this workflow fixes its service selection and
-# keeps DNS cutover out of the deployment run.
 on:
   workflow_dispatch:
     inputs:
-      operation:
-        description: "plan validates the route; infra provisions only; deploy provisions and installs observability"
+      deployment_action:
+        description: "plan/deploy the UAT target, or skip deployment for a later migration/cutover run"
         type: choice
         required: true
         default: plan
-        options: [plan, infra, deploy]
+        options: [plan, infra, deploy, skip]
       instance_plan:
-        description: "Akamai plan for open-platform (2C4G is the default)"
+        description: "Akamai plan for the open-platform target"
         type: choice
         required: true
         default: 2C4G
         options: [2C4G, 4C8G]
       deploy_tag:
-        description: "Immutable UAT playbooks/application release tag; required for deploy"
+        description: "Immutable UAT daily-build tag; required when deployment_action=deploy"
         type: string
         required: false
         default: ""
       source_ref:
-        description: "Reviewed ref shared by toolkit, playbooks, GitOps and IaC inputs"
+        description: "Reviewed toolkit/playbooks/GitOps source ref"
         type: string
         required: true
         default: main
+      source_ip:
+        description: "Current source host IPv4 for observability.svc.plus"
+        type: string
+        required: true
+        default: 46.250.251.132
+      target_ip_override:
+        description: "Existing target IPv4, required when deployment_action=skip and migration/cutover is selected"
+        type: string
+        required: false
+        default: ""
+      migration_mode:
+        description: "none leaves stores untouched; baseline copies live snapshots; final performs the last sync"
+        type: choice
+        required: true
+        default: none
+        options: [none, baseline, final]
+      data_components:
+        description: "Historical store set to copy; DNS cutover requires all three"
+        type: choice
+        required: true
+        default: all
+        options: [all, metrics, logs, traces]
+      confirm_source_writers_paused:
+        description: "Confirm all external writers to the source have been paused before final sync"
+        type: boolean
+        required: true
+        default: false
+      confirm_target_historical_queries:
+        description: "Confirm representative historical metrics, logs, and traces queries matched the source after baseline restore"
+        type: boolean
+        required: true
+        default: false
+      dns_action:
+        description: "Only the observability.svc.plus A record is changed"
+        type: choice
+        required: true
+        default: none
+        options: [none, cutover, rollback]
+      confirm_dns_change:
+        description: "Confirm the requested change to the public observability.svc.plus DNS record"
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   actions: write
@@ -39,39 +78,105 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  dispatch:
-    name: Run isolated open-platform observability deployment
+  validate:
+    name: Validate parameters and build store matrix
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Validate run controls
+        env:
+          DEPLOYMENT_ACTION: ${{ inputs.deployment_action }}
+          DEPLOY_TAG: ${{ inputs.deploy_tag }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          SOURCE_IP: ${{ inputs.source_ip }}
+          TARGET_IP: ${{ inputs.target_ip_override }}
+          MIGRATION_MODE: ${{ inputs.migration_mode }}
+          DATA_COMPONENTS: ${{ inputs.data_components }}
+          SOURCE_WRITERS_PAUSED: ${{ inputs.confirm_source_writers_paused }}
+          TARGET_HISTORY_VERIFIED: ${{ inputs.confirm_target_historical_queries }}
+          DNS_ACTION: ${{ inputs.dns_action }}
+          DNS_CONFIRMED: ${{ inputs.confirm_dns_change }}
+        run: |
+          set -euo pipefail
+          [[ "${SOURCE_REF}" =~ ^[A-Za-z0-9._/-]+$ && "${SOURCE_REF}" != *..* ]] || {
+            echo 'source_ref must be a simple reviewed Git ref' >&2; exit 1;
+          }
+          python3 - "${SOURCE_IP}" "${TARGET_IP}" <<'PY'
+          import ipaddress, sys
+          for value in sys.argv[1:]:
+              if value:
+                  ipaddress.IPv4Address(value)
+          PY
+          if [[ "${DEPLOYMENT_ACTION}" == deploy ]]; then
+            [[ "${DEPLOY_TAG}" =~ ^(uat-)?daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?$ ]] || {
+              echo 'deployment_action=deploy requires an immutable UAT daily-build tag' >&2; exit 1;
+            }
+            [[ -z "${TARGET_IP}" ]] || { echo 'Do not set target_ip_override when deploying a target.' >&2; exit 1; }
+          elif [[ -n "${DEPLOY_TAG}" ]]; then
+            echo 'deploy_tag is only accepted for deployment_action=deploy' >&2; exit 1
+          fi
+          if [[ "${DEPLOYMENT_ACTION}" == plan || "${DEPLOYMENT_ACTION}" == infra ]]; then
+            [[ "${MIGRATION_MODE}" == none && "${DNS_ACTION}" == none ]] || {
+              echo 'plan/infra cannot be combined with data migration or DNS changes' >&2; exit 1;
+            }
+          fi
+          if [[ "${DEPLOYMENT_ACTION}" == skip && ( "${MIGRATION_MODE}" != none || "${DNS_ACTION}" == cutover ) && -z "${TARGET_IP}" ]]; then
+            echo 'target_ip_override is required when skipping deployment for migration/cutover' >&2; exit 1
+          fi
+          if [[ "${MIGRATION_MODE}" == final && "${SOURCE_WRITERS_PAUSED}" != true ]]; then
+            echo 'final sync requires confirm_source_writers_paused=true' >&2; exit 1
+          fi
+          if [[ "${DNS_ACTION}" == cutover ]]; then
+            [[ "${DEPLOYMENT_ACTION}" != plan && "${MIGRATION_MODE}" == final && "${DATA_COMPONENTS}" == all && "${SOURCE_WRITERS_PAUSED}" == true && "${TARGET_HISTORY_VERIFIED}" == true && "${DNS_CONFIRMED}" == true ]] || {
+              echo 'DNS cutover requires final sync of all stores, paused source writers, verified historical queries, and confirm_dns_change=true' >&2; exit 1;
+            }
+          elif [[ "${DNS_ACTION}" == rollback ]]; then
+            [[ "${DEPLOYMENT_ACTION}" == skip && "${DNS_CONFIRMED}" == true ]] || {
+              echo 'DNS rollback requires deployment_action=skip and confirm_dns_change=true' >&2; exit 1;
+            }
+          elif [[ "${DNS_CONFIRMED}" == true ]]; then
+            echo 'confirm_dns_change is only valid when dns_action=cutover or rollback' >&2; exit 1
+          fi
+          if [[ "${MIGRATION_MODE}" != none && "${DEPLOYMENT_ACTION}" == plan ]]; then
+            echo 'Historical migration requires deployment_action=deploy or skip' >&2; exit 1
+          fi
+
+      - name: Plan selected store matrix
+        id: plan
+        env:
+          DATA_COMPONENTS: ${{ inputs.data_components }}
+        run: |
+          set -euo pipefail
+          case "${DATA_COMPONENTS}" in
+            all) matrix='{"include":[{"component":"victoriametrics","key":"metrics"},{"component":"victorialogs","key":"logs"},{"component":"victoriatraces","key":"traces"}]}' ;;
+            metrics) matrix='{"include":[{"component":"victoriametrics","key":"metrics"}]}' ;;
+            logs) matrix='{"include":[{"component":"victorialogs","key":"logs"}]}' ;;
+            traces) matrix='{"include":[{"component":"victoriatraces","key":"traces"}]}' ;;
+            *) echo "Unsupported data_components: ${DATA_COMPONENTS}" >&2; exit 1 ;;
+          esac
+          echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
+
+  deploy_target:
+    name: Deploy only the Observability service
+    needs: validate
+    if: inputs.deployment_action != 'skip'
+    runs-on: ubuntu-latest
+    outputs:
+      child_run_id: ${{ steps.dispatch.outputs.child_run_id }}
     steps:
       - name: Checkout toolkit
         uses: actions/checkout@v4
         with:
           persist-credentials: false
 
-      - name: Validate dispatch inputs
-        env:
-          OPERATION: ${{ inputs.operation }}
-          DEPLOY_TAG: ${{ inputs.deploy_tag }}
-          SOURCE_REF: ${{ inputs.source_ref }}
-        run: |
-          set -euo pipefail
-          [[ "${SOURCE_REF}" =~ ^[A-Za-z0-9._/-]+$ && "${SOURCE_REF}" != *..* ]] || {
-            echo 'source_ref must be a simple reviewed Git ref' >&2; exit 1;
-          }
-          if [[ "${OPERATION}" == deploy ]]; then
-            [[ "${DEPLOY_TAG}" =~ ^(uat-)?daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?$ ]] || {
-              echo 'deploy requires an immutable UAT daily-build tag' >&2; exit 1;
-            }
-          elif [[ -n "${DEPLOY_TAG}" ]]; then
-            echo 'deploy_tag is only accepted for operation=deploy' >&2; exit 1
-          fi
-
-      - name: Dispatch the open-platform service unit and wait
+      - name: Dispatch isolated open-platform Observability target
+        id: dispatch
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          OPERATION: ${{ inputs.operation }}
+          DEPLOYMENT_ACTION: ${{ inputs.deployment_action }}
           INSTANCE_PLAN: ${{ inputs.instance_plan }}
           DEPLOY_TAG: ${{ inputs.deploy_tag }}
           SOURCE_REF: ${{ inputs.source_ref }}
@@ -79,7 +184,7 @@ jobs:
           set -euo pipefail
           dispatch_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           payload="$(jq -n \
-            --arg operation "${OPERATION}" \
+            --arg operation "${DEPLOYMENT_ACTION}" \
             --arg deploy_tag "${DEPLOY_TAG}" \
             --arg source_ref "${SOURCE_REF}" \
             --arg instance_plan "${INSTANCE_PLAN}" \
@@ -100,14 +205,10 @@ jobs:
               deploy_tag:$deploy_tag,
               source_ref:$source_ref
             }}')"
-          gh api --method POST \
-            "repos/${GH_REPO}/actions/workflows/selfhost-orchestrator.yml/dispatches" \
-            --input - <<<"${payload}" >/dev/null
-
+          gh api --method POST "repos/${GH_REPO}/actions/workflows/selfhost-orchestrator.yml/dispatches" --input - <<<"${payload}" >/dev/null
           run_id=""
           for _ in $(seq 1 45); do
-            run_id="$(gh run list --repo "${GH_REPO}" \
-              --workflow selfhost-orchestrator.yml --event workflow_dispatch --limit 50 \
+            run_id="$(gh run list --repo "${GH_REPO}" --workflow selfhost-orchestrator.yml --event workflow_dispatch --limit 50 \
               --json databaseId,createdAt,headBranch \
               --jq "[.[] | select(.headBranch == \"main\" and .createdAt >= \"${dispatch_started}\")] | sort_by(.createdAt) | last | .databaseId // empty")"
             [[ -n "${run_id}" ]] && break
@@ -116,3 +217,216 @@ jobs:
           [[ -n "${run_id}" ]] || { echo 'Could not locate the child deployment run' >&2; exit 1; }
           echo "Watching Selfhost Orchestrator run ${run_id} (open-platform / observability, ${INSTANCE_PLAN})"
           gh run watch "${run_id}" --repo "${GH_REPO}" --interval 15 --exit-status --compact
+          echo "child_run_id=${run_id}" >> "${GITHUB_OUTPUT}"
+
+  resolve_target:
+    name: Resolve the single Observability target IP
+    needs: [validate, deploy_target]
+    if: >-
+      ${{ always() && !cancelled() &&
+      (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover') &&
+      (needs.deploy_target.result == 'success' || inputs.deployment_action == 'skip') }}
+    runs-on: ubuntu-latest
+    outputs:
+      target_ip: ${{ steps.deployed_target.outputs.ip || steps.target.outputs.ip }}
+    steps:
+      - name: Download target CMDB from the deployment run
+        id: deployed_target
+        if: inputs.deployment_action == 'deploy'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CHILD_RUN_ID: ${{ needs.deploy_target.outputs.child_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "${CHILD_RUN_ID}" =~ ^[0-9]+$ ]] || { echo 'Missing successful deployment run ID' >&2; exit 1; }
+          gh run download "${CHILD_RUN_ID}" --repo "${GH_REPO}" --name platform-ops-toolkit-cmdb --dir "${RUNNER_TEMP}/cmdb"
+          ip="$(jq -er '[to_entries[] | select((.value.groups // []) | index("open_platform")) | .value.ip] | if length == 1 then .[0] else error("expected one open_platform host") end' "${RUNNER_TEMP}/cmdb/cmdb.json")"
+          python3 - "${ip}" <<'PY'
+          import ipaddress, sys
+          ipaddress.IPv4Address(sys.argv[1])
+          PY
+          echo "ip=${ip}" >> "${GITHUB_OUTPUT}"
+
+      - name: Use explicitly supplied existing target IP
+        id: target
+        if: inputs.deployment_action == 'skip'
+        env:
+          TARGET_IP: ${{ inputs.target_ip_override }}
+        run: |
+          set -euo pipefail
+          python3 - "${TARGET_IP}" <<'PY'
+          import ipaddress, sys
+          ipaddress.IPv4Address(sys.argv[1])
+          PY
+          echo "ip=${TARGET_IP}" >> "${GITHUB_OUTPUT}"
+
+  historical_data:
+    name: "Snapshot and restore ${{ matrix.component }}"
+    needs: [validate, resolve_target]
+    if: inputs.migration_mode != 'none'
+    runs-on: ubuntu-latest
+    environment: uat
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.validate.outputs.matrix) }}
+    env:
+      VAULT_ADDR: https://vault.svc.plus
+      VAULT_ROLE: github-actions-platform-ops-toolkit-uat
+      SOURCE_IP: ${{ inputs.source_ip }}
+      TARGET_IP: ${{ needs.resolve_target.outputs.target_ip }}
+      COMPONENT: ${{ matrix.component }}
+      MIGRATION_MODE: ${{ inputs.migration_mode }}
+      RUN_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout toolkit
+        uses: actions/checkout@v4
+
+      - name: Load SSH deployment key from Vault
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ env.VAULT_ADDR }}
+          method: jwt
+          role: ${{ env.VAULT_ROLE }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD SSH_PRIVATE_DEPLOY_KEY_B64 | SSH_PRIVATE_DEPLOY_KEY_B64
+
+      - name: Configure SSH key
+        env:
+          SSH_PRIVATE_DEPLOY_KEY_B64: ${{ steps.vault.outputs.SSH_PRIVATE_DEPLOY_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "${RUNNER_TEMP}/observability-ssh"
+          printf '%s' "${SSH_PRIVATE_DEPLOY_KEY_B64}" | base64 --decode > "${RUNNER_TEMP}/observability-ssh/id_deploy"
+          chmod 600 "${RUNNER_TEMP}/observability-ssh/id_deploy"
+
+      - name: Snapshot, transfer, restore, and verify one store
+        env:
+          SSH_PRIVATE_KEY_PATH: ${{ runner.temp }}/observability-ssh/id_deploy
+        run: .github/scripts/observability/observability_data_migrate.sh
+
+  verify_stores:
+    name: "Verify restored ${{ matrix.component }} history"
+    needs: [validate, resolve_target, historical_data]
+    if: >-
+      ${{ always() && !cancelled() && inputs.migration_mode != 'none' &&
+      needs.historical_data.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: uat
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.validate.outputs.matrix) }}
+    env:
+      TARGET_IP: ${{ needs.resolve_target.outputs.target_ip }}
+      COMPONENT: ${{ matrix.component }}
+      RUN_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout toolkit
+        uses: actions/checkout@v4
+      - name: Load SSH deployment key from Vault
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-uat
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD SSH_PRIVATE_DEPLOY_KEY_B64 | SSH_PRIVATE_DEPLOY_KEY_B64
+      - name: Configure SSH key
+        env:
+          SSH_PRIVATE_DEPLOY_KEY_B64: ${{ steps.vault.outputs.SSH_PRIVATE_DEPLOY_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "${RUNNER_TEMP}/observability-ssh"
+          printf '%s' "${SSH_PRIVATE_DEPLOY_KEY_B64}" | base64 --decode > "${RUNNER_TEMP}/observability-ssh/id_deploy"
+          chmod 600 "${RUNNER_TEMP}/observability-ssh/id_deploy"
+      - name: Check component health, restored byte counts, and partition set
+        env:
+          SSH_PRIVATE_KEY_PATH: ${{ runner.temp }}/observability-ssh/id_deploy
+        run: .github/scripts/observability/observability_verify_store.sh
+
+  verify_target:
+    name: Verify target service and Git-managed dashboards
+    needs: [validate, deploy_target, resolve_target, historical_data, verify_stores]
+    if: >-
+      ${{ always() && !cancelled() &&
+      (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover') &&
+      (needs.deploy_target.result == 'success' || inputs.deployment_action == 'skip') &&
+      (needs.historical_data.result == 'success' || needs.historical_data.result == 'skipped') &&
+      (needs.verify_stores.result == 'success' || needs.verify_stores.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    environment: uat
+    steps:
+      - name: Checkout toolkit
+        uses: actions/checkout@v4
+      - name: Checkout Playbooks dashboard source
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ inputs.source_ref }}
+          path: playbooks
+      - name: Load SSH deployment key from Vault
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-uat
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD SSH_PRIVATE_DEPLOY_KEY_B64 | SSH_PRIVATE_DEPLOY_KEY_B64
+      - name: Configure SSH key
+        env:
+          SSH_PRIVATE_DEPLOY_KEY_B64: ${{ steps.vault.outputs.SSH_PRIVATE_DEPLOY_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "${RUNNER_TEMP}/observability-ssh"
+          printf '%s' "${SSH_PRIVATE_DEPLOY_KEY_B64}" | base64 --decode > "${RUNNER_TEMP}/observability-ssh/id_deploy"
+          chmod 600 "${RUNNER_TEMP}/observability-ssh/id_deploy"
+      - name: Verify Grafana health and exact dashboard asset set
+        env:
+          SSH_PRIVATE_KEY_PATH: ${{ runner.temp }}/observability-ssh/id_deploy
+          TARGET_IP: ${{ needs.resolve_target.outputs.target_ip }}
+          DASHBOARD_SOURCE: playbooks/roles/docker/observability-server/files
+        run: .github/scripts/observability/observability_verify_target.sh
+
+  dns_switch:
+    name: "${{ inputs.dns_action == 'rollback' && 'Rollback' || 'Cut over' }} observability.svc.plus"
+    needs: [validate, resolve_target, historical_data, verify_stores, verify_target]
+    if: >-
+      ${{ always() && !cancelled() && inputs.dns_action != 'none' &&
+      (inputs.dns_action == 'rollback' ||
+      (needs.historical_data.result == 'success' && needs.verify_stores.result == 'success' &&
+      needs.verify_target.result == 'success')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: uat
+    env:
+      VAULT_ADDR: https://vault.svc.plus
+      VAULT_ROLE: github-actions-platform-ops-toolkit-uat
+    steps:
+      - name: Checkout toolkit
+        uses: actions/checkout@v4
+      - name: Load Cloudflare DNS token from Vault
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ env.VAULT_ADDR }}
+          method: jwt
+          role: ${{ env.VAULT_ROLE }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN
+      - name: Change only the observability.svc.plus A record
+        env:
+          CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
+          DNS_ACTION: ${{ inputs.dns_action }}
+          SOURCE_IP: ${{ inputs.source_ip }}
+          TARGET_IP: ${{ needs.resolve_target.outputs.target_ip || inputs.target_ip_override }}
+        run: .github/scripts/observability/observability_dns_switch.sh
