@@ -224,6 +224,7 @@ jobs:
     needs: [validate, deploy_target]
     if: >-
       ${{ always() && !cancelled() &&
+      needs.validate.result == 'success' &&
       (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover') &&
       (needs.deploy_target.result == 'success' || inputs.deployment_action == 'skip') }}
     runs-on: ubuntu-latest
@@ -264,7 +265,9 @@ jobs:
   historical_data:
     name: "Snapshot and restore ${{ matrix.component }}"
     needs: [validate, resolve_target]
-    if: inputs.migration_mode != 'none'
+    if: >-
+      ${{ always() && !cancelled() && needs.validate.result == 'success' &&
+      needs.resolve_target.result == 'success' && inputs.migration_mode != 'none' }}
     runs-on: ubuntu-latest
     environment: uat
     timeout-minutes: 120
@@ -314,6 +317,7 @@ jobs:
     needs: [validate, resolve_target, historical_data]
     if: >-
       ${{ always() && !cancelled() && inputs.migration_mode != 'none' &&
+      needs.validate.result == 'success' && needs.resolve_target.result == 'success' &&
       needs.historical_data.result == 'success' }}
     runs-on: ubuntu-latest
     environment: uat
@@ -356,8 +360,10 @@ jobs:
     needs: [validate, deploy_target, resolve_target, historical_data, verify_stores]
     if: >-
       ${{ always() && !cancelled() &&
+      needs.validate.result == 'success' &&
       (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover') &&
       (needs.deploy_target.result == 'success' || inputs.deployment_action == 'skip') &&
+      needs.resolve_target.result == 'success' &&
       (needs.historical_data.result == 'success' || needs.historical_data.result == 'skipped') &&
       (needs.verify_stores.result == 'success' || needs.verify_stores.result == 'skipped') }}
     runs-on: ubuntu-latest
@@ -401,6 +407,11 @@ jobs:
     needs: [validate, resolve_target, historical_data, verify_stores, verify_target]
     if: >-
       ${{ always() && !cancelled() && inputs.dns_action != 'none' &&
+      needs.validate.result == 'success' &&
+      (needs.resolve_target.result == 'success' || (inputs.dns_action == 'rollback' && needs.resolve_target.result == 'skipped')) &&
+      (needs.historical_data.result == 'success' || (inputs.dns_action == 'rollback' && needs.historical_data.result == 'skipped')) &&
+      (needs.verify_stores.result == 'success' || (inputs.dns_action == 'rollback' && needs.verify_stores.result == 'skipped')) &&
+      (needs.verify_target.result == 'success' || (inputs.dns_action == 'rollback' && needs.verify_target.result == 'skipped')) &&
       (inputs.dns_action == 'rollback' ||
       (needs.historical_data.result == 'success' && needs.verify_stores.result == 'success' &&
       needs.verify_target.result == 'success')) }}
