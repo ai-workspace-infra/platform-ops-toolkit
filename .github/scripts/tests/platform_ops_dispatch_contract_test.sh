@@ -174,6 +174,13 @@ INPUT_CLOUD_PROVIDER=akamai-cloud INPUT_INSTANCE_PLAN=2C8G GITHUB_OUTPUT="${akam
 assert_contains "$(cat "${akamai_plan_output}")" "api=g8-dedicated-8-2"
 rm -f "${akamai_plan_output}"
 
+agent_proxy_plan_output="$(mktemp)"
+INPUT_CLOUD_PROVIDER=aws-cloud INPUT_INSTANCE_PLAN=2C2G INPUT_AGENT_PROXY_PLAN=2C2G GITHUB_OUTPUT="${agent_proxy_plan_output}" \
+  "${repo_root}/.github/scripts/platform-ops/provision/platform-ops_provision_map-instance-plan.sh"
+assert_contains "$(cat "${agent_proxy_plan_output}")" "api=t4g.small"
+assert_contains "$(cat "${agent_proxy_plan_output}")" "agent_api=t4g.small"
+rm -f "${agent_proxy_plan_output}"
+
 for provider in aws-cloud gcp-cloud azure-cloud vultr-vps akamai-cloud; do
   provider_output="$(run_route env INPUT_CLOUD_PROVIDER="${provider}" INPUT_CLOUD_ACCOUNT=primary INPUT_OPERATION=plan INPUT_DNS_MODE=none)"
   # UAT uses the unified logical project segment for every Terraform
