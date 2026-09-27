@@ -36,12 +36,19 @@ warn() { echo "::warning::brand review-readiness: $*" >&2; }
 probe() {
   local host="$1" path="$2" result
   BODY_FILE="${work}/body"
+  # curl can emit a valid HTTP status through --write-out and still return a
+  # non-zero code when a large response body times out. Preserve that status;
+  # replacing it with a synthetic 000 creates a false readiness failure.
   result="$(curl --silent --show-error --max-time 20 --user-agent "${BOT_UA}" \
     --output "${BODY_FILE}" --write-out '%{http_code} %{redirect_url}' \
-    "https://${host}${path}" 2>/dev/null || echo '000 ')"
-  STATUS="${result%% *}"
-  LOCATION="${result#* }"
-  [[ "${LOCATION}" == "${result}" ]] && LOCATION=""
+    "https://${host}${path}" 2>/dev/null || true)"
+  if [[ "${result}" =~ ^([0-9]{3})[[:space:]](.*)$ ]]; then
+    STATUS="${BASH_REMATCH[1]}"
+    LOCATION="${BASH_REMATCH[2]}"
+  else
+    STATUS="000"
+    LOCATION=""
+  fi
 }
 
 is_challenge() {
