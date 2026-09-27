@@ -4,9 +4,9 @@ PROVIDER="${INPUT_CLOUD_PROVIDER:-vultr-vps}"
 AGENT_PROXY_PLAN="${INPUT_AGENT_PROXY_PLAN:-2C1G}"
 
 case "${PLAN}" in
-  1C2G|2C4G|2C8G|4C8G) ;;
+  1C2G|2C2G|2C4G|2C8G|4C8G) ;;
   *)
-    echo "::error::Unsupported instance_plan='${PLAN}'. Expected 1C2G, 2C4G, 2C8G, or 4C8G." >&2
+    echo "::error::Unsupported instance_plan='${PLAN}'. Expected 1C2G, 2C2G, 2C4G, 2C8G, or 4C8G." >&2
     exit 1
     ;;
 esac
@@ -22,6 +22,8 @@ esac
 if [ "$PROVIDER" == "aws-cloud" ]; then
   if [ "$PLAN" == "1C2G" ]; then
     echo "api=t4g.small" >> "$GITHUB_OUTPUT"
+  elif [ "$PLAN" == "2C2G" ]; then
+    echo "api=t4g.small" >> "$GITHUB_OUTPUT"
   elif [ "$PLAN" == "2C4G" ]; then
     echo "api=t4g.medium" >> "$GITHUB_OUTPUT"
   elif [ "$PLAN" == "2C8G" ]; then
@@ -36,6 +38,11 @@ elif [ "$PROVIDER" == "akamai-cloud" ]; then
   # oversize AI Workspace nodes again.
   if [ "$PLAN" == "1C2G" ]; then
     echo "api=g6-standard-1" >> "$GITHUB_OUTPUT"
+  elif [ "$PLAN" == "2C2G" ]; then
+    # Akamai/Linode has no exact 2 vCPU/2 GiB general-purpose type; keep the
+    # logical matrix profile valid and use the smallest 2-vCPU standard type
+    # so the plan exposes the provider-side size difference for approval.
+    echo "api=g6-standard-2" >> "$GITHUB_OUTPUT"
   elif [ "$PLAN" == "2C4G" ]; then
     echo "api=g6-standard-2" >> "$GITHUB_OUTPUT"
   elif [ "$PLAN" == "2C8G" ]; then
@@ -61,6 +68,12 @@ if [ "$PROVIDER" == "aws-cloud" ]; then
     echo "agent_api=t4g.small" >> "$GITHUB_OUTPUT"
   else
     echo "agent_api=t4g.small" >> "$GITHUB_OUTPUT"
+  fi
+elif [ "$PROVIDER" == "akamai-cloud" ]; then
+  if [ "$AGENT_PROXY_PLAN" == "1C1G" ] || [ "$AGENT_PROXY_PLAN" == "1C2G" ]; then
+    echo "agent_api=g6-standard-1" >> "$GITHUB_OUTPUT"
+  else
+    echo "agent_api=g6-standard-2" >> "$GITHUB_OUTPUT"
   fi
 else
   if [ "$AGENT_PROXY_PLAN" == "1C1G" ]; then

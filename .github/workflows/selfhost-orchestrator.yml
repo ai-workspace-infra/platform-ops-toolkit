@@ -141,6 +141,7 @@ on:
         - 4C8G
         - 2C4G
         - 2C8G
+        - 2C2G
         - 1C2G
       agent_proxy_plan:
         description: "Agent Proxy 运行时规格（UAT/PROD 默认 1C2G；不默认创建 AWS Spot）"
