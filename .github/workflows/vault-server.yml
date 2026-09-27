@@ -618,7 +618,7 @@ jobs:
       id-token: write
     outputs:
       domain: ${{ steps.manifest.outputs.domain }}
-      old_ip: ${{ steps.manifest.outputs.old_ip }}
+      old_ip: ${{ steps.instances.outputs.old_ip }}
       matrix: ${{ steps.instances.outputs.matrix }}
       prod_0_ip: ${{ steps.instances.outputs.prod_0_ip }}
       prod_1_ip: ${{ steps.instances.outputs.prod_1_ip }}
@@ -684,7 +684,7 @@ jobs:
               raise SystemExit('Every Vault DNS target must have a public IP')
           values = {
               'domain': service['service_domain'],
-              'old_ip': service['migration']['source']['address'],
+              'old_host': service['migration']['source']['address'],
               'vault_addr': service['automation']['vault_addr'],
               'node_role': service['automation']['node_role'],
               'runtime_identity_path': service['automation']['runtime_identity_path'],
@@ -730,14 +730,14 @@ jobs:
           PROJECT_ID: ${{ steps.manifest.outputs.project_id }}
           VAULT_PROJECT_ID: ${{ steps.identity.outputs.GCP_PROJECT_ID }}
           NODES_JSON: ${{ steps.manifest.outputs.nodes_json }}
-          OLD_IP: ${{ steps.manifest.outputs.old_ip }}
+          OLD_HOST: ${{ steps.manifest.outputs.old_host }}
           NETWORK_NAME: ${{ steps.manifest.outputs.network_name }}
         run: |
           set -euo pipefail
           [[ "${PROJECT_ID}" == "${VAULT_PROJECT_ID}" ]] || { echo '::error::GCP identity belongs to another project' >&2; exit 1; }
           gcloud compute instances list --project "${PROJECT_ID}" --format=json > "${RUNNER_TEMP}/vault-instances.json"
           python3 - "${RUNNER_TEMP}/vault-instances.json" <<'PY'
-          import ipaddress, json, os, pathlib, sys
+          import ipaddress, json, os, pathlib, socket, sys
           instances = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
           indexed = {(item['name'], item.get('zone', '').rsplit('/', 1)[-1]): item
                      for item in instances}
@@ -756,10 +756,23 @@ jobs:
               ip = str(ipaddress.IPv4Address(ips[0]))
               matrix.append({'node': node['name'], 'role': node['role'], 'ip': ip})
               values[f'prod_{index}_ip'] = ip
-          old_ip = str(ipaddress.IPv4Address(os.environ['OLD_IP']))
+          legacy_host = os.environ['OLD_HOST']
+          try:
+              legacy_ips = sorted({
+                  str(info[4][0])
+                  for info in socket.getaddrinfo(
+                      legacy_host, None, socket.AF_INET, socket.SOCK_STREAM
+                  )
+              })
+          except socket.gaierror as error:
+              raise SystemExit(f"{legacy_host} does not resolve to an IPv4 address: {error}")
+          if len(legacy_ips) != 1:
+              raise SystemExit(f"{legacy_host} must resolve to exactly one IPv4 address, got {legacy_ips}")
+          old_ip = str(ipaddress.IPv4Address(legacy_ips[0]))
           matrix.append({'node': 'vault-legacy', 'role': 'legacy-independent', 'ip': old_ip})
           values['matrix'] = json.dumps(matrix, separators=(',', ':'))
           values['gcp_targets'] = json.dumps([item['ip'] for item in matrix if item['node'] != 'vault-legacy'], separators=(',', ':'))
+          values['old_ip'] = old_ip
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
               for key, value in values.items():
                   print(f'{key}={value}', file=out)
@@ -771,7 +784,7 @@ jobs:
         env:
           ACTION: ${{ inputs.dns_action }}
           DOMAIN: ${{ steps.manifest.outputs.domain }}
-          OLD_IP: ${{ steps.manifest.outputs.old_ip }}
+          OLD_IP: ${{ steps.instances.outputs.old_ip }}
           PROD_0_IP: ${{ steps.instances.outputs.prod_0_ip }}
         run: |
           set -euo pipefail
