@@ -32,6 +32,10 @@ grep -Fq "steps.route.outputs.cloud_provider == 'akamai-cloud'" "${workflow}" ||
   echo "Akamai selfhost leg must build the regional Agent Proxy matrix" >&2
   exit 1
 }
+grep -Fq 'provider_gitops_dir:      ${{ steps.route.outputs.provider_gitops_dir }}' "${workflow}" || {
+  echo "selfhost provision job must expose the routed GitOps provider directory" >&2
+  exit 1
+}
 route_script="${repo_root}/.github/scripts/platform-ops/provision/platform-ops_provision_route-ref-to-an-explicit-profile.sh"
 grep -Fq 'STATE_PROJECT="platform-ops-toolkit"' "${route_script}" &&
 grep -Fq 'AKAMAI_UAT_PROJECT="svc.plus"' "${route_script}" &&
