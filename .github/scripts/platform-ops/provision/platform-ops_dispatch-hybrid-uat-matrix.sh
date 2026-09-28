@@ -32,7 +32,7 @@ VAULT_ADDR="${VAULT_ADDR:-https://vault.svc.plus}"
 XCONNECT_GATEWAY_REF="${XCONNECT_GATEWAY_REF:-tw-xconnect.svc.plus}"
 DRY_RUN="${DRY_RUN:-false}"
 WAIT_INTERVAL_SECONDS="${WAIT_INTERVAL_SECONDS:-15}"
-REGISTRY_FILE="$(cd "$(dirname "${MATRIX_FILE}")/../.." && pwd)/config/iac_provider_registry.json"
+REGISTRY_FILE="${REGISTRY_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/config/iac_provider_registry.json}"
 
 [[ "${VAULT_ENV_PATH}" == uat ]] || { echo "::error::The eight-resource matrix is UAT-only; got ${VAULT_ENV_PATH}" >&2; exit 1; }
 [[ "${TARGET_DOMAIN_BASE}" == onwalk.net ]] || { echo "::error::UAT hybrid matrix requires target_domain_base=onwalk.net" >&2; exit 1; }

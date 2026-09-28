@@ -114,8 +114,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Validate matrix contract
-        run: ./.github/scripts/tests/hybrid_uat_matrix_contract_test.sh
       - name: Checkout GitOps hybrid topology
         uses: actions/checkout@v7
         with:
@@ -127,6 +125,10 @@ jobs:
             topology/uat/hybrid/runtime-topology.yaml
             topology/uat/hybrid/resource-matrix.json
             topology/uat/serverless/runtime-topology.yaml
+      - name: Validate GitOps resource matrix contract
+        env:
+          GITOPS_MATRIX_FILE: ${{ github.workspace }}/gitops/topology/uat/hybrid/resource-matrix.json
+        run: ./.github/scripts/tests/hybrid_uat_matrix_contract_test.sh
       - name: Validate hybrid routing contract
         run: |
           ./.github/scripts/serverless/prepare_gitops_routing_config.sh
@@ -157,6 +159,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           MATRIX_FILE: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/hybrid/resource-matrix.json
+          REGISTRY_FILE: ${{ github.workspace }}/config/iac_provider_registry.json
           OPERATION: ${{ inputs.operation }}
           CHILD_REF: ${{ github.ref_name }}
           VAULT_ENV_PATH: ${{ inputs.vault_env_path }}
