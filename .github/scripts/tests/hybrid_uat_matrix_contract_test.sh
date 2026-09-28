@@ -27,6 +27,7 @@ jq -e '
   ([.resources[] | select(.management_mode == "terraform") | .agent_profile] ==
     ["1C2G","2C2G","2C2G","2C2G"]) and
   .resources[0].profile == "2C4G" and
+  .resources[0].account == "open-platform-prod" and
   .resources[0].lifecycle == "permanent" and
   .resources[0].release_scope == "shared-infrastructure" and
   all(.resources[]; (.release_scope == "business" or .release_scope == "shared-infrastructure")) and

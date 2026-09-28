@@ -54,6 +54,17 @@ account_for() {
   esac
 }
 
+account_for_row() {
+  local row="$1" declared account_kind
+  declared="$(jq -r '.account // empty' <<<"${row}")"
+  if [[ -n "${declared}" ]]; then
+    printf '%s' "${declared}"
+    return 0
+  fi
+  account_kind="$(jq -r '.account_kind' <<<"${row}")"
+  account_for "${account_kind}"
+}
+
 validate_matrix_provider() {
   local provider="$1" provisioner
   provisioner="$(jq -r --arg provider "${provider}" '.[$provider].provisioner // empty' "${REGISTRY_FILE}")"
@@ -166,7 +177,7 @@ if [[ "${OPERATION}" == deploy ]]; then
     [[ "${mode}" == terraform ]] || continue
     provider="$(jq -r '.provider' <<<"${row}")"
     validate_matrix_provider "${provider}"
-    account="$(account_for "$(jq -r '.account_kind' <<<"${row}")")"
+    account="$(account_for_row "${row}")"
     [[ -n "${account}" ]] || { echo "::error::No concrete account configured for ${provider} row ${namespace}; set the matching workflow account input." >&2; exit 1; }
     profile="$(jq -r '.profile' <<<"${row}")"
     agent_profile="$(jq -r '.agent_profile // "1C2G"' <<<"${row}")"
@@ -188,7 +199,7 @@ if [[ "${OPERATION}" == deploy ]]; then
     namespace="$(jq -r '.namespace' <<<"${row}")"
     mode="$(jq -r '.management_mode' <<<"${row}")"
     provider="$(jq -r '.provider' <<<"${row}")"
-    account="$(account_for "$(jq -r '.account_kind' <<<"${row}")")"
+    account="$(account_for_row "${row}")"
     profile="$(jq -r '.profile' <<<"${row}")"
     agent_profile="$(jq -r '.agent_profile // "1C2G"' <<<"${row}")"
     existing_host="$(jq -r '.existing_host // empty' <<<"${row}")"
@@ -231,7 +242,7 @@ for row in "${rows[@]}"; do
   mode="$(jq -r '.management_mode' <<<"${row}")"
   provider="$(jq -r '.provider' <<<"${row}")"
   validate_matrix_provider "${provider}"
-  account="$(account_for "$(jq -r '.account_kind' <<<"${row}")")"
+  account="$(account_for_row "${row}")"
   [[ -n "${account}" ]] || { echo "::error::No concrete account configured for ${provider} row ${namespace}; set the matching workflow account input." >&2; exit 1; }
   profile="$(jq -r '.profile' <<<"${row}")"
   agent_profile="$(jq -r '.agent_profile // "1C2G"' <<<"${row}")"

@@ -6,7 +6,7 @@
   "routing_mode": "selfhost-first",
   "frontend": "cloudflare-pages-workers",
   "resources": [
-    {"order":1,"namespace":"open-platform","target_domain":"open-platform","release_scope":"shared-infrastructure","management_mode":"terraform","lifecycle":"permanent","provider":"gcp-cloud","account_kind":"gcp","profile":"2C4G","agent_profile":"1C2G","region":"asia-east1","state_project":"svc.plus"},
+    {"order":1,"namespace":"open-platform","target_domain":"open-platform","release_scope":"shared-infrastructure","management_mode":"terraform","lifecycle":"permanent","provider":"gcp-cloud","account_kind":"gcp","account":"open-platform-prod","profile":"2C4G","agent_profile":"1C2G","region":"asia-east1","state_project":"svc.plus"},
     {"order":2,"namespace":"web-saas","target_domain":"web-saas","release_scope":"business","management_mode":"existing+serverless","lifecycle":"external","provider":"gcp-cloud","account_kind":"gcp","profile":"2C4G","region":"existing-vault-node-0","state_project":"svc.plus","existing_node":"vault-node-0","serverless_target":"web-saas"},
     {"order":3,"namespace":"ai-workspace","target_domain":"ai-workspace","release_scope":"business","management_mode":"existing-selfhost","lifecycle":"external","provider":"gcp-cloud","account_kind":"gcp","profile":"4C8G","region":"xconnect-private","existing_host":"10.79.0.7","xconnect_required":true,"state_project":"svc.plus"},
     {"order":4,"namespace":"agent-proxy-jp","target_domain":"agent-proxy-jp","release_scope":"business","management_mode":"terraform","lifecycle":"ephemeral","provider":"aws-cloud","account_kind":"aws","profile":"2C2G","agent_profile":"2C2G","region":"ap-northeast-1","state_project":"svc.plus"},
