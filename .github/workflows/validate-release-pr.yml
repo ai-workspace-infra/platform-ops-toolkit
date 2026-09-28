@@ -98,6 +98,9 @@ jobs:
     - name: Verify six isolated UAT Akamai namespaces and reject aggregate routing
       run: bash .github/scripts/tests/platform_ops_dispatch_contract_test.sh
 
+    - name: Verify CMDB artifact is flat and required
+      run: bash .github/scripts/tests/platform_ops_cmdb_artifact_contract_test.sh
+
     - name: Verify UAT cleanup safety and persistent Open Platform scope
       run: |
         bash .github/scripts/tests/platform_ops_akamai_destroy_scope_contract_test.sh
