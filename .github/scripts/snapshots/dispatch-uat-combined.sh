@@ -25,6 +25,7 @@ accounts_source_backend="${ACCOUNTS_SOURCE_BACKEND:-supabase}"
 serverless_operation="${SERVERLESS_OPERATION:-}"
 wait_timeout_seconds="${UAT_SERVERLESS_WAIT_TIMEOUT_SECONDS:-3600}"
 wait_interval_seconds="${UAT_SERVERLESS_WAIT_INTERVAL_SECONDS:-20}"
+selfhost_wait_timeout_seconds="${UAT_SELFHOST_WAIT_TIMEOUT_SECONDS:-3600}"
 
 [[ "${snapshot_tag}" =~ ^(uat-)?daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?$ ]] || {
   echo "::error::Refusing to dispatch UAT with a non-immutable snapshot tag: ${snapshot_tag}" >&2
@@ -46,8 +47,8 @@ wait_interval_seconds="${UAT_SERVERLESS_WAIT_INTERVAL_SECONDS:-20}"
   exit 2
 }
 
-[[ "${wait_timeout_seconds}" =~ ^[1-9][0-9]*$ && "${wait_interval_seconds}" =~ ^[1-9][0-9]*$ ]] || {
-  echo "::error::UAT serverless wait timeout and interval must be positive integers." >&2
+[[ "${wait_timeout_seconds}" =~ ^[1-9][0-9]*$ && "${selfhost_wait_timeout_seconds}" =~ ^[1-9][0-9]*$ && "${wait_interval_seconds}" =~ ^[1-9][0-9]*$ ]] || {
+  echo "::error::UAT workflow wait timeout and interval must be positive integers." >&2
   exit 2
 }
 
@@ -110,30 +111,48 @@ dispatch_serverless() {
     "${schema_args[@]}"
 }
 
-wait_for_serverless() {
+wait_for_run() {
   local run_url="${1:?run URL is required}"
+  local run_label="${2:?run label is required}"
+  local timeout_seconds="${3:?timeout is required}"
   local run_id="${run_url##*/}"
+  local started_at="${SECONDS}"
+  local state status conclusion
 
   [[ "${run_id}" =~ ^[0-9]+$ ]] || {
-    echo "::error::Unable to determine serverless run id from ${run_url}." >&2
+    echo "::error::Unable to determine ${run_label} run id from ${run_url}." >&2
     exit 1
   }
 
-  echo "Waiting for serverless UAT deployment ${run_url} before registering Agent Proxy..."
-  gh run watch "${run_id}" --repo "${target_repo}" --interval "${wait_interval_seconds}" --exit-status \
-    --compact &
-  local watch_pid=$!
-  local deadline=$((SECONDS + wait_timeout_seconds))
-  while kill -0 "${watch_pid}" 2>/dev/null; do
-    if (( SECONDS >= deadline )); then
-      kill "${watch_pid}" 2>/dev/null || true
-      wait "${watch_pid}" 2>/dev/null || true
-      echo "::error::Timed out waiting for serverless run ${run_id} after ${wait_timeout_seconds}s." >&2
+  echo "Waiting for ${run_label} UAT deployment ${run_url}..."
+  while :; do
+    state="$(gh api "repos/${target_repo}/actions/runs/${run_id}" --jq '[.status, (.conclusion // "")] | @tsv')" || {
+      echo "::error::Unable to read ${run_label} run ${run_id} status." >&2
+      exit 1
+    }
+    status="${state%%$'\t'*}"
+    conclusion="${state#*$'\t'}"
+
+    if [[ "${status}" == "completed" ]]; then
+      if [[ "${conclusion}" != "success" ]]; then
+        echo "::error::${run_label} run ${run_id} completed with ${conclusion:-no conclusion}." >&2
+        exit 1
+      fi
+      echo "${run_label} UAT deployment ${run_id} completed successfully."
+      return 0
+    fi
+
+    if [[ "${status}" != "queued" && "${status}" != "in_progress" && "${status}" != "waiting" ]]; then
+      echo "::error::${run_label} run ${run_id} returned unexpected status ${status}." >&2
       exit 1
     fi
-    sleep 1
+
+    if (( SECONDS - started_at >= timeout_seconds )); then
+      echo "::error::Timed out waiting for ${run_label} run ${run_id} after ${timeout_seconds}s." >&2
+      exit 1
+    fi
+    sleep "${wait_interval_seconds}"
   done
-  wait "${watch_pid}"
 }
 
 dispatch_selfhost_namespace() {
@@ -166,7 +185,7 @@ dispatch_selfhost_namespace() {
 
 serverless_run_url="$(dispatch_serverless | tail -n 1)"
 echo "Dispatched UAT serverless deploy for ${snapshot_tag}: ${serverless_run_url}"
-wait_for_serverless "${serverless_run_url}"
+wait_for_run "${serverless_run_url}" "serverless" "${wait_timeout_seconds}"
 
 dispatch_xconnect_lab() {
   local topology iac_ref gitops_ref
@@ -244,5 +263,5 @@ for namespace_spec in "${namespaces[@]}"; do
   selfhost_run_url="$(dispatch_selfhost_namespace "${namespace}" "${include_external}" "${dns_mode}" | tail -n 1)"
   echo "Dispatched UAT selfhost ${namespace} deploy for ${snapshot_tag}: ${selfhost_run_url}"
   echo "Agent Proxy controller: ${agent_controller_url}"
-  gh run watch "${selfhost_run_url##*/}" --repo "${target_repo}" --exit-status --compact
+  wait_for_run "${selfhost_run_url}" "selfhost ${namespace}" "${selfhost_wait_timeout_seconds}"
 done
