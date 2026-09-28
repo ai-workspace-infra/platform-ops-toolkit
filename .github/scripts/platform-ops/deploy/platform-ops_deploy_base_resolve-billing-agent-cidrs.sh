@@ -4,6 +4,48 @@ set -euo pipefail
 : "${CMDB_FILE:?CMDB_FILE is required}"
 : "${GITHUB_ENV:?GITHUB_ENV is required}"
 
+# A Web SaaS host can be deployed in a separate Terraform state from the
+# regional Agent Proxy hosts.  During that split-state rollout, the caller may
+# provide the already-reviewed UAT node CIDRs from the Agent Proxy state.  Do
+# not accept this escape hatch for production: production must continue to use
+# the authoritative CMDB path below, and an invalid override must fail closed.
+cidr_override="${BILLING_AGENT_PROXY_CIDRS_OVERRIDE:-}"
+if [[ -n "${cidr_override}" ]]; then
+  if [[ "${DEPLOY_ENV:-}" != "uat" ]]; then
+    echo "::error::BILLING_AGENT_PROXY_CIDRS_OVERRIDE is allowed only for UAT." >&2
+    exit 1
+  fi
+
+  allowed_cidrs="$({
+    python3 - "${cidr_override}" <<'PY'
+import ipaddress
+import sys
+
+raw = sys.argv[1]
+values = raw.split()
+if not values:
+    raise SystemExit("CIDR override must contain at least one network")
+
+for value in values:
+    if "/" not in value:
+        raise SystemExit(f"CIDR override must include a prefix length: {value}")
+    try:
+        network = ipaddress.ip_network(value, strict=False)
+    except ValueError as exc:
+        raise SystemExit(f"invalid CIDR override {value}: {exc}")
+    print(network.with_prefixlen)
+PY
+  } | paste -sd ' ' -)"
+  if [[ -z "${allowed_cidrs}" ]]; then
+    echo "::error::BILLING_AGENT_PROXY_CIDRS_OVERRIDE resolved to an empty value." >&2
+    exit 1
+  fi
+
+  echo "Using reviewed UAT Agent Proxy CIDR override for Billing Caddy: ${allowed_cidrs}"
+  echo "WEB_SAAS_BILLING_ALLOWED_CIDRS=${allowed_cidrs}" >> "${GITHUB_ENV}"
+  exit 0
+fi
+
 # A Web SaaS deployment may live in a separate Terraform/CMDB state from the
 # regional Agent Proxy nodes (the UAT Akamai layout does this deliberately).
 # In that case the current CMDB cannot contain an agent_proxy group.  The
