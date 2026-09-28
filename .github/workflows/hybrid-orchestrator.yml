@@ -63,9 +63,9 @@ on:
         default: manbuzhe2026
         type: string
       aws_account:
-        description: 'Concrete AWS account ID for JP'
+        description: 'Concrete AWS account ID for JP; UAT default account'
         required: false
-        default: ''
+        default: '081434641398'
         type: string
       gcp_account:
         description: 'Concrete GCP account/project identity'

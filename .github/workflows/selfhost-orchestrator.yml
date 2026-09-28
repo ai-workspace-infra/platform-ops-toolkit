@@ -484,6 +484,7 @@ jobs:
       env:
         GITOPS_AWS_OIDC_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/github-actions-oidc.json
         EXPECTED_DEPLOYMENT_ENV: ${{ steps.route.outputs.deployment_env }}
+        EXPECTED_CLOUD_ACCOUNT: ${{ steps.route.outputs.account }}
 
     - name: Configure AWS Credentials (OIDC)
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'aws-cloud'

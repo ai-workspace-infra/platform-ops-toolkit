@@ -3,7 +3,13 @@ set -euo pipefail
 
 config_file="${GITOPS_AWS_OIDC_CONFIG:?GITOPS_AWS_OIDC_CONFIG is required}"
 expected_environment="${EXPECTED_DEPLOYMENT_ENV:?EXPECTED_DEPLOYMENT_ENV is required}"
+expected_account="${EXPECTED_CLOUD_ACCOUNT:?EXPECTED_CLOUD_ACCOUNT is required}"
 readonly expected_repository="ai-workspace-infra/platform-ops-toolkit"
+
+[[ "${expected_account}" =~ ^[0-9]{12}$ ]] || {
+  echo "AWS cloud_account must be a concrete 12-digit account ID." >&2
+  exit 1
+}
 
 # Immutable release references are environment-specific. Production releases
 # are tagged v*, whereas the daily UAT pipeline deliberately uses its own
@@ -34,6 +40,7 @@ command -v jq >/dev/null 2>&1 || {
 
 jq -e \
   --arg environment "${expected_environment}" \
+  --arg account "${expected_account}" \
   --arg repository "${expected_repository}" '
   .apiVersion == "gitops.svc.plus/v1alpha1" and
   .kind == "GitHubActionsOIDCConfig" and
@@ -42,6 +49,7 @@ jq -e \
   .spec.provider_url == "https://token.actions.githubusercontent.com" and
   .spec.audience == "sts.amazonaws.com" and
   (.spec.aws.account_id | test("^[0-9]{12}$")) and
+  .spec.aws.account_id == $account and
   (.spec.aws.region | test("^[a-z]+-[a-z]+-[0-9]+$")) and
   (.spec.aws.role_name | test("^[A-Za-z0-9+=,.@_-]+$")) and
   .spec.aws.role_arn == ("arn:aws:iam::" + .spec.aws.account_id + ":role/" + .spec.aws.role_name) and
