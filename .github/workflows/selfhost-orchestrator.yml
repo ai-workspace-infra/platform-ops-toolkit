@@ -891,7 +891,7 @@ jobs:
     - name: Resolve agent-proxy source CIDRs for Billing Caddy
       env:
         CMDB_FILE: cmdb/cmdb.json
-        GITOPS_AGENT_PROXY_RESOURCE_DIR: ${{ github.workspace }}/gitops/resources/svc.plus/${{ steps.route.outputs.deployment_env }}/${{ steps.route.outputs.provider_gitops_dir }}
+        GITOPS_AGENT_PROXY_RESOURCE_DIR: ${{ github.workspace }}/gitops/resources/svc.plus/${{ needs.provision.outputs.deployment_env }}/${{ needs.provision.outputs.provider_gitops_dir }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_base_resolve-billing-agent-cidrs.sh
 
     - name: Load Vault secrets
