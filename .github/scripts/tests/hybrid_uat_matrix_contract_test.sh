@@ -28,7 +28,9 @@ jq -e '
   ([.spec.resources[] | select(.management_mode == "terraform" or .management_mode == "terraform+serverless") | .agent_profile] ==
     ["1C2G","1C2G","2C2G","2C2G","2C2G"]) and
   .spec.resources[0].profile == "2C4G" and
-  .spec.resources[0].account == "open-platform-prod" and
+  .spec.resources[0].account_ref == "gcp_account" and
+  (.spec.resources[0].account == null) and
+  .spec.resources[0].project_id == "open-platform-uat" and
   .spec.resources[0].lifecycle == "permanent" and
   .spec.resources[0].release_scope == "shared-infrastructure" and
   .spec.resources[0].xconnect_required == true and
