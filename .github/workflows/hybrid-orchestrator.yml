@@ -57,20 +57,32 @@ on:
         type: string
       akamai_account:
         description: 'Concrete Akamai account name, not an alias'
-        required: true
+        required: false
         default: manbuzhe2026
         type: string
       aws_account:
         description: 'Concrete AWS account ID for JP'
-        required: true
+        required: false
+        default: ''
         type: string
       gcp_account:
         description: 'Concrete GCP account/project identity'
-        required: true
+        required: false
+        default: ''
+        type: string
+      vultr_account:
+        description: 'Concrete Vultr account identity'
+        required: false
+        default: ''
+        type: string
+      ucloud_account:
+        description: 'Concrete UCloud account identity when its Terraform adapter is selected'
+        required: false
+        default: ''
         type: string
       existing_account:
         description: 'Concrete external inventory account name'
-        required: true
+        required: false
         default: ucloud-ulighthost
         type: string
       routing_mode:
@@ -150,6 +162,8 @@ jobs:
           AKAMAI_ACCOUNT: ${{ inputs.akamai_account }}
           AWS_ACCOUNT: ${{ inputs.aws_account }}
           GCP_ACCOUNT: ${{ inputs.gcp_account }}
+          VULTR_ACCOUNT: ${{ inputs.vultr_account }}
+          UCLOUD_ACCOUNT: ${{ inputs.ucloud_account }}
           EXISTING_ACCOUNT: ${{ inputs.existing_account }}
           RUNNER_TYPE: ${{ inputs.runner_type }}
           SOURCE_REF: ${{ inputs.source_ref }}

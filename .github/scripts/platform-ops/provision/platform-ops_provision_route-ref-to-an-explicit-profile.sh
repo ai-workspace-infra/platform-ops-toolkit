@@ -157,6 +157,9 @@ validate_deploy_tag_policy() {
 # Defaults are intentionally safe: no branch deployment reads a host
 # variable. Terraform creates the host and its CMDB is the only deploy
 # inventory for that run.
+reuse_existing_host=false
+existing_target_host=""
+existing_target_user="root"
 if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   deployment_env="${INPUT_VAULT_ENV_PATH:-uat}"
   target_domains="${INPUT_TARGET_DOMAINS:-web-saas}"
@@ -178,6 +181,31 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   
   cloud_provider="${INPUT_CLOUD_PROVIDER:-$(default_provider_for_environment "${deployment_env}")}"
   set_provider_metadata
+  existing_target_host="${INPUT_EXISTING_TARGET_HOST:-}"
+  existing_target_user="${INPUT_EXISTING_TARGET_USER:-root}"
+  if [[ -n "${existing_target_host}" ]]; then
+    [[ "${deployment_env}" == uat ]] || {
+      echo "::error::existing_target_host is UAT-only; existing production nodes are not deploy targets for this workflow." >&2
+      exit 1
+    }
+    [[ "${target_domains}" == ai-workspace ]] || {
+      echo "::error::existing_target_host is only supported with target_domains=ai-workspace." >&2
+      exit 1
+    }
+    [[ "${cloud_provider}" == gcp-cloud ]] || {
+      echo "::error::The reused AI Workspace host must retain the gcp-cloud provider identity; it does not create GCP infrastructure." >&2
+      exit 1
+    }
+    [[ "${existing_target_host}" != *$'\n'* && "${existing_target_host}" != *$'\r'* && "${existing_target_host}" != *[[:space:]]* ]] || {
+      echo "::error::existing_target_host must be a single IP address or hostname." >&2
+      exit 1
+    }
+    [[ "${existing_target_user}" =~ ^[a-z_][a-z0-9_-]{0,31}\$?$ ]] || {
+      echo "::error::existing_target_user must be a POSIX account name." >&2
+      exit 1
+    }
+    reuse_existing_host=true
+  fi
   # Keep the logical project segment independent from the concrete provider
   # account/project identity. Hybrid UAT uses svc.plus for every cloud.
   state_project="${INPUT_STATE_PROJECT:-${STATE_PROJECT}}"
@@ -190,7 +218,18 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   akamai_matrix_mode=false
   akamai_matrix_action=none
   akamai_matrix_workspaces=""
-  if [[ "${deployment_env}" == "uat" && "${cloud_provider}" == "akamai-cloud" ]]; then
+  if [[ "${reuse_existing_host}" == "true" ]]; then
+    # Existing AI Workspace is an application-only deployment target. Keep the
+    # provider/account identity for routing and observability, but deliberately
+    # expose no Terraform workdir or state key. The target is reached through
+    # the selected runner after XConnect has been reconciled by the parent.
+    terraform_namespace="ai-workspace"
+    rf="ai-workspace"
+    resource_file="${deployment_env}/ai-workspace-existing"
+    resource_files_full=""
+    terraform_workspace=""
+    state_key=""
+  elif [[ "${deployment_env}" == "uat" && "${cloud_provider}" == "akamai-cloud" ]]; then
     state_project="${INPUT_STATE_PROJECT:-${AKAMAI_UAT_PROJECT}}"
     case "${requested_target_domains}" in
       web-saas|open-platform|ai-workspace)
@@ -259,7 +298,7 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     # state/workspace suffix. The Akamai-specific branch above still maps its
     # playbook target to agent-proxy for backwards-compatible CMDB handling.
   fi
-  if [[ "${deployment_env}" != "uat" || "${cloud_provider}" != "akamai-cloud" ]]; then
+  if [[ "${reuse_existing_host}" != "true" && ( "${deployment_env}" != "uat" || "${cloud_provider}" != "akamai-cloud" ) ]]; then
     resource_file="${deployment_env}/${rf}"
     terraform_workspace="${deployment_env}-${state_project}-${cloud_provider}-${account}-${rf}"
     state_key="terraform/${deployment_env}/${state_project}/${cloud_provider}/${account}/${rf}/terraform.tfstate"
@@ -314,6 +353,27 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     run_application_deploy=false
     terraform_action=none
     toolkit_action=none
+  fi
+
+  if [[ "${reuse_existing_host}" == "true" ]]; then
+    case "${operation}" in
+      plan)
+        run_infrastructure=false
+        run_application_deploy=false
+        terraform_action=none
+        toolkit_action=none
+        ;;
+      deploy)
+        run_infrastructure=false
+        run_application_deploy=true
+        terraform_action=none
+        toolkit_action=deploy
+        ;;
+      *)
+        echo "::error::existing_target_host supports only operation=plan or operation=deploy; it cannot apply or destroy infrastructure." >&2
+        exit 1
+        ;;
+    esac
   fi
 
   if [[ "${operation}" == "migrate" || "${operation}" == "deploy+migrate" ]]; then
@@ -614,12 +674,21 @@ fi
 
 terraform_namespace="${terraform_namespace:-${rf:-${target_domains}}}"
 terraform_project="${state_project:-${STATE_PROJECT}}"
-for key in deployment_env resource_file resource_files_full terraform_workspace state_key terraform_namespace terraform_project run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider provider_tree provider_gitops_dir provider_provisioner provider_credential_mode account source_host source_domain_base target_domain_base env_suffix dns_mode deploy_tag agent_controller_url billing_service_base_url include_external_agent_proxy akamai_matrix_mode akamai_matrix_action akamai_matrix_workspaces; do
+for key in deployment_env resource_file resource_files_full terraform_workspace state_key terraform_namespace terraform_project run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider provider_tree provider_gitops_dir provider_provisioner provider_credential_mode account source_host source_domain_base target_domain_base env_suffix dns_mode deploy_tag agent_controller_url billing_service_base_url include_external_agent_proxy akamai_matrix_mode akamai_matrix_action akamai_matrix_workspaces reuse_existing_host existing_target_host existing_target_user; do
   value="${!key:-}"
   echo "$key=$value" >> "$GITHUB_OUTPUT"
 done
 
 echo "vps_root=infra/iac_modules/terraform-hcl-standard/${provider_tree}" >> "$GITHUB_OUTPUT"
+if [[ "${reuse_existing_host}" == "true" ]]; then
+  echo "hosts=$(jq -cn --arg host "${existing_target_host}" '[$host]')" >> "$GITHUB_OUTPUT"
+  echo "hosts_ai_workspace=$(jq -cn --arg host "${existing_target_host}" '[$host]')" >> "$GITHUB_OUTPUT"
+  echo "count=1" >> "$GITHUB_OUTPUT"
+else
+  echo 'hosts=[]' >> "$GITHUB_OUTPUT"
+  echo 'hosts_ai_workspace=[]' >> "$GITHUB_OUTPUT"
+  echo 'count=0' >> "$GITHUB_OUTPUT"
+fi
 terraform_workdir="envs/platform-ops-toolkit"
 if [[ "${deployment_env}" == "uat" && "${cloud_provider}" == "akamai-cloud" && "${akamai_matrix_mode:-false}" != "true" ]]; then
   # Akamai UAT has one Terraform root per namespace. The generator rejects

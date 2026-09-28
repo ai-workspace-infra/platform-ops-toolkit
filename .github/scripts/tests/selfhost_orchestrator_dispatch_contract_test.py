@@ -43,9 +43,10 @@ class SelfhostDispatchContractTests(unittest.TestCase):
             "agent_controller_url",
             "vault_addr",
             "xconnect_gateway_ref",
+            "existing_target_host",
         }
         self.assertEqual(set(self.inputs), expected)
-        self.assertLessEqual(len(self.inputs), 26)
+        self.assertLessEqual(len(self.inputs), 25)
 
     def test_safe_defaults_and_provider_registry_choices(self) -> None:
         self.assertEqual(self.inputs["runner_type"]["default"], "ubuntu-latest")
@@ -54,7 +55,7 @@ class SelfhostDispatchContractTests(unittest.TestCase):
         self.assertEqual(self.inputs["cloud_provider"]["type"], "choice")
         self.assertEqual(
             self.inputs["cloud_provider"]["options"],
-            ["aws-cloud", "gcp-cloud", "azure-cloud", "vultr-vps", "akamai-cloud"],
+            ["aws-cloud", "gcp-cloud", "azure-cloud", "vultr-vps", "akamai-cloud", "ucloud"],
         )
         self.assertEqual(self.inputs["cloud_provider"]["default"], "akamai-cloud")
         self.assertEqual(self.inputs["akamai_account"]["default"], "")

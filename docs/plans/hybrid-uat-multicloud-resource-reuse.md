@@ -1,6 +1,6 @@
 # UAT Hybrid 多云资源复用与串行部署计划
 
-状态：方案阶段；本文件不授权 Terraform apply/destroy、现有节点改规格、数据迁移或 DNS 切换。
+状态：编排契约已实现，真实 apply/destroy、现有节点改规格、数据迁移和 DNS 切换仍需单独审批。
 
 关联任务：Epic [platform-ops-toolkit#838](https://github.com/ai-workspace-infra/platform-ops-toolkit/issues/838)、基础设施阶段 [#845](https://github.com/ai-workspace-infra/platform-ops-toolkit/issues/845)、业务部署与迁移阶段 [#846](https://github.com/ai-workspace-infra/platform-ops-toolkit/issues/846)。本文是上述任务的 Hybrid 多云演进方案；若 issue 中的旧六 Akamai namespace 与本文八项混合矩阵冲突，以后续经审批的 GitOps profile 和对应变更 PR 为准，不静默覆盖历史 state。
 
@@ -12,7 +12,7 @@
 | --- | --- | --- | --- | --- |
 | 1 | `open-platform` | Akamai Cloud，2C4G | 独立 Akamai Terraform state | Vault、Observability 等平台服务；先核实与现有共享服务的边界 |
 | 2 | `web-saas` | GCP，复用所称的现有 Vault node 0，目标 2C4G | existing/应用部署；不得由 UAT Terraform 接管共享 Vault 的 state | Web SaaS Selfhost 后端；同时调用 Serverless 部署 Supabase、Cloud Run、Cloudflare Pages/Workers |
-| 3 | `ai-workspace` | GCP Spot，4C8G | 独立 GCP Terraform state | AI Workspace 套件及监控探针 |
+| 3 | `ai-workspace` | 复用 `10.79.0.7`，逻辑 provider 为 GCP，4C8G | existing-selfhost；无 Terraform state | 经 XConnect 打通后部署 AI Workspace 套件及监控探针 |
 | 4 | `agent-proxy-jp` | AWS JP，2C2G | 独立 AWS Terraform state 或经核实的现有资源 | Gateway、Proxy-Server、CPA 同机混合部署 |
 | 5 | `agent-proxy-us` | GCP US，2C2G | 独立 GCP Terraform state 或经核实的现有资源 | Gateway、Proxy-Server、CPA 同机混合部署 |
 | 6 | `agent-proxy-sg` | Akamai Cloud SG，目标 2C2G | 独立 Akamai Terraform state | Gateway、Proxy-Server、CPA 同机混合部署 |
@@ -34,7 +34,7 @@ Worker 不直接连接 PostgreSQL，也不持有数据库管理员凭据。默�
 ## 编排契约
 
 1. Hybrid 预检读取一份 GitOps UAT 资源矩阵，逐项校验 provider、真实账号、地区、规格、`create`/`existing` 身份、实例名、state key、应用域名、Vault 路径及监控端点。`target_domains=all` 只对该矩阵作串行扇出，不把单个 `cloud_provider` 输入套到八项上。
-2. Hybrid 对每个基础设施或现有节点步骤只调用一次 Selfhost 子流程。Selfhost 按矩阵调用 Akamai、AWS 或 GCP 的对应 adapter；existing 项只读取 Vault/CMDB 事实。每个新建资源使用 `terraform/uat/<project>/<provider>/<account>/<namespace>/terraform.tfstate`，并分别锁定、plan、审批和 apply。读取统一的 `kv/data/CICD/uat/iac_state`，provider 凭据继续走各自的 Vault/OIDC 契约。复用的 Vault 节点保留原 state 归属，不能导入 Web SaaS state。
+2. Hybrid 对每个基础设施或现有节点步骤只调用一次 Selfhost 子流程。Selfhost 按 provider registry 调用 AWS、GCP、Azure、Vultr、Akamai 或 UCloud 的 Terraform adapter；existing 项只读取 Vault/CMDB 事实，`existing-selfhost` 只对已存在主机执行 Playbook。每个新建资源使用 `terraform/uat/<project>/<provider>/<account>/<namespace>/terraform.tfstate`，并分别锁定、plan、审批和 apply。读取统一的 `kv/data/CICD/uat/iac_state`，provider 凭据继续走各自的 Vault/OIDC 契约。复用的 Vault 节点和 `10.79.0.7` 保留原 state 归属，不能导入业务 namespace state。
 3. 基础节点完成 SSH、Caddy、运行时、监控探针与 CMDB 验收后才部署业务。Selfhost 工作流接收单项的 provider、资源身份与目标主机；Agent Proxy 的 Gateway、Proxy-Server、CPA 三角色必须在 playbook 中有明确的端口、进程、Caddy 路由、凭据及健康检查，避免覆盖现有 Gateway 配置。
 4. Web SaaS 顺序是：Hybrid 等待 Selfhost 完成目标主机准备与业务部署 → 调用 Serverless `web-saas` 部署/验证（Supabase、Cloud Run、Pages/Workers）→ 校验 Hybrid edge-gateway 模式。Hybrid 只传递部署版本和环境上下文；Supabase 的写入职责需先与现有 Hybrid 单写者契约统一，不在编排层暗中更改数据库主从关系。
 5. 各 Agent Proxy 与 Accounts 注册、XConnect Gateway/One 联动、监控心跳和区域域名验证均随本区域步骤完成。TW/PH 只走 external-node job。每步成功后才进入下一步，最终摘要列出八项实际执行结果、资源 ID、state key 或 existing 引用、子流水线链接与前端入口检查。
@@ -121,7 +121,7 @@ Hybrid 在运行开始时生成 `execution_id=<run_id>-<run_attempt>`。所有�
 | P2a | 准备并部署 `web-saas` Selfhost origin | Selfhost | existing 节点身份已核实；API/PostgreSQL 健康；返回 `origin_url` |
 | P2b | 部署 Web SaaS Serverless 面 | Serverless | Supabase、Cloud Run、Pages/Workers 发布成功；Worker 同时获得两个 origin |
 | P2c | 验证 `selfhost-first` | Hybrid | 安全读请求主路径命中 Selfhost；受控故障下回退 Cloud Run；写请求不重放 |
-| P3 | 部署 `ai-workspace` | Selfhost | GCP Spot 4C8G、持久化和中断恢复约束通过；监控心跳正常 |
+| P3 | 部署 `ai-workspace` | Selfhost existing-host | XConnect 到 `10.79.0.7` 可达；不创建、不修改 Terraform state；AI Workspace 与监控心跳正常 |
 | P4 | 部署 `agent-proxy-jp` | Selfhost | AWS 2C2G；Gateway/Proxy-Server/CPA 与 Accounts 心跳通过 |
 | P5 | 部署 `agent-proxy-us` | Selfhost | GCP 2C2G；三角色与监控通过 |
 | P6 | 部署 `agent-proxy-sg` | Selfhost | Akamai 2C2G；三角色与监控通过 |
@@ -157,9 +157,10 @@ resources:
     profile: 2C4G
   - namespace: ai-workspace
     provider: gcp-cloud
-    management_mode: terraform
+    management_mode: existing-selfhost
     account: <confirmed-gcp-project>
-    capacity_type: spot
+    existing_host: 10.79.0.7
+    xconnect_required: true
     profile: 4C8G
   - namespace: agent-proxy-jp
     provider: aws-cloud
@@ -277,8 +278,9 @@ Worker 配置至少包含 `SELFHOST_ORIGIN`、`CLOUD_RUN_ORIGIN`、`ROUTING_MODE
 当前 `.github/workflows/hybrid-orchestrator.yml` 只验证 Serverless/Hybrid 边界并更新三个 edge-gateway Workers；它不调用 Selfhost 或 Serverless。Selfhost 的 `all` 固定扇出六个 Akamai namespace；GCP/AWS 的单地区 Agent Proxy 不受这个路由支持。Serverless 目前独立负责 Supabase、Cloud Run、Pages、Workers。这些都需要修改后才能声明混合矩阵已可部署。
 
 - `open-platform` 的 Akamai 声明已是 `us-east / g6-standard-2`，匹配目标 2C4G；实际 state、服务所有权和旧节点迁移边界仍需只读验收。
-- 所称 Vault node 0 在 GitOps 是 shared `vault-prod-0`，位于 `open-platform-prod / asia-east1-a`，规格 `e2-highcpu-2`（2C2G），且属于共享 Vault state。它既不是 2C4G，也不是独立的 UAT 资源。需要确认目标节点身份及复用许可；若确实复用它，须另列容量、隔离、备份和变更窗口，不能让 UAT 运行自动调整或销毁这台节点。[GCP E2 规格](https://docs.cloud.google.com/compute/docs/general-purpose-machines)。
-- GCP `ai-workspace-workload.yaml` 目前声明 `e2-micro` Spot、最长运行 3600 秒，无法作为目标 4C8G 的长期业务节点。需要改规格并确定 Spot 被回收后的重建、持久数据和服务恢复方案；可评估 `e2-custom-4-8192`，以实际区域配额和计划为准。[GCP 自定义规格](https://docs.cloud.google.com/compute/docs/instances/creating-instance-with-custom-machine-type)、[Spot 中断行为](https://docs.cloud.google.com/compute/docs/instances/spot)。
+- `web-saas` 的 GCP `vault-node-0` 仍是共享 existing 事实；编排只调用 Serverless 和应用部署，不导入或修改该节点的 Terraform state。
+- `ai-workspace` 的 `10.79.0.7` 是 existing-selfhost 目标。执行前必须使用可访问 XConnect 私网的 runner，并确认 Vault 中的部署 SSH 凭据；Selfhost 子流程不得执行 Terraform init/apply/destroy，也不得把该地址写入 Terraform state。
+- Provider 选择由 `config/iac_provider_registry.json` 和矩阵行决定。AWS、GCP、Azure、Vultr、Akamai、UCloud 可作为 Terraform provider；非 IaC 创建好的主机使用 `existing` 或 `existing-selfhost`，不因矩阵 `all` 自动接管其生命周期。
 - AWS UAT JP 现有声明默认 `t4g.micro`（2C1G）且没有单独 `agent-proxy-jp` state；目标 2C2G 可评估 `t4g.small`，并确认 ARM 版 Gateway/Proxy-Server/CPA 镜像、现有实例是否已被其他 state 管理。[AWS T4g 规格](https://aws.amazon.com/ec2/instance-types/t4/)。
 - GCP US 的现有 `agent-proxy-us-workload.yaml` 是 `e2-micro` Spot、最长一小时；需确定 2C2G 实例类型、是否继续 Spot、目标账号和网络/SSH 可达性。
 - Akamai SG 的现有 `agent-proxy-sg.yaml` 是 `g6-standard-1`（1C2G）。目标 2C2G 需通过 Linode types API 与 `sg-sin-2` 容量查询选择真实可用 plan；在型号确定前不提交假定规格。已销毁的旧 SG state 不能视为现有主机。[Akamai 计划文档](https://techdocs.akamai.com/cloud-computing/docs/how-to-choose-a-compute-instance-plan)。

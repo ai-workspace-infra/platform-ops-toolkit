@@ -101,11 +101,6 @@ on:
         default: "all"
         type: choice
         options: [all, vault, iam, observability]
-      open_platform_mcp_services:
-        description: "Optional MCP adapters: none, all, or comma-separated grafana,victoriametrics,victorialogs,victoriatraces"
-        required: false
-        default: "none"
-        type: string
       cloud_provider:
         description: "云服务商（按 provider registry 选择；UAT 默认 Akamai Cloud；ULightHost existing 由 external adapter 处理）"
         required: true
@@ -117,6 +112,7 @@ on:
         - azure-cloud
         - vultr-vps
         - akamai-cloud
+        - ucloud
       cloud_account:
         description: "所选云厂商的具体账户名/ID；留空时使用环境 profile 的账户"
         required: false
@@ -186,6 +182,11 @@ on:
         description: "UAT XConnect Gateway DNS/Vault record key; other XConnect settings use the target workflow defaults"
         required: false
         default: "tw-xconnect.svc.plus"
+        type: string
+      existing_target_host:
+        description: "Existing host deployment target. Only ai-workspace UAT accepts this; no Terraform state or destroy is performed."
+        required: false
+        default: ""
         type: string
       # 注意: 这里曾有一个 vault_token 输入作为 "JWT 异常时的兜底"。已移除。
       # workflow_dispatch 输入不脱敏且长期留在 run metadata 里, 任何有仓库读
@@ -262,6 +263,7 @@ jobs:
       INPUT_AGENT_CONTROLLER_URL:  ${{ github.event.inputs.agent_controller_url }}
       INPUT_AKAMAI_ACCOUNT:        ${{ github.event.inputs.akamai_account || 'manbuzhe2026' }}
       INPUT_INCLUDE_EXTERNAL_AGENT_PROXY: ${{ github.event.inputs.include_external_agent_proxy != 'false' && 'true' || 'false' }}
+      INPUT_EXISTING_TARGET_HOST:   ${{ github.event.inputs.existing_target_host }}
     outputs:
       deployment_env:           ${{ steps.route.outputs.deployment_env }}
       resource_file:            ${{ steps.route.outputs.resource_file }}
@@ -297,16 +299,19 @@ jobs:
       akamai_matrix_action:     ${{ steps.route.outputs.akamai_matrix_action }}
       akamai_matrix_workspaces: ${{ steps.route.outputs.akamai_matrix_workspaces }}
       migration_target_host:    ${{ steps.resolve_migration_target.outputs.target_host }}
-      hosts:              ${{ steps.matrix.outputs.hosts         || '[]' }}
-      hosts_web_saas:     ${{ steps.matrix.outputs.hosts_web_saas     || '[]' }}
-      hosts_ai_workspace: ${{ steps.matrix.outputs.hosts_ai_workspace || '[]' }}
       hosts_infra_platform: ${{ steps.matrix.outputs.hosts_infra_platform || '[]' }}
       hosts_agent_proxy:  ${{ steps.matrix.outputs.hosts_agent_proxy  || '[]' }}
       hosts_agent_proxy_iac: ${{ steps.agent_proxy_matrix.outputs.hosts_agent_proxy_iac || steps.matrix.outputs.hosts_agent_proxy || '[]' }}
       hosts_agent_proxy_non_iac: ${{ steps.agent_proxy_matrix.outputs.hosts_agent_proxy_non_iac || '[]' }}
       agent_proxy_region_count: ${{ steps.agent_proxy_matrix.outputs.agent_proxy_region_count || '0' }}
       include_external_agent_proxy: ${{ steps.route.outputs.include_external_agent_proxy || 'true' }}
-      count:              ${{ steps.matrix.outputs.count || '0' }}
+      reuse_existing_host:     ${{ steps.route.outputs.reuse_existing_host || 'false' }}
+      existing_target_host:    ${{ steps.route.outputs.existing_target_host || '' }}
+      existing_target_user:    ${{ steps.route.outputs.existing_target_user || '' }}
+      hosts:              ${{ steps.matrix.outputs.hosts || steps.route.outputs.hosts || '[]' }}
+      hosts_web_saas:     ${{ steps.matrix.outputs.hosts_web_saas || steps.route.outputs.hosts_web_saas || '[]' }}
+      hosts_ai_workspace: ${{ steps.matrix.outputs.hosts_ai_workspace || steps.route.outputs.hosts_ai_workspace || '[]' }}
+      count:              ${{ steps.matrix.outputs.count || steps.route.outputs.count || '0' }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
@@ -323,6 +328,14 @@ jobs:
       # env block inherited from job level — no repetition needed here
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_route-ref-to-an-explicit-profile.sh
+
+    - name: Render existing AI Workspace CMDB
+      if: steps.route.outputs.reuse_existing_host == 'true' && steps.route.outputs.run_application_deploy == 'true'
+      env:
+        EXISTING_TARGET_HOST: ${{ steps.route.outputs.existing_target_host }}
+        EXISTING_TARGET_USER: ${{ steps.route.outputs.existing_target_user }}
+        OUTPUT_DIR: ${{ runner.temp }}/existing-ai-workspace-cmdb
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_render-existing-host-cmdb.sh
 
     - name: Checkout GitOps selfhost routing declaration
       if: >-
@@ -435,6 +448,22 @@ jobs:
           ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_REGION   | TF_STATE_REGION ;
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | SSH_PRIVATE_DEPLOY_KEY_B64
 
+    - name: Load UCloud credentials
+      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'ucloud'
+      id: ucloud_vault
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        method: jwt
+        role: ${{ env.VAULT_ROLE }}
+        jwtGithubAudience: vault
+        exportToken: false
+        secrets: |
+          ${{ env.VAULT_KV_BASE }} UCLOUD_PUBLIC_KEY  | UCLOUD_PUBLIC_KEY ;
+          ${{ env.VAULT_KV_BASE }} UCLOUD_PRIVATE_KEY | UCLOUD_PRIVATE_KEY ;
+          ${{ env.VAULT_KV_BASE }} UCLOUD_PROJECT_ID  | UCLOUD_PROJECT_ID ;
+          ${{ env.VAULT_KV_BASE }} UCLOUD_REGION      | UCLOUD_REGION
+
     - name: Load Akamai Cloud token from the provider role
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'akamai-cloud'
       id: akamai_vault
@@ -503,6 +532,12 @@ jobs:
           echo "TF_VAR_project_id=${{ steps.gcp_oidc.outputs.project_id }}"                    >> "$GITHUB_ENV"
           echo "TF_VAR_deploy_service_account=${{ steps.gcp_oidc.outputs.service_account }}"    >> "$GITHUB_ENV"
           echo "TF_VAR_workload_identity_provider=${{ steps.gcp_oidc.outputs.provider }}"        >> "$GITHUB_ENV"
+          ;;
+          ucloud)
+          echo "TF_VAR_ucloud_public_key=${{ steps.ucloud_vault.outputs.UCLOUD_PUBLIC_KEY }}"   >> "$GITHUB_ENV"
+          echo "TF_VAR_ucloud_private_key=${{ steps.ucloud_vault.outputs.UCLOUD_PRIVATE_KEY }}" >> "$GITHUB_ENV"
+          echo "TF_VAR_ucloud_project_id=${{ steps.ucloud_vault.outputs.UCLOUD_PROJECT_ID }}"   >> "$GITHUB_ENV"
+          echo "TF_VAR_ucloud_region=${{ steps.ucloud_vault.outputs.UCLOUD_REGION }}"           >> "$GITHUB_ENV"
           ;;
         esac
         echo "TF_STATE_ENDPOINT=${{ steps.vault.outputs.TF_STATE_ENDPOINT }}"     >> "$GITHUB_ENV"
@@ -701,7 +736,9 @@ jobs:
 
 
     - name: Upload CMDB artifact
-      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.terraform_action == 'apply'
+      if: >-
+        ${{ (steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.terraform_action == 'apply') ||
+        (steps.route.outputs.reuse_existing_host == 'true' && steps.route.outputs.run_application_deploy == 'true') }}
       uses: actions/upload-artifact@v7
       with:
         name: platform-ops-toolkit-cmdb
@@ -709,6 +746,9 @@ jobs:
           ${{ steps.route.outputs.env_dir }}/cmdb.json
           ${{ steps.route.outputs.env_dir }}/hosts_manifest.json
           ${{ steps.route.outputs.env_dir }}/inventory.ini
+          ${{ runner.temp }}/existing-ai-workspace-cmdb/cmdb.json
+          ${{ runner.temp }}/existing-ai-workspace-cmdb/hosts_manifest.json
+          ${{ runner.temp }}/existing-ai-workspace-cmdb/inventory.ini
 
   # Aggregate UAT mode deliberately dispatches one child workflow per
   # namespace. No Terraform command runs in the parent job, so there is no
@@ -817,7 +857,8 @@ jobs:
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.provision.outputs.run_application_deploy == 'true' &&
-      needs.provision.outputs.terraform_action == 'apply' &&
+      (needs.provision.outputs.terraform_action == 'apply' ||
+      needs.provision.outputs.reuse_existing_host == 'true') &&
       needs.provision.outputs.count != '0' &&
       needs.provision.outputs.hosts != '[]' &&
       needs.provision.outputs.hosts != '' }}
@@ -1757,7 +1798,9 @@ jobs:
       bootstrap_stripe_catalog,
       trigger_data_migration,
       provision_akamai_uat_namespace_matrix,
-      deploy_xconnect_zero_uat
+      deploy_xconnect_zero_uat,
+      deploy_ai_workspace,
+      deploy_monitor_agent
     ]
     # Keep the summary alive after failed upstream jobs, but explicitly assert
     # that every declared need has produced a result. This satisfies the
@@ -1776,7 +1819,9 @@ jobs:
       needs.bootstrap_stripe_catalog.result != '' &&
       needs.trigger_data_migration.result != '' &&
       needs.provision_akamai_uat_namespace_matrix.result != '' &&
-      needs.deploy_xconnect_zero_uat.result != '' }}
+      needs.deploy_xconnect_zero_uat.result != '' &&
+      needs.deploy_ai_workspace.result != '' &&
+      needs.deploy_monitor_agent.result != '' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     steps:
     - name: Checkout repository
@@ -1799,6 +1844,8 @@ jobs:
         DATA_MIGRATION_RESULT: ${{ needs.trigger_data_migration.result }}
         AKAMAI_NAMESPACE_MATRIX_RESULT: ${{ needs.provision_akamai_uat_namespace_matrix.result }}
         XCONNECT_ZERO_UAT_RESULT: ${{ needs.deploy_xconnect_zero_uat.result }}
+        AI_WORKSPACE_RESULT: ${{ needs.deploy_ai_workspace.result }}
+        MONITOR_AGENT_RESULT: ${{ needs.deploy_monitor_agent.result }}
         DEPLOYMENT_ENV: ${{ needs.provision.outputs.deployment_env }}
         TARGET_DOMAINS: ${{ needs.provision.outputs.target_domains }}
         TERRAFORM_NAMESPACE: ${{ needs.provision.outputs.terraform_namespace }}
@@ -2280,7 +2327,8 @@ jobs:
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
       needs.provision.outputs.run_application_deploy == 'true' &&
-      needs.provision.outputs.terraform_action == 'apply' &&
+      (needs.provision.outputs.terraform_action == 'apply' ||
+      needs.provision.outputs.reuse_existing_host == 'true') &&
       needs.provision.outputs.count != '0' &&
       contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.target_domains) &&
       needs.provision.outputs.hosts_ai_workspace != '[]' &&
@@ -2312,7 +2360,8 @@ jobs:
       needs.provision.outputs.hosts_agent_proxy_non_iac == '[]' ||
       !contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       needs.provision.outputs.run_application_deploy == 'true' &&
-      needs.provision.outputs.terraform_action == 'apply' &&
+      (needs.provision.outputs.terraform_action == 'apply' ||
+      needs.provision.outputs.reuse_existing_host == 'true') &&
       needs.provision.outputs.count != '0' &&
       needs.provision.outputs.hosts != '[]' &&
       needs.provision.outputs.hosts != '' }}
