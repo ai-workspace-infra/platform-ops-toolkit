@@ -291,6 +291,7 @@ jobs:
       agent_accounts_base_url:  ${{ steps.agent_proxy_origins.outputs.accounts_service_base_url || steps.route.outputs.agent_controller_url }}
       billing_service_base_url: ${{ steps.agent_proxy_origins.outputs.billing_service_base_url || steps.route.outputs.billing_service_base_url }}
       cloud_provider:           ${{ steps.route.outputs.cloud_provider }}
+      provider_gitops_dir:      ${{ steps.route.outputs.provider_gitops_dir }}
       account:                  ${{ steps.route.outputs.account }}
       akamai_matrix_mode:       ${{ steps.route.outputs.akamai_matrix_mode }}
       akamai_matrix_action:     ${{ steps.route.outputs.akamai_matrix_action }}
