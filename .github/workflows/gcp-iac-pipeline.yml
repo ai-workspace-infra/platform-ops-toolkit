@@ -45,6 +45,11 @@ on:
         type: string
         required: false
         default: ''
+      state_migration_source_key:
+        description: Optional existing S3-compatible Terraform state key to migrate into the manifest-derived key before apply.
+        type: string
+        required: false
+        default: ''
   workflow_call:
     inputs:
       deploy_action:
@@ -77,6 +82,10 @@ on:
         type: string
         required: false
         default: ''
+      state_migration_source_key:
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -100,6 +109,7 @@ jobs:
       GITOPS_REPO_REF: ${{ inputs.gitops_repo_ref || 'main' }}
       IAC_REF: ${{ inputs.iac_ref || '54e9f7ed2782f1d30befda6a70615168bcc44921' }}
       GCP_RESOURCE_MANIFEST_INPUT: ${{ inputs.gcp_resource_manifest || '' }}
+      STATE_MIGRATION_SOURCE_KEY: ${{ inputs.state_migration_source_key || '' }}
       GCP_IAC_DIR: iac_modules/terraform-hcl-standard/gcp-cloud
 
     steps:
@@ -244,6 +254,24 @@ jobs:
             '{bootstrap_project_id:$project_id, project_id:$project_id, deploy_service_account:$service_account, workload_identity_provider:$provider}' \
             > "${RUNTIME_VARS}"
 
+      - name: Initialize legacy state backend for controlled migration
+        if: ${{ env.DEPLOY_ACTION == 'apply' && inputs.state_migration_source_key != '' }}
+        working-directory: ${{ env.GCP_IAC_DIR }}
+        env:
+          TF_CLI_ARGS_init: >-
+            -backend-config="endpoint=${{ steps.gcp_auth.outputs.state_endpoint }}"
+            -backend-config="bucket=${{ steps.gcp_auth.outputs.state_bucket }}"
+            -backend-config="key=${{ inputs.state_migration_source_key }}"
+            -backend-config="access_key=${{ steps.gcp_auth.outputs.state_access_key }}"
+            -backend-config="secret_key=${{ steps.gcp_auth.outputs.state_secret_key }}"
+            -backend-config="region=${{ steps.gcp_auth.outputs.state_region }}"
+            -backend-config="skip_credentials_validation=true"
+            -backend-config="skip_metadata_api_check=true"
+            -backend-config="skip_region_validation=true"
+            -backend-config="use_path_style=true"
+            -backend-config="use_lockfile=true"
+        run: terraform -chdir="envs/${DEPLOY_ENV}" init -input=false -reconfigure
+
       - name: Terraform init with shared state backend
         working-directory: ${{ env.GCP_IAC_DIR }}
         env:
@@ -259,7 +287,14 @@ jobs:
             -backend-config="skip_region_validation=true"
             -backend-config="use_path_style=true"
             -backend-config="use_lockfile=true"
-        run: terraform -chdir="envs/${DEPLOY_ENV}" init -input=false -reconfigure
+        run: |
+          set -euo pipefail
+          if [[ -n "${STATE_MIGRATION_SOURCE_KEY}" ]]; then
+            echo "Migrating Terraform state from ${STATE_MIGRATION_SOURCE_KEY} to ${{ steps.config.outputs.state_key }}"
+            terraform -chdir="envs/${DEPLOY_ENV}" init -input=false -migrate-state -force-copy
+          else
+            terraform -chdir="envs/${DEPLOY_ENV}" init -input=false -reconfigure
+          fi
 
       - name: Terraform format and validate
         working-directory: ${{ env.GCP_IAC_DIR }}
