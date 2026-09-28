@@ -4,7 +4,10 @@ set -euo pipefail
 : "${CMDB_FILE:?CMDB_FILE must point to the generated cmdb.json}"
 : "${AWS_BOOT_HEALTH_TIMEOUT_SECONDS:=180}"
 : "${AWS_BOOT_HEALTH_POLL_INTERVAL_SECONDS:=6}"
-: "${AWS_SSH_BANNER_TIMEOUT_SECONDS:=60}"
+# First boot can take longer than one minute after both EC2 status checks pass,
+# especially for fresh Debian ARM instances. Keep the check fail-closed, but
+# allow enough time for cloud-init and sshd to finish before declaring failure.
+: "${AWS_SSH_BANNER_TIMEOUT_SECONDS:=180}"
 : "${AWS_SSH_BANNER_POLL_INTERVAL_SECONDS:=5}"
 
 [[ -f "${CMDB_FILE}" ]] || {
