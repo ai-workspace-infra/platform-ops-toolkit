@@ -3,6 +3,7 @@ set -euo pipefail
 
 action="${BOOTSTRAP_ACTION:?BOOTSTRAP_ACTION is required}"
 config_file="${GITOPS_AWS_OIDC_CONFIG:?GITOPS_AWS_OIDC_CONFIG is required}"
+deployment_env="${DEPLOYMENT_ENV:-prod}"
 readonly expected_repository="ai-workspace-infra/platform-ops-toolkit"
 readonly deploy_role_policy_arn="arn:aws:iam::aws:policy/AdministratorAccess"
 readonly github_actions_thumbprint="6938fd4d98bab03faadb97b34396831e3780aea1"
@@ -14,6 +15,12 @@ case "${action}" in
     echo "BOOTSTRAP_ACTION must be plan or apply, got: ${action}" >&2
     exit 1
     ;;
+esac
+
+case "${deployment_env}" in
+  uat) expected_github_environment="uat" ;;
+  prod) expected_github_environment="production" ;;
+  *) echo "DEPLOYMENT_ENV must be uat or prod, got: ${deployment_env}" >&2; exit 1 ;;
 esac
 
 for command in aws jq; do
@@ -33,10 +40,10 @@ test -n "${AWS_ACCESS_KEY_ID:-}" && test -n "${AWS_SECRET_ACCESS_KEY:-}" || {
   exit 1
 }
 
-jq -e --arg repository "${expected_repository}" '
+jq -e --arg repository "${expected_repository}" --arg environment "${deployment_env}" --arg github_environment "${expected_github_environment}" '
   .apiVersion == "gitops.svc.plus/v1alpha1" and
   .kind == "GitHubActionsOIDCConfig" and
-  .metadata.environment == "prod" and
+  .metadata.environment == $environment and
   .metadata.provider == "aws" and
   .spec.provider_url == "https://token.actions.githubusercontent.com" and
   .spec.audience == "sts.amazonaws.com" and
@@ -45,10 +52,10 @@ jq -e --arg repository "${expected_repository}" '
   .spec.aws.role_arn == ("arn:aws:iam::" + .spec.aws.account_id + ":role/" + .spec.aws.role_name) and
   (.spec.subjects | type == "array") and
   (.spec.subjects | index("repo:" + $repository + ":ref:refs/heads/main")) and
-  (.spec.subjects | index("repo:" + $repository + ":ref:refs/tags/v*")) and
-  (.spec.subjects | index("repo:" + $repository + ":environment:production"))
+  (.spec.subjects | index("repo:" + $repository + ":environment:" + $github_environment)) and
+  (if $environment == "prod" then (.spec.subjects | index("repo:" + $repository + ":ref:refs/tags/v*")) else true end)
 ' "${config_file}" >/dev/null || {
-  echo "GitOps AWS OIDC declaration failed the production recovery contract." >&2
+  echo "GitOps AWS OIDC declaration failed the ${deployment_env} recovery contract." >&2
   exit 1
 }
 
@@ -178,7 +185,7 @@ if [ "${action}" = "plan" ]; then
     echo "Plan: ${role_name} already has managed policy ${deploy_role_policy_arn}."
   fi
   echo "Plan: would update ${role_name} trust policy from the GitOps declaration."
-  echo "Plan: would reconcile Name and Environment=prod tags on ${role_name}."
+  echo "Plan: would reconcile Name and Environment=${deployment_env} tags on ${role_name}."
   echo "Plan complete. No AWS IAM change was made. Re-run with action=apply after reviewing this output."
   exit 0
 fi
@@ -215,7 +222,7 @@ if [ "${role_exists}" = false ]; then
   created_role_arn="$(aws iam create-role \
     --role-name "${role_name}" \
     --assume-role-policy-document "file://${policy_file}" \
-    --tags "Key=Name,Value=${role_name}" "Key=Environment,Value=prod" \
+    --tags "Key=Name,Value=${role_name}" "Key=Environment,Value=${deployment_env}" \
     --query 'Role.Arn' \
     --output text)"
   test "${created_role_arn}" = "${role_arn}" || {
@@ -235,8 +242,8 @@ fi
 
 aws iam tag-role \
   --role-name "${role_name}" \
-  --tags "Key=Name,Value=${role_name}" "Key=Environment,Value=prod"
-echo "Reconciled Name and Environment=prod tags on ${role_name}."
+  --tags "Key=Name,Value=${role_name}" "Key=Environment,Value=${deployment_env}"
+echo "Reconciled Name and Environment=${deployment_env} tags on ${role_name}."
 
 aws iam update-assume-role-policy \
   --role-name "${role_name}" \
