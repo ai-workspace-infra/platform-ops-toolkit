@@ -4,6 +4,9 @@ set -euo pipefail
 # Hybrid is an orchestration-only control plane. It dispatches one child per
 # matrix row and waits before moving to the next row. Terraform, Serverless,
 # and existing inventory state remain owned by their respective workflows.
+# Rows marked release_scope=shared-infrastructure are excluded from routine
+# UAT deploys. Vault and Observability are shared services with their own
+# lifecycle and must not be re-bootstrapped by a business release.
 
 : "${GH_TOKEN:?GH_TOKEN is required}"
 : "${GH_REPO:?GH_REPO is required}"
@@ -117,6 +120,31 @@ dispatch_existing() {
 mapfile -t rows < <(jq -c '.resources | sort_by(.order)[]' "${MATRIX_FILE}")
 [[ "${#rows[@]}" -eq 8 ]] || { echo "::error::Hybrid matrix must contain exactly eight resources" >&2; exit 1; }
 
+validate_release_scopes() {
+  local row namespace scope
+  for row in "${rows[@]}"; do
+    namespace="$(jq -r '.namespace' <<<"${row}")"
+    scope="$(jq -r '.release_scope // "business"' <<<"${row}")"
+    case "${scope}" in
+      business|shared-infrastructure) ;;
+      *) echo "::error::Unsupported release_scope=${scope} for ${namespace}" >&2; return 1 ;;
+    esac
+  done
+}
+
+validate_release_scopes
+
+skip_shared_service_release() {
+  local row="$1" namespace scope
+  namespace="$(jq -r '.namespace' <<<"${row}")"
+  scope="$(jq -r '.release_scope // "business"' <<<"${row}")"
+  if [[ "${OPERATION}" == deploy && "${scope}" == shared-infrastructure ]]; then
+    echo "${namespace}: release_scope=${scope}; skipping routine UAT business release"
+    return 0
+  fi
+  return 1
+}
+
 if [[ "${OPERATION}" == deploy ]]; then
   # A deploy has a network prerequisite that cannot be satisfied by the
   # historical single-pass matrix: all new Terraform hosts must exist before
@@ -126,6 +154,7 @@ if [[ "${OPERATION}" == deploy ]]; then
   # Their application Playbooks run after XConnect succeeds.
   echo "::group::UAT hybrid deploy phase 1: Terraform resources"
   for row in "${rows[@]}"; do
+    skip_shared_service_release "${row}" && continue
     namespace="$(jq -r '.namespace' <<<"${row}")"
     mode="$(jq -r '.management_mode' <<<"${row}")"
     [[ "${mode}" == terraform ]] || continue
@@ -149,6 +178,7 @@ if [[ "${OPERATION}" == deploy ]]; then
 
   echo "::group::UAT hybrid deploy phase 2: Applications and existing nodes"
   for row in "${rows[@]}"; do
+    skip_shared_service_release "${row}" && continue
     namespace="$(jq -r '.namespace' <<<"${row}")"
     mode="$(jq -r '.management_mode' <<<"${row}")"
     provider="$(jq -r '.provider' <<<"${row}")"

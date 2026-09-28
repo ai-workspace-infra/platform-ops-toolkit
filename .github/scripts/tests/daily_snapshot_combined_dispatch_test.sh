@@ -75,8 +75,8 @@ serverless_poll_line="$(grep -n '/actions/runs/1001 ' "${workdir}/gh.log" | cut 
 selfhost_lines="$(grep -n '^workflow run selfhost-orchestrator.yml ' "${workdir}/gh.log" | cut -d: -f1)"
 lab_line="$(grep -n '^workflow run xconnect-zero-cloud.yaml ' "${workdir}/gh.log" | cut -d: -f1)"
 
-[[ -n "${serverless_line}" && -n "${serverless_poll_line}" && -n "${lab_line}" && "$(wc -l <<<"${selfhost_lines}")" -eq 6 ]] || {
-  echo "combined dispatcher did not issue serverless, XConnect Lab, and six isolated selfhost runs" >&2
+[[ -n "${serverless_line}" && -n "${serverless_poll_line}" && -n "${lab_line}" && "$(wc -l <<<"${selfhost_lines}")" -eq 5 ]] || {
+  echo "combined dispatcher did not issue serverless, XConnect Lab, and five business-only selfhost runs" >&2
   exit 1
 }
 first_selfhost_line="$(head -n1 <<<"${selfhost_lines}")"
@@ -85,12 +85,16 @@ first_selfhost_line="$(head -n1 <<<"${selfhost_lines}")"
   exit 1
 }
 
-for namespace in open-platform web-saas ai-workspace agent-proxy-jp agent-proxy-us agent-proxy-sg; do
+for namespace in web-saas ai-workspace agent-proxy-jp agent-proxy-us agent-proxy-sg; do
   grep -Fq -- "-f target_domains=${namespace}" "${workdir}/gh.log" || {
     echo "missing selfhost namespace dispatch: ${namespace}" >&2
     exit 1
   }
 done
+if grep -Fq -- '-f target_domains=open-platform' "${workdir}/gh.log"; then
+  echo 'Routine UAT snapshot must not dispatch the shared open-platform service lane.' >&2
+  exit 1
+fi
 
 grep -Fq -- '-f operation=deploy' "${workdir}/gh.log"
 if grep -Fq -- '-f operation=deploy+migrate' "${workdir}/gh.log"; then
