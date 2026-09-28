@@ -41,7 +41,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/gitops
-          ref: babe2c37c40fe42bb627e4a1267571955f9c3ede
+          ref: d5604bd26b8e306b8f1da2fbee00a0934170bd74
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |

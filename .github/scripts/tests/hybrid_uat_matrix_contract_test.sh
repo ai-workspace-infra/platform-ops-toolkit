@@ -31,6 +31,10 @@ jq -e '
   .spec.resources[0].account == "open-platform-prod" and
   .spec.resources[0].lifecycle == "permanent" and
   .spec.resources[0].release_scope == "shared-infrastructure" and
+  .spec.resources[0].xconnect_required == true and
+  .spec.resources[0].xconnect_gateway_ref == "tw-xconnect.svc.plus" and
+  .spec.resources[0].vault_cluster_environment == "prod" and
+  .spec.resources[0].vault_cluster_role == "prod-member" and
   all(.spec.resources[]; (.release_scope == "business" or .release_scope == "shared-infrastructure")) and
   ([.spec.resources[] | select(.release_scope == "business") | .namespace] ==
     ["web-saas","ai-workspace","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","agent-proxy-tw","agent-proxy-ph"]) and
