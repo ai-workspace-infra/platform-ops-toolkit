@@ -65,56 +65,6 @@ done
 
 export GH_TOKEN="${gh_token}"
 
-dispatch_serverless() {
-  # UAT deployments do not sync PROD data by default. An explicit
-  # enable_migration=true is required for a one-way data merge.
-  local op="${serverless_operation}"
-  if [[ -z "${op}" ]]; then
-    if [[ "${enable_migration}" == "true" ]]; then
-      op="deploy+migrate"
-    else
-      op="deploy"
-    fi
-  fi
-
-  local -a schema_args=()
-  if [[ "${adopt_accounts_baseline}" == "true" ]]; then
-    if [[ "${apply_accounts_schema_migration}" != "false" || "${enable_migration}" != "false" || "${op}" != "deploy" ]]; then
-      echo "::error::UAT baseline adoption requires operation=deploy without another migration." >&2
-      return 2
-    fi
-    schema_args=(-f adopt_accounts_baseline=true)
-  fi
-  if [[ "${apply_accounts_schema_migration}" == "true" ]]; then
-    if [[ "${enable_migration}" != "false" || "${op}" != "deploy" ]]; then
-      echo "::error::UAT schema migration requires operation=deploy and enable_migration=false." >&2
-      return 2
-    fi
-    schema_args=(
-      -f apply_accounts_schema_migration=true
-      -f "accounts_schema_expected_version=${ACCOUNTS_SCHEMA_EXPECTED_VERSION:?Expected schema version is required}"
-      -f "accounts_schema_target_version=${ACCOUNTS_SCHEMA_TARGET_VERSION:?Target schema version is required}"
-      -f "accounts_schema_sha256=${ACCOUNTS_SCHEMA_SHA256:?Migration SHA-256 is required}"
-    )
-  fi
-
-  gh workflow run "${serverless_workflow}" \
-    --repo "${target_repo}" \
-    --ref main \
-    -f "operation=${op}" \
-    -f "accounts_source_backend=${accounts_source_backend}" \
-    -f target_domains=web-saas \
-    -f vault_env_path=uat \
-    -f "tag_ref=${snapshot_tag}" \
-    -f deploy_cloudflare=true \
-    -f deploy_cloud_run=true \
-    -f "skip_stripe_catalog=${skip_stripe_catalog}" \
-    -f dns_mode=uat-records \
-    -f supabase_target_existing_strategy=accounts_merge \
-    -f supabase_target_confirm_replace=false \
-    "${schema_args[@]}"
-}
-
 wait_for_run() {
   local run_url="${1:?run URL is required}"
   local run_label="${2:?run label is required}"
@@ -158,122 +108,24 @@ wait_for_run() {
     sleep "${wait_interval_seconds}"
   done
 }
-
-dispatch_selfhost_namespace() {
-  local namespace="${1:?namespace is required}"
-  local provider="${2:?provider is required}"
-  local account="${3:?concrete account is required}"
-  local include_external="${4:?external-node flag is required}"
-  local dns_mode="${5:?dns mode is required}"
-  local instance_plan="${6:?instance plan is required}"
-  local existing_target_host="${7:-}"
-
-  # UAT business resources are provider-specific. This dispatcher is retained
-  # for the daily snapshot release path, but must never collapse the matrix to
-  # Akamai: AI Workspace is existing-selfhost, JP is AWS, US is GCP, and SG is
-  # Akamai. Web SaaS is handled by the Serverless child above.
-  gh workflow run "${selfhost_workflow}" \
-    --repo "${target_repo}" \
-    --ref main \
-    -f operation=deploy \
-    -f vault_env_path=uat \
-    -f "target_domains=${namespace}" \
-    -f "cloud_provider=${provider}" \
-    -f "cloud_account=${account}" \
-    -f "akamai_account=${akamai_account}" \
-    -f "include_external_agent_proxy=${include_external}" \
-    -f "agent_proxy_plan=${agent_proxy_plan}" \
-    -f "instance_plan=${instance_plan}" \
-    -f "existing_target_host=${existing_target_host}" \
-    -f "deploy_tag=${snapshot_tag}" \
-    -f source_host=console.svc.plus \
-    -f source_domain_base=svc.plus \
-    -f target_domain_base=onwalk.net \
-    -f "dns_mode=${dns_mode}" \
-    -f "skip_stripe_catalog=${skip_stripe_catalog}" \
-    -f "agent_controller_url=${agent_controller_url}"
-}
-
-serverless_run_url="$(dispatch_serverless | tail -n 1)"
-echo "Dispatched UAT serverless deploy for ${snapshot_tag}: ${serverless_run_url}"
-wait_for_run "${serverless_run_url}" "serverless" "${wait_timeout_seconds}"
-
-dispatch_xconnect_lab() {
-  local topology iac_ref gitops_ref
-  local -a workflow_args
-  topology="$(mktemp)"
-  trap 'rm -f "${topology}"' RETURN
-
-  # GitOps and IAC are reviewed infrastructure repositories, not application
-  # build targets, so the daily snapshot does not create a matching tag in
-  # either repository. Resolve their protected main branches to immutable
-  # commit SHAs before reading the topology or dispatching the lab.
-  iac_ref="$(gh api "repos/${iac_repository}/commits/main" --jq .sha)"
-  gitops_ref="$(gh api "repos/${gitops_repository}/commits/main" --jq .sha)"
-  [[ "${iac_ref}" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::IAC main did not resolve to a full commit SHA." >&2; return 1; }
-  [[ "${gitops_ref}" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::GitOps main did not resolve to a full commit SHA." >&2; return 1; }
-
-  # The lab is enabled by the reviewed GitOps topology introduced in #200.
-  # Read it at the resolved commit, never from a floating branch or the
-  # application snapshot tag.
-  if ! gh api -H 'Accept: application/vnd.github.raw+json' \
-    "repos/${gitops_repository}/contents/vpn-overlay/uat/xconnect-lab.json?ref=${gitops_ref}" >"${topology}"; then
-    echo "::notice::Skipping XConnect UAT Lab for ${snapshot_tag}: reviewed GitOps topology is not present on GitOps main." >&2
-    return 0
-  fi
-
-  [[ "${iac_ref}" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::IAC snapshot did not resolve to a full commit SHA." >&2; return 1; }
-  [[ "${gitops_ref}" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::GitOps snapshot did not resolve to a full commit SHA." >&2; return 1; }
-
-  cli_release_tag="$(jq -er '.spec.artifacts.one.release_tag' "${topology}")"
-  gateway_release_tag="$(jq -er '.spec.artifacts.gateway.release_tag' "${topology}")"
-  xray_release_tag="$(jq -er '.spec.artifacts.xray.release_tag' "${topology}")"
-  [[ -z "${xconnect_one_release_override}" ]] || cli_release_tag="${xconnect_one_release_override}"
-  [[ -z "${xconnect_gateway_release_override}" ]] || gateway_release_tag="${xconnect_gateway_release_override}"
-  for release_tag in "${cli_release_tag}" "${gateway_release_tag}" "${xray_release_tag}"; do
-    [[ "${release_tag}" =~ ^v[0-9A-Za-z._-]+$ ]] || { echo "::error::Invalid XConnect release tag in GitOps topology." >&2; return 1; }
-  done
-
-  workflow_args=(
-    workflow run "${xconnect_lab_workflow}"
-    --repo "${target_repo}"
-    --ref main
-    -f mode=apply
-    -f "iac_ref=${iac_ref}"
-    -f "gitops_ref=${gitops_ref}"
-    -f "cli_release_tag=${cli_release_tag}"
-    -f "gateway_release_tag=${gateway_release_tag}"
-    -f "xray_release_tag=${xray_release_tag}"
-  )
-  if [[ -n "${xconnect_one_release_override}" || -n "${xconnect_gateway_release_override}" ]]; then
-    workflow_args+=(-f allow_release_overrides=true)
-  fi
-  gh "${workflow_args[@]}"
-}
-
-xconnect_lab_run_url="$(dispatch_xconnect_lab)"
-if [[ -n "${xconnect_lab_run_url}" ]]; then
-  echo "Dispatched XConnect UAT Lab for ${snapshot_tag}: ${xconnect_lab_run_url}"
-fi
-
-# Keep the deployment order explicit. This routine UAT release updates only
-# business services and their own resources. `open-platform` is intentionally
-# absent: Vault and Observability are shared infrastructure and must not be
-# re-bootstrapped or restarted as a side effect of an application release.
-# Web SaaS is Serverless-only. AI Workspace is an existing host. JP/US/SG use
-# their declared providers; none of these rows may silently fall back to
-# Akamai.
-namespaces=(
-  "ai-workspace|gcp-cloud|${gcp_account}|false|none|4C8G|${existing_ai_workspace_host}"
-  "agent-proxy-jp|aws-cloud|${aws_account}|false|none|2C2G|"
-  "agent-proxy-us|gcp-cloud|${gcp_account}|false|none|2C2G|"
-  "agent-proxy-sg|akamai-cloud|${akamai_account}|false|none|2C2G|"
-)
-
-for namespace_spec in "${namespaces[@]}"; do
-  IFS='|' read -r namespace provider account include_external dns_mode instance_plan existing_target_host <<<"${namespace_spec}"
-  selfhost_run_url="$(dispatch_selfhost_namespace "${namespace}" "${provider}" "${account}" "${include_external}" "${dns_mode}" "${instance_plan}" "${existing_target_host}" | tail -n 1)"
-  echo "Dispatched UAT selfhost ${namespace} deploy for ${snapshot_tag}: ${selfhost_run_url}"
-  echo "Agent Proxy controller: ${agent_controller_url}"
-  wait_for_run "${selfhost_run_url}" "selfhost ${namespace}" "${selfhost_wait_timeout_seconds}"
-done
+hybrid_workflow="${HYBRID_WORKFLOW:-hybrid-orchestrator.yml}"
+hybrid_run_url="$(gh workflow run "${hybrid_workflow}" \
+  --repo "${target_repo}" \
+  --ref main \
+  -f operation=deploy \
+  -f target_domains=all \
+  -f "deploy_tag=${snapshot_tag}" \
+  -f source_ref=main \
+  -f runner_type=ubuntu-latest \
+  -f vault_env_path=uat \
+  -f target_domain_base=onwalk.net \
+  -f observability_endpoint=https://observability.svc.plus \
+  -f "akamai_account=${akamai_account}" \
+  -f "aws_account=${aws_account}" \
+  -f "gcp_account=${gcp_account}" \
+  -f "existing_account=ucloud-ulighthost" \
+  -f routing_mode=selfhost-first \
+  -f vault_addr=https://vault.svc.plus \
+  -f xconnect_gateway_ref=tw-xconnect.svc.plus)"
+echo "Dispatched UAT Hybrid Orchestrator for ${snapshot_tag}: ${hybrid_run_url}"
+wait_for_run "${hybrid_run_url}" "hybrid" "${selfhost_wait_timeout_seconds}"
