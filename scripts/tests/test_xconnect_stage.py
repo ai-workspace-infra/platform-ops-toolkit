@@ -38,7 +38,7 @@ TOPOLOGY = {
         "control_plane": {"accounts_api_url": "https://accounts.svc.plus"},
         "dns": {
             "enabled": True,
-            "interface": "xconone0",
+            "interface": "xconzero0",
             "listen_address": "10.79.0.1",
             "zone": "shared.internal",
             "domains": ["shared.internal", "svc.plus"],
@@ -109,6 +109,7 @@ class TopologyTests(unittest.TestCase):
         self.assertEqual(declared["frontend"], "caddy-unix-h2c")
         self.assertIs(declared["dns_enabled"], True)
         self.assertEqual(declared["dns_listen_address"], "10.79.0.1")
+        self.assertEqual(declared["dns_interface"], "xconzero0")
         self.assertEqual(declared["dns_records"], [{"name": "internal-xworkmate-bridge.svc.plus", "device_id": "secops-one"}])
 
     def test_rejects_a_non_https_controller(self):
@@ -196,6 +197,7 @@ class VarsTests(unittest.TestCase):
         self.assertEqual(values["xconnect_gateway_binary_source"], "/r/bin/xconnect-gateway")
         self.assertEqual(values["xconnect_gateway_trust_bundle_source"], "/r/secrets/trust-bundle.pem")
         self.assertIs(values["xconnect_gateway_dns_enabled"], True)
+        self.assertEqual(values["xconnect_gateway_dns_interface"], "xconzero0")
         self.assertEqual(values["xconnect_gateway_dns_records"], [{"name": "internal-xworkmate-bridge.svc.plus", "device_id": "secops-one"}])
         self.assertEqual(values["xconnect_gateway_invite_file_source"], "/r/secrets/g.invite")
         self.assertEqual(module.gateway_vars(topology(), CONTRACT, Path("/b"), Path("/s"), None)
