@@ -241,7 +241,11 @@ jobs:
         if: ${{ success() && matrix.organization == 'ai-workspace-xstream' }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          RELEASE_REF: ${{ needs.resolve-snapshot-tag.outputs.snapshot_tag }}
+          # xconnect-app is the release orchestrator and is not part of the
+          # component snapshot tag set. Check out the requested source ref
+          # there, while keeping the immutable component snapshot as the
+          # published release tag.
+          RELEASE_REF: ${{ inputs.snapshot_source_ref || 'main' }}
           RELEASE_TAG: ${{ needs.resolve-snapshot-tag.outputs.snapshot_tag }}
           DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
         run: |

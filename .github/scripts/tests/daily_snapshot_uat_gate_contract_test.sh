@@ -37,4 +37,15 @@ grep -Fq 'xconnect_one_release_tag:' "${workflow}"
 grep -Fq 'xconnect_gateway_release_tag:' "${workflow}"
 grep -Fq 'SNAPSHOT_TAG' "${dispatcher}"
 
+python3 - "${workflow}" <<'PY'
+from pathlib import Path
+import sys
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+if "RELEASE_REF: ${{ inputs.snapshot_source_ref || 'main' }}" not in text:
+    raise SystemExit("XConnect release must use the source ref, not the component snapshot tag")
+if "client_payload[release_tag]=${RELEASE_TAG}" not in text:
+    raise SystemExit("XConnect release must keep the immutable snapshot as release_tag")
+PY
+
 echo "daily_snapshot_uat_gate_contract_test: PASS"
