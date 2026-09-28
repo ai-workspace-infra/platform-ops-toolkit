@@ -134,7 +134,11 @@ dispatch_serverless() {
   dispatch_and_wait serverless-orchestrator.yml "${payload}" "web-saas serverless"
 }
 
-dispatch_xconnect() {
+# The Existing UAT One workflow is a migration-only path. It reads the
+# protected source record under prod/ulighthost-xconnect and must never be a
+# prerequisite of an ordinary deploy. New open-platform/GCP resources and
+# business nodes use their declared runtime/network integration instead.
+dispatch_xconnect_migration() {
   local payload
   payload="$(jq -n --arg ref "${CHILD_REF}" --arg gateway_ref "${XCONNECT_GATEWAY_REF}" '{ref:$ref,inputs:{deployment_profile:"existing-one",mode:"apply",gateway_provider:"external",external_gateway_server_name:$gateway_ref,gateway_vault_key:$gateway_ref,matrix_node_filter:"all"}}')"
   dispatch_and_wait xconnect-zero-cloud.yaml "${payload}" "XConnect Zero UAT (${XCONNECT_GATEWAY_REF})"
@@ -199,10 +203,6 @@ if [[ "${OPERATION}" == deploy ]]; then
       dispatch_selfhost infra "${namespace}" "${provider}" "${account}" "${profile}" "${agent_profile}"
     fi
   done
-  echo "::endgroup::"
-
-  echo "::group::UAT hybrid deploy gate: XConnect Zero"
-  dispatch_xconnect
   echo "::endgroup::"
 
   echo "::group::UAT hybrid deploy phase 2: Applications and existing nodes"
@@ -276,7 +276,6 @@ for row in "${rows[@]}"; do
       if [[ "${OPERATION}" == destroy ]]; then
         echo "${namespace}: existing host ${existing_host} is protected; skipping destroy"
       else
-        if [[ "${OPERATION}" == deploy ]]; then dispatch_xconnect; fi
         if [[ "${OPERATION}" == apply ]]; then child_operation=plan; fi
         dispatch_selfhost "${child_operation}" "${namespace}" "${provider}" "${account}" "${profile}" "${agent_profile}" "${existing_host}"
       fi
