@@ -441,16 +441,28 @@ jobs:
         exportToken: true
         secrets: |
           ${{ env.VAULT_KV_BASE }} VULTR_API_KEY     | VULTR_API_KEY ;
-          ${{ env.VAULT_KV_BASE }} UCLOUD_PUBLIC_KEY  | UCLOUD_PUBLIC_KEY ;
-          ${{ env.VAULT_KV_BASE }} UCLOUD_PRIVATE_KEY | UCLOUD_PRIVATE_KEY ;
-          ${{ env.VAULT_KV_BASE }} UCLOUD_PROJECT_ID  | UCLOUD_PROJECT_ID ;
-          ${{ env.VAULT_KV_BASE }} UCLOUD_REGION      | UCLOUD_REGION ;
           ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
           ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_BUCKET   | TF_STATE_BUCKET ;
           ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
           ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
           ${{ env.VAULT_KV_IAC_STATE }} TF_STATE_REGION   | TF_STATE_REGION ;
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | SSH_PRIVATE_DEPLOY_KEY_B64
+
+    - name: Load UCloud credentials
+      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'ucloud'
+      id: ucloud_vault
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        method: jwt
+        role: ${{ env.VAULT_ROLE }}
+        jwtGithubAudience: vault
+        exportToken: false
+        secrets: |
+          ${{ env.VAULT_KV_BASE }} UCLOUD_PUBLIC_KEY  | UCLOUD_PUBLIC_KEY ;
+          ${{ env.VAULT_KV_BASE }} UCLOUD_PRIVATE_KEY | UCLOUD_PRIVATE_KEY ;
+          ${{ env.VAULT_KV_BASE }} UCLOUD_PROJECT_ID  | UCLOUD_PROJECT_ID ;
+          ${{ env.VAULT_KV_BASE }} UCLOUD_REGION      | UCLOUD_REGION
 
     - name: Load Akamai Cloud token from the provider role
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'akamai-cloud'
@@ -522,10 +534,10 @@ jobs:
           echo "TF_VAR_workload_identity_provider=${{ steps.gcp_oidc.outputs.provider }}"        >> "$GITHUB_ENV"
           ;;
           ucloud)
-          echo "TF_VAR_ucloud_public_key=${{ steps.vault.outputs.UCLOUD_PUBLIC_KEY }}"   >> "$GITHUB_ENV"
-          echo "TF_VAR_ucloud_private_key=${{ steps.vault.outputs.UCLOUD_PRIVATE_KEY }}" >> "$GITHUB_ENV"
-          echo "TF_VAR_ucloud_project_id=${{ steps.vault.outputs.UCLOUD_PROJECT_ID }}"   >> "$GITHUB_ENV"
-          echo "TF_VAR_ucloud_region=${{ steps.vault.outputs.UCLOUD_REGION }}"           >> "$GITHUB_ENV"
+          echo "TF_VAR_ucloud_public_key=${{ steps.ucloud_vault.outputs.UCLOUD_PUBLIC_KEY }}"   >> "$GITHUB_ENV"
+          echo "TF_VAR_ucloud_private_key=${{ steps.ucloud_vault.outputs.UCLOUD_PRIVATE_KEY }}" >> "$GITHUB_ENV"
+          echo "TF_VAR_ucloud_project_id=${{ steps.ucloud_vault.outputs.UCLOUD_PROJECT_ID }}"   >> "$GITHUB_ENV"
+          echo "TF_VAR_ucloud_region=${{ steps.ucloud_vault.outputs.UCLOUD_REGION }}"           >> "$GITHUB_ENV"
           ;;
         esac
         echo "TF_STATE_ENDPOINT=${{ steps.vault.outputs.TF_STATE_ENDPOINT }}"     >> "$GITHUB_ENV"
