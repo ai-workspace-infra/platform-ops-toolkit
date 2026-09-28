@@ -57,39 +57,24 @@ if grep -Fq "config/resources/" <<<"${deploy_output}"; then
   exit 1
 fi
 
-matrix_plan_output="$(run_route env INPUT_TARGET_DOMAINS=all INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=plan INPUT_DNS_MODE=none)"
-assert_contains "${matrix_plan_output}" "akamai_matrix_mode=true"
-assert_contains "${matrix_plan_output}" "akamai_matrix_action=plan"
-assert_contains "${matrix_plan_output}" "akamai_matrix_workspaces=open-platform web-saas ai-workspace agent-proxy-jp agent-proxy-us agent-proxy-sg"
-assert_contains "${matrix_plan_output}" "target_domain_base=onwalk.net"
-assert_contains "${matrix_plan_output}" "state_key="
-assert_contains "${matrix_plan_output}" "run_infrastructure=false"
-
-matrix_apply_output="$(run_route env INPUT_TARGET_DOMAINS=all INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=infra INPUT_DNS_MODE=none)"
-assert_contains "${matrix_apply_output}" "akamai_matrix_mode=true"
-assert_contains "${matrix_apply_output}" "akamai_matrix_action=apply"
-assert_contains "${matrix_apply_output}" "terraform_action=none"
-
-matrix_deploy_output="$(run_route env INPUT_TARGET_DOMAINS=all INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=deploy INPUT_DNS_MODE=none)"
-assert_contains "${matrix_deploy_output}" "akamai_matrix_mode=true"
-assert_contains "${matrix_deploy_output}" "akamai_matrix_action=deploy"
-assert_contains "${matrix_deploy_output}" "terraform_action=none"
-assert_contains "${matrix_deploy_output}" "run_application_deploy=false"
-
-for matrix_operation in deploy+migrate migrate destroy; do
-  if run_route env INPUT_TARGET_DOMAINS=all INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION="${matrix_operation}" INPUT_DNS_MODE=none >/dev/null 2>&1; then
-    echo "UAT Akamai target_domains=all unexpectedly accepted operation ${matrix_operation}" >&2
-    exit 1
-  fi
-done
-
-if run_route env INPUT_TARGET_DOMAINS=all INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=plan INPUT_TARGET_DOMAIN_BASE=svc.plus INPUT_DNS_MODE=none >/dev/null 2>&1; then
-  echo "UAT Akamai matrix unexpectedly accepted a non-onwalk.net target domain" >&2
+if run_route env INPUT_TARGET_DOMAINS=all INPUT_CLOUD_PROVIDER=akamai-cloud INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=plan INPUT_DNS_MODE=none >/dev/null 2>&1; then
+  echo "legacy direct Akamai target_domains=all unexpectedly bypassed Hybrid Orchestrator" >&2
   exit 1
 fi
 
+if run_route env INPUT_TARGET_DOMAINS=ai-workspace INPUT_CLOUD_PROVIDER=akamai-cloud INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=deploy INPUT_DNS_MODE=none >/dev/null 2>&1; then
+  echo "UAT ai-workspace unexpectedly accepted Akamai Terraform creation" >&2
+  exit 1
+fi
+
+ai_existing_output="$(run_route env INPUT_TARGET_DOMAINS=ai-workspace INPUT_CLOUD_PROVIDER=gcp-cloud INPUT_CLOUD_ACCOUNT=xworktech INPUT_EXISTING_TARGET_HOST=10.79.0.7 INPUT_OPERATION=deploy INPUT_DNS_MODE=none)"
+assert_contains "${ai_existing_output}" "reuse_existing_host=true"
+assert_contains "${ai_existing_output}" "existing_target_host=10.79.0.7"
+assert_contains "${ai_existing_output}" "terraform_action=none"
+assert_contains "${ai_existing_output}" "state_key="
+
 namespace_state_keys=()
-for namespace in web-saas open-platform ai-workspace agent-proxy-jp agent-proxy-us agent-proxy-sg; do
+for namespace in web-saas open-platform agent-proxy-jp agent-proxy-us agent-proxy-sg; do
   selected_domain="${namespace}"
   expected_domain="${namespace}"
   if [[ "${namespace}" == agent-proxy-* ]]; then
@@ -107,8 +92,8 @@ for namespace in web-saas open-platform ai-workspace agent-proxy-jp agent-proxy-
   namespace_state_keys+=("${state_key}")
 done
 unique_state_key_count="$(printf '%s\n' "${namespace_state_keys[@]}" | sort -u | wc -l | tr -d ' ')"
-if [[ "${unique_state_key_count}" -ne 6 || "${#namespace_state_keys[@]}" -ne 6 ]]; then
-  echo "expected exactly six unique UAT Akamai namespace state keys" >&2
+if [[ "${unique_state_key_count}" -ne 5 || "${#namespace_state_keys[@]}" -ne 5 ]]; then
+  echo "expected exactly five direct UAT Akamai namespace state keys; AI Workspace is existing-selfhost" >&2
   exit 1
 fi
 
@@ -135,25 +120,7 @@ grep -Fq 'repository: ai-workspace-lab/xworkmate-bridge' "${matrix_workflow}"
 grep -Fq 'path: xworkmate-bridge' "${matrix_workflow}"
 grep -Fq 'owner: ai-workspace-lab' "${matrix_workflow}"
 bash -n "${matrix_deploy_script}"
-for namespace in open-platform web-saas ai-workspace agent-proxy-jp agent-proxy-us agent-proxy-sg; do
-  grep -Fq "\"${namespace}|" "${matrix_deploy_script}" || {
-    echo "ordered UAT dispatcher must include namespace ${namespace}" >&2
-    exit 1
-  }
-done
-grep -Fq '"open-platform|false|none|2C4G"' "${matrix_deploy_script}"
-grep -Fq '"web-saas|false|${DNS_MODE}|2C4G"' "${matrix_deploy_script}"
-grep -Fq '"ai-workspace|false|none|4C8G"' "${matrix_deploy_script}"
-grep -Fq '"agent-proxy-jp|false|none|1C2G"' "${matrix_deploy_script}"
-grep -Fq '"agent-proxy-us|false|none|1C2G"' "${matrix_deploy_script}"
-grep -Fq '"agent-proxy-sg|${INCLUDE_EXTERNAL_AGENT_PROXY}|none|1C2G"' "${matrix_deploy_script}"
-grep -Fq 'namespace_plan' "${matrix_deploy_script}"
-grep -Fq 'target_domains:$target_domains' "${matrix_deploy_script}"
-grep -Fq 'observability_endpoint:$observability_endpoint' "${matrix_deploy_script}"
-grep -Fq 'child_agent_controller_url="https://accounts-serverless-uat.onwalk.net"' "${matrix_deploy_script}"
-grep -Fq 'if [[ -z "${child_agent_controller_url}" && "${namespace}" == agent-proxy-* ]]; then' "${matrix_deploy_script}"
-grep -Fq -- '--arg agent_controller_url "${child_agent_controller_url}"' "${matrix_deploy_script}"
-grep -Fq 'selfhost deploy run' "${matrix_deploy_script}"
+grep -Fq 'legacy Akamai-only UAT namespace dispatcher is disabled' "${matrix_deploy_script}"
 grep -Fq 'id: gcp_oidc' "${matrix_workflow}"
 grep -Fq 'TF_VAR_deploy_service_account=${{ steps.gcp_oidc.outputs.service_account }}' "${matrix_workflow}"
 grep -Fq 'TF_VAR_workload_identity_provider=${{ steps.gcp_oidc.outputs.provider }}' "${matrix_workflow}"

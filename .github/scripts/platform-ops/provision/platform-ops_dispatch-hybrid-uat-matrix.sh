@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Hybrid is an orchestration-only control plane. It dispatches one child per
-# matrix row and waits before moving to the next row. Terraform, Serverless,
-# and existing inventory state remain owned by their respective workflows.
+# Hybrid is the only UAT multi-cloud entry point. It dispatches one child per
+# matrix row and waits before moving to the next row. The provider, account,
+# region, and lifecycle always come from the versioned GitOps/IAC matrix;
+# operator-level cloud defaults must never overwrite a row. Terraform,
+# Serverless, and existing inventory state remain owned by their workflows.
 # Rows marked release_scope=shared-infrastructure are excluded from routine
 # UAT deploys. Vault and Observability are shared services with their own
 # lifecycle and must not be re-bootstrapped by a business release.
@@ -101,6 +103,10 @@ dispatch_selfhost() {
 
 dispatch_serverless() {
   local child_operation="$1" target_domains="${2:-all}" payload
+  # Pages/Workers is the public SSR/edge gateway. It receives both origins
+  # from GitOps and applies selfhost-first routing; Cloud Run remains the
+  # elastic/fallback origin for web-saas, not a replacement for its full-stack
+  # Selfhost backend.
   payload="$(jq -n --arg ref "${CHILD_REF}" --arg operation "${child_operation}" --arg tag "${DEPLOY_TAG}" --arg target_domains "${target_domains}" '{ref:$ref,inputs:{operation:$operation,target_domains:$target_domains,cloud_provider:"gcp-cloud",vault_env_path:"uat",tag_ref:$tag,deploy_cloudflare:"true",deploy_cloud_run:"true",skip_stripe_catalog:"true",dns_mode:"none",runner_type:"ubuntu-latest"}}')"
   dispatch_and_wait serverless-orchestrator.yml "${payload}" "web-saas serverless"
 }

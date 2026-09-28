@@ -75,8 +75,8 @@ serverless_poll_line="$(grep -n '/actions/runs/1001 ' "${workdir}/gh.log" | cut 
 selfhost_lines="$(grep -n '^workflow run selfhost-orchestrator.yml ' "${workdir}/gh.log" | cut -d: -f1)"
 lab_line="$(grep -n '^workflow run xconnect-zero-cloud.yaml ' "${workdir}/gh.log" | cut -d: -f1)"
 
-[[ -n "${serverless_line}" && -n "${serverless_poll_line}" && -n "${lab_line}" && "$(wc -l <<<"${selfhost_lines}")" -eq 5 ]] || {
-  echo "combined dispatcher did not issue serverless, XConnect Lab, and five business-only selfhost runs" >&2
+[[ -n "${serverless_line}" && -n "${serverless_poll_line}" && -n "${lab_line}" && "$(wc -l <<<"${selfhost_lines}")" -eq 4 ]] || {
+  echo "combined dispatcher did not issue serverless, XConnect Lab, and four provider-routed selfhost runs" >&2
   exit 1
 }
 first_selfhost_line="$(head -n1 <<<"${selfhost_lines}")"
@@ -85,12 +85,16 @@ first_selfhost_line="$(head -n1 <<<"${selfhost_lines}")"
   exit 1
 }
 
-for namespace in web-saas ai-workspace agent-proxy-jp agent-proxy-us agent-proxy-sg; do
+for namespace in ai-workspace agent-proxy-jp agent-proxy-us agent-proxy-sg; do
   grep -Fq -- "-f target_domains=${namespace}" "${workdir}/gh.log" || {
     echo "missing selfhost namespace dispatch: ${namespace}" >&2
     exit 1
   }
 done
+if grep '^workflow run selfhost-orchestrator.yml ' "${workdir}/gh.log" | grep -Fq -- '-f target_domains=web-saas'; then
+  echo 'Web SaaS must remain Serverless-only in the daily UAT dispatcher.' >&2
+  exit 1
+fi
 if grep -Fq -- '-f target_domains=open-platform' "${workdir}/gh.log"; then
   echo 'Routine UAT snapshot must not dispatch the shared open-platform service lane.' >&2
   exit 1
@@ -108,9 +112,21 @@ grep -Fq -- '-f tag_ref=uat-daily-build-2026.08.21-r5' "${workdir}/gh.log"
 grep -Fq -- '-f dns_mode=uat-records' "${workdir}/gh.log"
 grep -Fq -- '-f skip_stripe_catalog=true' "${workdir}/gh.log"
 grep -Fq -- '-f operation=deploy' "${workdir}/gh.log"
+grep -Fq -- '-f cloud_provider=aws-cloud' "${workdir}/gh.log"
+grep -Fq -- '-f cloud_provider=gcp-cloud' "${workdir}/gh.log"
 grep -Fq -- '-f cloud_provider=akamai-cloud' "${workdir}/gh.log"
-grep -Fq -- '-f akamai_account=manbuzhe2026' "${workdir}/gh.log"
-grep -Fq -- '-f include_external_agent_proxy=true' "${workdir}/gh.log"
+grep -Fq -- '-f cloud_account=950604983695' "${workdir}/gh.log"
+grep -Fq -- '-f cloud_account=xworktech' "${workdir}/gh.log"
+grep -Fq -- '-f cloud_account=manbuzhe2026' "${workdir}/gh.log"
+grep -Fq -- '-f existing_target_host=10.79.0.7' "${workdir}/gh.log"
+if grep -Fq -- '-f target_domains=ai-workspace -f cloud_provider=akamai-cloud' "${workdir}/gh.log"; then
+  echo 'AI Workspace must never be dispatched to Akamai.' >&2
+  exit 1
+fi
+if grep '^workflow run selfhost-orchestrator.yml ' "${workdir}/gh.log" | grep -Fq -- '-f include_external_agent_proxy=true'; then
+  echo 'Daily UAT provider lanes must not implicitly own the TW/PH existing inventory.' >&2
+  exit 1
+fi
 grep -Fq -- '-f include_external_agent_proxy=false' "${workdir}/gh.log"
 grep -Fq -- '-f dns_mode=uat-records' "${workdir}/gh.log"
 grep -Fq -- '-f dns_mode=none' "${workdir}/gh.log"

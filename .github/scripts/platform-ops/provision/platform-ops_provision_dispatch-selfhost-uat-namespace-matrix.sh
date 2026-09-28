@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Aggregate UAT deployment is an orchestration operation only. Each child
-# selfhost run owns exactly one Akamai Terraform namespace and performs its
-# own Terraform apply followed by the matching bootstrap/application jobs.
-# The parent never renders Terraform and never gets a shared state key.
+# Retained only as a compatibility guard. The old Akamai-only aggregate path
+# used to create AI Workspace and every Agent Proxy on Akamai. The supported
+# entry point is now hybrid-orchestrator.yml, whose matrix selects the actual
+# provider for each namespace and reuses AI Workspace as existing-selfhost.
 
 : "${GH_TOKEN:?GH_TOKEN is required}"
 : "${GH_REPO:?GH_REPO is required}"
@@ -21,6 +21,9 @@ set -euo pipefail
 : "${OPEN_PLATFORM_SERVICE:?OPEN_PLATFORM_SERVICE is required}"
 : "${SKIP_STRIPE_CATALOG:?SKIP_STRIPE_CATALOG is required}"
 : "${VAULT_ADDR:?VAULT_ADDR is required}"
+
+echo "::error::The legacy Akamai-only UAT namespace dispatcher is disabled. Use hybrid-orchestrator.yml with target_domains=all; it routes JP=AWS, US=GCP, SG=Akamai, and AI Workspace=existing-selfhost." >&2
+exit 1
 
 RUNNER_TYPE="${RUNNER_TYPE:-ubuntu-latest}"
 OFFLINE_MODE="${OFFLINE_MODE:-off}"

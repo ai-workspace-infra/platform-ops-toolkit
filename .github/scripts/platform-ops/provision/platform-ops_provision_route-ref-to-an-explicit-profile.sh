@@ -183,6 +183,16 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   set_provider_metadata
   existing_target_host="${INPUT_EXISTING_TARGET_HOST:-}"
   existing_target_user="${INPUT_EXISTING_TARGET_USER:-root}"
+  if [[ "${deployment_env}" == "uat" && "${target_domains}" == "all" ]]; then
+    echo "::error::UAT target_domains=all is reserved for hybrid-orchestrator.yml. Dispatch the Hybrid workflow so each namespace keeps its declared provider; direct Selfhost all is disabled." >&2
+    exit 1
+  fi
+  if [[ "${deployment_env}" == "uat" && "${target_domains}" == "ai-workspace" ]]; then
+    [[ "${cloud_provider}" == "gcp-cloud" && "${existing_target_host}" == "10.79.0.7" ]] || {
+      echo "::error::UAT ai-workspace is existing-selfhost only; use cloud_provider=gcp-cloud and existing_target_host=10.79.0.7. Terraform creation is disabled." >&2
+      exit 1
+    }
+  fi
   if [[ -n "${existing_target_host}" ]]; then
     [[ "${deployment_env}" == uat ]] || {
       echo "::error::existing_target_host is UAT-only; existing production nodes are not deploy targets for this workflow." >&2
@@ -242,33 +252,8 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
         resource_files_full="$(resolve_gitops_resource_files "${deployment_env}" "${cloud_provider}" "${requested_target_domains}")"
         ;;
       all)
-        # Aggregate UAT Akamai operations always fan out to six child
-        # workflows, each with its own backend key and lockfile. The parent
-        # must never render or operate a shared aggregate state. `deploy` is
-        # a complete ordered child deployment; `plan`/`infra` remain the
-        # Stage A Terraform-only fan-out modes.
-        operation="${INPUT_OPERATION:-plan}"
-        case "${operation}" in
-          plan) akamai_matrix_action=plan ;;
-          infra) akamai_matrix_action=apply ;;
-          deploy) akamai_matrix_action=deploy ;;
-          *)
-            echo "::error::UAT Akamai target_domains=all supports only plan, infra, or deploy fan-out. Select one namespace for '${operation}'." >&2
-            exit 1
-            ;;
-        esac
-        if [[ "${INPUT_TARGET_DOMAIN_BASE:-${TARGET_DOMAIN_BASE_DEFAULT}}" != "onwalk.net" ]]; then
-          echo "::error::UAT Akamai Stage A target_domains=all requires target_domain_base=onwalk.net." >&2
-          exit 1
-        fi
-        akamai_matrix_mode=true
-        akamai_matrix_workspaces="open-platform web-saas ai-workspace agent-proxy-jp agent-proxy-us agent-proxy-sg"
-        terraform_namespace=akamai-uat-matrix
-        rf=akamai-uat-matrix
-        resource_file="${deployment_env}/akamai-matrix"
-        resource_files_full=""
-        terraform_workspace=""
-        state_key=""
+        echo "::error::unreachable: UAT target_domains=all was not rejected before provider routing" >&2
+        exit 1
         ;;
       agent-proxy|'web-saas + agent-proxy'|infra-platform)
         echo "::error::UAT Akamai resources have six isolated Terraform namespaces; aggregate target '${requested_target_domains}' is disabled. Select one workload or one agent-proxy region, or use target_domains=all for Stage A plan/infra fan-out." >&2
