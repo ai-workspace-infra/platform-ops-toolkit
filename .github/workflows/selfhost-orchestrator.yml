@@ -501,6 +501,7 @@ jobs:
       with:
         environment: ${{ steps.route.outputs.deployment_env }}
         account_id: ${{ steps.route.outputs.account }}
+        credential_environment: ${{ steps.route.outputs.account == 'open-platform-prod' && 'shared' || steps.route.outputs.deployment_env }}
         vault_addr: ${{ env.VAULT_ADDR }}
 
     - name: Configure Azure Credentials (OIDC)

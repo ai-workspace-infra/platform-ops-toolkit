@@ -5,6 +5,10 @@ inputs:
   environment:
     description: Target deployment environment.
     required: true
+  credential_environment:
+    description: Vault environment path containing the GCP OIDC record. Defaults to the deployment environment.
+    required: false
+    default: ""
   account_id:
     description: Stable GCP account identifier used in the Vault role and path.
     required: true
@@ -52,10 +56,10 @@ runs:
         jwtGithubAudience: vault
         exportToken: false
         secrets: |
-          kv/data/${{ inputs.environment }}/platform/oidc/${{ inputs.account_id }} gcp_workload_identity_provider | GCP_WORKLOAD_IDENTITY_PROVIDER ;
-          kv/data/${{ inputs.environment }}/platform/oidc/${{ inputs.account_id }} deploy_service_account | GCP_SERVICE_ACCOUNT_EMAIL ;
-          kv/data/${{ inputs.environment }}/platform/oidc/${{ inputs.account_id }} gcp_oidc_audience | GCP_OIDC_AUDIENCE ;
-          kv/data/${{ inputs.environment }}/platform/oidc/${{ inputs.account_id }} project_id | GCP_PROJECT_ID ;
+          kv/data/${{ inputs.credential_environment || inputs.environment }}/platform/oidc/${{ inputs.account_id }} gcp_workload_identity_provider | GCP_WORKLOAD_IDENTITY_PROVIDER ;
+          kv/data/${{ inputs.credential_environment || inputs.environment }}/platform/oidc/${{ inputs.account_id }} deploy_service_account | GCP_SERVICE_ACCOUNT_EMAIL ;
+          kv/data/${{ inputs.credential_environment || inputs.environment }}/platform/oidc/${{ inputs.account_id }} gcp_oidc_audience | GCP_OIDC_AUDIENCE ;
+          kv/data/${{ inputs.credential_environment || inputs.environment }}/platform/oidc/${{ inputs.account_id }} project_id | GCP_PROJECT_ID ;
           kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
           kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
           kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
