@@ -40,6 +40,19 @@ grep -Fq 'GITOPS_AGENT_PROXY_RESOURCE_DIR: ${{ github.workspace }}/gitops/resour
   echo "deploy_base must consume provider GitOps output through needs.provision" >&2
   exit 1
 }
+deploy_base_block="$(sed -n '/^  deploy_base:/,/^  deploy_web_saas:/p' "${workflow}")"
+grep -Fq 'name: Checkout GitOps Agent Proxy resources' <<<"${deploy_base_block}" || {
+  echo "deploy_base must checkout reviewed GitOps Agent Proxy resources" >&2
+  exit 1
+}
+grep -Fq 'repository: ai-workspace-infra/gitops' <<<"${deploy_base_block}" || {
+  echo "deploy_base GitOps checkout must use the reviewed GitOps repository" >&2
+  exit 1
+}
+grep -Fq 'ref: ${{ needs.provision.outputs.gitops_ref }}' <<<"${deploy_base_block}" || {
+  echo "deploy_base GitOps checkout must use the provision-pinned GitOps ref" >&2
+  exit 1
+}
 route_script="${repo_root}/.github/scripts/platform-ops/provision/platform-ops_provision_route-ref-to-an-explicit-profile.sh"
 grep -Fq 'STATE_PROJECT="platform-ops-toolkit"' "${route_script}" &&
 grep -Fq 'AKAMAI_UAT_PROJECT="svc.plus"' "${route_script}" &&

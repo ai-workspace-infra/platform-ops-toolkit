@@ -846,6 +846,19 @@ jobs:
         ref: ${{ needs.provision.outputs.playbooks_ref }}
         path: playbooks
 
+    - name: Checkout GitOps Agent Proxy resources
+      if: >-
+        ${{ contains(fromJSON('["all","web-saas","open-platform","ai-workspace","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","agent-proxy","web-saas + agent-proxy"]'),
+        needs.provision.outputs.target_domains) }}
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/gitops
+        ref: ${{ needs.provision.outputs.gitops_ref }}
+        path: gitops
+        sparse-checkout-cone-mode: false
+        sparse-checkout: |
+          resources/svc.plus/${{ needs.provision.outputs.deployment_env }}/${{ needs.provision.outputs.provider_gitops_dir }}/agent-proxy*.yaml
+
     # The AI Workspace playbook builds the Hermes ACP adapter from the
     # sibling xworkmate-bridge checkout when the prebuilt bridge override is
     # not enabled. Keep this source checkout scoped to AI Workspace runs so
