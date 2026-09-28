@@ -318,6 +318,7 @@ jobs:
         env:
           PROJECT_ID: ${{ steps.config.outputs.project_id }}
           REGION: ${{ env.GCP_REGION || 'asia-east1' }}
+          RUNTIME_VARS: ${{ runner.temp }}/gcp-runtime.auto.tfvars.json
           NETWORK_NAME: open-platform-uat
           INSTANCE_NETWORK_NAME: open-platform-uat
         run: |
@@ -330,7 +331,7 @@ jobs:
               echo "state already contains ${address}"
             else
               echo "adopting ${address} from ${remote_id}"
-              "${tf[@]}" import -input=false "${address}" "${remote_id}"
+              "${tf[@]}" import -input=false -var-file="${RUNTIME_VARS}" "${address}" "${remote_id}"
             fi
           }
 
