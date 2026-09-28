@@ -74,21 +74,25 @@ line_for() { grep -nF -- "$1" "${dry_run}" | head -n1 | cut -d: -f1; }
 jp_line="$(line_for 'DRY-RUN agent-proxy-jp (aws-cloud, 2C2G')"
 us_line="$(line_for 'DRY-RUN agent-proxy-us (gcp-cloud, 2C2G')"
 sg_line="$(line_for 'DRY-RUN agent-proxy-sg (akamai-cloud, 2C2G')"
-xconnect_line="$(line_for 'DRY-RUN XConnect Zero UAT (tw-xconnect.svc.plus)')"
 web_line="$(line_for 'DRY-RUN web-saas serverless')"
 ai_line="$(line_for 'DRY-RUN ai-workspace (gcp-cloud, 4C8G')"
 tw_line="$(line_for 'DRY-RUN agent-proxy-tw (existing inventory)')"
 ph_line="$(line_for 'DRY-RUN agent-proxy-ph (existing inventory)')"
-[[ -n "${jp_line}${us_line}${sg_line}${xconnect_line}${web_line}${ai_line}${tw_line}${ph_line}" ]] || {
+open_line="$(line_for 'DRY-RUN open-platform (gcp-cloud, 2C4G')"
+[[ -n "${open_line}${jp_line}${us_line}${sg_line}${web_line}${ai_line}${tw_line}${ph_line}" ]] || {
   echo "hybrid deploy dry-run is missing a required business phase or lane" >&2
   exit 1
 }
-(( jp_line < us_line && us_line < sg_line && sg_line < xconnect_line && xconnect_line < web_line && web_line < ai_line && ai_line < tw_line && tw_line < ph_line )) || {
-  echo "hybrid deploy must finish all Terraform lanes before the XConnect gate" >&2
+(( open_line < jp_line && jp_line < us_line && us_line < sg_line && sg_line < web_line && web_line < ai_line && ai_line < tw_line && tw_line < ph_line )) || {
+  echo "hybrid deploy must follow the GitOps matrix order without the migration-only XConnect gate" >&2
   exit 1
 }
-if grep -Fq 'DRY-RUN open-platform' "${dry_run}"; then
-  echo "routine UAT hybrid deploy must not dispatch shared open-platform services" >&2
+if ! grep -Fq 'DRY-RUN open-platform' "${dry_run}"; then
+  echo "UAT hybrid deploy must provision the permanent open-platform GCP resource" >&2
+  exit 1
+fi
+if grep -Fq 'DRY-RUN XConnect Zero UAT' "${dry_run}"; then
+  echo "routine UAT hybrid deploy must not dispatch migration-only XConnect Existing One" >&2
   exit 1
 fi
 grep -Fq 'existing_target_host": "10.79.0.7"' "${dry_run}" || {
