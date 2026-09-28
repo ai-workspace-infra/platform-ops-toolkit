@@ -31,7 +31,7 @@ REGISTRY_FILE="$(cd "$(dirname "${MATRIX_FILE}")/../.." && pwd)/config/iac_provi
 
 [[ "${VAULT_ENV_PATH}" == uat ]] || { echo "::error::The eight-resource matrix is UAT-only; got ${VAULT_ENV_PATH}" >&2; exit 1; }
 [[ "${TARGET_DOMAIN_BASE}" == onwalk.net ]] || { echo "::error::UAT hybrid matrix requires target_domain_base=onwalk.net" >&2; exit 1; }
-case "${OPERATION}" in plan|apply|deploy) ;; *) echo "::error::Hybrid matrix supports plan, apply, or deploy; got ${OPERATION}" >&2; exit 1 ;; esac
+case "${OPERATION}" in plan|apply|deploy|destroy) ;; *) echo "::error::Hybrid matrix supports plan, apply, deploy, or destroy; got ${OPERATION}" >&2; exit 1 ;; esac
 if [[ "${OPERATION}" == deploy ]]; then
   [[ "${DEPLOY_TAG}" =~ ^(uat-)?daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?$ ]] || { echo "::error::deploy requires an immutable UAT daily-build tag" >&2; exit 1; }
 fi
@@ -132,19 +132,35 @@ for row in "${rows[@]}"; do
   agent_profile="$(jq -r '.agent_profile // "1C2G"' <<<"${row}")"
   existing_host="$(jq -r '.existing_host // empty' <<<"${row}")"
   echo "::group::UAT hybrid ${order}/8 ${namespace} (${mode})"
-  case "${OPERATION}" in plan) child_operation=plan; serverless_operation=plan ;; apply) child_operation=infra; serverless_operation=plan ;; deploy) child_operation=deploy; serverless_operation=deploy ;; esac
+  case "${OPERATION}" in plan) child_operation=plan; serverless_operation=plan ;; apply) child_operation=infra; serverless_operation=plan ;; deploy) child_operation=deploy; serverless_operation=deploy ;; destroy) child_operation=destroy; serverless_operation=destroy ;; esac
   case "${mode}" in
-    terraform) dispatch_selfhost "${child_operation}" "${namespace}" "${provider}" "${account}" "${profile}" "${agent_profile}" ;;
+    terraform)
+      if [[ "${OPERATION}" == destroy && "$(jq -r '.lifecycle // ""' <<<"${row}")" != ephemeral ]]; then
+        echo "${namespace}: lifecycle is protected; skipping destroy"
+      else
+        dispatch_selfhost "${child_operation}" "${namespace}" "${provider}" "${account}" "${profile}" "${agent_profile}"
+      fi
+      ;;
     terraform+serverless) dispatch_selfhost "${child_operation}" "${namespace}" "${provider}" "${account}" "${profile}" "${agent_profile}"; dispatch_serverless "${serverless_operation}" "$(jq -r '.serverless_target // "all"' <<<"${row}")" ;;
     existing+serverless) existing_node="$(jq -r '.existing_node // "vault-node-0"' <<<"${row}")"; echo "${namespace}: reusing existing ${provider} node ${existing_node}; no Terraform state mutation"; dispatch_serverless "${serverless_operation}" "$(jq -r '.serverless_target // "all"' <<<"${row}")" ;;
     existing-selfhost)
       [[ -n "${existing_host}" ]] || { echo "::error::${namespace} existing-selfhost row requires existing_host" >&2; exit 1; }
-      [[ "${OPERATION}" == deploy || "${OPERATION}" == plan ]] || { echo "::error::${namespace} existing-selfhost supports only plan or deploy; it never applies or destroys infrastructure" >&2; exit 1; }
-      if [[ "${OPERATION}" == deploy ]]; then dispatch_xconnect; fi
-      dispatch_selfhost "${child_operation}" "${namespace}" "${provider}" "${account}" "${profile}" "${agent_profile}" "${existing_host}" ;;
+      if [[ "${OPERATION}" == destroy ]]; then
+        echo "${namespace}: existing host ${existing_host} is protected; skipping destroy"
+      else
+        if [[ "${OPERATION}" == deploy ]]; then dispatch_xconnect; fi
+        if [[ "${OPERATION}" == apply ]]; then child_operation=plan; fi
+        dispatch_selfhost "${child_operation}" "${namespace}" "${provider}" "${account}" "${profile}" "${agent_profile}" "${existing_host}"
+      fi
+      ;;
     existing)
       [[ "$(jq -r '.provider' <<<"${row}")" == ulighthost ]] || { echo "::error::existing rows must use the external-inventory adapter provider (ulighthost)" >&2; exit 1; }
-      dispatch_existing "${namespace}" "$(jq -r '.resource_manifest' <<<"${row}")" "${account}" ;;
+      if [[ "${OPERATION}" == destroy ]]; then
+        echo "${namespace}: existing inventory is protected; skipping destroy"
+      else
+        dispatch_existing "${namespace}" "$(jq -r '.resource_manifest' <<<"${row}")" "${account}"
+      fi
+      ;;
     *) echo "::error::unsupported management_mode ${mode}" >&2; exit 1 ;;
   esac
   echo "::endgroup::"

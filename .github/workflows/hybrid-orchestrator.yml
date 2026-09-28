@@ -12,11 +12,11 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: 'plan=child plans; apply=Terraform apply plus serverless plan; deploy=full child deployment'
+        description: 'plan=child plans; apply=Terraform apply plus serverless plan; deploy=full child deployment; destroy=ephemeral Terraform/serverless resources only'
         required: true
         default: plan
         type: choice
-        options: [plan, apply, deploy]
+        options: [plan, apply, deploy, destroy]
       target_domains:
         description: 'UAT scope; all runs the versioned eight-resource matrix'
         required: true
