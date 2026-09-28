@@ -50,6 +50,11 @@ on:
         type: string
         required: false
         default: ''
+      adopt_existing_platform_resources:
+        description: Import already-existing GCP network/platform objects into the target state before apply. Use only for an audited recovery.
+        type: string
+        required: false
+        default: 'false'
   workflow_call:
     inputs:
       deploy_action:
@@ -86,6 +91,10 @@ on:
         type: string
         required: false
         default: ''
+      adopt_existing_platform_resources:
+        type: string
+        required: false
+        default: 'false'
 
 permissions:
   contents: read
@@ -110,6 +119,7 @@ jobs:
       IAC_REF: ${{ inputs.iac_ref || '54e9f7ed2782f1d30befda6a70615168bcc44921' }}
       GCP_RESOURCE_MANIFEST_INPUT: ${{ inputs.gcp_resource_manifest || '' }}
       STATE_MIGRATION_SOURCE_KEY: ${{ inputs.state_migration_source_key || '' }}
+      ADOPT_EXISTING_PLATFORM_RESOURCES: ${{ inputs.adopt_existing_platform_resources || 'false' }}
       GCP_IAC_DIR: iac_modules/terraform-hcl-standard/gcp-cloud
 
     steps:
@@ -301,6 +311,45 @@ jobs:
         run: |
           terraform -chdir="envs/${DEPLOY_ENV}" fmt -check
           terraform -chdir="envs/${DEPLOY_ENV}" validate -no-color
+
+      - name: Adopt existing GCP platform resources into target state
+        if: ${{ env.DEPLOY_ACTION == 'apply' && env.ADOPT_EXISTING_PLATFORM_RESOURCES == 'true' }}
+        working-directory: ${{ env.GCP_IAC_DIR }}
+        env:
+          PROJECT_ID: ${{ steps.config.outputs.project_id }}
+          REGION: ${{ env.GCP_REGION || 'asia-east1' }}
+          NETWORK_NAME: open-platform-uat
+          INSTANCE_NETWORK_NAME: open-platform-uat
+        run: |
+          set -euo pipefail
+          tf=(terraform -chdir="envs/${DEPLOY_ENV}")
+          state_has() { "${tf[@]}" state list | grep -Fxq "$1"; }
+          import_if_missing() {
+            local address="$1" remote_id="$2"
+            if state_has "${address}"; then
+              echo "state already contains ${address}"
+            else
+              echo "adopting ${address} from ${remote_id}"
+              "${tf[@]}" import -input=false "${address}" "${remote_id}"
+            fi
+          }
+
+          import_if_missing 'module.network.google_compute_network.this' \
+            "projects/${PROJECT_ID}/global/networks/${NETWORK_NAME}"
+          import_if_missing 'module.network.google_compute_subnetwork.this' \
+            "projects/${PROJECT_ID}/regions/${REGION}/subnetworks/${NETWORK_NAME}-subnet"
+          import_if_missing 'module.network.google_compute_router.this[0]' \
+            "projects/${PROJECT_ID}/regions/${REGION}/routers/${NETWORK_NAME}-router"
+          import_if_missing 'module.network.google_compute_address.nat[0]' \
+            "projects/${PROJECT_ID}/regions/${REGION}/addresses/${NETWORK_NAME}-nat-ip"
+          import_if_missing 'module.network.google_compute_router_nat.this[0]' \
+            "projects/${PROJECT_ID}/regions/${REGION}/routers/${NETWORK_NAME}-router/${NETWORK_NAME}-nat"
+          import_if_missing 'module.artifact_registry.google_artifact_registry_repository.this' \
+            "projects/${PROJECT_ID}/locations/${REGION}/repositories/xwork-services"
+          import_if_missing 'module.cloud_run.google_cloud_run_v2_service.this' \
+            "projects/${PROJECT_ID}/locations/${REGION}/services/open-platform-uat"
+          import_if_missing 'google_compute_firewall.vault_raft_internal' \
+            "projects/${PROJECT_ID}/global/firewalls/${NETWORK_NAME}-vault-raft-internal"
 
       - name: Terraform plan
         if: ${{ env.DEPLOY_ACTION == 'plan' || env.DEPLOY_ACTION == 'apply' }}
