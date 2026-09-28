@@ -30,7 +30,9 @@ cat > "${workdir}/gh" <<'EOF'
 set -euo pipefail
 printf '%s\n' "$*" >> "${GH_LOG}"
 if [[ "$1" == "api" ]]; then
-  if [[ " $* " == *"/contents/vpn-overlay/uat/xconnect-lab.json"* ]]; then
+  if [[ " $* " == *"/actions/runs/"* ]]; then
+    printf '%s\n' $'completed\tsuccess'
+  elif [[ " $* " == *"/contents/vpn-overlay/uat/xconnect-lab.json"* ]]; then
     printf '%s\n' '{"spec":{"artifacts":{"one":{"release_tag":"v0.1.7"},"gateway":{"release_tag":"v0.1.3"},"xray":{"release_tag":"v26.3.27"}}}}'
   elif [[ " $* " == *"/commits/"* || " $* " == *"/git/ref/tags/"* ]]; then
     printf '%s\n' '0123456789012345678901234567890123456789'
@@ -39,9 +41,6 @@ if [[ "$1" == "api" ]]; then
 fi
 if [[ "$1" == "run" && "$2" == "view" ]]; then
   printf '%s\n' "${RELEASE_TAG:-uat-daily-build-2026.08.21-r5}"
-  exit 0
-fi
-if [[ "$1" == "run" && "$2" == "watch" ]]; then
   exit 0
 fi
 if [[ "$1 $2" == "workflow run" ]]; then
@@ -72,16 +71,16 @@ UAT_SERVERLESS_WAIT_INTERVAL_SECONDS=1 \
 bash "${dispatcher}"
 
 serverless_line="$(grep -n '^workflow run serverless-orchestrator.yml ' "${workdir}/gh.log" | cut -d: -f1)"
-watch_line="$(grep -n '^run watch 1001 ' "${workdir}/gh.log" | cut -d: -f1)"
+serverless_poll_line="$(grep -n '/actions/runs/1001 ' "${workdir}/gh.log" | cut -d: -f1)"
 selfhost_lines="$(grep -n '^workflow run selfhost-orchestrator.yml ' "${workdir}/gh.log" | cut -d: -f1)"
 lab_line="$(grep -n '^workflow run xconnect-zero-cloud.yaml ' "${workdir}/gh.log" | cut -d: -f1)"
 
-[[ -n "${serverless_line}" && -n "${watch_line}" && -n "${lab_line}" && "$(wc -l <<<"${selfhost_lines}")" -eq 6 ]] || {
+[[ -n "${serverless_line}" && -n "${serverless_poll_line}" && -n "${lab_line}" && "$(wc -l <<<"${selfhost_lines}")" -eq 6 ]] || {
   echo "combined dispatcher did not issue serverless, XConnect Lab, and six isolated selfhost runs" >&2
   exit 1
 }
 first_selfhost_line="$(head -n1 <<<"${selfhost_lines}")"
-(( serverless_line < watch_line && watch_line < lab_line && lab_line < first_selfhost_line )) || {
+(( serverless_line < serverless_poll_line && serverless_poll_line < lab_line && lab_line < first_selfhost_line )) || {
   echo "XConnect Lab and isolated selfhost dispatch must follow successful serverless completion" >&2
   exit 1
 }
