@@ -187,7 +187,6 @@ if [[ "${OPERATION}" == deploy ]]; then
   # Their application Playbooks run after XConnect succeeds.
   echo "::group::UAT hybrid deploy phase 1: Terraform resources"
   for row in "${rows[@]}"; do
-    skip_shared_service_release "${row}" && continue
     namespace="$(jq -r '.namespace' <<<"${row}")"
     mode="$(jq -r '.management_mode' <<<"${row}")"
     [[ "${mode}" == terraform ]] || continue
@@ -207,7 +206,6 @@ if [[ "${OPERATION}" == deploy ]]; then
 
   echo "::group::UAT hybrid deploy phase 2: Applications and existing nodes"
   for row in "${rows[@]}"; do
-    skip_shared_service_release "${row}" && continue
     namespace="$(jq -r '.namespace' <<<"${row}")"
     mode="$(jq -r '.management_mode' <<<"${row}")"
     provider="$(jq -r '.provider' <<<"${row}")"
