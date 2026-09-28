@@ -170,7 +170,11 @@ jobs:
           MATRIX_FILE: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/hybrid/resource-matrix.json
           REGISTRY_FILE: ${{ github.workspace }}/config/iac_provider_registry.json
           OPERATION: ${{ inputs.operation }}
-          CHILD_REF: ${{ github.ref_name }}
+          # Dispatch every child from the explicitly selected shared ref. The
+          # parent run may be started from a feature branch, while the
+          # operator-selected source_ref is the contract for Toolkit,
+          # Playbooks, and IaC revisions used by all child workflows.
+          CHILD_REF: ${{ inputs.source_ref || 'main' }}
           VAULT_ENV_PATH: ${{ inputs.vault_env_path }}
           TARGET_DOMAIN_BASE: ${{ inputs.target_domain_base }}
           OBSERVABILITY_ENDPOINT: ${{ inputs.observability_endpoint }}

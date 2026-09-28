@@ -109,6 +109,7 @@ on = doc.get("on", doc.get(True))
 inputs = on["workflow_dispatch"]["inputs"]
 assert inputs["target_domains"]["default"] == "all"
 assert set(inputs["operation"]["options"]) >= {"plan", "apply", "deploy", "destroy"}
+assert "CHILD_REF: ${{ inputs.source_ref || 'main' }}" in open(sys.argv[1], encoding="utf-8").read()
 assert "resource_orchestration" in doc["jobs"]
 assert "platform-ops_dispatch-hybrid-uat-matrix.sh" in open(sys.argv[1], encoding="utf-8").read()
 PY
