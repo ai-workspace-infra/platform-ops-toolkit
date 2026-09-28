@@ -1,7 +1,9 @@
 name: Hybrid Orchestrator
 
 # The parent owns ordering only. Terraform, serverless, and existing inventory
-# mutations remain in their child workflows. `all` is eight ordered lanes.
+# mutations remain in their child workflows. `all` is an eight-row inventory;
+# routine `deploy` runs only business-scoped rows, while shared infrastructure
+# rows remain available for explicit plan/apply maintenance.
 
 permissions:
   id-token: write
@@ -18,7 +20,7 @@ on:
         type: choice
         options: [plan, apply, deploy, destroy]
       target_domains:
-        description: 'UAT scope; all runs the versioned eight-resource matrix'
+        description: 'UAT scope; all runs the versioned eight-row inventory (deploy skips shared infrastructure)'
         required: true
         default: all
         type: choice

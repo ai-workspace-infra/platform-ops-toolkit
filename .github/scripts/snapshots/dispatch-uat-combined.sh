@@ -245,12 +245,13 @@ if [[ -n "${xconnect_lab_run_url}" ]]; then
   echo "Dispatched XConnect UAT Lab for ${snapshot_tag}: ${xconnect_lab_run_url}"
 fi
 
-# Keep the deployment order explicit. open-platform is permanent, web-saas is
-# the public UAT surface, and the remaining namespaces are independently
-# disposable. The first Agent Proxy namespace owns the TW/PH external matrix;
-# the other two only reconcile their Akamai Terraform nodes.
+# Keep the deployment order explicit. This routine UAT release updates only
+# business services and their own resources. `open-platform` is intentionally
+# absent: Vault and Observability are shared infrastructure and must not be
+# re-bootstrapped or restarted as a side effect of an application release.
+# The first Agent Proxy namespace owns the TW/PH external matrix; the other
+# two only reconcile their Akamai Terraform nodes.
 namespaces=(
-  "open-platform|false|none"
   "web-saas|false|uat-records"
   "ai-workspace|false|none"
   "agent-proxy-jp|true|none"

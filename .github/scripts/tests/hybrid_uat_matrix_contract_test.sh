@@ -26,6 +26,10 @@ jq -e '
     ["1C2G","2C2G","2C2G","2C2G"]) and
   .resources[0].profile == "2C4G" and
   .resources[0].lifecycle == "permanent" and
+  .resources[0].release_scope == "shared-infrastructure" and
+  all(.resources[]; (.release_scope == "business" or .release_scope == "shared-infrastructure")) and
+  ([.resources[] | select(.release_scope == "business") | .namespace] ==
+    ["web-saas","ai-workspace","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","agent-proxy-tw","agent-proxy-ph"]) and
   .resources[1].existing_node == "vault-node-0" and
   .resources[1].lifecycle == "external" and
   .resources[2].management_mode == "existing-selfhost" and
@@ -63,7 +67,6 @@ DRY_RUN=true \
 bash "${dispatcher}" >"${dry_run}"
 
 line_for() { grep -nF -- "$1" "${dry_run}" | head -n1 | cut -d: -f1; }
-open_line="$(line_for 'DRY-RUN open-platform (akamai-cloud, 2C4G')"
 jp_line="$(line_for 'DRY-RUN agent-proxy-jp (aws-cloud, 2C2G')"
 us_line="$(line_for 'DRY-RUN agent-proxy-us (gcp-cloud, 2C2G')"
 sg_line="$(line_for 'DRY-RUN agent-proxy-sg (akamai-cloud, 2C2G')"
@@ -72,14 +75,18 @@ web_line="$(line_for 'DRY-RUN web-saas serverless')"
 ai_line="$(line_for 'DRY-RUN ai-workspace (gcp-cloud, 4C8G')"
 tw_line="$(line_for 'DRY-RUN agent-proxy-tw (existing inventory)')"
 ph_line="$(line_for 'DRY-RUN agent-proxy-ph (existing inventory)')"
-[[ -n "${open_line}${jp_line}${us_line}${sg_line}${xconnect_line}${web_line}${ai_line}${tw_line}${ph_line}" ]] || {
-  echo "hybrid deploy dry-run is missing a required phase or lane" >&2
+[[ -n "${jp_line}${us_line}${sg_line}${xconnect_line}${web_line}${ai_line}${tw_line}${ph_line}" ]] || {
+  echo "hybrid deploy dry-run is missing a required business phase or lane" >&2
   exit 1
 }
-(( open_line < jp_line && jp_line < us_line && us_line < sg_line && sg_line < xconnect_line && xconnect_line < web_line && web_line < ai_line && ai_line < tw_line && tw_line < ph_line )) || {
+(( jp_line < us_line && us_line < sg_line && sg_line < xconnect_line && xconnect_line < web_line && web_line < ai_line && ai_line < tw_line && tw_line < ph_line )) || {
   echo "hybrid deploy must finish all Terraform lanes before the XConnect gate" >&2
   exit 1
 }
+if grep -Fq 'DRY-RUN open-platform' "${dry_run}"; then
+  echo "routine UAT hybrid deploy must not dispatch shared open-platform services" >&2
+  exit 1
+fi
 grep -Fq 'existing_target_host": "10.79.0.7"' "${dry_run}" || {
   echo "hybrid deploy must pass the protected AI Workspace existing host" >&2
   exit 1
