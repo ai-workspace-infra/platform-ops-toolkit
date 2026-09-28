@@ -106,7 +106,7 @@ GCP_ENVIRONMENT=uat \
 GCP_ACCOUNT_ID=platform@xworktech.com \
 GCP_PROJECT_ID=xwork-open-platform-uat \
 GCP_EXPECTED_PROJECT_ID=xwork-open-platform-uat \
-bash scripts/gcp/bootstrap_gcp_auth_kv.sh
+bash scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh
 ```
 
 ### Shell 脚本写入
@@ -121,12 +121,12 @@ export VAULT_TOKEN='<管理员token>'
 GCP_ENVIRONMENT=uat \
 GCP_ACCOUNT_ID=xworktech \
 GCP_PROJECT_ID=xwork-open-platform-uat \
-bash scripts/gcp/bootstrap_gcp_auth_kv.sh
+bash scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh
 
 GCP_ENVIRONMENT=prod \
 GCP_ACCOUNT_ID=xworktech \
 GCP_PROJECT_ID=xwork-open-platform-prod \
-bash scripts/gcp/bootstrap_gcp_auth_kv.sh
+bash scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh
 ```
 
 如果 token 已由外部受控流程生成，可显式传入，不会写入脚本参数或 Git：
@@ -136,7 +136,7 @@ GCP_ACCESS_TOKEN="$(gcloud auth application-default print-access-token)" \
 GCP_ENVIRONMENT=uat \
 GCP_ACCOUNT_ID=xworktech \
 GCP_PROJECT_ID=xwork-open-platform-uat \
-bash scripts/gcp/bootstrap_gcp_auth_kv.sh
+bash scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh
 ```
 
 ### 一次性 Admin SA key（`--auth-json`）
@@ -157,11 +157,11 @@ export VAULT_ADDR=https://vault.svc.plus   # 且已 vault login 或设置 VAULT_
 gcloud config set account <项目 Owner>
 
 GCP_ENVIRONMENT=uat GCP_ACCOUNT_ID=xworktech GCP_PROJECT_ID=xwork-open-platform-uat \
-bash scripts/gcp/bootstrap_gcp_auth_kv.sh --auth-json
+bash scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh --auth-json
 
 # 不暴露内容地检查
 GCP_BOOTSTRAP_ACTION=check GCP_ENVIRONMENT=uat GCP_ACCOUNT_ID=xworktech \
-GCP_PROJECT_ID=xwork-open-platform-uat bash scripts/gcp/bootstrap_gcp_auth_kv.sh --auth-json
+GCP_PROJECT_ID=xwork-open-platform-uat bash scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh --auth-json
 ```
 
 写完之后正常触发 **GCP OIDC Bootstrap** workflow（`environment=uat`，`action=apply`）即可——workflow
@@ -190,7 +190,7 @@ access token 直接调用 GCP API，不依赖这个 Policy），但 Vault 侧的
 
 ```bash
 GCP_BOOTSTRAP_ACTION=revoke GCP_ENVIRONMENT=uat GCP_ACCOUNT_ID=xworktech \
-GCP_PROJECT_ID=xwork-open-platform-uat bash scripts/gcp/bootstrap_gcp_auth_kv.sh
+GCP_PROJECT_ID=xwork-open-platform-uat bash scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh
 
 # 若为签发 key 临时放开了组织策略，恢复组织默认
 gcloud org-policies delete iam.disableServiceAccountKeyCreation --project=xwork-open-platform-uat
@@ -223,13 +223,13 @@ GCP_ENVIRONMENT=uat \
 GCP_ACCOUNT_ID=xworktech \
 GCP_PROJECT_ID=xwork-open-platform-uat \
 GCP_BOOTSTRAP_ACTION=check \
-bash scripts/gcp/bootstrap_gcp_auth_kv.sh
+bash scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh
 
 GCP_ENVIRONMENT=prod \
 GCP_ACCOUNT_ID=xworktech \
 GCP_PROJECT_ID=xwork-open-platform-prod \
 GCP_BOOTSTRAP_ACTION=check \
-bash scripts/gcp/bootstrap_gcp_auth_kv.sh
+bash scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh
 ```
 
 ## 5. 验证 Terraform bootstrap
@@ -295,7 +295,7 @@ unset GCP_ACCESS_TOKEN
 GCP_ENVIRONMENT=uat \
 GCP_ACCOUNT_ID=xworktech \
 GCP_PROJECT_ID=xwork-open-platform-uat \
-bash scripts/gcp/bootstrap_gcp_auth_kv.sh
+bash scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh
 ```
 
 ### 6.2 不暴露 token 地检查 Vault 字段

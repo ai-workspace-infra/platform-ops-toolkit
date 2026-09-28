@@ -32,7 +32,7 @@ VAULT_ADDR="${VAULT_ADDR:-https://vault.svc.plus}"
 XCONNECT_GATEWAY_REF="${XCONNECT_GATEWAY_REF:-tw-xconnect.svc.plus}"
 DRY_RUN="${DRY_RUN:-false}"
 WAIT_INTERVAL_SECONDS="${WAIT_INTERVAL_SECONDS:-15}"
-REGISTRY_FILE="$(cd "$(dirname "${MATRIX_FILE}")/../.." && pwd)/config/iac_provider_registry.json"
+REGISTRY_FILE="${REGISTRY_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/config/iac_provider_registry.json}"
 
 [[ "${VAULT_ENV_PATH}" == uat ]] || { echo "::error::The eight-resource matrix is UAT-only; got ${VAULT_ENV_PATH}" >&2; exit 1; }
 [[ "${TARGET_DOMAIN_BASE}" == onwalk.net ]] || { echo "::error::UAT hybrid matrix requires target_domain_base=onwalk.net" >&2; exit 1; }
@@ -52,6 +52,29 @@ account_for() {
     existing) printf '%s' "${EXISTING_ACCOUNT}" ;;
     *) echo "::error::Unknown account_kind '$1'" >&2; return 1 ;;
   esac
+}
+
+account_for_row() {
+  local row="$1" declared account_kind account_ref
+  declared="$(jq -r '.account // empty' <<<"${row}")"
+  if [[ -n "${declared}" ]]; then
+    printf '%s' "${declared}"
+    return 0
+  fi
+  account_ref="$(jq -r '.account_ref // empty' <<<"${row}")"
+  if [[ -n "${account_ref}" ]]; then
+    case "${account_ref}" in
+      akamai_account) printf '%s' "${AKAMAI_ACCOUNT}"; return 0 ;;
+      aws_account) printf '%s' "${AWS_ACCOUNT}"; return 0 ;;
+      gcp_account) printf '%s' "${GCP_ACCOUNT}"; return 0 ;;
+      existing_account) printf '%s' "${EXISTING_ACCOUNT}"; return 0 ;;
+      vultr_account) printf '%s' "${VULTR_ACCOUNT}"; return 0 ;;
+      ucloud_account) printf '%s' "${UCLOUD_ACCOUNT}"; return 0 ;;
+      *) echo "::error::Unknown account_ref '${account_ref}'" >&2; return 1 ;;
+    esac
+  fi
+  account_kind="$(jq -r '.account_kind' <<<"${row}")"
+  account_for "${account_kind}"
 }
 
 validate_matrix_provider() {
@@ -123,7 +146,7 @@ dispatch_existing() {
   dispatch_and_wait external-inventory-state.yml "${payload}" "${namespace} (existing inventory)"
 }
 
-mapfile -t rows < <(jq -c '.resources | sort_by(.order)[]' "${MATRIX_FILE}")
+mapfile -t rows < <(jq -c '(.spec.resources // .resources) | sort_by(.order)[]' "${MATRIX_FILE}")
 [[ "${#rows[@]}" -eq 8 ]] || { echo "::error::Hybrid matrix must contain exactly eight resources" >&2; exit 1; }
 
 validate_release_scopes() {
@@ -166,7 +189,7 @@ if [[ "${OPERATION}" == deploy ]]; then
     [[ "${mode}" == terraform ]] || continue
     provider="$(jq -r '.provider' <<<"${row}")"
     validate_matrix_provider "${provider}"
-    account="$(account_for "$(jq -r '.account_kind' <<<"${row}")")"
+    account="$(account_for_row "${row}")"
     [[ -n "${account}" ]] || { echo "::error::No concrete account configured for ${provider} row ${namespace}; set the matching workflow account input." >&2; exit 1; }
     profile="$(jq -r '.profile' <<<"${row}")"
     agent_profile="$(jq -r '.agent_profile // "1C2G"' <<<"${row}")"
@@ -188,7 +211,7 @@ if [[ "${OPERATION}" == deploy ]]; then
     namespace="$(jq -r '.namespace' <<<"${row}")"
     mode="$(jq -r '.management_mode' <<<"${row}")"
     provider="$(jq -r '.provider' <<<"${row}")"
-    account="$(account_for "$(jq -r '.account_kind' <<<"${row}")")"
+    account="$(account_for_row "${row}")"
     profile="$(jq -r '.profile' <<<"${row}")"
     agent_profile="$(jq -r '.agent_profile // "1C2G"' <<<"${row}")"
     existing_host="$(jq -r '.existing_host // empty' <<<"${row}")"
@@ -231,7 +254,7 @@ for row in "${rows[@]}"; do
   mode="$(jq -r '.management_mode' <<<"${row}")"
   provider="$(jq -r '.provider' <<<"${row}")"
   validate_matrix_provider "${provider}"
-  account="$(account_for "$(jq -r '.account_kind' <<<"${row}")")"
+  account="$(account_for_row "${row}")"
   [[ -n "${account}" ]] || { echo "::error::No concrete account configured for ${provider} row ${namespace}; set the matching workflow account input." >&2; exit 1; }
   profile="$(jq -r '.profile' <<<"${row}")"
   agent_profile="$(jq -r '.agent_profile // "1C2G"' <<<"${row}")"

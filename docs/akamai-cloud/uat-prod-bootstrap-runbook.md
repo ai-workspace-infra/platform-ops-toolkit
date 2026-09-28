@@ -84,7 +84,7 @@ export VAULT_ADDR='https://vault.svc.plus'
 export VAULT_TOKEN='<新的 Vault 管理员 Token>'
 export AKAMAI_ACCOUNT_PROD='<真实账户名或ID>'
 
-bash scripts/vault/bootstrap_akamai_oidc_roles.sh --apply --env prod
+bash scripts/cloud/bootstrap/Akamai-Cloud/bootstrap_akamai_oidc_roles.sh --apply --env prod
 ```
 
 校验 Role 和两个 PROD KV：

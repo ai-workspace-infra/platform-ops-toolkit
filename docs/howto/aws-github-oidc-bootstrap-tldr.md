@@ -47,6 +47,21 @@ SSH_PRIVATE_DEPLOY_KEY_B64
 
 ## Vault：当前首次 bootstrap 路径
 
+KV 初始化使用仓库中的 canonical helper；它只写入短期 bootstrap 凭据，不会触发 AWS OIDC
+Role 创建或 Terraform apply：
+
+```bash
+export AWS_ENVIRONMENT=uat # or prod
+export AWS_ACCESS_KEY_ID='短期控制面凭据'
+export AWS_SECRET_ACCESS_KEY='短期控制面凭据'
+export AWS_SESSION_TOKEN='可选的 STS 会话令牌'
+scripts/cloud/bootstrap/aws/bootstrap_aws_auth_kv.sh --write
+scripts/cloud/bootstrap/aws/bootstrap_aws_auth_kv.sh --check
+```
+
+写入完成并确认 bootstrap workflow 稳定后，应立即撤销或等待这些 AWS 凭据过期。旧的
+`.github/scripts/aws/` 路径仅保留兼容包装器。
+
 本次已创建两个生产 KV v2 路径：
 
 ```text

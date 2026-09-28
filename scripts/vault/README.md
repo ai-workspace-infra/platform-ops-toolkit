@@ -115,7 +115,7 @@ export VAULT_ADDR=https://vault.svc.plus
 export VAULT_TOKEN='hvs.***'
 export AKAMAI_ACCOUNT_UAT='actual-uat-account'
 export AKAMAI_ACCOUNT_PROD='actual-prod-account'
-bash scripts/vault/bootstrap_akamai_oidc_roles.sh --apply --env all
+bash scripts/cloud/bootstrap/Akamai-Cloud/bootstrap_akamai_oidc_roles.sh --apply --env all
 ```
 
 The script uses the repository and workflow claim bindings, creates read-only

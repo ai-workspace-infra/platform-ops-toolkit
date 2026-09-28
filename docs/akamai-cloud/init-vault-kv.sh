@@ -158,11 +158,11 @@ for env_name in "${environments[@]}"; do
 done
 
 if [[ "$mode" == apply ]]; then
-  bash "${REPO_ROOT}/scripts/vault/bootstrap_akamai_oidc_roles.sh" --apply --env "$target_env"
-  bash "${REPO_ROOT}/scripts/vault/bootstrap_akamai_cloud_kv.sh" --apply --env "$target_env"
+  bash "${REPO_ROOT}/scripts/cloud/bootstrap/Akamai-Cloud/bootstrap_akamai_oidc_roles.sh" --apply --env "$target_env"
+  bash "${REPO_ROOT}/scripts/cloud/bootstrap/Akamai-Cloud/bootstrap_akamai_cloud_kv.sh" --apply --env "$target_env"
 else
-  bash "${REPO_ROOT}/scripts/vault/bootstrap_akamai_oidc_roles.sh" --check --env "$target_env"
-  bash "${REPO_ROOT}/scripts/vault/bootstrap_akamai_cloud_kv.sh" --check --env "$target_env"
+  bash "${REPO_ROOT}/scripts/cloud/bootstrap/Akamai-Cloud/bootstrap_akamai_oidc_roles.sh" --check --env "$target_env"
+  bash "${REPO_ROOT}/scripts/cloud/bootstrap/Akamai-Cloud/bootstrap_akamai_cloud_kv.sh" --check --env "$target_env"
 fi
 
 echo "Akamai Cloud/Linode Vault KV initialization ${mode} completed."

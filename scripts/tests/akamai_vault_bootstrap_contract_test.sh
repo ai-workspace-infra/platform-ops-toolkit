@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-bootstrap="${repo_root}/scripts/vault/bootstrap_akamai_oidc_roles.sh"
+bootstrap="${repo_root}/scripts/cloud/bootstrap/Akamai-Cloud/bootstrap_akamai_oidc_roles.sh"
 consolidated="${repo_root}/scripts/create_vault_service_repo_roles.sh"
 
 grep -Fq 'verify_role_claims "$env_name" "$account" "$role_name"' "${bootstrap}"

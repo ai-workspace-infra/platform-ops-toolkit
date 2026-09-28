@@ -3,8 +3,8 @@ set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 roles_script="${repo_root}/scripts/vault/bootstrap_shared_gcp_roles.sh"
-bootstrap_script="${repo_root}/scripts/gcp/bootstrap_gcp_auth_kv.sh"
-state_script="${repo_root}/scripts/gcp/bootstrap_shared_iac_state_kv.sh"
+bootstrap_script="${repo_root}/scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh"
+state_script="${repo_root}/scripts/cloud/bootstrap/gcp/bootstrap_shared_iac_state_kv.sh"
 workflow="${repo_root}/.github/workflows/gcp-oidc-bootstrap.yml"
 policy="${repo_root}/scripts/vault/policies/github-actions-platform-ops-toolkit-shared-gcp-bootstrap-open-platform-prod.hcl"
 howto="${repo_root}/docs/howto/Vault-Shared-GCP-OIDC-Setup.md"
