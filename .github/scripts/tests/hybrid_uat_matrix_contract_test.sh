@@ -10,22 +10,25 @@ jq -e '
   .environment == "uat" and .target_domains == "all" and
   ([.resources[].order] == [1,2,3,4,5,6,7,8]) and
   ([.resources[] | select(.management_mode == "terraform") | .namespace] ==
-    ["open-platform","ai-workspace","agent-proxy-jp","agent-proxy-us","agent-proxy-sg"]) and
+    ["open-platform","agent-proxy-jp","agent-proxy-us","agent-proxy-sg"]) and
+  ([.resources[] | select(.management_mode == "existing-selfhost") | .namespace] == ["ai-workspace"]) and
   ([.resources[] | select(.management_mode == "existing") | .namespace] ==
     ["agent-proxy-tw","agent-proxy-ph"]) and
   ([.resources[] | select(.management_mode == "existing+serverless") | .namespace] == ["web-saas"]) and
-  ([.resources[] | select(.management_mode == "terraform") | .provider] ==
-    ["akamai-cloud","gcp-cloud","aws-cloud","gcp-cloud","akamai-cloud"]) and
+  all(.resources[]; (.provider as $p | ["aws-cloud","gcp-cloud","azure-cloud","vultr-vps","akamai-cloud","ucloud","ulighthost"] | index($p) != null)) and
+  all(.resources[] | select(.management_mode == "terraform"); .provider != "ulighthost") and
+  all(.resources[] | select(.management_mode == "existing"); .provider == "ulighthost") and
   ([.resources[] | select(.management_mode == "terraform") | .region] ==
-    ["us-east","asia-east1","ap-northeast-1","us-central1","sg-sin-2"]) and
-  ([.resources[] | select(.management_mode == "existing") | .provider] | unique) == ["ulighthost"] and
+    ["us-east","ap-northeast-1","us-central1","sg-sin-2"]) and
   ([.resources[] | select(.management_mode == "terraform") | .profile] ==
-    ["2C4G","4C8G","2C2G","2C2G","2C2G"]) and
+    ["2C4G","2C2G","2C2G","2C2G"]) and
   ([.resources[] | select(.management_mode == "terraform") | .agent_profile] ==
-    ["1C2G","1C2G","2C2G","2C2G","2C2G"]) and
-  .resources[2].capacity_type == "spot" and
+    ["1C2G","2C2G","2C2G","2C2G"]) and
   .resources[0].profile == "2C4G" and
   .resources[1].existing_node == "vault-node-0" and
+  .resources[2].management_mode == "existing-selfhost" and
+  .resources[2].existing_host == "10.79.0.7" and
+  .resources[2].xconnect_required == true and
   all(.resources[]; (.management_mode == "existing" or (.state_project == "svc.plus")))
 ' "${matrix}" >/dev/null
 bash -n "${dispatcher}"
