@@ -55,11 +55,23 @@ account_for() {
 }
 
 account_for_row() {
-  local row="$1" declared account_kind
+  local row="$1" declared account_kind account_ref
   declared="$(jq -r '.account // empty' <<<"${row}")"
   if [[ -n "${declared}" ]]; then
     printf '%s' "${declared}"
     return 0
+  fi
+  account_ref="$(jq -r '.account_ref // empty' <<<"${row}")"
+  if [[ -n "${account_ref}" ]]; then
+    case "${account_ref}" in
+      akamai_account) printf '%s' "${AKAMAI_ACCOUNT}"; return 0 ;;
+      aws_account) printf '%s' "${AWS_ACCOUNT}"; return 0 ;;
+      gcp_account) printf '%s' "${GCP_ACCOUNT}"; return 0 ;;
+      existing_account) printf '%s' "${EXISTING_ACCOUNT}"; return 0 ;;
+      vultr_account) printf '%s' "${VULTR_ACCOUNT}"; return 0 ;;
+      ucloud_account) printf '%s' "${UCLOUD_ACCOUNT}"; return 0 ;;
+      *) echo "::error::Unknown account_ref '${account_ref}'" >&2; return 1 ;;
+    esac
   fi
   account_kind="$(jq -r '.account_kind' <<<"${row}")"
   account_for "${account_kind}"
@@ -134,7 +146,7 @@ dispatch_existing() {
   dispatch_and_wait external-inventory-state.yml "${payload}" "${namespace} (existing inventory)"
 }
 
-mapfile -t rows < <(jq -c '.resources | sort_by(.order)[]' "${MATRIX_FILE}")
+mapfile -t rows < <(jq -c '(.spec.resources // .resources) | sort_by(.order)[]' "${MATRIX_FILE}")
 [[ "${#rows[@]}" -eq 8 ]] || { echo "::error::Hybrid matrix must contain exactly eight resources" >&2; exit 1; }
 
 validate_release_scopes() {

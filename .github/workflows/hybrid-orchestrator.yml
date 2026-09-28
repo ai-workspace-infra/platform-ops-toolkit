@@ -125,6 +125,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             topology/uat/hybrid/runtime-topology.yaml
+            topology/uat/hybrid/resource-matrix.json
             topology/uat/serverless/runtime-topology.yaml
       - name: Validate hybrid routing contract
         run: |
@@ -155,7 +156,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          MATRIX_FILE: ${{ github.workspace }}/.github/hybrid/uat-resource-matrix.json
+          MATRIX_FILE: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/hybrid/resource-matrix.json
           OPERATION: ${{ inputs.operation }}
           CHILD_REF: ${{ github.ref_name }}
           VAULT_ENV_PATH: ${{ inputs.vault_env_path }}
