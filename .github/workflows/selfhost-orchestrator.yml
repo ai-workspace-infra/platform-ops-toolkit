@@ -735,6 +735,34 @@ jobs:
         ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_initialize-agent-proxy-credentials.sh
 
 
+    - name: Stage CMDB artifact
+      if: >-
+        ${{ (steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.terraform_action == 'apply') ||
+        (steps.route.outputs.reuse_existing_host == 'true' && steps.route.outputs.run_application_deploy == 'true') }}
+      env:
+        CMDB_SOURCE_DIR: ${{ steps.route.outputs.env_dir }}
+        EXISTING_CMDB_DIR: ${{ runner.temp }}/existing-ai-workspace-cmdb
+        CMDB_STAGE_DIR: ${{ runner.temp }}/cmdb-artifact
+      run: |
+        set -euo pipefail
+        if [[ -e "${CMDB_STAGE_DIR}" ]]; then
+          rm -rf "${CMDB_STAGE_DIR}"
+        fi
+        mkdir -p "${CMDB_STAGE_DIR}"
+
+        source_dir="${CMDB_SOURCE_DIR}"
+        if [[ ! -f "${source_dir}/cmdb.json" ]]; then
+          source_dir="${EXISTING_CMDB_DIR}"
+        fi
+        for file in cmdb.json hosts_manifest.json inventory.ini; do
+          [[ -f "${source_dir}/${file}" ]] || {
+            echo "::error::CMDB artifact is missing ${source_dir}/${file}." >&2
+            exit 1
+          }
+          cp "${source_dir}/${file}" "${CMDB_STAGE_DIR}/${file}"
+        done
+        echo "Staged flat CMDB artifact from ${source_dir}."
+
     - name: Upload CMDB artifact
       if: >-
         ${{ (steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.terraform_action == 'apply') ||
@@ -742,13 +770,8 @@ jobs:
       uses: actions/upload-artifact@v7
       with:
         name: platform-ops-toolkit-cmdb
-        path: |
-          ${{ steps.route.outputs.env_dir }}/cmdb.json
-          ${{ steps.route.outputs.env_dir }}/hosts_manifest.json
-          ${{ steps.route.outputs.env_dir }}/inventory.ini
-          ${{ runner.temp }}/existing-ai-workspace-cmdb/cmdb.json
-          ${{ runner.temp }}/existing-ai-workspace-cmdb/hosts_manifest.json
-          ${{ runner.temp }}/existing-ai-workspace-cmdb/inventory.ini
+        path: ${{ runner.temp }}/cmdb-artifact
+        if-no-files-found: error
 
   # Aggregate UAT mode deliberately dispatches one child workflow per
   # namespace. No Terraform command runs in the parent job, so there is no
