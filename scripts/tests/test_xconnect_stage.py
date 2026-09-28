@@ -36,6 +36,15 @@ TOPOLOGY = {
             },
         },
         "control_plane": {"accounts_api_url": "https://accounts.svc.plus"},
+        "dns": {
+            "enabled": True,
+            "interface": "xconone0",
+            "listen_address": "10.79.0.1",
+            "zone": "shared.internal",
+            "domains": ["shared.internal", "svc.plus"],
+            "upstream_servers": ["1.1.1.1", "8.8.8.8"],
+            "records": [{"name": "vault-prod-0.shared.internal", "address": "10.79.0.1"}],
+        },
         "runtime": {"gateway_state_dir": "/var/lib/xconnect-gateway/shared", "sync_interval_seconds": 300,
                     "state_dir_prefix": "/var/lib/xconnect-one", "wireguard_interface": "xconone0",
                     "xray_loopback_udp_port": 51830},
@@ -98,6 +107,8 @@ class TopologyTests(unittest.TestCase):
         self.assertEqual(declared["transport_host"], "vault-xconnect.svc.plus")
         self.assertEqual(declared["controller"], "https://accounts.svc.plus")
         self.assertEqual(declared["frontend"], "caddy-unix-h2c")
+        self.assertIs(declared["dns_enabled"], True)
+        self.assertEqual(declared["dns_listen_address"], "10.79.0.1")
 
     def test_rejects_a_non_https_controller(self):
         bad = yaml.safe_load(yaml.safe_dump(TOPOLOGY))
@@ -106,6 +117,15 @@ class TopologyTests(unittest.TestCase):
             path = Path(directory) / "topology.yaml"
             path.write_text(yaml.safe_dump(bad), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "https"):
+                module.load_topology(path)
+
+    def test_rejects_non_ip_overlay_dns_upstream(self):
+        bad = yaml.safe_load(yaml.safe_dump(TOPOLOGY))
+        bad["spec"]["dns"]["upstream_servers"] = ["resolver.example"]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "topology.yaml"
+            path.write_text(yaml.safe_dump(bad), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "upstream_servers"):
                 module.load_topology(path)
 
 
@@ -165,6 +185,8 @@ class VarsTests(unittest.TestCase):
         self.assertEqual(values["xconnect_gateway_environment"], "shared")
         self.assertEqual(values["xconnect_gateway_binary_source"], "/r/bin/xconnect-gateway")
         self.assertEqual(values["xconnect_gateway_trust_bundle_source"], "/r/secrets/trust-bundle.pem")
+        self.assertIs(values["xconnect_gateway_dns_enabled"], True)
+        self.assertEqual(values["xconnect_gateway_dns_records"], [{"name": "vault-prod-0.shared.internal", "address": "10.79.0.1"}])
         self.assertEqual(values["xconnect_gateway_invite_file_source"], "/r/secrets/g.invite")
         self.assertEqual(module.gateway_vars(topology(), CONTRACT, Path("/b"), Path("/s"), None)
                          ["xconnect_gateway_invite_file_source"], "")
@@ -183,6 +205,8 @@ class OneTests(unittest.TestCase):
         self.assertEqual(values["xconnect_one_binary_source"], "/r/bin/xconnect")
         self.assertEqual(values["xconnect_one_expected_network_id"], "net_shared_vault")
         self.assertEqual(values["xconnect_one_expected_xray_loopback_port"], 51830)
+        self.assertIs(values["xconnect_one_dns_enabled"], True)
+        self.assertEqual(values["xconnect_one_dns_server"], "10.79.0.1")
         self.assertEqual(values["xconnect_one_invite_files"], {"vault-prod-2": "/r/secrets/vault-prod-2.invite"})
         self.assertEqual(values["xconnect_one_device_id"], "{{ inventory_hostname }}")
         self.assertIn("xconnect_one_invite_files", values["xconnect_one_invite_file_source"])
