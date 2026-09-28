@@ -35,6 +35,7 @@ written only to 0600 files in the runner-private --secrets-dir.
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import os
 import re
@@ -67,6 +68,42 @@ def load_topology(path: Path) -> dict:
         raise ValueError("XConnect topology must be an XConnectOneNodeSet")
     spec = doc["spec"]
     network, transport = spec["network"], spec["network"]["transport_profile"]
+    dns = spec.get("dns", {}) or {}
+    dns_enabled = bool(dns.get("enabled", False))
+    dns_listen_address = str(dns.get("listen_address", network["gateway_wireguard_address"].split("/", 1)[0]))
+    dns_interface = str(dns.get("interface", spec["runtime"].get("wireguard_interface", "xconone0")))
+    dns_zone = str(dns.get("zone", ""))
+    dns_domains = [str(domain) for domain in dns.get("domains", [])]
+    dns_upstream_servers = [str(server) for server in dns.get("upstream_servers", [])]
+    if dns_enabled:
+        try:
+            if not isinstance(ipaddress.ip_address(dns_listen_address), ipaddress.IPv4Address):
+                raise ValueError
+        except ValueError:
+            raise ValueError("XConnect overlay DNS listen_address must be an IP address") from None
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,15}", dns_interface):
+            raise ValueError("XConnect overlay DNS interface is invalid")
+        if not HOSTNAME.fullmatch(dns_zone):
+            raise ValueError("XConnect overlay DNS zone must be a valid name")
+        if not dns_upstream_servers:
+            raise ValueError("enabled XConnect overlay DNS requires upstream_servers")
+        for server in dns_upstream_servers:
+            try:
+                if not isinstance(ipaddress.ip_address(server), ipaddress.IPv4Address):
+                    raise ValueError
+            except ValueError:
+                raise ValueError("XConnect overlay DNS upstream_servers require IPv4 addresses") from None
+        if not isinstance(dns.get("records", []), list) or not dns.get("records", []):
+            raise ValueError("enabled XConnect overlay DNS requires records")
+        seen_dns_names = set()
+        for record in dns["records"]:
+            if not isinstance(record, dict) or not HOSTNAME.fullmatch(str(record.get("name", ""))):
+                raise ValueError("XConnect overlay DNS records require valid FQDN names")
+            if record["name"] in seen_dns_names:
+                raise ValueError("XConnect overlay DNS record names must be unique")
+            seen_dns_names.add(record["name"])
+            if set(record) != {"name", "device_id"} or not IDENTIFIER.fullmatch(str(record.get("device_id", ""))):
+                raise ValueError("XConnect overlay DNS aliases must map an FQDN to a valid device_id")
     topology = {
         "environment": doc["metadata"]["environment"],
         "network_id": network["id"],
@@ -86,6 +123,13 @@ def load_topology(path: Path) -> dict:
         "wireguard_interface": spec["runtime"].get("wireguard_interface", "xconone0"),
         "xray_loopback_port": int(spec["runtime"].get("xray_loopback_udp_port", 51830)),
         "sync_interval": int(spec["runtime"].get("sync_interval_seconds", 300)),
+        "dns_enabled": dns_enabled,
+        "dns_interface": dns_interface,
+        "dns_listen_address": dns_listen_address,
+        "dns_zone": dns_zone,
+        "dns_domains": dns_domains,
+        "dns_upstream_servers": dns_upstream_servers,
+        "dns_records": dns.get("records", []),
     }
     if not topology["controller"].startswith("https://"):
         raise ValueError("XConnect controller must be an https URL")
@@ -223,6 +267,13 @@ def gateway_vars(topology: dict, contract: dict, artifacts: Path, secrets_dir: P
         "xconnect_gateway_trust_bundle_source": str(secrets_dir / "trust-bundle.pem"),
         "xconnect_gateway_sync_interval_seconds": topology["sync_interval"],
         "xconnect_gateway_invite_file_source": str(invite) if invite else "",
+        "xconnect_gateway_dns_enabled": topology["dns_enabled"],
+        "xconnect_gateway_dns_interface": topology["dns_interface"],
+        "xconnect_gateway_dns_listen_address": topology["dns_listen_address"],
+        "xconnect_gateway_dns_zone": topology["dns_zone"],
+        "xconnect_gateway_dns_domains": topology["dns_domains"],
+        "xconnect_gateway_dns_upstream_servers": topology["dns_upstream_servers"],
+        "xconnect_gateway_dns_records": topology["dns_records"],
     }
 
 
@@ -255,6 +306,9 @@ def one_vars(topology: dict, artifacts: Path, secrets_dir: Path, invites: dict[s
         "xconnect_one_expected_wireguard_interface": topology["wireguard_interface"],
         "xconnect_one_expected_xray_loopback_port": topology["xray_loopback_port"],
         "xconnect_one_sync_interval_seconds": topology["sync_interval"],
+        "xconnect_one_dns_enabled": topology["dns_enabled"],
+        "xconnect_one_dns_server": topology["dns_listen_address"],
+        "xconnect_one_dns_domains": topology["dns_domains"],
         # Host metrics come from node-process-metrics; keep One to the overlay.
         "xconnect_one_install_observability": False,
         # The migration source may already be a One on another network; every
