@@ -367,6 +367,9 @@ jobs:
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/gcp/agent-proxy.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/gcp/ai-workspace.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/gcp/agent-proxy-us.yaml
+          resources/xworktech.com/prod/gcp/open-platform-prod.yaml
+          resources/xworktech.com/uat/gcp/web-saas-workload.yaml
+          resources/xworktech.com/uat/gcp/ai-workspace-workload.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/azure/web-saas.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/azure/agent-proxy.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/akamai/web-saas.yaml
