@@ -12,15 +12,18 @@ test -x "${script}" || {
 }
 
 for required in \
-  'github-actions-platform-ops-toolkit-prod-aws-bootstrap' \
-  'kv/data/CICD/prod/aws-bootstrap' \
-  'environment: production' \
+  'role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path }}-aws-bootstrap' \
+  'kv/data/CICD/${{ inputs.vault_env_path }}/aws-bootstrap' \
+  'environment: ${{ inputs.vault_env_path == '\''uat'\'' && '\''uat'\'' || '\''production'\'' }}' \
+  'vault_env_path:' \
+  'options: [uat, prod]' \
   'options: [plan, apply]' \
   'allow_root_break_glass' \
   'ALLOW_ROOT_BREAK_GLASS' \
   'Checkout AWS IaC identity module' \
   'Load Terraform state credentials' \
-  'kv/data/CICD/prod/iac_state' \
+  'kv/data/CICD/${{ inputs.vault_env_path }}/iac_state' \
+  'inputs.action == '\''apply'\'' && inputs.vault_env_path == '\''prod'\''' \
   'Configure AWS credentials through the new GitHub OIDC role' \
   'Adopt GitHub OIDC resources into Terraform state' \
   'reconcile_github_oidc_trust.sh'; do
@@ -50,7 +53,9 @@ for required in \
   'GITHUB_OUTPUT' \
   'if [ "${action}" = "plan" ]' \
   'refs/tags/v*' \
-  'environment:production'; do
+  'deployment_env="${DEPLOYMENT_ENV:-prod}"' \
+  'expected_github_environment="production"' \
+  'metadata.environment == $environment'; do
   grep -Fq -- "${required}" "${script}" || {
     echo "AWS OIDC bootstrap script missing safety contract: ${required}" >&2
     exit 1

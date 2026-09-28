@@ -10,8 +10,8 @@ jq -e '
   .environment == "uat" and .target_domains == "all" and
   ([.resources[].order] == [1,2,3,4,5,6,7,8]) and
   ([.resources[] | select(.management_mode == "terraform") | .namespace] ==
-    ["open-platform","agent-proxy-jp","agent-proxy-us","agent-proxy-sg"]) and
-  ([.resources[] | select(.management_mode == "existing-selfhost") | .namespace] == ["ai-workspace"]) and
+    ["open-platform","ai-workspace","agent-proxy-jp","agent-proxy-us","agent-proxy-sg"]) and
+  ([.resources[] | select(.management_mode == "existing-selfhost") | .namespace] == []) and
   ([.resources[] | select(.management_mode == "existing") | .namespace] ==
     ["agent-proxy-tw","agent-proxy-ph"]) and
   ([.resources[] | select(.management_mode == "existing+serverless") | .namespace] == ["web-saas"]) and
@@ -19,21 +19,22 @@ jq -e '
   all(.resources[] | select(.management_mode == "terraform"); .provider != "ulighthost") and
   all(.resources[] | select(.management_mode == "existing"); .provider == "ulighthost") and
   ([.resources[] | select(.management_mode == "terraform") | .region] ==
-    ["us-east","ap-northeast-1","us-central1","sg-sin-2"]) and
+    ["us-east","sg-sin-2","ap-northeast-1","us-central1","sg-sin-2"]) and
   ([.resources[] | select(.management_mode == "terraform") | .profile] ==
-    ["2C4G","2C2G","2C2G","2C2G"]) and
+    ["2C4G","4C8G","2C2G","2C2G","2C2G"]) and
   ([.resources[] | select(.management_mode == "terraform") | .agent_profile] ==
-    ["1C2G","2C2G","2C2G","2C2G"]) and
+    ["1C2G","1C2G","2C2G","2C2G","2C2G"]) and
   .resources[0].profile == "2C4G" and
   .resources[0].lifecycle == "permanent" and
   .resources[1].existing_node == "vault-node-0" and
   .resources[1].lifecycle == "external" and
-  .resources[2].management_mode == "existing-selfhost" and
-  .resources[2].lifecycle == "external" and
-  .resources[2].existing_host == "10.79.0.7" and
-  .resources[2].xconnect_required == true and
+  .resources[2].management_mode == "terraform" and
+  .resources[2].lifecycle == "ephemeral" and
+  .resources[2].provider == "akamai-cloud" and
+  .resources[2].profile == "4C8G" and
+  .resources[2].region == "sg-sin-2" and
   ([.resources[] | select(.management_mode == "terraform" and .lifecycle == "ephemeral") | .namespace] ==
-    ["agent-proxy-jp","agent-proxy-us","agent-proxy-sg"]) and
+    ["ai-workspace","agent-proxy-jp","agent-proxy-us","agent-proxy-sg"]) and
   all(.resources[]; (.management_mode == "existing" or (.state_project == "svc.plus")))
 ' "${matrix}" >/dev/null
 bash -n "${dispatcher}"

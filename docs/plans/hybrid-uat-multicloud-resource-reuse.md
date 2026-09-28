@@ -12,7 +12,7 @@
 | --- | --- | --- | --- | --- |
 | 1 | `open-platform` | Akamai Cloud，2C4G | 独立 Akamai Terraform state | Vault、Observability 等平台服务；先核实与现有共享服务的边界 |
 | 2 | `web-saas` | GCP，复用所称的现有 Vault node 0，目标 2C4G | existing/应用部署；不得由 UAT Terraform 接管共享 Vault 的 state | Web SaaS Selfhost 后端；同时调用 Serverless 部署 Supabase、Cloud Run、Cloudflare Pages/Workers |
-| 3 | `ai-workspace` | 复用 `10.79.0.7`，逻辑 provider 为 GCP，4C8G | existing-selfhost；无 Terraform state | 经 XConnect 打通后部署 AI Workspace 套件及监控探针 |
+| 3 | `ai-workspace` | Akamai Cloud `sg-sin-2`，`g8-dedicated-8-4`（4C8G） | 独立 Akamai Terraform state；临时资源 | 新建主机后部署 AI Workspace 套件及监控探针；不复用 `10.79.0.7` |
 | 4 | `agent-proxy-jp` | AWS JP，2C2G | 独立 AWS Terraform state 或经核实的现有资源 | Gateway、Proxy-Server、CPA 同机混合部署 |
 | 5 | `agent-proxy-us` | GCP US，2C2G | 独立 GCP Terraform state 或经核实的现有资源 | Gateway、Proxy-Server、CPA 同机混合部署 |
 | 6 | `agent-proxy-sg` | Akamai Cloud SG，目标 2C2G | 独立 Akamai Terraform state | Gateway、Proxy-Server、CPA 同机混合部署 |
@@ -34,7 +34,7 @@ Worker 不直接连接 PostgreSQL，也不持有数据库管理员凭据。默�
 ## 编排契约
 
 1. Hybrid 预检读取一份 GitOps UAT 资源矩阵，逐项校验 provider、真实账号、地区、规格、`create`/`existing` 身份、实例名、state key、应用域名、Vault 路径及监控端点。`target_domains=all` 只对该矩阵作串行扇出，不把单个 `cloud_provider` 输入套到八项上。
-2. Hybrid 对每个基础设施或现有节点步骤只调用一次 Selfhost 子流程。Selfhost 按 provider registry 调用 AWS、GCP、Azure、Vultr、Akamai 或 UCloud 的 Terraform adapter；existing 项只读取 Vault/CMDB 事实，`existing-selfhost` 只对已存在主机执行 Playbook。每个新建资源使用 `terraform/uat/<project>/<provider>/<account>/<namespace>/terraform.tfstate`，并分别锁定、plan、审批和 apply。读取统一的 `kv/data/CICD/uat/iac_state`，provider 凭据继续走各自的 Vault/OIDC 契约。复用的 Vault 节点和 `10.79.0.7` 保留原 state 归属，不能导入业务 namespace state。
+2. Hybrid 对每个基础设施或现有节点步骤只调用一次 Selfhost 子流程。Selfhost 按 provider registry 调用 AWS、GCP、Azure、Vultr、Akamai 或 UCloud 的 Terraform adapter；existing 项只读取 Vault/CMDB 事实，`existing-selfhost` 只对已存在主机执行 Playbook。每个新建资源使用 `terraform/uat/<project>/<provider>/<account>/<namespace>/terraform.tfstate`，并分别锁定、plan、审批和 apply。读取统一的 `kv/data/CICD/uat/iac_state`，provider 凭据继续走各自的 Vault/OIDC 契约。复用的 Vault 节点和 TW/PH existing 节点保留原 state 归属，不能导入业务 namespace state；`ai-workspace` 必须创建并独立管理 Akamai Cloud 主机。
 3. 基础节点完成 SSH、Caddy、运行时、监控探针与 CMDB 验收后才部署业务。Selfhost 工作流接收单项的 provider、资源身份与目标主机；Agent Proxy 的 Gateway、Proxy-Server、CPA 三角色必须在 playbook 中有明确的端口、进程、Caddy 路由、凭据及健康检查，避免覆盖现有 Gateway 配置。
 4. Web SaaS 顺序是：Hybrid 等待 Selfhost 完成目标主机准备与业务部署 → 调用 Serverless `web-saas` 部署/验证（Supabase、Cloud Run、Pages/Workers）→ 校验 Hybrid edge-gateway 模式。Hybrid 只传递部署版本和环境上下文；Supabase 的写入职责需先与现有 Hybrid 单写者契约统一，不在编排层暗中更改数据库主从关系。
 5. 各 Agent Proxy 与 Accounts 注册、XConnect Gateway/One 联动、监控心跳和区域域名验证均随本区域步骤完成。TW/PH 只走 external-node job。每步成功后才进入下一步，最终摘要列出八项实际执行结果、资源 ID、state key 或 existing 引用、子流水线链接与前端入口检查。
@@ -121,7 +121,7 @@ Hybrid 在运行开始时生成 `execution_id=<run_id>-<run_attempt>`。所有�
 | P2a | 准备并部署 `web-saas` Selfhost origin | Selfhost | existing 节点身份已核实；API/PostgreSQL 健康；返回 `origin_url` |
 | P2b | 部署 Web SaaS Serverless 面 | Serverless | Supabase、Cloud Run、Pages/Workers 发布成功；Worker 同时获得两个 origin |
 | P2c | 验证 `selfhost-first` | Hybrid | 安全读请求主路径命中 Selfhost；受控故障下回退 Cloud Run；写请求不重放 |
-| P3 | 部署 `ai-workspace` | Selfhost existing-host | XConnect 到 `10.79.0.7` 可达；不创建、不修改 Terraform state；AI Workspace 与监控心跳正常 |
+| P3 | 部署 `ai-workspace` | Selfhost Terraform | Akamai `sg-sin-2` 创建 `g8-dedicated-8-4`（4C8G）；独立 state、监控和 AI Workspace 健康 |
 | P4 | 部署 `agent-proxy-jp` | Selfhost | AWS 2C2G；Gateway/Proxy-Server/CPA 与 Accounts 心跳通过 |
 | P5 | 部署 `agent-proxy-us` | Selfhost | GCP 2C2G；三角色与监控通过 |
 | P6 | 部署 `agent-proxy-sg` | Selfhost | Akamai 2C2G；三角色与监控通过 |
@@ -156,12 +156,12 @@ resources:
     resource_ref: <confirmed-vault-node-0-identity>
     profile: 2C4G
   - namespace: ai-workspace
-    provider: gcp-cloud
-    management_mode: existing-selfhost
-    account: <confirmed-gcp-project>
-    existing_host: 10.79.0.7
-    xconnect_required: true
+    provider: akamai-cloud
+    management_mode: terraform
+    account: manbuzhe2026
+    region: sg-sin-2
     profile: 4C8G
+    plan: g8-dedicated-8-4
   - namespace: agent-proxy-jp
     provider: aws-cloud
     management_mode: terraform
@@ -236,7 +236,7 @@ Worker 配置至少包含 `SELFHOST_ORIGIN`、`CLOUD_RUN_ORIGIN`、`ROUTING_MODE
 4. Pages/Worker 发布失败：回滚到上一 Worker version 和 Pages deployment；不回滚 VPS、数据库或 Agent Proxy。
 5. Selfhost origin 运行期异常：Worker 只按方法策略回退；写流量保持单写并报警。
 6. Agent Proxy 某区域失败：停止后续区域，已经成功的区域保持运行；修复后单区域重试，再执行 P9 全链路验证。
-7. Spot AI Workspace 被回收：由该 namespace 的重建策略恢复计算节点；QMD/持久数据不得仅存在于 Spot 本地盘。
+7. AI Workspace 节点被回收或主动清理：由 `ai-workspace` namespace 的重建策略恢复计算节点；QMD/持久数据不得仅存在于主机本地盘。
 
 所有回滚都以“恢复上一可用应用或边缘版本”为主，不以销毁云资源作为默认回滚手段。
 
@@ -279,7 +279,7 @@ Worker 配置至少包含 `SELFHOST_ORIGIN`、`CLOUD_RUN_ORIGIN`、`ROUTING_MODE
 
 - `open-platform` 的 Akamai 声明已是 `us-east / g6-standard-2`，匹配目标 2C4G；实际 state、服务所有权和旧节点迁移边界仍需只读验收。
 - `web-saas` 的 GCP `vault-node-0` 仍是共享 existing 事实；编排只调用 Serverless 和应用部署，不导入或修改该节点的 Terraform state。
-- `ai-workspace` 的 `10.79.0.7` 是 existing-selfhost 目标。执行前必须使用可访问 XConnect 私网的 runner，并确认 Vault 中的部署 SSH 凭据；Selfhost 子流程不得执行 Terraform init/apply/destroy，也不得把该地址写入 Terraform state。
+- `ai-workspace` 不再复用 `10.79.0.7`；它是 Akamai Cloud `sg-sin-2` 的独立 Terraform 资源，规格为 `g8-dedicated-8-4`（4C8G），使用 `ai-workspace` 独立 state。旧 `10.79.0.7` 不得被该 namespace 接管、修改或销毁。
 - Provider 选择由 `config/iac_provider_registry.json` 和矩阵行决定。AWS、GCP、Azure、Vultr、Akamai、UCloud 可作为 Terraform provider；非 IaC 创建好的主机使用 `existing` 或 `existing-selfhost`，不因矩阵 `all` 自动接管其生命周期。
 - AWS UAT JP 现有声明默认 `t4g.micro`（2C1G）且没有单独 `agent-proxy-jp` state；目标 2C2G 可评估 `t4g.small`，并确认 ARM 版 Gateway/Proxy-Server/CPA 镜像、现有实例是否已被其他 state 管理。[AWS T4g 规格](https://aws.amazon.com/ec2/instance-types/t4/)。
 - GCP US 的现有 `agent-proxy-us-workload.yaml` 是 `e2-micro` Spot、最长一小时；需确定 2C2G 实例类型、是否继续 Spot、目标账号和网络/SSH 可达性。
@@ -291,7 +291,7 @@ Worker 配置至少包含 `SELFHOST_ORIGIN`、`CLOUD_RUN_ORIGIN`、`ROUTING_MODE
 
 1. 确认“Vault node 0”的真实 GCP project、实例 ID、当前 state owner、规格和是否允许承载 UAT Web SaaS；现有 `vault-prod-0 / e2-highcpu-2` 不能自动视为目标 2C4G。
 2. 确认 Web SaaS 数据权威仍为 Selfhost PostgreSQL，并书面定义 Supabase 在 UAT 的身份、存储、实时或副本职责。
-3. 确认 GCP AI Workspace 4C8G Spot 的区域、实际 machine type、磁盘持久化和被回收后的恢复目标。
+3. 确认 Akamai `sg-sin-2` 的 `g8-dedicated-8-4` 容量、磁盘持久化、成本和被销毁后的恢复目标。
 4. 确认 AWS JP、GCP US、Akamai SG 的真实账号、区域、实际 2C2G 型号和独立 state key。
 5. 确认 Cloudflare Pages project、Worker route 和现有 serverless 边界继续复用，不创建重复 DNS/Worker 名称。
 6. 确认 TW/PH Vault 路径和 CMDB identity 为 UAT 记录，并验证 `management_mode=existing` 保护规则。
@@ -301,7 +301,7 @@ Worker 配置至少包含 `SELFHOST_ORIGIN`、`CLOUD_RUN_ORIGIN`、`ROUTING_MODE
 ## 验收标准
 
 - `plan` 展示八项顺序、provider、账号、区域、规格、创建或复用身份、state key/CMDB 引用，且零资源变更。
-- 每个 Terraform namespace 独立锁定和 `plan 0 add / 0 change / 0 destroy`；复用的 Vault、TW、PH 节点没有 UAT 新 state。
+- 每个 Terraform namespace 独立锁定和 `plan 0 add / 0 change / 0 destroy`；复用的 Vault、TW、PH 节点没有 UAT 新 state；`ai-workspace` 的新 Akamai 主机只出现在自己的 state。
 - Web SaaS Selfhost 与 Serverless 的健康检查、Cloudflare Pages 静态资源、Workers API 路由、Supabase 数据关系均符合更新后的单写者契约。
 - JP/US/SG/TW/PH 的 Gateway、Proxy-Server、CPA 各自健康，Accounts 心跳与 Observability Agent 正常；某一区域失败时后续步骤不启动。
 - 最终摘要能追溯八项子流水线；反复部署不会重建现有资源或扩大 Terraform destroy 范围。

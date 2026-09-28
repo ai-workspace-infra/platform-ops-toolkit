@@ -14,25 +14,31 @@ on:
         type: boolean
         required: true
         default: false
+      vault_env_path:
+        description: "Environment whose AWS OIDC trust is reconciled; UAT does not adopt the production bootstrap Terraform state."
+        type: choice
+        required: true
+        default: prod
+        options: [uat, prod]
 
 permissions:
   contents: read
   id-token: write
 
 concurrency:
-  group: aws-oidc-bootstrap-production
+  group: aws-oidc-bootstrap-${{ inputs.vault_env_path || 'prod' }}
   cancel-in-progress: false
 
 jobs:
   bootstrap:
     name: Bootstrap AWS GitHub OIDC trust
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ inputs.vault_env_path == 'uat' && 'uat' || 'production' }}
     steps:
     - name: Checkout platform operations source
       uses: actions/checkout@v7
 
-    - name: Checkout production GitOps OIDC declaration
+    - name: Checkout GitOps OIDC declaration
       uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/gitops
@@ -40,10 +46,10 @@ jobs:
         path: gitops
         sparse-checkout-cone-mode: false
         sparse-checkout: |
-          resources/svc.plus/prod/aws/github-actions-oidc.json
+          resources/svc.plus/${{ inputs.vault_env_path }}/aws/github-actions-oidc.json
 
     - name: Checkout AWS IaC identity module
-      if: ${{ inputs.action == 'apply' }}
+      if: ${{ inputs.action == 'apply' && inputs.vault_env_path == 'prod' }}
       uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/iac_modules
@@ -56,13 +62,13 @@ jobs:
       with:
         url: https://vault.svc.plus
         method: jwt
-        role: github-actions-platform-ops-toolkit-prod-aws-bootstrap
+        role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path }}-aws-bootstrap
         jwtGithubAudience: vault
         outputToken: true
         ignoreNotFound: true
         secrets: |
-          kv/data/CICD/prod/aws-bootstrap AWS_ACCESS_KEY_ID | AWS_ACCESS_KEY_ID ;
-          kv/data/CICD/prod/aws-bootstrap AWS_SECRET_ACCESS_KEY | AWS_SECRET_ACCESS_KEY
+          kv/data/CICD/${{ inputs.vault_env_path }}/aws-bootstrap AWS_ACCESS_KEY_ID | AWS_ACCESS_KEY_ID ;
+          kv/data/CICD/${{ inputs.vault_env_path }}/aws-bootstrap AWS_SECRET_ACCESS_KEY | AWS_SECRET_ACCESS_KEY
 
     - name: Load optional AWS session token
       shell: bash
@@ -74,7 +80,7 @@ jobs:
 
         response="$(curl --fail --silent --show-error \
           --header "X-Vault-Token: ${VAULT_TOKEN}" \
-          "${VAULT_ADDR}/v1/kv/data/CICD/prod/aws-bootstrap")"
+          "${VAULT_ADDR}/v1/kv/data/CICD/${{ inputs.vault_env_path }}/aws-bootstrap")"
         session_token="$(jq -r '.data.data.AWS_SESSION_TOKEN // empty' <<<"${response}")"
         if [ -n "${session_token}" ]; then
           echo "::add-mask::${session_token}"
@@ -83,19 +89,19 @@ jobs:
 
     - name: Load Terraform state credentials
       id: iac_state
-      if: ${{ inputs.action == 'apply' }}
+      if: ${{ inputs.action == 'apply' && inputs.vault_env_path == 'prod' }}
       uses: hashicorp/vault-action@v4
       with:
         url: https://vault.svc.plus
         method: jwt
-        role: github-actions-platform-ops-toolkit-prod-aws-bootstrap
+        role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path }}-aws-bootstrap
         jwtGithubAudience: vault
         secrets: |
-          kv/data/CICD/prod/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
-          kv/data/CICD/prod/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
-          kv/data/CICD/prod/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
-          kv/data/CICD/prod/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
-          kv/data/CICD/prod/iac_state TF_STATE_REGION | TF_STATE_REGION
+          kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
+          kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
+          kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+          kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+          kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_REGION | TF_STATE_REGION
 
     - name: Reconcile GitHub OIDC trust
       id: reconcile
@@ -105,7 +111,8 @@ jobs:
         AWS_DEFAULT_REGION: ap-northeast-1
         BOOTSTRAP_ACTION: ${{ inputs.action }}
         ALLOW_ROOT_BREAK_GLASS: ${{ inputs.allow_root_break_glass }}
-        GITOPS_AWS_OIDC_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/prod/aws/github-actions-oidc.json
+        DEPLOYMENT_ENV: ${{ inputs.vault_env_path }}
+        GITOPS_AWS_OIDC_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/${{ inputs.vault_env_path }}/aws/github-actions-oidc.json
       run: .github/scripts/aws/reconcile_github_oidc_trust.sh
 
     - name: Configure AWS credentials through the new GitHub OIDC role
@@ -117,14 +124,14 @@ jobs:
         aws-region: ap-northeast-1
 
     - name: Set up Terraform
-      if: ${{ inputs.action == 'apply' }}
+      if: ${{ inputs.action == 'apply' && inputs.vault_env_path == 'prod' }}
       uses: hashicorp/setup-terraform@v4
 
     - name: Adopt GitHub OIDC resources into Terraform state
-      if: ${{ inputs.action == 'apply' }}
+      if: ${{ inputs.action == 'apply' && inputs.vault_env_path == 'prod' }}
       env:
         IAC_MODULES_ROOT: ${{ github.workspace }}/iac_modules
-        GITOPS_AWS_OIDC_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/prod/aws/github-actions-oidc.json
+        GITOPS_AWS_OIDC_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/${{ inputs.vault_env_path }}/aws/github-actions-oidc.json
         IAC_BOOTSTRAP_CONFIG: ${{ github.workspace }}/iac_modules/terraform-hcl-standard/aws-cloud/config/bootstrap/prod.yaml
         TF_STATE_ENDPOINT: ${{ steps.iac_state.outputs.TF_STATE_ENDPOINT }}
         TF_STATE_BUCKET: ${{ steps.iac_state.outputs.TF_STATE_BUCKET }}
