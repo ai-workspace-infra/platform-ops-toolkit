@@ -25,10 +25,15 @@ jq -e '
   ([.resources[] | select(.management_mode == "terraform") | .agent_profile] ==
     ["1C2G","2C2G","2C2G","2C2G"]) and
   .resources[0].profile == "2C4G" and
+  .resources[0].lifecycle == "permanent" and
   .resources[1].existing_node == "vault-node-0" and
+  .resources[1].lifecycle == "external" and
   .resources[2].management_mode == "existing-selfhost" and
+  .resources[2].lifecycle == "external" and
   .resources[2].existing_host == "10.79.0.7" and
   .resources[2].xconnect_required == true and
+  ([.resources[] | select(.management_mode == "terraform" and .lifecycle == "ephemeral") | .namespace] ==
+    ["agent-proxy-jp","agent-proxy-us","agent-proxy-sg"]) and
   all(.resources[]; (.management_mode == "existing" or (.state_project == "svc.plus")))
 ' "${matrix}" >/dev/null
 bash -n "${dispatcher}"
@@ -41,7 +46,7 @@ doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
 on = doc.get("on", doc.get(True))
 inputs = on["workflow_dispatch"]["inputs"]
 assert inputs["target_domains"]["default"] == "all"
-assert set(inputs["operation"]["options"]) >= {"plan", "apply", "deploy"}
+assert set(inputs["operation"]["options"]) >= {"plan", "apply", "deploy", "destroy"}
 assert "resource_orchestration" in doc["jobs"]
 assert "platform-ops_dispatch-hybrid-uat-matrix.sh" in open(sys.argv[1], encoding="utf-8").read()
 PY
