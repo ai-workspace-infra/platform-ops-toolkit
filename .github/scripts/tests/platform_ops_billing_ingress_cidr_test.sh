@@ -57,4 +57,15 @@ PATH="${fake_bin}:${PATH}" GITOPS_AGENT_PROXY_RESOURCE_DIR="${resource_dir}" CMD
   "${resolver}"
 grep -Fqx 'WEB_SAAS_BILLING_ALLOWED_CIDRS=192.0.2.7/32' "${github_env}"
 
+override_env="${tmp_dir}/github-override.env"
+DEPLOY_ENV=uat BILLING_AGENT_PROXY_CIDRS_OVERRIDE='172.237.1.168/32 2001:db8::/64' CMDB_FILE="${cmdb}" GITHUB_ENV="${override_env}" \
+  "${resolver}"
+grep -Fqx 'WEB_SAAS_BILLING_ALLOWED_CIDRS=172.237.1.168/32 2001:db8::/64' "${override_env}"
+
+if DEPLOY_ENV=prod BILLING_AGENT_PROXY_CIDRS_OVERRIDE='192.0.2.7/32' CMDB_FILE="${cmdb}" GITHUB_ENV="${tmp_dir}/github-prod-override.env" \
+  "${resolver}"; then
+  echo "expected production CIDR override to fail" >&2
+  exit 1
+fi
+
 echo "billing ingress CIDR resolver tests passed"
