@@ -34,8 +34,8 @@ read -r -s -p "UCloud public key: " UCLOUD_PUBLIC_KEY; echo
 read -r -s -p "UCloud private key: " UCLOUD_PRIVATE_KEY; echo
 export UCLOUD_PUBLIC_KEY UCLOUD_PRIVATE_KEY
 
-scripts/ucloud/bootstrap_ucloud_auth_kv.sh
-UCLOUD_BOOTSTRAP_ACTION=check scripts/ucloud/bootstrap_ucloud_auth_kv.sh
+scripts/cloud/bootstrap/ucloud/bootstrap_ucloud_auth_kv.sh
+UCLOUD_BOOTSTRAP_ACTION=check scripts/cloud/bootstrap/ucloud/bootstrap_ucloud_auth_kv.sh
 ```
 
 `write` replaces the KV record with the four fields above. Store credentials in

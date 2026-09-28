@@ -60,7 +60,7 @@ jobs:
         id: config
         env:
           GCP_OIDC_CONFIG: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.environment }}/gcp/github-actions-oidc.yaml
-        run: .github/scripts/gcp/resolve_github_oidc_config.sh
+        run: scripts/cloud/bootstrap/gcp/resolve_github_oidc_config.sh
 
       - name: Load short-lived Vault session and Terraform state credentials
         id: vault
@@ -80,7 +80,7 @@ jobs:
 
       # The bootstrap secret at kv/data/CICD/<env>/gcp-bootstrap/<account> holds
       # either GCP_AUTH_JSON (a one-time Admin SA key; see
-      # scripts/gcp/bootstrap_gcp_auth_kv.sh --auth-json) or GCP_ACCESS_TOKEN (a
+      # scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh --auth-json) or GCP_ACCESS_TOKEN (a
       # short-lived token from an already-privileged human's ADC). Exactly one
       # is present at a time, so this is read as raw JSON instead of through
       # vault-action's static `secrets:` list, which fails if a listed key is
@@ -395,7 +395,7 @@ jobs:
               --data "${payload}" "${VAULT_ADDR}/v1/kv/data/CICD/${ENVIRONMENT}/gcp-bootstrap/${ACCOUNT_ID}"
             echo "Vault bootstrap credential versions destroyed; GCP_AUTH_JSON no longer stored."
           else
-            echo "::warning::GCP key is revoked and the service account is disabled, but this workflow's Vault role (github-actions-platform-ops-toolkit-${ENVIRONMENT}-gcp-bootstrap-${ACCOUNT_ID}) lacks update/delete on kv/CICD/${ENVIRONMENT}/gcp-bootstrap/${ACCOUNT_ID}. GCP_AUTH_JSON is still stored in Vault (the key itself is already dead). Run scripts/create_vault_service_repo_roles.sh --apply with an admin Vault token to sync the widened policy, then purge the stale secret manually: GCP_BOOTSTRAP_ACTION=revoke GCP_ENVIRONMENT=${ENVIRONMENT} GCP_ACCOUNT_ID=${ACCOUNT_ID} GCP_PROJECT_ID=${PROJECT_ID} bash scripts/gcp/bootstrap_gcp_auth_kv.sh"
+            echo "::warning::GCP key is revoked and the service account is disabled, but this workflow's Vault role (github-actions-platform-ops-toolkit-${ENVIRONMENT}-gcp-bootstrap-${ACCOUNT_ID}) lacks update/delete on kv/CICD/${ENVIRONMENT}/gcp-bootstrap/${ACCOUNT_ID}. GCP_AUTH_JSON is still stored in Vault (the key itself is already dead). Run scripts/create_vault_service_repo_roles.sh --apply with an admin Vault token to sync the widened policy, then purge the stale secret manually: GCP_BOOTSTRAP_ACTION=revoke GCP_ENVIRONMENT=${ENVIRONMENT} GCP_ACCOUNT_ID=${ACCOUNT_ID} GCP_PROJECT_ID=${PROJECT_ID} bash scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh"
           fi
 
       - name: Revoke and scrub short-lived GCP bootstrap access token

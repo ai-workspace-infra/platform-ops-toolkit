@@ -61,8 +61,8 @@ secure source, then write and verify the dedicated path:
 export VAULT_ADDR=https://vault.svc.plus
 vault login
 
-SHARED_IAC_STATE_ACTION=write bash scripts/gcp/bootstrap_shared_iac_state_kv.sh
-bash scripts/gcp/bootstrap_shared_iac_state_kv.sh
+SHARED_IAC_STATE_ACTION=write bash scripts/cloud/bootstrap/gcp/bootstrap_shared_iac_state_kv.sh
+bash scripts/cloud/bootstrap/gcp/bootstrap_shared_iac_state_kv.sh
 ```
 
 This writes KV v2 path `kv/CICD/shared/iac_state` with exactly these non-empty
@@ -99,13 +99,13 @@ vault login
 GCP_ENVIRONMENT=shared \
 GCP_ACCOUNT_ID=open-platform-prod \
 GCP_PROJECT_ID=open-platform-prod \
-bash scripts/gcp/bootstrap_gcp_auth_kv.sh
+bash scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh
 
 GCP_BOOTSTRAP_ACTION=check \
 GCP_ENVIRONMENT=shared \
 GCP_ACCOUNT_ID=open-platform-prod \
 GCP_PROJECT_ID=open-platform-prod \
-bash scripts/gcp/bootstrap_gcp_auth_kv.sh
+bash scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh
 ```
 
 This initializes `kv/CICD/shared/gcp-bootstrap/open-platform-prod` with

@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 workflow="${repo_root}/.github/workflows/gcp-oidc-bootstrap.yml"
-resolver="${repo_root}/.github/scripts/gcp/resolve_github_oidc_config.sh"
+resolver="${repo_root}/scripts/cloud/bootstrap/gcp/resolve_github_oidc_config.sh"
 runtime_action="${repo_root}/.github/actions/configure-gcp-oidc/action.yml"
 landingzone_workflow="${repo_root}/.github/workflows/iac-pipeline-multi-cloud-landingzone-baseline.yaml"
 account_workflow="${repo_root}/.github/workflows/iac-pipeline-multi-cloud-account-matrix.yaml"
@@ -13,7 +13,7 @@ gcp_iac_workflow="${repo_root}/.github/workflows/gcp-iac-pipeline.yml"
 vault_roles="${repo_root}/scripts/create_vault_service_repo_roles.sh"
 vault_role_dir="${repo_root}/scripts/vault/roles"
 vault_policy_dir="${repo_root}/scripts/vault/policies"
-kv_helper="${repo_root}/scripts/gcp/bootstrap_gcp_auth_kv.sh"
+kv_helper="${repo_root}/scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh"
 
 test -x "${resolver}" || { echo "GCP OIDC resolver must be executable" >&2; exit 1; }
 test -x "${kv_helper}" || { echo "GCP Vault KV helper must be executable" >&2; exit 1; }

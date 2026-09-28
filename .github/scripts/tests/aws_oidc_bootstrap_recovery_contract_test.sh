@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 workflow="${repo_root}/.github/workflows/aws-oidc-bootstrap.yml"
-script="${repo_root}/.github/scripts/aws/reconcile_github_oidc_trust.sh"
+script="${repo_root}/scripts/cloud/bootstrap/aws/reconcile_github_oidc_trust.sh"
 vault_roles="${repo_root}/scripts/create_vault_service_repo_roles.sh"
 
 test -x "${script}" || {
@@ -62,7 +62,7 @@ for required in \
   }
 done
 
-test -x "${repo_root}/.github/scripts/aws/adopt_github_oidc_terraform_state.sh" || {
+test -x "${repo_root}/scripts/cloud/bootstrap/aws/adopt_github_oidc_terraform_state.sh" || {
   echo "Terraform state-adoption script must be executable" >&2
   exit 1
 }
@@ -75,14 +75,14 @@ for required in \
   'import -input=false' \
   '-detailed-exitcode' \
   'Terraform state adoption found drift'; do
-  grep -Fq -- "${required}" "${repo_root}/.github/scripts/aws/adopt_github_oidc_terraform_state.sh" || {
+  grep -Fq -- "${required}" "${repo_root}/scripts/cloud/bootstrap/aws/adopt_github_oidc_terraform_state.sh" || {
     echo "Terraform state-adoption script missing contract: ${required}" >&2
     exit 1
   }
 done
 
 for forbidden in 'terraform apply' 'terraform destroy'; do
-  if grep -Fq -- "${forbidden}" "${repo_root}/.github/scripts/aws/adopt_github_oidc_terraform_state.sh"; then
+  if grep -Fq -- "${forbidden}" "${repo_root}/scripts/cloud/bootstrap/aws/adopt_github_oidc_terraform_state.sh"; then
     echo "Terraform state adoption must not run: ${forbidden}" >&2
     exit 1
   fi

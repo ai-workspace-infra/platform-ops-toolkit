@@ -10,7 +10,7 @@
 
 | 顺序 | 业务域 | 目标位置与规格 | 管理方式 | 工作负载 |
 | --- | --- | --- | --- | --- |
-| 1 | `open-platform` | Akamai Cloud，2C4G | 独立 Akamai Terraform state | Vault、Observability 等平台服务；先核实与现有共享服务的边界 |
+| 1 | `open-platform` | GCP，2C4G | 独立 GCP Terraform state | Vault、IAM、Observability 等平台服务；先核实与现有共享服务的边界 |
 | 2 | `web-saas` | GCP，复用所称的现有 Vault node 0，目标 2C4G | existing/应用部署；不得由 UAT Terraform 接管共享 Vault 的 state | Web SaaS Selfhost 后端；同时调用 Serverless 部署 Supabase、Cloud Run、Cloudflare Pages/Workers |
 | 3 | `ai-workspace` | 复用 `10.79.0.7`，逻辑 provider 为 GCP，4C8G | existing-selfhost；无 Terraform state | 经 XConnect 打通后部署 AI Workspace 套件及监控探针 |
 | 4 | `agent-proxy-jp` | AWS JP，2C2G | 独立 AWS Terraform state 或经核实的现有资源 | Gateway、Proxy-Server、CPA 同机混合部署 |
@@ -117,7 +117,7 @@ Hybrid 在运行开始时生成 `execution_id=<run_id>-<run_attempt>`。所有�
 | 检查点 | Hybrid 动作 | 子工作流 | 成功输出/门禁 |
 | --- | --- | --- | --- |
 | P0 | 解析 GitOps、校验账号/规格/state/Vault 元数据、生成执行清单 | 无 | 八项清单完整；没有跨环境路径；`deploy` 有不可变 tag |
-| P1 | 建立 `open-platform` | Selfhost | Akamai 2C4G 资源、监控和平台服务健康；本阶段不迁移数据或切 DNS |
+| P1 | 建立 `open-platform` | Selfhost | GCP 2C4G 资源、监控和平台服务健康；本阶段不迁移数据或切 DNS |
 | P2 | 建立 JP/US/SG Terraform 资源 | Selfhost | AWS/GCP/Akamai 三个 2C2G 主机完成 Terraform readiness；应用 Playbook 暂不启动 |
 | P3 | XConnect Zero 网络门禁 | `xconnect-zero-cloud` | 使用 `tw-xconnect.svc.plus` 完成 UAT Gateway/One 联动；失败则停止后续部署 |
 | P4 | 部署 Web SaaS Serverless 面 | Serverless | Supabase、Cloud Run、Pages/Workers 发布成功；Worker 同时获得两个 origin |
@@ -275,7 +275,7 @@ Worker 配置至少包含 `SELFHOST_ORIGIN`、`CLOUD_RUN_ORIGIN`、`ROUTING_MODE
 
 当前 `.github/workflows/hybrid-orchestrator.yml` 只验证 Serverless/Hybrid 边界并更新三个 edge-gateway Workers；它不调用 Selfhost 或 Serverless。Selfhost 的 `all` 固定扇出六个 Akamai namespace；GCP/AWS 的单地区 Agent Proxy 不受这个路由支持。Serverless 目前独立负责 Supabase、Cloud Run、Pages、Workers。这些都需要修改后才能声明混合矩阵已可部署。
 
-- `open-platform` 的 Akamai 声明已是 `us-east / g6-standard-2`，匹配目标 2C4G；实际 state、服务所有权和旧节点迁移边界仍需只读验收。
+- `open-platform` 的 UAT 目标已调整为 GCP `asia-east1` / 2C4G；实际 state、服务所有权和旧节点迁移边界仍需只读验收。
 - `web-saas` 的 GCP `vault-node-0` 仍是共享 existing 事实；编排只调用 Serverless 和应用部署，不导入或修改该节点的 Terraform state。
 - `ai-workspace` 复用 `10.79.0.7`，规格事实为 4C8G；它是 existing-selfhost 目标，不创建或修改 Terraform state，也不允许 destroy。执行前必须使用可访问 XConnect 私网的 runner，并确认 Vault 中的部署 SSH 凭据。
 - Provider 选择由 `config/iac_provider_registry.json` 和矩阵行决定。AWS、GCP、Azure、Vultr、Akamai、UCloud 可作为 Terraform provider；非 IaC 创建好的主机使用 `existing` 或 `existing-selfhost`，不因矩阵 `all` 自动接管其生命周期。

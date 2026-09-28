@@ -11,10 +11,11 @@
 - [`uat-six-namespace-migration-plan.md`](uat-six-namespace-migration-plan.md)：面向人类和代码代理的 UAT 六 namespace、阶段 A-E、迁移门禁与仓库/Project/PR 关联规范。
 - [UAT migration preflight](../howto/akamai-uat-migration-preflight.md)：只读核对 legacy state、六个 namespace、Linode 资源和后续 state retirement 门槛。
 - [`init-vault-kv.sh`](init-vault-kv.sh)：初始化 state KV，并调用仓库中已有的 Akamai token/OIDC bootstrap。
-- `scripts/vault/bootstrap_akamai_cloud_kv.sh`：只写入 Akamai provider token。
-- `scripts/vault/bootstrap_akamai_oidc_roles.sh`：创建环境/账户绑定的 Vault JWT role 和 read-only policy。
+- `scripts/cloud/bootstrap/Akamai-Cloud/bootstrap_akamai_cloud_kv.sh`：只写入 Akamai provider token。
+- `scripts/cloud/bootstrap/Akamai-Cloud/bootstrap_akamai_oidc_roles.sh`：创建环境/账户绑定的 Vault JWT role 和 read-only policy。
 
-`scripts/vault/` 是实现源；本目录脚本是统一入口，不应复制修改底层逻辑。
+`scripts/cloud/bootstrap/Akamai-Cloud/` 是实现源；旧的 `scripts/vault/bootstrap_akamai_*.sh`
+仅为兼容入口，不应复制修改底层逻辑。
 
 ## 路径契约
 

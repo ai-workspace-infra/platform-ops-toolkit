@@ -50,7 +50,7 @@ normal administrator bootstrap process so the new workflow is in its
 export VAULT_ADDR='https://vault.svc.plus'
 export VAULT_TOKEN='<Vault policy/role administrator token>'
 export AKAMAI_ACCOUNT_UAT='manbuzhe2026'
-bash scripts/vault/bootstrap_akamai_oidc_roles.sh --apply --env uat
+bash scripts/cloud/bootstrap/Akamai-Cloud/bootstrap_akamai_oidc_roles.sh --apply --env uat
 ```
 
 Then open **Actions → Akamai UAT migration preflight → Run workflow**, select

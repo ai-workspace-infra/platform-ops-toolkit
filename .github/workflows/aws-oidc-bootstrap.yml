@@ -113,7 +113,7 @@ jobs:
         ALLOW_ROOT_BREAK_GLASS: ${{ inputs.allow_root_break_glass }}
         DEPLOYMENT_ENV: ${{ inputs.vault_env_path }}
         GITOPS_AWS_OIDC_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/${{ inputs.vault_env_path }}/aws/github-actions-oidc.json
-      run: .github/scripts/aws/reconcile_github_oidc_trust.sh
+      run: scripts/cloud/bootstrap/aws/reconcile_github_oidc_trust.sh
 
     - name: Configure AWS credentials through the new GitHub OIDC role
       if: ${{ inputs.action == 'apply' }}
@@ -138,4 +138,4 @@ jobs:
         TF_STATE_ACCESS_KEY: ${{ steps.iac_state.outputs.TF_STATE_ACCESS_KEY }}
         TF_STATE_SECRET_KEY: ${{ steps.iac_state.outputs.TF_STATE_SECRET_KEY }}
         TF_STATE_REGION: ${{ steps.iac_state.outputs.TF_STATE_REGION }}
-      run: .github/scripts/aws/adopt_github_oidc_terraform_state.sh
+      run: scripts/cloud/bootstrap/aws/adopt_github_oidc_terraform_state.sh

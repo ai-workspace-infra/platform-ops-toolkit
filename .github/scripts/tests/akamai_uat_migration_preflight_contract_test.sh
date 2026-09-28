@@ -5,7 +5,7 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
 workflow="${repo_root}/.github/workflows/akamai-uat-migration-preflight.yml"
 script="${repo_root}/.github/scripts/platform-ops/provision/akamai-uat-migration-preflight.py"
 role_template="${repo_root}/scripts/vault/templates/akamai-oidc-role-uat.json.tmpl"
-bootstrap="${repo_root}/scripts/vault/bootstrap_akamai_oidc_roles.sh"
+bootstrap="${repo_root}/scripts/cloud/bootstrap/Akamai-Cloud/bootstrap_akamai_oidc_roles.sh"
 
 python3 - "${workflow}" "${script}" "${role_template}" <<'PY'
 import json
