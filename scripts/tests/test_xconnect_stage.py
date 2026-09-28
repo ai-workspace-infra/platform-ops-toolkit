@@ -43,7 +43,7 @@ TOPOLOGY = {
             "zone": "shared.internal",
             "domains": ["shared.internal", "svc.plus"],
             "upstream_servers": ["1.1.1.1", "8.8.8.8"],
-            "records": [{"name": "vault-prod-0.shared.internal", "address": "10.79.0.1"}],
+            "records": [{"name": "internal-xworkmate-bridge.svc.plus", "device_id": "secops-one"}],
         },
         "runtime": {"gateway_state_dir": "/var/lib/xconnect-gateway/shared", "sync_interval_seconds": 300,
                     "state_dir_prefix": "/var/lib/xconnect-one", "wireguard_interface": "xconone0",
@@ -109,6 +109,7 @@ class TopologyTests(unittest.TestCase):
         self.assertEqual(declared["frontend"], "caddy-unix-h2c")
         self.assertIs(declared["dns_enabled"], True)
         self.assertEqual(declared["dns_listen_address"], "10.79.0.1")
+        self.assertEqual(declared["dns_records"], [{"name": "internal-xworkmate-bridge.svc.plus", "device_id": "secops-one"}])
 
     def test_rejects_a_non_https_controller(self):
         bad = yaml.safe_load(yaml.safe_dump(TOPOLOGY))
@@ -126,6 +127,15 @@ class TopologyTests(unittest.TestCase):
             path = Path(directory) / "topology.yaml"
             path.write_text(yaml.safe_dump(bad), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "upstream_servers"):
+                module.load_topology(path)
+
+    def test_rejects_static_dns_addresses_for_joined_one_aliases(self):
+        bad = yaml.safe_load(yaml.safe_dump(TOPOLOGY))
+        bad["spec"]["dns"]["records"] = [{"name": "secops.shared.internal", "address": "10.79.0.7"}]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "topology.yaml"
+            path.write_text(yaml.safe_dump(bad), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "device_id"):
                 module.load_topology(path)
 
 
@@ -186,7 +196,7 @@ class VarsTests(unittest.TestCase):
         self.assertEqual(values["xconnect_gateway_binary_source"], "/r/bin/xconnect-gateway")
         self.assertEqual(values["xconnect_gateway_trust_bundle_source"], "/r/secrets/trust-bundle.pem")
         self.assertIs(values["xconnect_gateway_dns_enabled"], True)
-        self.assertEqual(values["xconnect_gateway_dns_records"], [{"name": "vault-prod-0.shared.internal", "address": "10.79.0.1"}])
+        self.assertEqual(values["xconnect_gateway_dns_records"], [{"name": "internal-xworkmate-bridge.svc.plus", "device_id": "secops-one"}])
         self.assertEqual(values["xconnect_gateway_invite_file_source"], "/r/secrets/g.invite")
         self.assertEqual(module.gateway_vars(topology(), CONTRACT, Path("/b"), Path("/s"), None)
                          ["xconnect_gateway_invite_file_source"], "")

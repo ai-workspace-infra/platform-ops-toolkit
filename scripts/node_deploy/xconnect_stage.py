@@ -83,7 +83,7 @@ def load_topology(path: Path) -> dict:
             raise ValueError("XConnect overlay DNS listen_address must be an IP address") from None
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,15}", dns_interface):
             raise ValueError("XConnect overlay DNS interface is invalid")
-        if dns_zone and not HOSTNAME.fullmatch(dns_zone):
+        if not HOSTNAME.fullmatch(dns_zone):
             raise ValueError("XConnect overlay DNS zone must be a valid name")
         if not dns_upstream_servers:
             raise ValueError("enabled XConnect overlay DNS requires upstream_servers")
@@ -95,14 +95,15 @@ def load_topology(path: Path) -> dict:
                 raise ValueError("XConnect overlay DNS upstream_servers require IPv4 addresses") from None
         if not isinstance(dns.get("records", []), list) or not dns.get("records", []):
             raise ValueError("enabled XConnect overlay DNS requires records")
+        seen_dns_names = set()
         for record in dns["records"]:
             if not isinstance(record, dict) or not HOSTNAME.fullmatch(str(record.get("name", ""))):
                 raise ValueError("XConnect overlay DNS records require valid FQDN names")
-            try:
-                if not isinstance(ipaddress.ip_address(str(record.get("address", ""))), ipaddress.IPv4Address):
-                    raise ValueError
-            except ValueError:
-                raise ValueError("XConnect overlay DNS records require valid IP addresses") from None
+            if record["name"] in seen_dns_names:
+                raise ValueError("XConnect overlay DNS record names must be unique")
+            seen_dns_names.add(record["name"])
+            if set(record) != {"name", "device_id"} or not IDENTIFIER.fullmatch(str(record.get("device_id", ""))):
+                raise ValueError("XConnect overlay DNS aliases must map an FQDN to a valid device_id")
     topology = {
         "environment": doc["metadata"]["environment"],
         "network_id": network["id"],
