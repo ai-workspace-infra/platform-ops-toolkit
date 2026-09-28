@@ -53,7 +53,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: 8856ff1e7681d4a3e021900fdb6be4c1e18d86be
+          ref: 594c4a75ee619bb80063916f5bf28a0c32bc60e1
           path: iac_modules
 
       - name: Resolve and validate GitOps GCP OIDC declaration
