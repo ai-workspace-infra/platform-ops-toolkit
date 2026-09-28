@@ -755,13 +755,21 @@ jobs:
         if [[ ! -f "${source_dir}/cmdb.json" ]]; then
           source_dir="${EXISTING_CMDB_DIR}"
         fi
-        for file in cmdb.json hosts_manifest.json inventory.ini; do
+        # cmdb.json and inventory.ini are the cross-provider artifact contract.
+        # Vultr/Akamai/existing adapters also emit hosts_manifest.json, while
+        # the AWS adapter intentionally emits only the normalized CMDB and
+        # Ansible inventory. Do not fail a valid AWS apply on that optional
+        # provider-specific file.
+        for file in cmdb.json inventory.ini; do
           [[ -f "${source_dir}/${file}" ]] || {
             echo "::error::CMDB artifact is missing ${source_dir}/${file}." >&2
             exit 1
           }
           cp "${source_dir}/${file}" "${CMDB_STAGE_DIR}/${file}"
         done
+        if [[ -f "${source_dir}/hosts_manifest.json" ]]; then
+          cp "${source_dir}/hosts_manifest.json" "${CMDB_STAGE_DIR}/hosts_manifest.json"
+        fi
         echo "Staged flat CMDB artifact from ${source_dir}."
 
     - name: Upload CMDB artifact
