@@ -27,6 +27,12 @@ for env_name in "${environments[@]}"; do
   fi
   if [[ -z "$pepper" ]]; then command -v openssl >/dev/null || exit 1; pepper="$(openssl rand -hex 32)"; fi
   [[ ${#pepper} -ge 32 ]] || { echo 'pepper must be at least 32 characters' >&2; exit 2; }
-  vault kv patch -mount=kv "$path" BRIDGE_CREDENTIAL_TOKEN_PEPPER="$pepper" >/dev/null
+  # KV v2 PATCH only updates an existing secret.  Bootstrap a missing path
+  # with PUT; once present, PATCH preserves all unrelated runtime fields.
+  if vault kv get -mount=kv -format=json "$path" >/dev/null 2>&1; then
+    vault kv patch -mount=kv "$path" BRIDGE_CREDENTIAL_TOKEN_PEPPER="$pepper" >/dev/null
+  else
+    vault kv put -mount=kv "$path" BRIDGE_CREDENTIAL_TOKEN_PEPPER="$pepper" >/dev/null
+  fi
   echo "kv/data/$path: BRIDGE_CREDENTIAL_TOKEN_PEPPER updated"
 done
