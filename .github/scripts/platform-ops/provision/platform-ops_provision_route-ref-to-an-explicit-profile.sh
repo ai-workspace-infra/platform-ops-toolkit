@@ -114,25 +114,32 @@ resolve_gitops_resource_files() {
     return 1
   }
 
-  # GCP keeps account/project bootstrap declarations under the owning
-  # organisation namespace instead of the public svc.plus workload tree.
-  # open-platform is intentionally backed by the production GCP project
-  # (open-platform-prod) even when this workflow is running the UAT member
-  # deployment.  web-saas uses the independent UAT workload declaration.
+  # Platform declarations follow the public domain/environment layout, not the
+  # provider registry's generic tree. UAT uses onwalk.net; production uses
+  # svc.plus. xworktech.com is reserved for the public homepage and must not be
+  # used as a platform resource namespace.
   # Resolve these canonical manifests explicitly so the renderer never falls
   # back to a non-existent resources/svc.plus/uat/gcp/<namespace>.yaml path.
   if [[ "${provider}" == "gcp-cloud" ]]; then
     case "${domains}" in
       open-platform)
-        printf '%s/resources/xworktech.com/prod/gcp/open-platform-prod.yaml' "${GITHUB_WORKSPACE:-${PWD}}/gitops"
+        if [[ "${environment}" == "uat" ]]; then
+          printf '%s/resources/onwalk.net/uat/gcp/open-platform.yaml' "${GITHUB_WORKSPACE:-${PWD}}/gitops"
+        else
+          printf '%s/resources/svc.plus/uat/gcp/open-platform.yaml' "${GITHUB_WORKSPACE:-${PWD}}/gitops"
+        fi
         return 0
         ;;
       web-saas)
-        printf '%s/resources/xworktech.com/uat/gcp/web-saas-workload.yaml' "${GITHUB_WORKSPACE:-${PWD}}/gitops"
+        if [[ "${environment}" == "uat" ]]; then
+          printf '%s/resources/onwalk.net/uat/gcp/web-saas.yaml' "${GITHUB_WORKSPACE:-${PWD}}/gitops"
+        else
+          printf '%s/resources/svc.plus/uat/gcp/web-saas.yaml' "${GITHUB_WORKSPACE:-${PWD}}/gitops"
+        fi
         return 0
         ;;
       ai-workspace)
-        printf '%s/resources/xworktech.com/uat/gcp/ai-workspace-workload.yaml' "${GITHUB_WORKSPACE:-${PWD}}/gitops"
+        printf '%s/resources/svc.plus/uat/gcp/ai-workspace.yaml' "${GITHUB_WORKSPACE:-${PWD}}/gitops"
         return 0
         ;;
     esac

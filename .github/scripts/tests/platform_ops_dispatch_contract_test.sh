@@ -58,10 +58,10 @@ if grep -Fq "config/resources/" <<<"${deploy_output}"; then
 fi
 
 gcp_open_platform_output="$(run_route env INPUT_TARGET_DOMAINS=open-platform INPUT_CLOUD_PROVIDER=gcp-cloud INPUT_CLOUD_ACCOUNT=open-platform-prod INPUT_OPERATION=plan INPUT_DNS_MODE=none)"
-assert_contains "${gcp_open_platform_output}" "resource_files_full=${repo_root}/gitops/resources/xworktech.com/prod/gcp/open-platform-prod.yaml"
+assert_contains "${gcp_open_platform_output}" "resource_files_full=${repo_root}/gitops/resources/onwalk.net/uat/gcp/open-platform.yaml"
 
 gcp_web_saas_output="$(run_route env INPUT_TARGET_DOMAINS=web-saas INPUT_CLOUD_PROVIDER=gcp-cloud INPUT_CLOUD_ACCOUNT=xworktech INPUT_OPERATION=plan INPUT_DNS_MODE=none)"
-assert_contains "${gcp_web_saas_output}" "resource_files_full=${repo_root}/gitops/resources/xworktech.com/uat/gcp/web-saas-workload.yaml"
+assert_contains "${gcp_web_saas_output}" "resource_files_full=${repo_root}/gitops/resources/onwalk.net/uat/gcp/web-saas.yaml"
 
 if run_route env INPUT_TARGET_DOMAINS=all INPUT_CLOUD_PROVIDER=akamai-cloud INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=plan INPUT_DNS_MODE=none >/dev/null 2>&1; then
   echo "legacy direct Akamai target_domains=all unexpectedly bypassed Hybrid Orchestrator" >&2
