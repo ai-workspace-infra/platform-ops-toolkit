@@ -20,6 +20,8 @@ jq -e '
   all(.resources[] | select(.management_mode == "existing"); .provider == "ulighthost") and
   ([.resources[] | select(.management_mode == "terraform") | .region] ==
     ["us-east","ap-northeast-1","us-central1","sg-sin-2"]) and
+  ([.resources[] | select(.management_mode == "terraform") | .provider] ==
+    ["akamai-cloud","aws-cloud","gcp-cloud","akamai-cloud"]) and
   ([.resources[] | select(.management_mode == "terraform") | .profile] ==
     ["2C4G","2C2G","2C2G","2C2G"]) and
   ([.resources[] | select(.management_mode == "terraform") | .agent_profile] ==

@@ -17,6 +17,10 @@ xconnect_one_release_override="${XCONNECT_ONE_RELEASE_TAG:-}"
 xconnect_gateway_release_override="${XCONNECT_GATEWAY_RELEASE_TAG:-}"
 agent_controller_url="${AGENT_CONTROLLER_URL:-https://accounts-serverless-uat.onwalk.net}"
 agent_proxy_plan="${AGENT_PROXY_PLAN:-1C2G}"
+akamai_account="${AKAMAI_ACCOUNT_UAT:-manbuzhe2026}"
+aws_account="${AWS_ACCOUNT_UAT:-950604983695}"
+gcp_account="${GCP_ACCOUNT_UAT:-xworktech}"
+existing_ai_workspace_host="${AI_WORKSPACE_EXISTING_HOST:-10.79.0.7}"
 skip_stripe_catalog="${SKIP_STRIPE_CATALOG:-false}"
 enable_migration="${ENABLE_MIGRATION:-false}"
 apply_accounts_schema_migration="${APPLY_ACCOUNTS_SCHEMA_MIGRATION:-false}"
@@ -157,23 +161,30 @@ wait_for_run() {
 
 dispatch_selfhost_namespace() {
   local namespace="${1:?namespace is required}"
-  local include_external="${2:?external-node flag is required}"
-  local dns_mode="${3:?dns mode is required}"
+  local provider="${2:?provider is required}"
+  local account="${3:?concrete account is required}"
+  local include_external="${4:?external-node flag is required}"
+  local dns_mode="${5:?dns mode is required}"
+  local instance_plan="${6:?instance plan is required}"
+  local existing_target_host="${7:-}"
 
-  # UAT Akamai has six isolated Terraform namespaces. Dispatch one workload
-  # at a time so every run resolves its own state key and CMDB. The parent
-  # target_domains=all route is intentionally reserved for Stage A plan/infra
-  # fan-out and must not be used for application deployment.
+  # UAT business resources are provider-specific. This dispatcher is retained
+  # for the daily snapshot release path, but must never collapse the matrix to
+  # Akamai: AI Workspace is existing-selfhost, JP is AWS, US is GCP, and SG is
+  # Akamai. Web SaaS is handled by the Serverless child above.
   gh workflow run "${selfhost_workflow}" \
     --repo "${target_repo}" \
     --ref main \
     -f operation=deploy \
     -f vault_env_path=uat \
     -f "target_domains=${namespace}" \
-    -f cloud_provider=akamai-cloud \
-    -f "akamai_account=${AKAMAI_ACCOUNT_UAT:-manbuzhe2026}" \
+    -f "cloud_provider=${provider}" \
+    -f "cloud_account=${account}" \
+    -f "akamai_account=${akamai_account}" \
     -f "include_external_agent_proxy=${include_external}" \
     -f "agent_proxy_plan=${agent_proxy_plan}" \
+    -f "instance_plan=${instance_plan}" \
+    -f "existing_target_host=${existing_target_host}" \
     -f "deploy_tag=${snapshot_tag}" \
     -f source_host=console.svc.plus \
     -f source_domain_base=svc.plus \
@@ -249,19 +260,19 @@ fi
 # business services and their own resources. `open-platform` is intentionally
 # absent: Vault and Observability are shared infrastructure and must not be
 # re-bootstrapped or restarted as a side effect of an application release.
-# The first Agent Proxy namespace owns the TW/PH external matrix; the other
-# two only reconcile their Akamai Terraform nodes.
+# Web SaaS is Serverless-only. AI Workspace is an existing host. JP/US/SG use
+# their declared providers; none of these rows may silently fall back to
+# Akamai.
 namespaces=(
-  "web-saas|false|uat-records"
-  "ai-workspace|false|none"
-  "agent-proxy-jp|true|none"
-  "agent-proxy-us|false|none"
-  "agent-proxy-sg|false|none"
+  "ai-workspace|gcp-cloud|${gcp_account}|false|none|4C8G|${existing_ai_workspace_host}"
+  "agent-proxy-jp|aws-cloud|${aws_account}|false|none|2C2G|"
+  "agent-proxy-us|gcp-cloud|${gcp_account}|false|none|2C2G|"
+  "agent-proxy-sg|akamai-cloud|${akamai_account}|false|none|2C2G|"
 )
 
 for namespace_spec in "${namespaces[@]}"; do
-  IFS='|' read -r namespace include_external dns_mode <<<"${namespace_spec}"
-  selfhost_run_url="$(dispatch_selfhost_namespace "${namespace}" "${include_external}" "${dns_mode}" | tail -n 1)"
+  IFS='|' read -r namespace provider account include_external dns_mode instance_plan existing_target_host <<<"${namespace_spec}"
+  selfhost_run_url="$(dispatch_selfhost_namespace "${namespace}" "${provider}" "${account}" "${include_external}" "${dns_mode}" "${instance_plan}" "${existing_target_host}" | tail -n 1)"
   echo "Dispatched UAT selfhost ${namespace} deploy for ${snapshot_tag}: ${selfhost_run_url}"
   echo "Agent Proxy controller: ${agent_controller_url}"
   wait_for_run "${selfhost_run_url}" "selfhost ${namespace}" "${selfhost_wait_timeout_seconds}"

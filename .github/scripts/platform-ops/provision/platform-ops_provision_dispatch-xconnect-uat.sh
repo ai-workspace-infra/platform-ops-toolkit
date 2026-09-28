@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# The selfhost aggregate owns the six Akamai namespace deployments. This
-# adapter links the successful aggregate to the independent XConnect Zero
-# existing-One workflow without moving XConnect state into a Terraform
-# namespace or exposing any Vault credential to the parent workflow.
+# The legacy selfhost aggregate no longer owns UAT provider fan-out. Hybrid
+# dispatches the provider-routed namespace children (AWS JP, GCP US, Akamai
+# SG, and existing hosts) and then uses this adapter for the independent
+# XConnect Zero existing-One workflow. XConnect state stays outside Terraform
+# namespaces and no Vault credential is exposed to the parent workflow.
 
 : "${GH_TOKEN:?GH_TOKEN is required}"
 : "${GH_REPO:?GH_REPO is required}"
