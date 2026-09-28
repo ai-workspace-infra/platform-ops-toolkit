@@ -41,6 +41,50 @@ jq -e '
 ' "${matrix}" >/dev/null
 bash -n "${dispatcher}"
 
+dry_run="$(mktemp)"
+trap 'rm -f "${dry_run}"' EXIT
+GH_TOKEN=dry-run \
+GH_REPO=ai-workspace-infra/platform-ops-toolkit \
+MATRIX_FILE="${matrix}" \
+OPERATION=deploy \
+CHILD_REF=main \
+VAULT_ENV_PATH=uat \
+TARGET_DOMAIN_BASE=onwalk.net \
+OBSERVABILITY_ENDPOINT=https://observability.svc.plus \
+AKAMAI_ACCOUNT=manbuzhe2026 \
+AWS_ACCOUNT=950604983695 \
+GCP_ACCOUNT=xworktech \
+EXISTING_ACCOUNT=ucloud-ulighthost \
+SOURCE_REF=main \
+DEPLOY_TAG=uat-daily-build-2026.09.28-r1 \
+VAULT_ADDR=https://vault.svc.plus \
+XCONNECT_GATEWAY_REF=tw-xconnect.svc.plus \
+DRY_RUN=true \
+bash "${dispatcher}" >"${dry_run}"
+
+line_for() { grep -nF -- "$1" "${dry_run}" | head -n1 | cut -d: -f1; }
+open_line="$(line_for 'DRY-RUN open-platform (akamai-cloud, 2C4G')"
+jp_line="$(line_for 'DRY-RUN agent-proxy-jp (aws-cloud, 2C2G')"
+us_line="$(line_for 'DRY-RUN agent-proxy-us (gcp-cloud, 2C2G')"
+sg_line="$(line_for 'DRY-RUN agent-proxy-sg (akamai-cloud, 2C2G')"
+xconnect_line="$(line_for 'DRY-RUN XConnect Zero UAT (tw-xconnect.svc.plus)')"
+web_line="$(line_for 'DRY-RUN web-saas serverless')"
+ai_line="$(line_for 'DRY-RUN ai-workspace (gcp-cloud, 4C8G')"
+tw_line="$(line_for 'DRY-RUN agent-proxy-tw (existing inventory)')"
+ph_line="$(line_for 'DRY-RUN agent-proxy-ph (existing inventory)')"
+[[ -n "${open_line}${jp_line}${us_line}${sg_line}${xconnect_line}${web_line}${ai_line}${tw_line}${ph_line}" ]] || {
+  echo "hybrid deploy dry-run is missing a required phase or lane" >&2
+  exit 1
+}
+(( open_line < jp_line && jp_line < us_line && us_line < sg_line && sg_line < xconnect_line && xconnect_line < web_line && web_line < ai_line && ai_line < tw_line && tw_line < ph_line )) || {
+  echo "hybrid deploy must finish all Terraform lanes before the XConnect gate" >&2
+  exit 1
+}
+grep -Fq 'existing_target_host": "10.79.0.7"' "${dry_run}" || {
+  echo "hybrid deploy must pass the protected AI Workspace existing host" >&2
+  exit 1
+}
+
 python3 - "${workflow}" <<'PY'
 import sys
 import yaml

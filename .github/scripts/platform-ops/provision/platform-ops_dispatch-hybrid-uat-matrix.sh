@@ -117,6 +117,75 @@ dispatch_existing() {
 mapfile -t rows < <(jq -c '.resources | sort_by(.order)[]' "${MATRIX_FILE}")
 [[ "${#rows[@]}" -eq 8 ]] || { echo "::error::Hybrid matrix must contain exactly eight resources" >&2; exit 1; }
 
+if [[ "${OPERATION}" == deploy ]]; then
+  # A deploy has a network prerequisite that cannot be satisfied by the
+  # historical single-pass matrix: all new Terraform hosts must exist before
+  # the external TW Gateway is enrolled into the UAT Zero Trust network.
+  # open-platform is deployed in the first phase because it owns the platform
+  # services; the three regional proxy lanes are provisioned only in phase 1.
+  # Their application Playbooks run after XConnect succeeds.
+  echo "::group::UAT hybrid deploy phase 1: Terraform resources"
+  for row in "${rows[@]}"; do
+    namespace="$(jq -r '.namespace' <<<"${row}")"
+    mode="$(jq -r '.management_mode' <<<"${row}")"
+    [[ "${mode}" == terraform ]] || continue
+    provider="$(jq -r '.provider' <<<"${row}")"
+    validate_matrix_provider "${provider}"
+    account="$(account_for "$(jq -r '.account_kind' <<<"${row}")")"
+    [[ -n "${account}" ]] || { echo "::error::No concrete account configured for ${provider} row ${namespace}; set the matching workflow account input." >&2; exit 1; }
+    profile="$(jq -r '.profile' <<<"${row}")"
+    agent_profile="$(jq -r '.agent_profile // "1C2G"' <<<"${row}")"
+    if [[ "${namespace}" == open-platform ]]; then
+      dispatch_selfhost deploy "${namespace}" "${provider}" "${account}" "${profile}" "${agent_profile}"
+    else
+      dispatch_selfhost infra "${namespace}" "${provider}" "${account}" "${profile}" "${agent_profile}"
+    fi
+  done
+  echo "::endgroup::"
+
+  echo "::group::UAT hybrid deploy gate: XConnect Zero"
+  dispatch_xconnect
+  echo "::endgroup::"
+
+  echo "::group::UAT hybrid deploy phase 2: Applications and existing nodes"
+  for row in "${rows[@]}"; do
+    namespace="$(jq -r '.namespace' <<<"${row}")"
+    mode="$(jq -r '.management_mode' <<<"${row}")"
+    provider="$(jq -r '.provider' <<<"${row}")"
+    account="$(account_for "$(jq -r '.account_kind' <<<"${row}")")"
+    profile="$(jq -r '.profile' <<<"${row}")"
+    agent_profile="$(jq -r '.agent_profile // "1C2G"' <<<"${row}")"
+    existing_host="$(jq -r '.existing_host // empty' <<<"${row}")"
+    case "${mode}" in
+      terraform)
+        [[ "${namespace}" == open-platform ]] && continue
+        dispatch_selfhost deploy "${namespace}" "${provider}" "${account}" "${profile}" "${agent_profile}"
+        ;;
+      terraform+serverless)
+        dispatch_selfhost deploy "${namespace}" "${provider}" "${account}" "${profile}" "${agent_profile}"
+        dispatch_serverless deploy "$(jq -r '.serverless_target // "all"' <<<"${row}")"
+        ;;
+      existing+serverless)
+        existing_node="$(jq -r '.existing_node // "vault-node-0"' <<<"${row}")"
+        echo "${namespace}: reusing existing ${provider} node ${existing_node}; no Terraform state mutation"
+        dispatch_serverless deploy "$(jq -r '.serverless_target // "all"' <<<"${row}")"
+        ;;
+      existing-selfhost)
+        [[ -n "${existing_host}" ]] || { echo "::error::${namespace} existing-selfhost row requires existing_host" >&2; exit 1; }
+        dispatch_selfhost deploy "${namespace}" "${provider}" "${account}" "${profile}" "${agent_profile}" "${existing_host}"
+        ;;
+      existing)
+        [[ "${provider}" == ulighthost ]] || { echo "::error::existing rows must use the external-inventory adapter provider (ulighthost)" >&2; exit 1; }
+        dispatch_existing "${namespace}" "$(jq -r '.resource_manifest' <<<"${row}")" "${account}"
+        ;;
+      *) echo "::error::unsupported management_mode ${mode}" >&2; exit 1 ;;
+    esac
+  done
+  echo "::endgroup::"
+  echo "Hybrid UAT deploy completed: Terraform readiness -> XConnect Zero -> applications and existing nodes."
+  exit 0
+fi
+
 previous_order=0
 for row in "${rows[@]}"; do
   order="$(jq -r '.order' <<<"${row}")"

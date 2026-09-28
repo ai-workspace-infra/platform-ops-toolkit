@@ -6,7 +6,7 @@
 
 ## 目标与入口
 
-`hybrid-orchestrator.yml` 是唯一的顶层 orchestrator，增加 `target_domains=all` 的 UAT 编排入口；它只编排和调用 `selfhost-orchestrator.yml` 与 `serverless-orchestrator.yml`，不直接渲染 Terraform、执行 Playbook 或复制两个子工作流的实现。Selfhost 再根据 GitOps 矩阵路由到各 provider 的 IaC、existing adapter、PostgreSQL 后端和 Playbooks；Serverless 负责 Supabase、Cloud Run 与 Cloudflare 前端。一次选择 `all` 后，Hybrid 按下表顺序逐项等待子流程完成；每项都记录资源来源、state 或 existing 身份、健康检查与子运行链接。失败即停止后续项，不把已成功项当成待回滚的临时资源。`plan` 只做配置和只读事实核对，`deploy` 才调用子流程。
+`hybrid-orchestrator.yml` 是唯一的顶层 orchestrator，增加 `target_domains=all` 的 UAT 编排入口；它只编排和调用 `selfhost-orchestrator.yml` 与 `serverless-orchestrator.yml`，不直接渲染 Terraform、执行 Playbook 或复制两个子工作流的实现。Selfhost 再根据 GitOps 矩阵路由到各 provider 的 IaC、existing adapter、PostgreSQL 后端和 Playbooks；Serverless 负责 Supabase、Cloud Run 与 Cloudflare 前端。一次选择 `all` 后，Hybrid 按下表顺序逐项等待子流程完成；每项都记录资源来源、state 或 existing 身份、健康检查与子运行链接。失败即停止后续项，不把已成功项当成待回滚的临时资源。`plan` 只做配置和只读事实核对，`deploy` 才调用子流程。`deploy` 采用两阶段门禁：先完成 `open-platform` 以及 JP/US/SG 三个 Terraform 资源，再调用一次可配置的 XConnect Zero Gateway（UAT 默认 `tw-xconnect.svc.plus`）；XConnect 成功后才进入 Web SaaS、AI Workspace、区域 Agent Proxy 应用和 TW/PH existing 节点部署。这样 `10.79.0.7` existing-selfhost、TW/PH existing 节点不会在 UAT 零信任网络未打通时开始 Playbook。
 
 | 顺序 | 业务域 | 目标位置与规格 | 管理方式 | 工作负载 |
 | --- | --- | --- | --- | --- |
@@ -117,16 +117,14 @@ Hybrid 在运行开始时生成 `execution_id=<run_id>-<run_attempt>`。所有�
 | 检查点 | Hybrid 动作 | 子工作流 | 成功输出/门禁 |
 | --- | --- | --- | --- |
 | P0 | 解析 GitOps、校验账号/规格/state/Vault 元数据、生成执行清单 | 无 | 八项清单完整；没有跨环境路径；`deploy` 有不可变 tag |
-| P1 | 部署 `open-platform` | Selfhost | Akamai 2C4G 资源、监控和平台服务健康；本阶段不迁移数据或切 DNS |
-| P2a | 准备并部署 `web-saas` Selfhost origin | Selfhost | existing 节点身份已核实；API/PostgreSQL 健康；返回 `origin_url` |
-| P2b | 部署 Web SaaS Serverless 面 | Serverless | Supabase、Cloud Run、Pages/Workers 发布成功；Worker 同时获得两个 origin |
-| P2c | 验证 `selfhost-first` | Hybrid | 安全读请求主路径命中 Selfhost；受控故障下回退 Cloud Run；写请求不重放 |
-| P3 | 部署 `ai-workspace` | Selfhost existing-host | XConnect 到 `10.79.0.7` 可达；不创建、不修改 Terraform state；AI Workspace 与监控心跳正常 |
-| P4 | 部署 `agent-proxy-jp` | Selfhost | AWS 2C2G；Gateway/Proxy-Server/CPA 与 Accounts 心跳通过 |
-| P5 | 部署 `agent-proxy-us` | Selfhost | GCP 2C2G；三角色与监控通过 |
-| P6 | 部署 `agent-proxy-sg` | Selfhost | Akamai 2C2G；三角色与监控通过 |
-| P7 | 配置 `agent-proxy-tw` | Selfhost existing adapter | 无 Terraform 变更；三角色、Caddy、心跳与监控通过 |
-| P8 | 配置 `agent-proxy-ph` | Selfhost existing adapter | 无 Terraform 变更；三角色、Caddy、心跳与监控通过 |
+| P1 | 建立 `open-platform` | Selfhost | Akamai 2C4G 资源、监控和平台服务健康；本阶段不迁移数据或切 DNS |
+| P2 | 建立 JP/US/SG Terraform 资源 | Selfhost | AWS/GCP/Akamai 三个 2C2G 主机完成 Terraform readiness；应用 Playbook 暂不启动 |
+| P3 | XConnect Zero 网络门禁 | `xconnect-zero-cloud` | 使用 `tw-xconnect.svc.plus` 完成 UAT Gateway/One 联动；失败则停止后续部署 |
+| P4 | 部署 Web SaaS Serverless 面 | Serverless | Supabase、Cloud Run、Pages/Workers 发布成功；Worker 同时获得两个 origin |
+| P5 | 验证 `selfhost-first` | Hybrid | 安全读请求主路径命中 Selfhost；受控故障下回退 Cloud Run；写请求不重放 |
+| P6 | 部署 `ai-workspace` | Selfhost existing-host | XConnect 到 `10.79.0.7` 可达；不创建、不修改 Terraform state；AI Workspace 与监控心跳正常 |
+| P7 | 部署 JP/US/SG Agent Proxy 应用 | Selfhost | Gateway/Proxy-Server/CPA 与 Accounts 心跳通过 |
+| P8 | 配置 `agent-proxy-tw`、`agent-proxy-ph` | Selfhost existing adapter | 无 Terraform 变更；三角色、Caddy、心跳与监控通过 |
 | P9 | 汇总和全链路验证 | Hybrid | 八项结果、origin、state/CMDB 引用、路由版本和失败恢复入口齐全 |
 
 P0 到 P9 串行门禁。失败后 Hybrid 停在当前检查点；重跑时根据同一个资源 identity 和 state key 做幂等 plan，不重新创建已成功资源。单项重试必须引用原始 `execution_id` 作为 parent，并在最终摘要中显示替代关系。
