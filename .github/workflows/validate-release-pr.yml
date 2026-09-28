@@ -101,6 +101,9 @@ jobs:
     - name: Verify CMDB artifact is flat and required
       run: bash .github/scripts/tests/platform_ops_cmdb_artifact_contract_test.sh
 
+    - name: Verify CMDB matrix ignores platform metadata
+      run: bash .github/scripts/tests/platform_ops_build_deploy_matrix_test.sh
+
     - name: Verify UAT cleanup safety and persistent Open Platform scope
       run: |
         bash .github/scripts/tests/platform_ops_akamai_destroy_scope_contract_test.sh
