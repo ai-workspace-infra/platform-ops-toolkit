@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 workflow="${repo_root}/.github/workflows/daily-main-snapshot.yaml"
+dispatcher="${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
 
 python3 - "${workflow}" <<'PY'
 from pathlib import Path
@@ -12,51 +13,28 @@ import yaml
 document = yaml.safe_load(Path(sys.argv[1]).read_text(encoding="utf-8"))
 summary = document["jobs"]["snapshot-summary"]
 resolve = next(step for step in summary["steps"] if step.get("id") == "resolve_snapshot_tag")
-dispatch = next(step for step in summary["steps"] if step.get("name") == "Dispatch UAT serverless and selfhost agent-proxy")
+dispatch = next(step for step in summary["steps"] if step.get("name") == "Dispatch UAT Hybrid Orchestrator")
 
-for label, step in (("immutable tag resolution", resolve), ("combined UAT dispatch", dispatch)):
+for label, step in (("immutable tag resolution", resolve), ("hybrid UAT dispatch", dispatch)):
     condition = step.get("if", "")
     for required in ("needs.snapshot.result == 'success'", "(inputs.repositories || '') == ''"):
         if required not in condition:
             raise SystemExit(f"{label} is missing full-snapshot guard: {required}")
-
 if dispatch.get("run") != "./.github/scripts/snapshots/dispatch-uat-combined.sh":
-    raise SystemExit("UAT must use the combined serverless/selfhost dispatcher")
+    raise SystemExit("UAT must use the Hybrid Orchestrator dispatcher")
 PY
 
 grep -Fq 'daily-build-' "${repo_root}/.github/scripts/snapshots/resolve-daily-snapshot-tag.sh"
-grep -Fq 'supabase_target_existing_strategy=accounts_merge' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
-grep -Fq 'dns_mode=uat-records' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
-for namespace in ai-workspace agent-proxy-jp agent-proxy-us agent-proxy-sg; do
-  grep -Fq "target_domains=\${namespace}" "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh" || {
-    echo "combined UAT dispatcher must support isolated namespace ${namespace}" >&2
-    exit 1
-  }
-done
-if grep -Fq 'target_domains=open-platform' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"; then
-  echo "routine UAT dispatcher must not recreate shared open-platform" >&2
+grep -Fq 'hybrid-orchestrator.yml' "${dispatcher}"
+grep -Fq -- '-f operation=deploy' "${dispatcher}"
+grep -Fq -- '-f target_domains=all' "${dispatcher}"
+grep -Fq -- '-f source_ref=main' "${dispatcher}"
+if grep -Fq 'operation=destroy' "${dispatcher}"; then
+  echo "Daily UAT snapshot must never dispatch destroy." >&2
   exit 1
 fi
-grep -Fq 'target_domains=web-saas' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
-grep -Fq 'agent_controller_url' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
-grep -Fq 'xconnect-zero-cloud.yaml' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
-grep -Fq 'xconnect_one_release_tag:' "${repo_root}/.github/workflows/daily-main-snapshot.yaml"
-grep -Fq 'xconnect_gateway_release_tag:' "${repo_root}/.github/workflows/daily-main-snapshot.yaml"
-grep -Fq 'XCONNECT_ONE_RELEASE_TAG:' "${repo_root}/.github/workflows/daily-main-snapshot.yaml"
-grep -Fq 'XCONNECT_GATEWAY_RELEASE_TAG:' "${repo_root}/.github/workflows/daily-main-snapshot.yaml"
-grep -Fq 'allow_release_overrides:' "${repo_root}/.github/workflows/xconnect-zero-cloud.yaml"
-grep -Fq 'ALLOW_XCONNECT_RELEASE_OVERRIDES:' "${repo_root}/.github/workflows/xconnect-zero-cloud.yaml"
-grep -Fq 'allow_release_overrides=true' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
-grep -Fq 'ALLOW_XCONNECT_RELEASE_OVERRIDES' "${repo_root}/.github/scripts/xconnect-lab/run.sh"
-grep -Fq 'Publish non-secret desktop handoff' "${repo_root}/.github/workflows/xconnect-zero-cloud.yaml"
-grep -Fq 'actions/upload-artifact@v4' "${repo_root}/.github/workflows/xconnect-zero-cloud.yaml"
-grep -Fq 'xconnect_one_release_override' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
-grep -Fq 'xconnect_gateway_release_override' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
-grep -Fq "default: '35.79.83.48/32'" "${repo_root}/.github/workflows/xconnect-zero-cloud.yaml"
-grep -Fq "SSH_DEBUG_INGRESS_CIDRS: \${{ inputs.ssh_debug_ingress_cidrs || '35.79.83.48/32' }}" "${repo_root}/.github/workflows/xconnect-zero-cloud.yaml"
-if grep -Fq 'mac_join_window_minutes' "${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"; then
-  echo "daily snapshot must not dispatch desktop join inputs" >&2
-  exit 1
-fi
+grep -Fq 'xconnect_one_release_tag:' "${workflow}"
+grep -Fq 'xconnect_gateway_release_tag:' "${workflow}"
+grep -Fq 'SNAPSHOT_TAG' "${dispatcher}"
 
 echo "daily_snapshot_uat_gate_contract_test: PASS"

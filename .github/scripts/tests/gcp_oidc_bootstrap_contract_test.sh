@@ -130,7 +130,7 @@ grep -Fq 'uses: ./.github/workflows/gcp-iac-pipeline.yml' "${master_workflow}" |
 for required in \
   'method: jwt' \
   'github-actions-platform-ops-toolkit-${{ inputs.environment }}-gcp-oidc-${{ inputs.account_id }}' \
-  'kv/data/${{ inputs.environment }}/platform/oidc/${{ inputs.account_id }}' \
+  'kv/data/${{ inputs.credential_environment || inputs.environment }}/platform/oidc/${{ inputs.account_id }}' \
   'google-github-actions/auth@v2' \
   'Google STS'; do
   grep -Fq -- "${required}" "${runtime_action}" || {
