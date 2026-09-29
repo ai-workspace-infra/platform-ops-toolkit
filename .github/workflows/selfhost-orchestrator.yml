@@ -640,6 +640,8 @@ jobs:
         PROJECT_ID: open-platform-uat
       run: |
         set -euo pipefail
+        terraform -chdir='${{ steps.route.outputs.env_dir }}' workspace select -or-create \
+          '${{ steps.route.outputs.terraform_workspace }}'
         address='google_org_policy_policy.vm_external_ip_access'
         state_entries="$(terraform -chdir='${{ steps.route.outputs.env_dir }}' state list 2>&1)" || {
           [[ "${state_entries}" == *'No state file was found!'* ]] || { printf '%s\n' "${state_entries}" >&2; exit 1; }
