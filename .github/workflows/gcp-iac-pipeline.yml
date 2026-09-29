@@ -453,3 +453,45 @@ jobs:
             fi
             echo "Vault VM runtime verified: ${name} (${zone}, RUNNING, public_ip=${wants_public_ip})"
           done < <(jq -c '.vault_nodes[]' "${resources_manifest}")
+
+      - name: Generate GCP CMDB and SSH inventory
+        if: ${{ env.DEPLOY_ACTION == 'apply' }}
+        working-directory: ${{ env.GCP_IAC_DIR }}
+        env:
+          GCP_MANIFEST: ${{ github.workspace }}/gitops/${{ steps.config.outputs.manifest }}
+        run: |
+          python3 scripts/generate.py inventory \
+            --resources "${GCP_MANIFEST}" \
+            --workdir "envs/${DEPLOY_ENV}"
+
+      - name: Publish GCP inventory to the S3-compatible state store
+        if: ${{ env.DEPLOY_ACTION == 'apply' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ steps.gcp_auth.outputs.state_access_key }}
+          AWS_SECRET_ACCESS_KEY: ${{ steps.gcp_auth.outputs.state_secret_key }}
+          AWS_DEFAULT_REGION: ${{ steps.gcp_auth.outputs.state_region }}
+          STATE_ENDPOINT: ${{ steps.gcp_auth.outputs.state_endpoint }}
+          STATE_BUCKET: ${{ steps.gcp_auth.outputs.state_bucket }}
+          STATE_KEY: ${{ steps.config.outputs.state_key }}
+        run: |
+          set -euo pipefail
+          [[ "${STATE_KEY}" == terraform/*/terraform.tfstate ]] || {
+            echo 'Invalid Terraform state key for inventory publication' >&2
+            exit 1
+          }
+          inventory_key="${STATE_KEY#terraform/}"
+          inventory_key="inventory/${inventory_key%/terraform.tfstate}.json"
+          aws --endpoint-url "${STATE_ENDPOINT}" s3 cp \
+            "${GCP_IAC_DIR}/envs/${DEPLOY_ENV}/cmdb.json" \
+            "s3://${STATE_BUCKET}/${inventory_key}" --only-show-errors
+          echo "Published inventory/${DEPLOY_ENV} CMDB record."
+
+      - name: Attach GCP CMDB and SSH inventory
+        if: ${{ env.DEPLOY_ACTION == 'apply' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gcp-${{ inputs.vault_env_path }}-${{ steps.config.outputs.state_workspace }}-inventory
+          path: |
+            ${{ env.GCP_IAC_DIR }}/envs/${{ env.DEPLOY_ENV }}/cmdb.json
+            ${{ env.GCP_IAC_DIR }}/envs/${{ env.DEPLOY_ENV }}/inventory.ini
+          if-no-files-found: error
