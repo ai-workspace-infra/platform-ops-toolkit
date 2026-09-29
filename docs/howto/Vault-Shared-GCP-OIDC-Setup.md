@@ -120,6 +120,27 @@ token mode this destroys Vault copies without revoking the operator's ADC grant.
 
 ## 4. Run the GitHub Actions bootstrap
 
+For the new `open-platform-shared` project, the GitOps Vault declaration owns
+the allowlist for Vault, Observability and IAM VM public IPs. This policy needs
+an **organization-policy administrator once**, before the ordinary shared GCP
+IaC `apply`; the GitHub WIF deployment service account is not granted an
+organization-wide policy-writing role. After logging in with admin ADC:
+
+```bash
+gcloud auth application-default login
+bash scripts/cloud/bootstrap/gcp/seed_shared_external_ip_policy.sh \
+  --manifest ../gitops/resources/svc.plus/shared/gcp/open-platform-shared-vault.yaml \
+  --render
+bash scripts/cloud/bootstrap/gcp/seed_shared_external_ip_policy.sh \
+  --manifest ../gitops/resources/svc.plus/shared/gcp/open-platform-shared-vault.yaml \
+  --apply
+```
+
+The script refuses to overwrite a different existing policy. The shared Vault
+Terraform state imports and checks the pre-seeded policy before creating any VM;
+other shared states do not own it. An allowlist change requires the same
+privileged review and reconciliation before normal `apply`.
+
 In **Actions → GCP OIDC Bootstrap**, dispatch with:
 
 ```text
