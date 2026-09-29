@@ -336,13 +336,23 @@ jobs:
           }
           if ! grep -Fqx -- "${address}" <<<"${state_entries}"; then
             echo "Adopting pre-seeded project external IP policy into shared Vault state."
+            project_number="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
+            [[ "${project_number}" =~ ^[0-9]+$ ]] || {
+              echo '::error::Could not resolve the numeric GCP project ID for Org Policy import.' >&2
+              exit 1
+            }
             if ! terraform -chdir="${tf_dir}" import -input=false -no-color \
               -var-file="${RUNTIME_VARS}" "${address}" \
-              "projects/${PROJECT_ID}/policies/compute.vmExternalIpAccess"; then
+              "projects/${project_number}/policies/compute.vmExternalIpAccess"; then
               echo '::error::The shared external IP allowlist must be created by an organization policy administrator before the runtime Terraform apply. Check GitOps and rerun the privileged policy bootstrap.' >&2
               exit 1
             fi
           fi
+          state_entries="$(terraform -chdir="${tf_dir}" state list)"
+          grep -Fqx -- "${address}" <<<"${state_entries}" || {
+            echo '::error::Shared external IP policy was not recorded in Terraform state; refusing VM apply.' >&2
+            exit 1
+          }
           # The day-to-day WIF identity cannot change Org Policy. Fail fast
           # when the admin-seeded policy differs from the GitOps declaration.
           if terraform -chdir="${tf_dir}" plan -input=false -no-color -detailed-exitcode \
