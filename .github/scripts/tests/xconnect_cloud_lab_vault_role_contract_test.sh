@@ -83,7 +83,8 @@ grep -Fq 'GATEWAY_RELEASE_TAG' "${workflow}"
 grep -Fq 'xconnect_one_expected_network_id=$ZERO_NETWORK_ID' "${existing_one_deploy}"
 grep -Fq 'xconnect_one_expected_xray_loopback_port=$one_loopback_port' "${existing_one_deploy}"
 grep -Fq 'ONE_SERVER_NAME: observability.svc.plus' "${workflow}"
-grep -Fq 'getent ahostsv4 "$ONE_SERVER_NAME"' "${existing_one_deploy}"
+grep -Fq 'UAT existing-One Vault SSH endpoint must be a valid IPv4 address or DNS hostname' "${existing_one_deploy}"
+grep -Fq 'Using the Vault-provided existing-One SSH endpoint' "${existing_one_deploy}"
 grep -Fq 'apt-get install -y -qq ca-certificates curl jq wireguard-tools' "${existing_one_deploy}"
 grep -Fq 'install -m 755 /tmp/xconnect-gateway /usr/local/bin/xconnect-gateway' "${existing_one_deploy}"
 grep -Fq 'install -m 755 /tmp/xray /usr/local/lib/xconnect-gateway/xray' "${existing_one_deploy}"
@@ -125,7 +126,6 @@ grep -Fq 'Gateway peer reconciliation failed after three attempts' "${existing_o
 grep -Fq 'ONE_BECOME_PASSWORD' "${existing_one_deploy}"
 grep -Fq -- '--become-password-file "$one_become_password"' "${existing_one_deploy}"
 grep -Fq 'one_sudo()' "${existing_one_deploy}"
-grep -Fq 'ONE_HOST" != "$ONE_SERVER_NAME' "${existing_one_deploy}"
 grep -Fq 'ONE_USER" == "root" || "$ONE_USER" == "ubuntu' "${existing_one_deploy}"
 grep -Fq 'ssh-keygen -F "$ssh_host" -f "$known_hosts"' "${existing_one_deploy}"
 grep -Fq 'cat "${HOME}/.ssh/known_hosts" >>"$known_hosts"' "${existing_one_deploy}"
@@ -141,6 +141,14 @@ if grep -Fq 'scp "${gateway_ssh[@]}' "${existing_one_deploy}"; then
 fi
 if grep -Fq 'ssh "${gateway_ssh[@]}' "${existing_one_deploy}"; then
   echo 'existing-One deploy must not prefix the ssh argv array with another ssh' >&2
+  exit 1
+fi
+if grep -Fq 'getent ahostsv4 "$ONE_SERVER_NAME"' "${existing_one_deploy}"; then
+  echo 'existing-One migration must not require the Vault SSH endpoint to match current DNS' >&2
+  exit 1
+fi
+if grep -Fq 'ONE_HOST" != "$ONE_SERVER_NAME' "${existing_one_deploy}"; then
+  echo 'existing-One migration must not compare the Vault SSH endpoint with the logical server name' >&2
   exit 1
 fi
 

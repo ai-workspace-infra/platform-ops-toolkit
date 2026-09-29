@@ -29,13 +29,21 @@ umask 077
 : "${OBSERVABILITY_USER:?}"
 : "${OBSERVABILITY_PASSWORD:?}"
 
-if [[ "$ONE_HOST" != "$ONE_SERVER_NAME" ]]; then
-  mapfile -t one_server_ipv4 < <(getent ahostsv4 "$ONE_SERVER_NAME" | awk '{print $1}' | sort -u)
-  printf '%s\n' "${one_server_ipv4[@]}" | grep -Fxq "$ONE_HOST" || {
-    echo 'UAT existing-One SSH target does not match the authorized server name' >&2
+# ONE_SERVER_NAME is the logical XConnect One identity from GitOps. During a
+# migration, ONE_HOST is intentionally read from the Vault source record and
+# may point at the legacy node while the public DNS name already points at a
+# new node. Do not couple the migration SSH endpoint to current DNS.
+if [[ "$ONE_HOST" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+  IFS=. read -r one_octet_1 one_octet_2 one_octet_3 one_octet_4 <<<"$ONE_HOST"
+  (( one_octet_1 <= 255 && one_octet_2 <= 255 && one_octet_3 <= 255 && one_octet_4 <= 255 )) || {
+    echo 'UAT existing-One Vault SSH endpoint must be a valid IPv4 address or DNS hostname' >&2
     exit 1
   }
+elif [[ ! "$ONE_HOST" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ || "$ONE_HOST" != *.* ]]; then
+  echo 'UAT existing-One Vault SSH endpoint must be a valid IPv4 address or DNS hostname' >&2
+  exit 1
 fi
+echo "Using the Vault-provided existing-One SSH endpoint for logical ${ONE_SERVER_NAME}."
 [[ "$ONE_USER" == "root" || "$ONE_USER" == "ubuntu" ]] || {
   echo 'UAT existing-One target must use an authorized administrative SSH account' >&2
   exit 1
