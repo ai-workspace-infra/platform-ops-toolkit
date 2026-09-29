@@ -38,8 +38,8 @@ case "${environment}" in
   shared) default_project="open-platform-prod" ;;
   *) echo "GCP_ENVIRONMENT must be uat, prod, or shared" >&2; exit 1 ;;
 esac
-if [[ "${environment}" == shared && "${account_id}" != "open-platform-prod" ]]; then
-  echo "shared GCP bootstrap requires GCP_ACCOUNT_ID=open-platform-prod" >&2
+if [[ "${environment}" == shared && "${account_id}" != "open-platform-prod" && "${account_id}" != "open-platform-shared" ]]; then
+  echo "shared GCP bootstrap requires GCP_ACCOUNT_ID=open-platform-prod or open-platform-shared" >&2
   exit 1
 fi
 if [[ "${environment}" == shared && "${credential_mode}" == auth_json ]]; then
@@ -65,8 +65,8 @@ command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
 # allow a caller to write one account's bootstrap token under another target.
 expected_project="${GCP_EXPECTED_PROJECT_ID:-}"
 if [[ -z "${expected_project}" ]]; then
-  if [[ "${environment}" == shared && "${account_id}" == "open-platform-prod" ]]; then
-    expected_project="open-platform-prod"
+  if [[ "${environment}" == shared ]]; then
+    expected_project="${account_id}"
   elif [[ "${account_id}" == "xworktech" ]]; then
     expected_project="${default_project}"
   else
