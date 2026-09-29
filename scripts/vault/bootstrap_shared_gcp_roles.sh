@@ -40,6 +40,8 @@ fi
 names=(
   github-actions-platform-ops-toolkit-shared-gcp-bootstrap-open-platform-prod
   github-actions-platform-ops-toolkit-shared-gcp-oidc-open-platform-prod
+  github-actions-platform-ops-toolkit-shared-gcp-bootstrap-open-platform-shared
+  github-actions-platform-ops-toolkit-shared-gcp-oidc-open-platform-shared
   github-actions-platform-ops-toolkit-shared-vault-node-oidc-open-platform-prod
   github-actions-platform-ops-toolkit-shared-vault-monitoring
   github-actions-platform-ops-toolkit-shared-vault-xconnect
