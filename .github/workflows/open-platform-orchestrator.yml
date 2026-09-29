@@ -1,0 +1,187 @@
+name: Open Platform Orchestrator
+
+# Shared open-platform infrastructure has an independent lifecycle from the
+# UAT business matrix.  This workflow owns the shared Terraform states and
+# then delegates service stages to the existing Vault/Observability workflows.
+# It intentionally has no destroy operation: the shared platform is persistent.
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Shared platform action: validate, apply infrastructure, deploy/upgrade services, or migrate data"
+        type: choice
+        required: true
+        default: plan
+        options: [plan, apply, deploy, upgrade, migrate]
+      target_services:
+        description: "Shared services to reconcile after infrastructure"
+        type: choice
+        required: true
+        default: all
+        options: [all, vault, observability, iam]
+      deploy_tag:
+        description: "Immutable UAT daily-build tag for service deployment"
+        type: string
+        required: false
+        default: ""
+      gitops_repo_ref:
+        description: "Reviewed GitOps ref"
+        type: string
+        required: true
+        default: main
+      iac_ref:
+        description: "Reviewed iac_modules ref"
+        type: string
+        required: true
+        default: main
+      playbooks_ref:
+        description: "Reviewed playbooks ref for Vault stages"
+        type: string
+        required: true
+        default: main
+      gcp_account_id:
+        description: "Concrete shared GCP project/account ID"
+        type: string
+        required: true
+        default: open-platform-shared
+      vault_service_stage:
+        description: "Optional Vault stage; migrate-auto is required for an explicit migration"
+        type: choice
+        required: true
+        default: none
+        options: [none, node-preflight, node-process-metrics, vault-raft-verify, vault-service-verify, migrate-auto]
+      observability_migration_mode:
+        description: "Observability historical migration mode; none for ordinary deploy/upgrade"
+        type: choice
+        required: true
+        default: none
+        options: [none, baseline, final]
+
+permissions:
+  actions: write
+  contents: read
+  id-token: write
+
+concurrency:
+  group: open-platform-orchestrator-${{ inputs.gcp_account_id }}
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    name: Validate shared platform contract
+    runs-on: ubuntu-latest
+    outputs:
+      terraform_action: ${{ steps.contract.outputs.terraform_action }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: contract
+        env:
+          OPERATION: ${{ inputs.operation }}
+          TARGET_SERVICES: ${{ inputs.target_services }}
+          DEPLOY_TAG: ${{ inputs.deploy_tag }}
+          VAULT_STAGE: ${{ inputs.vault_service_stage }}
+          OBS_MIGRATION: ${{ inputs.observability_migration_mode }}
+          ACCOUNT: ${{ inputs.gcp_account_id }}
+        run: |
+          set -euo pipefail
+          [[ "${ACCOUNT}" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]] || { echo 'invalid shared GCP account/project id' >&2; exit 1; }
+          [[ "${OPERATION}" != destroy ]] || { echo 'shared open-platform never supports destroy' >&2; exit 1; }
+          if [[ "${OPERATION}" == deploy || "${OPERATION}" == upgrade ]]; then
+            [[ "${DEPLOY_TAG}" =~ ^(uat-)?daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?$ ]] || { echo 'deploy/upgrade requires an immutable daily-build tag' >&2; exit 1; }
+          else
+            [[ -z "${DEPLOY_TAG}" ]] || { echo 'deploy_tag is only valid for deploy or upgrade' >&2; exit 1; }
+          fi
+          if [[ "${OPERATION}" == migrate ]]; then
+            [[ "${VAULT_STAGE}" == migrate-auto || "${OBS_MIGRATION}" != none ]] || { echo 'migrate requires an explicit Vault or Observability migration stage' >&2; exit 1; }
+          else
+            [[ "${VAULT_STAGE}" == none && "${OBS_MIGRATION}" == none ]] || { echo 'migration controls require operation=migrate' >&2; exit 1; }
+          fi
+          case "${OPERATION}" in plan) echo 'terraform_action=plan' >> "${GITHUB_OUTPUT}" ;; *) echo 'terraform_action=apply' >> "${GITHUB_OUTPUT}" ;; esac
+
+  vault-iac:
+    name: Terraform | shared Vault state
+    needs: contract
+    if: ${{ inputs.target_services == 'all' || inputs.target_services == 'vault' }}
+    uses: ./.github/workflows/gcp-iac-pipeline.yml
+    with:
+      deploy_action: ${{ needs.contract.outputs.terraform_action }}
+      vault_env_path: shared
+      github_environment: prod
+      gcp_account_id: ${{ inputs.gcp_account_id }}
+      gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
+      iac_ref: ${{ inputs.iac_ref }}
+      gcp_resource_manifest: resources/svc.plus/shared/gcp/open-platform-shared-vault.yaml
+    secrets: inherit
+
+  observability-iac:
+    name: Terraform | shared Observability state
+    needs: [contract, vault-iac]
+    if: ${{ always() && needs.contract.result == 'success' && (inputs.target_services == 'all' || inputs.target_services == 'observability') && (needs.vault-iac.result == 'success' || needs.vault-iac.result == 'skipped') }}
+    uses: ./.github/workflows/gcp-iac-pipeline.yml
+    with:
+      deploy_action: ${{ needs.contract.outputs.terraform_action }}
+      vault_env_path: shared
+      github_environment: prod
+      gcp_account_id: ${{ inputs.gcp_account_id }}
+      gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
+      iac_ref: ${{ inputs.iac_ref }}
+      gcp_resource_manifest: resources/svc.plus/shared/gcp/open-platform-shared-observability.yaml
+    secrets: inherit
+
+  iam-iac:
+    name: Terraform | shared IAM state
+    needs: [contract, observability-iac]
+    if: ${{ always() && needs.contract.result == 'success' && (inputs.target_services == 'all' || inputs.target_services == 'iam') && (needs.observability-iac.result == 'success' || needs.observability-iac.result == 'skipped') }}
+    uses: ./.github/workflows/gcp-iac-pipeline.yml
+    with:
+      deploy_action: ${{ needs.contract.outputs.terraform_action }}
+      vault_env_path: shared
+      github_environment: prod
+      gcp_account_id: ${{ inputs.gcp_account_id }}
+      gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
+      iac_ref: ${{ inputs.iac_ref }}
+      gcp_resource_manifest: resources/svc.plus/shared/gcp/open-platform-shared-iam.yaml
+    secrets: inherit
+
+  services:
+    name: Delegate shared service stage
+    needs: [contract, vault-iac, observability-iac, iam-iac]
+    if: ${{ always() && needs.contract.result == 'success' && inputs.operation != 'plan' && (needs.vault-iac.result == 'success' || needs.vault-iac.result == 'skipped') && (needs.observability-iac.result == 'success' || needs.observability-iac.result == 'skipped') && (needs.iam-iac.result == 'success' || needs.iam-iac.result == 'skipped') && (inputs.target_services == 'all' || inputs.target_services == 'vault' || inputs.target_services == 'observability') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dispatch Vault service workflow when selected
+        if: ${{ inputs.target_services == 'all' || inputs.target_services == 'vault' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VAULT_STAGE: ${{ inputs.vault_service_stage }}
+          OPERATION: ${{ inputs.operation }}
+          GITOPS_REF: ${{ inputs.gitops_repo_ref }}
+          IAC_REF: ${{ inputs.iac_ref }}
+          PLAYBOOKS_REF: ${{ inputs.playbooks_ref }}
+        run: |
+          set -euo pipefail
+          stage="${VAULT_STAGE}"
+          if [[ "${OPERATION}" != migrate && "${stage}" == none ]]; then stage=node-preflight; fi
+          [[ "${stage}" != none ]] || exit 0
+          gh workflow run vault-server.yml --repo "${GITHUB_REPOSITORY}" --ref main \
+            -f cloud_provider=gcp-cloud -f deploy_action=none -f "service_stage=${stage}" \
+            -f gitops_repo_ref="${GITOPS_REF}" -f iac_ref="${IAC_REF}" -f playbooks_ref="${PLAYBOOKS_REF}"
+      - name: Dispatch Observability service workflow when selected
+        if: ${{ inputs.target_services == 'all' || inputs.target_services == 'observability' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPERATION: ${{ inputs.operation }}
+          DEPLOY_TAG: ${{ inputs.deploy_tag }}
+          GITOPS_REF: ${{ inputs.gitops_repo_ref }}
+          MIGRATION_MODE: ${{ inputs.observability_migration_mode }}
+        run: |
+          set -euo pipefail
+          action=deploy
+          [[ "${OPERATION}" == migrate ]] && action=skip
+          gh workflow run observability-server.yml --repo "${GITHUB_REPOSITORY}" --ref main \
+            -f deploy_env=uat -f "deployment_action=${action}" -f "deploy_tag=${DEPLOY_TAG}" \
+            -f source_ref="${GITOPS_REF}" -f mcp_services=none \
+            -f migration_mode="${MIGRATION_MODE}" -f data_components=all -f confirm_source_writers_paused=false \
+            -f confirm_target_historical_queries=false -f confirm_history_omission=false \
+            -f dns_action=none -f confirm_dns_change=false -f verify_existing_target=false

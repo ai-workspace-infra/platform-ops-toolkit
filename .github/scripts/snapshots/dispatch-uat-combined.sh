@@ -143,21 +143,26 @@ dispatch_shared_platform() {
     return 0
   }
 
-  local shared_platform_manifest run_url
-  for shared_platform_manifest in "${shared_platform_manifest_list[@]}"; do
-    run_url="$(gh workflow run gcp-iac-pipeline.yml \
-      --repo "${target_repo}" \
-      --ref main \
-      -f "deploy_action=${shared_platform_action}" \
-      -f vault_env_path=shared \
-      -f github_environment=prod \
-      -f "gcp_account_id=${shared_platform_account}" \
-      -f gitops_repo_ref=main \
-      -f "iac_ref=${gcp_iac_ref}" \
-      -f "gcp_resource_manifest=${shared_platform_manifest}")"
-    echo "Dispatched open-platform-shared ${shared_platform_manifest} GCP Terraform ${shared_platform_action}: ${run_url}"
-    wait_for_run "${run_url}" "open-platform-shared ${shared_platform_manifest}" "${selfhost_wait_timeout_seconds}"
-  done
+  local run_url orchestrator_operation
+  if [[ "${shared_platform_action}" == plan ]]; then
+    orchestrator_operation=plan
+  else
+    orchestrator_operation=deploy
+  fi
+  run_url="$(gh workflow run open-platform-orchestrator.yml \
+    --repo "${target_repo}" \
+    --ref main \
+    -f "operation=${orchestrator_operation}" \
+    -f target_services=all \
+    -f "deploy_tag=${snapshot_tag}" \
+    -f gitops_repo_ref=main \
+    -f "iac_ref=${gcp_iac_ref}" \
+    -f playbooks_ref=main \
+    -f "gcp_account_id=${shared_platform_account}" \
+    -f vault_service_stage=none \
+    -f observability_migration_mode=none)"
+  echo "Dispatched open-platform-orchestrator ${orchestrator_operation}: ${run_url}"
+  wait_for_run "${run_url}" "open-platform-orchestrator" "${selfhost_wait_timeout_seconds}"
 }
 
 dispatch_shared_platform
