@@ -351,6 +351,10 @@ jobs:
             "projects/${PROJECT_ID}/locations/${REGION}/services/open-platform-uat"
           import_if_missing 'google_compute_firewall.vault_raft_internal' \
             "projects/${PROJECT_ID}/global/firewalls/${NETWORK_NAME}-vault-raft-internal"
+          if [[ "${DEPLOY_ENV}" == "uat" && "${PROJECT_ID}" == "open-platform-uat" ]]; then
+            import_if_missing 'google_org_policy_policy.vm_external_ip_access' \
+              "projects/${PROJECT_ID}/policies/compute.vmExternalIpAccess"
+          fi
 
       - name: Terraform plan
         if: ${{ env.DEPLOY_ACTION == 'plan' || env.DEPLOY_ACTION == 'apply' }}
