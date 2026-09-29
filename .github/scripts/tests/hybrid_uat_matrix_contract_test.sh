@@ -11,8 +11,8 @@ jq -e '
   (.spec.target_domains == "all") and
   ([.spec.resources[].order] == [1,2,3,4,5,6,7,8]) and
   ([.spec.resources[] | select(.management_mode == "terraform" or .management_mode == "terraform+serverless") | .namespace] ==
-    ["open-platform","web-saas","agent-proxy-jp","agent-proxy-us","agent-proxy-sg"]) and
-  ([.spec.resources[] | select(.management_mode == "existing-selfhost") | .namespace] == ["ai-workspace"]) and
+    ["open-platform","web-saas","ai-workspace","agent-proxy-jp","agent-proxy-us","agent-proxy-sg"]) and
+  ([.spec.resources[] | select(.management_mode == "existing-selfhost") | .namespace] == []) and
   ([.spec.resources[] | select(.management_mode == "existing") | .namespace] ==
     ["agent-proxy-tw","agent-proxy-ph"]) and
   ([.spec.resources[] | select(.management_mode == "terraform+serverless") | .namespace] == ["web-saas"]) and
@@ -20,13 +20,13 @@ jq -e '
   all(.spec.resources[] | select(.management_mode == "terraform"); .provider != "ulighthost") and
   all(.spec.resources[] | select(.management_mode == "existing"); .provider == "ulighthost") and
   ([.spec.resources[] | select(.management_mode == "terraform" or .management_mode == "terraform+serverless") | .region] ==
-    ["asia-east1","asia-east1","ap-northeast-1","us-central1","sg-sin-2"]) and
+    ["asia-east1","asia-east1","asia-east1","ap-northeast-1","us-central1","sg-sin-2"]) and
   ([.spec.resources[] | select(.management_mode == "terraform" or .management_mode == "terraform+serverless") | .provider] ==
-    ["gcp-cloud","gcp-cloud","aws-cloud","gcp-cloud","akamai-cloud"]) and
+    ["gcp-cloud","gcp-cloud","gcp-cloud","aws-cloud","gcp-cloud","akamai-cloud"]) and
   ([.spec.resources[] | select(.management_mode == "terraform" or .management_mode == "terraform+serverless") | .profile] ==
-    ["2C4G","2C4G","2C2G","2C2G","2C2G"]) and
-  ([.spec.resources[] | select(.management_mode == "terraform" or .management_mode == "terraform+serverless") | .agent_profile] ==
-    ["1C2G","1C2G","2C2G","2C2G","2C2G"]) and
+    ["2C4G","2C4G","4C8G","2C2G","2C2G","2C2G"]) and
+  ([.spec.resources[] | select(.management_mode == "terraform" or .management_mode == "terraform+serverless") | (.agent_profile // "1C2G")] ==
+    ["1C2G","1C2G","1C2G","2C2G","2C2G","2C2G"]) and
   .spec.resources[0].profile == "2C4G" and
   .spec.resources[0].account_ref == "gcp_account" and
   (.spec.resources[0].account == null) and
@@ -42,19 +42,19 @@ jq -e '
     ["web-saas","ai-workspace","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","agent-proxy-tw","agent-proxy-ph"]) and
   .spec.resources[1].management_mode == "terraform+serverless" and
   .spec.resources[1].lifecycle == "ephemeral" and
-  .spec.resources[2].management_mode == "existing-selfhost" and
-  .spec.resources[2].lifecycle == "external" and
+  .spec.resources[2].management_mode == "terraform" and
+  .spec.resources[2].lifecycle == "ephemeral" and
   .spec.resources[2].provider == "gcp-cloud" and
   .spec.resources[2].profile == "4C8G" and
-  .spec.resources[2].region == "xconnect-private" and
-  .spec.resources[2].existing_host == "10.79.0.7" and
-  .spec.resources[2].xconnect_required == true and
+  .spec.resources[2].region == "asia-east1" and
+  .spec.resources[2].capacity_type == "spot" and
+  (.spec.resources[2].existing_host == null) and
   .spec.xconnect_network.id == "net_uat" and
   .spec.xconnect_network.gateway_ref == "tw-xconnect.svc.plus" and
   .spec.xconnect_network.gateway_vault_key == "tw-xconnect.svc.plus" and
   .spec.xconnect_network.one_vault_key == "observability.svc.plus" and
   ([.spec.resources[] | select((.management_mode == "terraform" or .management_mode == "terraform+serverless") and .lifecycle == "ephemeral") | .namespace] ==
-    ["web-saas","agent-proxy-jp","agent-proxy-us","agent-proxy-sg"]) and
+    ["web-saas","ai-workspace","agent-proxy-jp","agent-proxy-us","agent-proxy-sg"]) and
   all(.spec.resources[]; (.management_mode == "existing" or (.state_project == "svc.plus")))
 ' "${matrix}" >/dev/null
 bash -n "${dispatcher}"
@@ -94,7 +94,7 @@ open_line="$(line_for 'DRY-RUN open-platform (gcp-cloud, 2C4G')"
   echo "hybrid deploy dry-run is missing a required business phase or lane" >&2
   exit 1
 }
-(( open_line < jp_line && jp_line < us_line && us_line < sg_line && sg_line < web_line && web_line < ai_line && ai_line < tw_line && tw_line < ph_line )) || {
+(( open_line < ai_line && ai_line < jp_line && jp_line < us_line && us_line < sg_line && sg_line < web_line && web_line < tw_line && tw_line < ph_line )) || {
   echo "hybrid deploy must follow the GitOps matrix order after the XConnect gate" >&2
   exit 1
 }
@@ -115,10 +115,10 @@ grep -Eq '"network_id"[[:space:]]*:[[:space:]]*"net_uat"' "${dry_run}" || {
   echo "XConnect gate must run after Terraform readiness and before applications" >&2
   exit 1
 }
-grep -Fq 'existing_target_host": "10.79.0.7"' "${dry_run}" || {
-  echo "hybrid deploy must pass the protected AI Workspace existing host" >&2
+if grep -Fq '10.79.0.7' "${dry_run}"; then
+  echo "hybrid deploy must not route AI Workspace through the retired private host" >&2
   exit 1
-}
+fi
 
 python3 - "${workflow}" <<'PY'
 import sys
