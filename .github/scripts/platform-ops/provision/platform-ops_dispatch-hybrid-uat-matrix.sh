@@ -6,9 +6,10 @@ set -euo pipefail
 # region, and lifecycle always come from the versioned GitOps/IAC matrix;
 # operator-level cloud defaults must never overwrite a row. Terraform,
 # Serverless, and existing inventory state remain owned by their workflows.
-# Rows marked release_scope=shared-infrastructure are excluded from routine
-# UAT deploys. Vault and Observability are shared services with their own
-# lifecycle and must not be re-bootstrapped by a business release.
+# The production/shared platform lifecycle is independent. The UAT matrix
+# still contains an open-platform prerequisite because its project-level
+# external-IP policy is the owner for UAT workload VMs. It is reconciled once
+# at the beginning of all/deploy, before any business VM can be created.
 
 : "${GH_TOKEN:?GH_TOKEN is required}"
 : "${GH_REPO:?GH_REPO is required}"
@@ -205,6 +206,25 @@ skip_shared_service_release() {
   return 1
 }
 
+dispatch_uat_open_platform_prerequisite() {
+  local row="$1" provider account profile agent_profile
+  provider="$(jq -r '.provider' <<<"${row}")"
+  [[ "${provider}" == gcp-cloud ]] || {
+    echo "::error::UAT open-platform prerequisite must use the GitOps gcp-cloud provider" >&2
+    return 1
+  }
+  validate_matrix_provider "${provider}"
+  account="$(account_for_row "${row}")"
+  [[ -n "${account}" ]] || {
+    echo '::error::No concrete GCP account configured for the UAT open-platform prerequisite' >&2
+    return 1
+  }
+  profile="$(jq -r '.profile' <<<"${row}")"
+  agent_profile="$(jq -r '.agent_profile // "1C2G"' <<<"${row}")"
+  echo 'UAT open-platform prerequisite: reconcile project policy and platform VM before business lanes.'
+  dispatch_selfhost deploy open-platform "${provider}" "${account}" "${profile}" "${agent_profile}"
+}
+
 if [[ "${OPERATION}" == deploy ]]; then
   # A deploy has a network prerequisite that cannot be satisfied by the
   # historical single-pass matrix: all new Terraform hosts must exist before
@@ -213,6 +233,8 @@ if [[ "${OPERATION}" == deploy ]]; then
   # services; the three regional proxy lanes are provisioned only in phase 1.
   # Their application Playbooks run after XConnect succeeds.
   echo "::group::UAT hybrid deploy phase 1: Terraform resources"
+  open_platform_row="$(printf '%s\n' "${rows[@]}" | jq -s -c 'map(select(.namespace == "open-platform")) | if length == 1 then .[0] else error("expected exactly one open-platform row") end')"
+  dispatch_uat_open_platform_prerequisite "${open_platform_row}"
   for row in "${rows[@]}"; do
     namespace="$(jq -r '.namespace' <<<"${row}")"
     mode="$(jq -r '.management_mode' <<<"${row}")"
