@@ -295,7 +295,16 @@ jobs:
             # Terraform's wrapper then reports EPIPE and the managed resource
             # is incorrectly imported a second time.
             local state_addresses
-            state_addresses="$(terraform -chdir="${tf_dir}" state list)"
+            if ! state_addresses="$(terraform -chdir="${tf_dir}" state list 2>&1)"; then
+              if [[ "${state_addresses}" == *'No state file was found!'* ]]; then
+                # A newly created project has no remote state yet. Still probe
+                # for pre-existing identities below before planning creation.
+                state_addresses=""
+              else
+                printf '%s\n' "${state_addresses}" >&2
+                exit 1
+              fi
+            fi
             if printf '%s\n' "${state_addresses}" | grep -Fqx "${address}"; then
               return 0
             fi
