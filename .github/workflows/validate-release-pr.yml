@@ -68,6 +68,20 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v7
 
+    - name: Checkout UAT Hybrid GitOps contract
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/gitops
+        ref: main
+        path: gitops-hybrid-contract
+        sparse-checkout-cone-mode: false
+        sparse-checkout: |
+          topology/uat/hybrid/resource-matrix.json
+          resources/onwalk.net/uat/gcp/open-platform.yaml
+          resources/onwalk.net/uat/gcp/web-saas.yaml
+          resources/svc.plus/uat/gcp/ai-workspace.yaml
+          resources/svc.plus/uat/gcp/agent-proxy-us.yaml
+
     - name: Install PyYAML
       run: pip install --quiet pyyaml
 
@@ -82,6 +96,13 @@ jobs:
     # invariants have to be asserted, because review does not catch them.
     - name: Verify job gating is falsifiable
       run: python3 scripts/ci/workflow_gating_verify.py
+
+    - name: Verify Hybrid UAT child failures cannot report green
+      env:
+        GITOPS_MATRIX_FILE: ${{ github.workspace }}/gitops-hybrid-contract/topology/uat/hybrid/resource-matrix.json
+        GITOPS_OPEN_PLATFORM_FILE: ${{ github.workspace }}/gitops-hybrid-contract/resources/onwalk.net/uat/gcp/open-platform.yaml
+        GITOPS_RESOURCE_ROOTS: ${{ github.workspace }}/gitops-hybrid-contract/resources/onwalk.net/uat/gcp:${{ github.workspace }}/gitops-hybrid-contract/resources/svc.plus/uat/gcp
+      run: bash .github/scripts/tests/hybrid_uat_matrix_contract_test.sh
 
     - name: Verify Observability Vault jobs request OIDC tokens
       run: python3 .github/scripts/tests/observability_oidc_permissions_contract_test.py

@@ -90,7 +90,7 @@ validate_matrix_provider() {
 }
 
 wait_for_run() {
-  local workflow="$1" started="$2" label="$3" run_id=""
+  local workflow="$1" started="$2" label="$3" run_id="" conclusion=""
   for _ in $(seq 1 45); do
     run_id="$(gh run list --repo "${GH_REPO}" --workflow "${workflow}" --event workflow_dispatch --limit 50 --json databaseId,createdAt,headBranch --jq "[.[] | select(.headBranch == \"${CHILD_REF}\" and .createdAt >= \"${started}\")] | sort_by(.createdAt) | last | .databaseId // empty")"
     [[ -n "${run_id}" ]] && break
@@ -98,7 +98,15 @@ wait_for_run() {
   done
   [[ -n "${run_id}" ]] || { echo "::error::Could not locate ${workflow} run for ${label}" >&2; return 1; }
   echo "${label}: dispatched ${workflow} run ${run_id}"
-  gh run watch "${run_id}" --repo "${GH_REPO}" --interval "${WAIT_INTERVAL_SECONDS}" --exit-status --compact
+  if ! gh run watch "${run_id}" --repo "${GH_REPO}" --interval "${WAIT_INTERVAL_SECONDS}" --exit-status --compact; then
+    echo "::error::${label}: child ${workflow} run ${run_id} failed; refusing to continue the Hybrid matrix." >&2
+    return 1
+  fi
+  conclusion="$(gh run view "${run_id}" --repo "${GH_REPO}" --json status,conclusion --jq 'select(.status == "completed") | .conclusion')"
+  [[ "${conclusion}" == success ]] || {
+    echo "::error::${label}: child ${workflow} run ${run_id} did not finish successfully (conclusion=${conclusion:-unknown})." >&2
+    return 1
+  }
   echo "${label}: ${workflow} run ${run_id} succeeded"
 }
 
