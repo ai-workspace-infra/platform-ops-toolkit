@@ -45,7 +45,7 @@ grep -Fq 'GCP_ACCOUNT_ID=open-platform-prod' "${howto}"
 grep -Fq 'GCP_PROJECT_ID=open-platform-prod' "${howto}"
 grep -Fq 'GCP_ACCESS_TOKEN' "${howto}"
 grep -Fq 'TF_STATE_SECRET_KEY' "${howto}"
-grep -Fq 'Revoke and scrub short-lived GCP bootstrap access token' "${workflow}"
+grep -Fq 'Scrub short-lived GCP bootstrap access token from Vault' "${workflow}"
 
 if grep -Fq 'roles/owner' "${bootstrap_script}"; then
   echo "shared bootstrap helper must not grant project Owner" >&2

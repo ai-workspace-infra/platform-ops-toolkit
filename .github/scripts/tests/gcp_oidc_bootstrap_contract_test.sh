@@ -45,7 +45,7 @@ for required in \
   'if: ${{ always() && inputs.action == '\''apply'\'' && steps.credential.outputs.credential_mode == '\''auth_json'\'' }}' \
   'serviceAccounts/${SERVICE_ACCOUNT}/keys/${KEY_ID}' \
   'serviceAccounts/${SERVICE_ACCOUNT}:disable' \
-  'oauth2.googleapis.com/revoke' \
+  'Scrub short-lived GCP bootstrap access token from Vault' \
   'kv/metadata/CICD/${ENVIRONMENT}/gcp-bootstrap/${ACCOUNT_ID}' \
   'Verify GCP project bootstrap permissions' \
   'No state file was found!' \
@@ -78,6 +78,13 @@ for required in \
     exit 1
   }
 done
+
+if grep -Fq 'oauth2.googleapis.com/revoke' "${kv_helper}" ||
+   sed -n '/name: Scrub short-lived GCP bootstrap access token from Vault/,/name: Authenticate with bootstrapped GCP WIF/p' "${workflow}" |
+     grep -Fq 'oauth2.googleapis.com/revoke'; then
+  echo "ADC-derived bootstrap tokens must not revoke the operator's refresh grant" >&2
+  exit 1
+fi
 
 for required in \
   'options: [plan, apply, destroy]' \

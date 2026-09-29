@@ -257,21 +257,9 @@ revoke_auth_json() {
 }
 
 revoke_access_token() {
-  local current access_token
-  current="$(vault_read_json)"
-  access_token="$(jq -r '.data.data.GCP_ACCESS_TOKEN // empty' <<<"${current}")"
-  if [[ -n "${access_token}" ]]; then
-    export GCP_REVOKE_ACCESS_TOKEN="${access_token}"
-    if jq -rn '"token=" + (env.GCP_REVOKE_ACCESS_TOKEN | @uri)' |
-      curl --fail --silent --show-error --request POST \
-        --header 'Content-Type: application/x-www-form-urlencoded' \
-        --data-binary @- "https://oauth2.googleapis.com/revoke" >/dev/null; then
-      echo "GCP access token revoked."
-    else
-      echo "warning: token revocation endpoint failed; the token will expire naturally" >&2
-    fi
-    unset GCP_REVOKE_ACCESS_TOKEN access_token
-  fi
+  # An ADC-derived access token shares its parent grant with the local
+  # operator. OAuth revocation can invalidate the ADC refresh credential.
+  # Destroy the Vault copies and let the short-lived token expire naturally.
   vault_delete_all_versions
   jq -n --arg project "${project_id}" '{data:{GCP_PROJECT_ID:$project}}' | vault_write_json
   echo "${secret_path}: token removed; only GCP_PROJECT_ID remains"
