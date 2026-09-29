@@ -101,7 +101,9 @@ permissions:
   id-token: write
 
 concurrency:
-  group: gcp-iac-${{ inputs.vault_env_path }}-${{ inputs.gcp_account_id }}
+  # Distinct manifests map to distinct Terraform state workspaces. Account-wide
+  # concurrency cancels queued siblings when Vault/Observability/IAM run together.
+  group: gcp-iac-${{ inputs.vault_env_path }}-${{ inputs.gcp_account_id }}-${{ inputs.gcp_resource_manifest || 'default' }}
   cancel-in-progress: false
 
 jobs:
