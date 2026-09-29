@@ -129,7 +129,7 @@ on:
         default: true
         type: boolean
       instance_plan:
-        description: "选择默认业务规格（UAT 多云矩阵按 namespace 声明 provider；web-saas 复用 GCP Vault node 0，AI Workspace 复用 existing host；Agent Proxy 由矩阵声明）"
+        description: "选择默认业务规格（UAT Hybrid 的 provider、创建或复用方式及规格以 GitOps namespace 声明为准）"
         required: true
         default: "2C4G"
         type: choice
