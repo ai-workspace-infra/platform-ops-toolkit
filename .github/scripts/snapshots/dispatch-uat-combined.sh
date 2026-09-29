@@ -20,6 +20,10 @@ agent_proxy_plan="${AGENT_PROXY_PLAN:-1C2G}"
 akamai_account="${AKAMAI_ACCOUNT_UAT:-manbuzhe2026}"
 aws_account="${AWS_ACCOUNT_UAT:-081434641398}"
 gcp_account="${GCP_ACCOUNT_UAT:-xworktech}"
+shared_platform_action="${SHARED_PLATFORM_ACTION:-apply}"
+shared_platform_account="${SHARED_PLATFORM_ACCOUNT:-open-platform-shared}"
+shared_platform_manifests="${SHARED_PLATFORM_MANIFESTS:-resources/svc.plus/shared/gcp/open-platform-shared-vault.yaml,resources/svc.plus/shared/gcp/open-platform-shared-observability.yaml,resources/svc.plus/shared/gcp/open-platform-shared-iam.yaml}"
+gcp_iac_ref="${GCP_IAC_REF:-main}"
 skip_stripe_catalog="${SKIP_STRIPE_CATALOG:-false}"
 enable_migration="${ENABLE_MIGRATION:-false}"
 apply_accounts_schema_migration="${APPLY_ACCOUNTS_SCHEMA_MIGRATION:-false}"
@@ -44,6 +48,31 @@ selfhost_wait_timeout_seconds="${UAT_SELFHOST_WAIT_TIMEOUT_SECONDS:-3600}"
   echo "::error::AGENT_PROXY_PLAN must be 1C1G, 1C2G, 2C1G, or 2C2G." >&2
   exit 2
 }
+
+case "${shared_platform_action}" in
+  none|plan|apply) ;;
+  *)
+    echo "::error::SHARED_PLATFORM_ACTION must be none, plan, or apply." >&2
+    exit 2
+    ;;
+esac
+
+[[ "${shared_platform_account}" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]] || {
+  echo "::error::SHARED_PLATFORM_ACCOUNT must be a valid GCP project/account ID." >&2
+  exit 2
+}
+
+IFS=',' read -r -a shared_platform_manifest_list <<< "${shared_platform_manifests}"
+[[ "${#shared_platform_manifest_list[@]}" -gt 0 ]] || {
+  echo "::error::SHARED_PLATFORM_MANIFESTS must contain at least one manifest." >&2
+  exit 2
+}
+for shared_platform_manifest in "${shared_platform_manifest_list[@]}"; do
+  [[ "${shared_platform_manifest}" == resources/*/shared/gcp/*.yaml && "${shared_platform_manifest}" != *..* ]] || {
+    echo "::error::invalid shared GitOps GCP manifest: ${shared_platform_manifest}" >&2
+    exit 2
+  }
+done
 
 [[ "${skip_stripe_catalog}" == "true" || "${skip_stripe_catalog}" == "false" ]] || {
   echo "::error::SKIP_STRIPE_CATALOG must be true or false." >&2
@@ -107,6 +136,32 @@ wait_for_run() {
     sleep "${wait_interval_seconds}"
   done
 }
+
+dispatch_shared_platform() {
+  [[ "${shared_platform_action}" == none ]] && {
+    echo "Skipping open-platform-shared GCP Terraform action (SHARED_PLATFORM_ACTION=none)."
+    return 0
+  }
+
+  local shared_platform_manifest run_url
+  for shared_platform_manifest in "${shared_platform_manifest_list[@]}"; do
+    run_url="$(gh workflow run gcp-iac-pipeline.yml \
+      --repo "${target_repo}" \
+      --ref main \
+      -f "deploy_action=${shared_platform_action}" \
+      -f vault_env_path=shared \
+      -f github_environment=prod \
+      -f "gcp_account_id=${shared_platform_account}" \
+      -f gitops_repo_ref=main \
+      -f "iac_ref=${gcp_iac_ref}" \
+      -f "gcp_resource_manifest=${shared_platform_manifest}")"
+    echo "Dispatched open-platform-shared ${shared_platform_manifest} GCP Terraform ${shared_platform_action}: ${run_url}"
+    wait_for_run "${run_url}" "open-platform-shared ${shared_platform_manifest}" "${selfhost_wait_timeout_seconds}"
+  done
+}
+
+dispatch_shared_platform
+
 hybrid_workflow="${HYBRID_WORKFLOW:-hybrid-orchestrator.yml}"
 hybrid_run_url="$(gh workflow run "${hybrid_workflow}" \
   --repo "${target_repo}" \
