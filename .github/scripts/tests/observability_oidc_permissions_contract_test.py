@@ -48,6 +48,10 @@ assert shared_job["permissions"]["id-token"] == "write"
 assert "gcloud compute os-login ssh-keys add" in str(shared_job)
 assert "gcloud compute firewall-rules delete" in str(shared_job)
 assert "target_platform == 'shared-gcp'" in str(shared_job.get("if", ""))
+assert "StrictHostKeyChecking=accept-new" in str(shared_job), (
+    "the one-run OS Login inventory must accept and retain only its first SSH host key"
+)
+assert "UserKnownHostsFile=${access_dir}/known_hosts" in str(shared_job)
 target_resolver = next(
     step for step in shared_job["steps"]
     if step["name"] == "Resolve declared shared GCP node and public address"

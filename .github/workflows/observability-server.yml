@@ -651,7 +651,10 @@ jobs:
             '{($host): {ip:$ip, ansible_user:$user, ansible_port:22, groups:["observability_hosts"]}}' > "${access_dir}/cmdb.json"
           cat > "${access_dir}/inventory.ini" <<EOF
           [observability_hosts]
-          ${NODE_NAME} ansible_host=${TARGET_IP} ansible_user=${ssh_user} ansible_port=22 ansible_ssh_private_key_file=${key_path}
+          # This is a new, independently provisioned VM.  Let OpenSSH record its
+          # first host key in this job's private directory, while rejecting a
+          # changed key for every later connection in the same deployment.
+          ${NODE_NAME} ansible_host=${TARGET_IP} ansible_user=${ssh_user} ansible_port=22 ansible_ssh_private_key_file=${key_path} ansible_ssh_common_args='-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=${access_dir}/known_hosts'
           EOF
           echo "access_dir=${access_dir}" >> "${GITHUB_OUTPUT}"
           echo "key_path=${key_path}" >> "${GITHUB_OUTPUT}"
