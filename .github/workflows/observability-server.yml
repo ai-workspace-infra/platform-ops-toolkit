@@ -549,6 +549,11 @@ jobs:
     outputs:
       target_ip: ${{ steps.target.outputs.ip }}
     steps:
+      - name: Checkout Toolkit actions
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
       - name: Checkout GitOps declaration
         uses: actions/checkout@v4
         with:
