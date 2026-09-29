@@ -89,17 +89,16 @@ web_line="$(line_for 'DRY-RUN web-saas serverless')"
 ai_line="$(line_for 'DRY-RUN ai-workspace (gcp-cloud, 4C8G')"
 tw_line="$(line_for 'DRY-RUN agent-proxy-tw (existing inventory)')"
 ph_line="$(line_for 'DRY-RUN agent-proxy-ph (existing inventory)')"
-open_line="$(line_for 'DRY-RUN open-platform (gcp-cloud, 2C4G')"
-[[ -n "${open_line}${jp_line}${us_line}${sg_line}${web_line}${ai_line}${tw_line}${ph_line}" ]] || {
+[[ -n "${jp_line}${us_line}${sg_line}${web_line}${ai_line}${tw_line}${ph_line}" ]] || {
   echo "hybrid deploy dry-run is missing a required business phase or lane" >&2
   exit 1
 }
-(( open_line < ai_line && ai_line < jp_line && jp_line < us_line && us_line < sg_line && sg_line < web_line && web_line < tw_line && tw_line < ph_line )) || {
+(( ai_line < jp_line && jp_line < us_line && us_line < sg_line && sg_line < web_line && web_line < tw_line && tw_line < ph_line )) || {
   echo "hybrid deploy must follow the GitOps matrix order after the XConnect gate" >&2
   exit 1
 }
-if ! grep -Fq 'DRY-RUN open-platform' "${dry_run}"; then
-  echo "UAT hybrid deploy must provision the permanent open-platform GCP resource" >&2
+if grep -Fq 'DRY-RUN open-platform' "${dry_run}"; then
+  echo "UAT hybrid deploy must not reprovision shared open-platform resources" >&2
   exit 1
 fi
 xc_line="$(line_for 'DRY-RUN XConnect Zero UAT (tw-xconnect.svc.plus)')"
