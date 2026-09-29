@@ -29,6 +29,8 @@ bash "${dispatcher}"
 
 grep -Fq 'workflow run hybrid-orchestrator.yml' "${workdir}/gh.log"
 grep -Fq 'workflow run open-platform-orchestrator.yml' "${workdir}/gh.log"
+grep -Fq 'dispatch_and_wait vault-server.yml' "${repo_root}/.github/workflows/open-platform-orchestrator.yml"
+grep -Fq 'dispatch_and_wait observability-server.yml' "${repo_root}/.github/workflows/open-platform-orchestrator.yml"
 if grep -Fq 'workflow run gcp-iac-pipeline.yml' "${workdir}/gh.log"; then
   echo 'Daily UAT snapshot must route shared infrastructure through open-platform-orchestrator.' >&2
   exit 1
