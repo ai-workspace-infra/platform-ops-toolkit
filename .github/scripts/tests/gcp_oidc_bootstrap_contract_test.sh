@@ -49,6 +49,7 @@ for required in \
   'kv/metadata/CICD/${ENVIRONMENT}/gcp-bootstrap/${ACCOUNT_ID}' \
   'Verify GCP project bootstrap permissions' \
   'No state file was found!' \
+  'Cannot import non-existent remote object' \
   'testIamPermissions' \
   'iam.serviceAccounts.create' \
   'iam.serviceAccounts.setIamPolicy' \
