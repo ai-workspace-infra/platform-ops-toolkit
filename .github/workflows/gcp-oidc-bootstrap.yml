@@ -65,6 +65,7 @@ jobs:
       - name: Resolve and validate GitOps GCP OIDC declaration
         id: config
         env:
+          # Default compatibility path: resources/xworktech.com/${{ inputs.environment }}/gcp/github-actions-oidc.yaml
           GCP_OIDC_CONFIG: ${{ github.workspace }}/gitops/${{ inputs.gcp_oidc_manifest || format('resources/xworktech.com/{0}/gcp/github-actions-oidc.yaml', inputs.environment) }}
         run: scripts/cloud/bootstrap/gcp/resolve_github_oidc_config.sh
 
