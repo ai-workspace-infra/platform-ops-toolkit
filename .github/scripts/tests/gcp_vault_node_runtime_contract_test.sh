@@ -11,5 +11,8 @@ grep -Fq 'gcloud compute instances describe' "${workflow}"
 grep -Fq '[[ "${status}" == RUNNING ]]' "${workflow}"
 grep -Fq 'missing its declared public IPv4 address' "${workflow}"
 grep -Fq "if: \${{ env.DEPLOY_ACTION == 'apply' }}" "${workflow}"
+grep -Fq 'Adopt privileged shared external IP policy' "${workflow}"
+grep -Fq 'projects/${PROJECT_ID}/policies/compute.vmExternalIpAccess' "${workflow}"
+grep -Fq 'Shared external IP policy differs from GitOps' "${workflow}"
 
 echo 'GCP Vault VM runtime verification contract: OK'
