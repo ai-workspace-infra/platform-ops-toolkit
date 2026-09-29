@@ -160,7 +160,7 @@ assert "resource_orchestration" in doc["jobs"]
 assert "platform-ops_dispatch-hybrid-uat-matrix.sh" in open(sys.argv[1], encoding="utf-8").read()
 selfhost = yaml.safe_load(open(".github/workflows/selfhost-orchestrator.yml", encoding="utf-8"))
 steps = selfhost["jobs"]["provision"]["steps"]
-adopt = next(step for step in steps if step["name"] == "Adopt existing UAT external IP policy into open-platform state")
+adopt = next(step for step in steps if step.get("name") == "Adopt existing UAT external IP policy into open-platform state")
 assert "terraform_namespace == 'open-platform'" in adopt["if"]
 assert 'google_org_policy_policy.vm_external_ip_access' in adopt["run"]
 PY
