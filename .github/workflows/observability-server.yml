@@ -726,7 +726,10 @@ jobs:
     steps:
       - name: Download target CMDB from the deployment run
         id: deployed_target
-        if: inputs.deployment_action == 'deploy'
+        # The shared-GCP path deploys the service directly and exports its IP
+        # from deploy_shared_target.  It does not create a nested IAC run or
+        # CMDB artifact, so only the legacy Akamai path may download one.
+        if: inputs.target_platform == 'legacy-akamai' && inputs.deployment_action == 'deploy'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

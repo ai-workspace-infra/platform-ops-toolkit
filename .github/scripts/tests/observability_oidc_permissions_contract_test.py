@@ -52,6 +52,14 @@ assert "StrictHostKeyChecking=accept-new" in str(shared_job), (
     "the one-run OS Login inventory must accept and retain only its first SSH host key"
 )
 assert "UserKnownHostsFile=${access_dir}/known_hosts" in str(shared_job)
+resolver_job = workflow["jobs"]["resolve_target"]
+cmdb_step = next(
+    step for step in resolver_job["steps"]
+    if step["name"] == "Download target CMDB from the deployment run"
+)
+assert cmdb_step["if"] == "inputs.target_platform == 'legacy-akamai' && inputs.deployment_action == 'deploy'", (
+    "shared-GCP deployments must resolve their IP from deploy_shared_target, not a legacy CMDB child run"
+)
 target_resolver = next(
     step for step in shared_job["steps"]
     if step["name"] == "Resolve declared shared GCP node and public address"
