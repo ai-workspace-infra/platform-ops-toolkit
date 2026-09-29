@@ -30,6 +30,7 @@ SOURCE_REF="${SOURCE_REF:-main}"
 DEPLOY_TAG="${DEPLOY_TAG:-}"
 VAULT_ADDR="${VAULT_ADDR:-https://vault.svc.plus}"
 XCONNECT_GATEWAY_REF="${XCONNECT_GATEWAY_REF:-tw-xconnect.svc.plus}"
+XCONNECT_MIGRATION="${XCONNECT_MIGRATION:-false}"
 DRY_RUN="${DRY_RUN:-false}"
 WAIT_INTERVAL_SECONDS="${WAIT_INTERVAL_SECONDS:-15}"
 REGISTRY_FILE="${REGISTRY_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/config/iac_provider_registry.json}"
@@ -41,6 +42,7 @@ if [[ "${OPERATION}" == deploy ]]; then
   [[ "${DEPLOY_TAG}" =~ ^(uat-)?daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?$ ]] || { echo "::error::deploy requires an immutable UAT daily-build tag" >&2; exit 1; }
 fi
 [[ "${DRY_RUN}" == true || "${DRY_RUN}" == false ]] || { echo "::error::DRY_RUN must be true or false" >&2; exit 1; }
+[[ "${XCONNECT_MIGRATION}" == true || "${XCONNECT_MIGRATION}" == false ]] || { echo "::error::XCONNECT_MIGRATION must be true or false" >&2; exit 1; }
 
 account_for() {
   case "$1" in
@@ -229,14 +231,18 @@ if [[ "${OPERATION}" == deploy ]]; then
   done
   echo "::endgroup::"
 
-  # Existing-selfhost and external nodes are reachable only after the
-  # configurable UAT XConnect Gateway/One path has been reconciled. Keep this
-  # as an explicit gate between Terraform readiness and all application or
-  # existing-node Playbooks; otherwise ai-workspace (10.79.0.7) is attempted
-  # over the public runner network and fails before the matrix can proceed.
-  echo "::group::UAT hybrid deploy gate: XConnect Zero / existing One"
-  dispatch_xconnect_migration
-  echo "::endgroup::"
+  # The protected legacy observability One is a migration source only. Normal
+  # UAT deploys use the GitOps-declared persistent TW Gateway and must not read
+  # or SSH to kv/prod/ulighthost-xconnect/observability.svc.plus. The explicit
+  # migration switch keeps the old enrollment path available for a separately
+  # reviewed migration run.
+  if [[ "${XCONNECT_MIGRATION}" == true ]]; then
+    echo "::group::UAT hybrid deploy gate: explicit XConnect One migration"
+    dispatch_xconnect_migration
+    echo "::endgroup::"
+  else
+    echo 'XConnect One migration gate disabled; using the GitOps-declared UAT Gateway without touching the protected legacy source.'
+  fi
 
   echo "::group::UAT hybrid deploy phase 2: Applications and existing nodes"
   for row in "${rows[@]}"; do
@@ -273,7 +279,11 @@ if [[ "${OPERATION}" == deploy ]]; then
     esac
   done
   echo "::endgroup::"
-  echo "Hybrid UAT deploy completed: Terraform readiness -> XConnect Zero -> applications and existing nodes."
+  if [[ "${XCONNECT_MIGRATION}" == true ]]; then
+    echo "Hybrid UAT deploy completed: Terraform readiness -> explicit XConnect One migration -> applications and existing nodes."
+  else
+    echo "Hybrid UAT deploy completed: Terraform readiness -> GitOps-declared XConnect Gateway -> applications and existing nodes; protected legacy source untouched."
+  fi
   exit 0
 fi
 

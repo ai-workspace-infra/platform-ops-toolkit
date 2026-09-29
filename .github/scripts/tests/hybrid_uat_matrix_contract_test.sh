@@ -77,6 +77,7 @@ SOURCE_REF=main \
 DEPLOY_TAG=uat-daily-build-2026.09.28-r1 \
 VAULT_ADDR=https://vault.svc.plus \
 XCONNECT_GATEWAY_REF=tw-xconnect.svc.plus \
+XCONNECT_MIGRATION=true \
 DRY_RUN=true \
 bash "${dispatcher}" >"${dry_run}"
 
@@ -128,6 +129,7 @@ on = doc.get("on", doc.get(True))
 inputs = on["workflow_dispatch"]["inputs"]
 assert inputs["target_domains"]["default"] == "all"
 assert set(inputs["operation"]["options"]) >= {"plan", "apply", "deploy", "destroy"}
+assert inputs["xconnect_migration"]["default"] is False
 assert "CHILD_REF: ${{ inputs.source_ref || 'main' }}" in open(sys.argv[1], encoding="utf-8").read()
 assert "resource_orchestration" in doc["jobs"]
 assert "platform-ops_dispatch-hybrid-uat-matrix.sh" in open(sys.argv[1], encoding="utf-8").read()

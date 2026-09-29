@@ -103,6 +103,11 @@ on:
         required: true
         default: tw-xconnect.svc.plus
         type: string
+      xconnect_migration:
+        description: 'Explicitly enroll the protected legacy observability One from the migration source record; keep false for normal UAT deploys'
+        required: true
+        default: false
+        type: boolean
 
 concurrency:
   group: hybrid-uat-${{ inputs.target_domains || 'all' }}-${{ inputs.operation || 'plan' }}
@@ -189,6 +194,7 @@ jobs:
           DEPLOY_TAG: ${{ inputs.deploy_tag }}
           VAULT_ADDR: ${{ inputs.vault_addr }}
           XCONNECT_GATEWAY_REF: ${{ inputs.xconnect_gateway_ref }}
+          XCONNECT_MIGRATION: ${{ inputs.xconnect_migration }}
         run: ./.github/scripts/platform-ops/provision/platform-ops_dispatch-hybrid-uat-matrix.sh
 
   # This remains a visible concurrency boundary for the existing public-state

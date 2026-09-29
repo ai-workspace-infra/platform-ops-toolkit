@@ -32,6 +32,8 @@ grep -Fq 'external_gateway_server_name:$gateway_ref' "${dispatch_script}"
 grep -Fq 'gateway_vault_key:$gateway_ref' "${dispatch_script}"
 grep -Fq 'matrix_node_filter:"all"' "${dispatch_script}"
 grep -Fq 'gh run watch "${run_id}"' "${dispatch_script}"
+grep -Fq 'XCONNECT_MIGRATION' "${dispatch_script}"
+grep -Fq 'XConnect One migration gate disabled' "${dispatch_script}"
 
 if grep -Fq 'mode:"cleanup"' "${dispatch_script}"; then
   echo 'XConnect UAT aggregate adapter must never dispatch cleanup' >&2
