@@ -158,6 +158,11 @@ assert inputs["xconnect_migration"]["default"] is False
 assert "CHILD_REF: ${{ inputs.source_ref || 'main' }}" in open(sys.argv[1], encoding="utf-8").read()
 assert "resource_orchestration" in doc["jobs"]
 assert "platform-ops_dispatch-hybrid-uat-matrix.sh" in open(sys.argv[1], encoding="utf-8").read()
+selfhost = yaml.safe_load(open(".github/workflows/selfhost-orchestrator.yml", encoding="utf-8"))
+steps = selfhost["jobs"]["provision"]["steps"]
+adopt = next(step for step in steps if step["name"] == "Adopt existing UAT external IP policy into open-platform state")
+assert "terraform_namespace == 'open-platform'" in adopt["if"]
+assert 'google_org_policy_policy.vm_external_ip_access' in adopt["run"]
 PY
 
 echo "hybrid_uat_matrix_contract_test: PASS"

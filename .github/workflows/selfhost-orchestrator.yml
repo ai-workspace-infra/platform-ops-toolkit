@@ -629,6 +629,31 @@ jobs:
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_terraform-init.sh
 
+    - name: Adopt existing UAT external IP policy into open-platform state
+      if: >-
+        ${{ steps.route.outputs.run_infrastructure == 'true' &&
+        steps.route.outputs.terraform_action == 'apply' &&
+        steps.route.outputs.deployment_env == 'uat' &&
+        steps.route.outputs.cloud_provider == 'gcp-cloud' &&
+        steps.route.outputs.terraform_namespace == 'open-platform' }}
+      env:
+        PROJECT_ID: open-platform-uat
+      run: |
+        set -euo pipefail
+        address='google_org_policy_policy.vm_external_ip_access'
+        state_entries="$(terraform -chdir='${{ steps.route.outputs.env_dir }}' state list 2>&1)" || {
+          [[ "${state_entries}" == *'No state file was found!'* ]] || { printf '%s\n' "${state_entries}" >&2; exit 1; }
+          state_entries=''
+        }
+        if grep -Fqx -- "${address}" <<<"${state_entries}"; then
+          echo 'UAT external IP policy is already present in open-platform state.'
+          exit 0
+        fi
+        project_number="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
+        [[ "${project_number}" =~ ^[0-9]+$ ]] || { echo 'Could not resolve UAT project number' >&2; exit 1; }
+        terraform -chdir='${{ steps.route.outputs.env_dir }}' import -input=false -no-color \
+          "${address}" "projects/${project_number}/policies/compute.vmExternalIpAccess"
+
     # 必须排在 plan/apply/destroy 之前: terraform 的第一件事是 refresh, 而
     # state 里一个指向已删实例的 ID 会让 vultr provider 在 refresh 阶段硬失败,
     # 重跑也不会自愈。这一步把"有人手工 terraform state rm"变成流水线自己的
