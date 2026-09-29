@@ -138,7 +138,9 @@ grep -Fq 'uses: ./.github/workflows/gcp-iac-pipeline.yml' "${master_workflow}" |
 
 for required in \
   'method: jwt' \
-  'github-actions-platform-ops-toolkit-${{ inputs.environment }}-gcp-oidc-${{ inputs.account_id }}' \
+  'vault_role:' \
+  "format('github-actions-platform-ops-toolkit-{0}-gcp-oidc-{1}'" \
+  'load_state_contract:' \
   'kv/data/${{ inputs.credential_environment || inputs.environment }}/platform/oidc/${{ inputs.account_id }}' \
   'google-github-actions/auth@v2' \
   'Google STS'; do
@@ -147,6 +149,25 @@ for required in \
     exit 1
   }
 done
+
+shared_service_role="${vault_role_dir}/github-actions-platform-ops-toolkit-shared-gcp-service-open-platform-shared.json"
+shared_service_policy="${vault_policy_dir}/github-actions-platform-ops-toolkit-shared-gcp-service-open-platform-shared.hcl"
+for shared_file in "${shared_service_role}" "${shared_service_policy}"; do
+  test -f "${shared_file}" || { echo "missing shared GCP service role/policy declaration: ${shared_file}" >&2; exit 1; }
+done
+jq -e '
+  .role_name == "github-actions-platform-ops-toolkit-shared-gcp-service-open-platform-shared" and
+  .bound_claims.environment == "prod" and
+  .bound_claims.repository == "ai-workspace-infra/platform-ops-toolkit" and
+  .bound_claims.ref == "refs/heads/main" and
+  (.bound_claims.job_workflow_ref | contains("observability-server.yml")) and
+  .token_policies == ["github-actions-platform-ops-toolkit-shared-gcp-service-open-platform-shared"]
+' "${shared_service_role}" >/dev/null
+grep -Fq 'kv/data/shared/platform/oidc/open-platform-shared' "${shared_service_policy}"
+if grep -Eq 'kv/(data|metadata)/CICD|kv/(data|metadata)/uat|kv/(data|metadata)/prod' "${shared_service_policy}"; then
+  echo 'shared Observability service role must not read state, application, or environment secrets' >&2
+  exit 1
+fi
 
 for multi_cloud_workflow in "${landingzone_workflow}" "${account_workflow}" "${resources_workflow}"; do
   for required in 'gcp_account_id:' 'configure-gcp-oidc' "if: env.CLOUD_PROVIDER == 'gcp-cloud'"; do

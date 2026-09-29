@@ -42,6 +42,7 @@ names=(
   github-actions-platform-ops-toolkit-shared-gcp-oidc-open-platform-prod
   github-actions-platform-ops-toolkit-shared-gcp-bootstrap-open-platform-shared
   github-actions-platform-ops-toolkit-shared-gcp-oidc-open-platform-shared
+  github-actions-platform-ops-toolkit-shared-gcp-service-open-platform-shared
   github-actions-platform-ops-toolkit-shared-vault-node-oidc-open-platform-prod
   github-actions-platform-ops-toolkit-shared-vault-monitoring
   github-actions-platform-ops-toolkit-shared-vault-xconnect
@@ -64,6 +65,9 @@ for name in "${names[@]}"; do
   elif [[ "${name}" == *-gcp-oidc-* ]]; then
     workflow_claim=job_workflow_ref
     workflow_value="ai-workspace-infra/platform-ops-toolkit/.github/workflows/gcp-iac-pipeline.yml@*"
+  elif [[ "${name}" == *-gcp-service-* ]]; then
+    workflow_claim=job_workflow_ref
+    workflow_value="ai-workspace-infra/platform-ops-toolkit/.github/workflows/observability-server.yml@refs/heads/main"
   elif [[ "${name}" == *-shared-xconnect-network ]]; then
     workflow_claim=job_workflow_ref
     workflow_value="ai-workspace-infra/platform-ops-toolkit/.github/workflows/xconnect-zero-cloud.yaml@refs/heads/main"

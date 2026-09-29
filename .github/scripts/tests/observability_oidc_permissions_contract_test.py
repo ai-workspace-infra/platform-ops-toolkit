@@ -42,4 +42,24 @@ policy = (root / "scripts/vault/policies/github-actions-platform-ops-toolkit-uat
 assert 'path "kv/data/CICD"' in policy and 'capabilities = ["read"]' in policy
 assert "*" not in policy
 
+shared_job = workflow["jobs"]["deploy_shared_target"]
+assert shared_job["environment"] == "prod"
+assert shared_job["permissions"]["id-token"] == "write"
+assert "gcloud compute os-login ssh-keys add" in str(shared_job)
+assert "gcloud compute firewall-rules delete" in str(shared_job)
+assert "target_platform == 'shared-gcp'" in str(shared_job.get("if", ""))
+
+shared_role_path = root / "scripts/vault/roles/github-actions-platform-ops-toolkit-shared-gcp-service-open-platform-shared.json"
+shared_role = json.loads(shared_role_path.read_text())
+assert shared_role["bound_claims"] == {
+    "repository": "ai-workspace-infra/platform-ops-toolkit",
+    "environment": "prod",
+    "job_workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/observability-server.yml@refs/heads/main",
+    "ref": "refs/heads/main",
+}
+assert shared_role["token_policies"] == ["github-actions-platform-ops-toolkit-shared-gcp-service-open-platform-shared"]
+shared_policy = (root / "scripts/vault/policies/github-actions-platform-ops-toolkit-shared-gcp-service-open-platform-shared.hcl").read_text()
+assert 'kv/data/shared/platform/oidc/open-platform-shared' in shared_policy
+assert "CICD" not in shared_policy and "*" not in shared_policy
+
 print("observability_oidc_permissions_contract: PASS")
