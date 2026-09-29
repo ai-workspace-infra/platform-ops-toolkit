@@ -48,6 +48,7 @@ for required in \
   'oauth2.googleapis.com/revoke' \
   'kv/metadata/CICD/${ENVIRONMENT}/gcp-bootstrap/${ACCOUNT_ID}' \
   'Verify GCP project bootstrap permissions' \
+  'No state file was found!' \
   'testIamPermissions' \
   'iam.serviceAccounts.create' \
   'iam.serviceAccounts.setIamPolicy' \
