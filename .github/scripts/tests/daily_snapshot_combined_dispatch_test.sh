@@ -28,14 +28,16 @@ UAT_SERVERLESS_WAIT_INTERVAL_SECONDS=1 \
 bash "${dispatcher}"
 
 grep -Fq 'workflow run hybrid-orchestrator.yml' "${workdir}/gh.log"
-grep -Fq 'workflow run gcp-iac-pipeline.yml' "${workdir}/gh.log"
-grep -Fq -- '-f deploy_action=apply' "${workdir}/gh.log"
-grep -Fq -- '-f vault_env_path=shared' "${workdir}/gh.log"
-grep -Fq -- '-f gcp_account_id=open-platform-shared' "${workdir}/gh.log"
-grep -Fq -- '-f gcp_resource_manifest=resources/svc.plus/shared/gcp/open-platform-shared-vault.yaml' "${workdir}/gh.log"
-grep -Fq -- '-f gcp_resource_manifest=resources/svc.plus/shared/gcp/open-platform-shared-observability.yaml' "${workdir}/gh.log"
-grep -Fq -- '-f gcp_resource_manifest=resources/svc.plus/shared/gcp/open-platform-shared-iam.yaml' "${workdir}/gh.log"
+grep -Fq 'workflow run open-platform-orchestrator.yml' "${workdir}/gh.log"
+if grep -Fq 'workflow run gcp-iac-pipeline.yml' "${workdir}/gh.log"; then
+  echo 'Daily UAT snapshot must route shared infrastructure through open-platform-orchestrator.' >&2
+  exit 1
+fi
 grep -Fq -- '-f operation=deploy' "${workdir}/gh.log"
+grep -Fq -- '-f target_services=all' "${workdir}/gh.log"
+grep -Fq -- '-f gcp_account_id=open-platform-shared' "${workdir}/gh.log"
+grep -Fq -- '-f vault_service_stage=none' "${workdir}/gh.log"
+grep -Fq -- '-f observability_migration_mode=none' "${workdir}/gh.log"
 grep -Fq -- '-f target_domains=all' "${workdir}/gh.log"
 grep -Fq -- '-f deploy_tag=uat-daily-build-2026.09.28-r2' "${workdir}/gh.log"
 grep -Fq -- '-f source_ref=main' "${workdir}/gh.log"
