@@ -312,6 +312,50 @@ jobs:
           terraform -chdir="envs/${DEPLOY_ENV}" fmt -check
           terraform -chdir="envs/${DEPLOY_ENV}" validate -no-color
 
+      - name: Adopt privileged shared external IP policy
+        if: ${{ env.DEPLOY_ENV == 'shared' && env.DEPLOY_ACTION == 'apply' }}
+        working-directory: ${{ env.GCP_IAC_DIR }}
+        env:
+          PROJECT_ID: ${{ steps.config.outputs.project_id }}
+          RUNTIME_VARS: ${{ runner.temp }}/gcp-runtime.auto.tfvars.json
+        run: |
+          set -euo pipefail
+          tf_dir="envs/${DEPLOY_ENV}"
+          address='google_org_policy_policy.vm_external_ip_access'
+          # Only the Vault namespace owns the project policy. The other
+          # shared namespaces must not import or mutate it.
+          if ! rg -q 'resource "google_org_policy_policy" "vm_external_ip_access"' "${tf_dir}"; then
+            exit 0
+          fi
+          state_entries="$(terraform -chdir="${tf_dir}" state list 2>&1)" || {
+            [[ "${state_entries}" == *'No state file was found!'* ]] || {
+              printf '%s\n' "${state_entries}" >&2
+              exit 1
+            }
+            state_entries=''
+          }
+          if ! grep -Fqx -- "${address}" <<<"${state_entries}"; then
+            echo "Adopting pre-seeded project external IP policy into shared Vault state."
+            if ! terraform -chdir="${tf_dir}" import -input=false -no-color \
+              -var-file="${RUNTIME_VARS}" "${address}" \
+              "projects/${PROJECT_ID}/policies/compute.vmExternalIpAccess"; then
+              echo '::error::The shared external IP allowlist must be created by an organization policy administrator before the runtime Terraform apply. Check GitOps and rerun the privileged policy bootstrap.' >&2
+              exit 1
+            fi
+          fi
+          # The day-to-day WIF identity cannot change Org Policy. Fail fast
+          # when the admin-seeded policy differs from the GitOps declaration.
+          if terraform -chdir="${tf_dir}" plan -input=false -no-color -detailed-exitcode \
+            -target="${address}" -var-file="${RUNTIME_VARS}" >/dev/null; then
+            echo 'Shared external IP policy matches GitOps.'
+          else
+            rc=$?
+            if [[ "${rc}" -eq 2 ]]; then
+              echo '::error::Shared external IP policy differs from GitOps. Reconcile it with the privileged policy bootstrap before runtime apply.' >&2
+            fi
+            exit "${rc}"
+          fi
+
       - name: Adopt existing GCP platform resources into target state
         if: ${{ env.DEPLOY_ACTION == 'apply' && env.ADOPT_EXISTING_PLATFORM_RESOURCES == 'true' }}
         working-directory: ${{ env.GCP_IAC_DIR }}
