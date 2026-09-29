@@ -113,9 +113,10 @@ This initializes `kv/CICD/shared/gcp-bootstrap/open-platform-prod` with
 project/account mapping and disables the `--auth-json` long-lived-key option.
 KV v2 does not expire a value when the OAuth token's TTL expires. Therefore,
 write the token shortly before running bootstrap `apply`. After an `apply`,
-the workflow attempts to revoke it, deletes previous KV versions, and retains
+the workflow lets the short-lived token expire, deletes previous KV versions, and retains
 only `GCP_PROJECT_ID`. If automatic cleanup fails, use the helper's
-`GCP_BOOTSTRAP_ACTION=revoke` mode from an authorized local admin session.
+`GCP_BOOTSTRAP_ACTION=revoke` mode from an authorized local admin session; in
+token mode this destroys Vault copies without revoking the operator's ADC grant.
 
 ## 4. Run the GitHub Actions bootstrap
 
