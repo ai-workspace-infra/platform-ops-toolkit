@@ -50,12 +50,42 @@ on:
         required: true
         default: none
         options: [none, node-preflight, node-process-metrics, vault-raft-verify, vault-service-verify, migrate-auto]
+      vault_confirm:
+        description: "Explicit confirmation passed to the selected Vault service stage"
+        type: string
+        required: false
+        default: ""
       observability_migration_mode:
         description: "Observability historical migration mode; none for ordinary deploy/upgrade"
         type: choice
         required: true
         default: none
         options: [none, baseline, final]
+      observability_source_ip:
+        description: "Retired Observability source IPv4; required for explicit history migration"
+        type: string
+        required: false
+        default: ""
+      observability_target_ip_override:
+        description: "Existing Observability target IPv4; set only when migration should skip target deployment"
+        type: string
+        required: false
+        default: ""
+      observability_confirm_source_writers_paused:
+        description: "Confirm source writers are paused before a final Observability sync"
+        type: boolean
+        required: true
+        default: false
+      observability_confirm_target_historical_queries:
+        description: "Confirm historical Observability queries match after baseline restore"
+        type: boolean
+        required: true
+        default: false
+      observability_confirm_history_omission:
+        description: "Accept omission of historical Observability data when no migration is selected"
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   actions: write
@@ -81,6 +111,7 @@ jobs:
           DEPLOY_TAG: ${{ inputs.deploy_tag }}
           VAULT_STAGE: ${{ inputs.vault_service_stage }}
           OBS_MIGRATION: ${{ inputs.observability_migration_mode }}
+          OBS_SOURCE_IP: ${{ inputs.observability_source_ip }}
           ACCOUNT: ${{ inputs.gcp_account_id }}
         run: |
           set -euo pipefail
@@ -88,6 +119,9 @@ jobs:
           [[ "${OPERATION}" != destroy ]] || { echo 'shared open-platform never supports destroy' >&2; exit 1; }
           if [[ "${OPERATION}" == deploy || "${OPERATION}" == upgrade ]]; then
             [[ "${DEPLOY_TAG}" =~ ^(uat-)?daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?$ ]] || { echo 'deploy/upgrade requires an immutable daily-build tag' >&2; exit 1; }
+          elif [[ "${OPERATION}" == migrate && "${OBS_MIGRATION}" != none ]]; then
+            [[ "${DEPLOY_TAG}" =~ ^(uat-)?daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?$ ]] || { echo 'observability migration requires an immutable target daily-build tag' >&2; exit 1; }
+            [[ "${OBS_SOURCE_IP}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || { echo 'observability migration requires an explicit source IPv4' >&2; exit 1; }
           else
             [[ -z "${DEPLOY_TAG}" ]] || { echo 'deploy_tag is only valid for deploy or upgrade' >&2; exit 1; }
           fi
@@ -146,42 +180,66 @@ jobs:
   services:
     name: Delegate shared service stage
     needs: [contract, vault-iac, observability-iac, iam-iac]
-    if: ${{ always() && needs.contract.result == 'success' && inputs.operation != 'plan' && (needs.vault-iac.result == 'success' || needs.vault-iac.result == 'skipped') && (needs.observability-iac.result == 'success' || needs.observability-iac.result == 'skipped') && (needs.iam-iac.result == 'success' || needs.iam-iac.result == 'skipped') && (inputs.target_services == 'all' || inputs.target_services == 'vault' || inputs.target_services == 'observability') }}
+    if: ${{ always() && needs.contract.result == 'success' && (inputs.operation == 'deploy' || inputs.operation == 'upgrade' || inputs.operation == 'migrate') && (needs.vault-iac.result == 'success' || needs.vault-iac.result == 'skipped') && (needs.observability-iac.result == 'success' || needs.observability-iac.result == 'skipped') && (needs.iam-iac.result == 'success' || needs.iam-iac.result == 'skipped') && (inputs.target_services == 'all' || inputs.target_services == 'vault' || inputs.target_services == 'observability') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Dispatch Vault service workflow when selected
-        if: ${{ inputs.target_services == 'all' || inputs.target_services == 'vault' }}
+      - name: Dispatch and wait for shared service workflows
         env:
           GH_TOKEN: ${{ github.token }}
           VAULT_STAGE: ${{ inputs.vault_service_stage }}
+          VAULT_CONFIRM: ${{ inputs.vault_confirm }}
           OPERATION: ${{ inputs.operation }}
           GITOPS_REF: ${{ inputs.gitops_repo_ref }}
           IAC_REF: ${{ inputs.iac_ref }}
           PLAYBOOKS_REF: ${{ inputs.playbooks_ref }}
-        run: |
-          set -euo pipefail
-          stage="${VAULT_STAGE}"
-          if [[ "${OPERATION}" != migrate && "${stage}" == none ]]; then stage=node-preflight; fi
-          [[ "${stage}" != none ]] || exit 0
-          gh workflow run vault-server.yml --repo "${GITHUB_REPOSITORY}" --ref main \
-            -f cloud_provider=gcp-cloud -f deploy_action=none -f "service_stage=${stage}" \
-            -f gitops_repo_ref="${GITOPS_REF}" -f iac_ref="${IAC_REF}" -f playbooks_ref="${PLAYBOOKS_REF}"
-      - name: Dispatch Observability service workflow when selected
-        if: ${{ inputs.target_services == 'all' || inputs.target_services == 'observability' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          OPERATION: ${{ inputs.operation }}
           DEPLOY_TAG: ${{ inputs.deploy_tag }}
-          GITOPS_REF: ${{ inputs.gitops_repo_ref }}
-          MIGRATION_MODE: ${{ inputs.observability_migration_mode }}
+          OBS_MIGRATION: ${{ inputs.observability_migration_mode }}
+          OBS_SOURCE_IP: ${{ inputs.observability_source_ip }}
+          OBS_TARGET_IP: ${{ inputs.observability_target_ip_override }}
+          OBS_WRITERS_PAUSED: ${{ inputs.observability_confirm_source_writers_paused }}
+          OBS_HISTORY_VERIFIED: ${{ inputs.observability_confirm_target_historical_queries }}
+          OBS_HISTORY_OMITTED: ${{ inputs.observability_confirm_history_omission }}
+          TARGET_SERVICES: ${{ inputs.target_services }}
         run: |
           set -euo pipefail
-          action=deploy
-          [[ "${OPERATION}" == migrate ]] && action=skip
-          gh workflow run observability-server.yml --repo "${GITHUB_REPOSITORY}" --ref main \
-            -f deploy_env=uat -f "deployment_action=${action}" -f "deploy_tag=${DEPLOY_TAG}" \
-            -f source_ref="${GITOPS_REF}" -f mcp_services=none \
-            -f migration_mode="${MIGRATION_MODE}" -f data_components=all -f confirm_source_writers_paused=false \
-            -f confirm_target_historical_queries=false -f confirm_history_omission=false \
-            -f dns_action=none -f confirm_dns_change=false -f verify_existing_target=false
+          dispatch_and_wait() {
+            local workflow="$1" label="$2" payload="$3" started run_id=""
+            started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/dispatches" --input - <<<"${payload}" >/dev/null
+            for _ in $(seq 1 60); do
+              run_id="$(gh run list --repo "${GITHUB_REPOSITORY}" --workflow "${workflow}" --event workflow_dispatch --limit 50 --json databaseId,createdAt,headBranch --jq "[.[] | select(.headBranch == \"main\" and .createdAt >= \"${started}\")] | sort_by(.createdAt) | last | .databaseId // empty")"
+              [[ -n "${run_id}" ]] && break
+              sleep 2
+            done
+            [[ -n "${run_id}" ]] || { echo "::error::Could not locate ${workflow} run for ${label}" >&2; exit 1; }
+            echo "${label}: dispatched ${workflow} run ${run_id}"
+            gh run watch "${run_id}" --repo "${GITHUB_REPOSITORY}" --interval 10 --exit-status --compact
+            echo "${label}: ${workflow} run ${run_id} succeeded"
+          }
+
+          if [[ "${TARGET_SERVICES}" == all || "${TARGET_SERVICES}" == vault ]]; then
+            stage="${VAULT_STAGE}"
+            if [[ "${OPERATION}" != migrate && "${stage}" == none ]]; then stage=node-preflight; fi
+            if [[ "${stage}" != none ]]; then
+              vault_payload="$(jq -n \
+                --arg ref main --arg stage "${stage}" --arg confirm "${VAULT_CONFIRM}" \
+                --arg gitops "${GITOPS_REF}" --arg iac "${IAC_REF}" --arg playbooks "${PLAYBOOKS_REF}" \
+                '{ref:$ref,inputs:{cloud_provider:"gcp-cloud",deploy_action:"none",service_stage:$stage,confirm:$confirm,gitops_repo_ref:$gitops,service_manifest:"resources/svc.plus/shared/vault/server.yaml",provider_manifest:"resources/xworktech.com/shared/gcp/vault-shared.yaml",iac_ref:$iac,playbooks_ref:$playbooks}}')"
+              dispatch_and_wait vault-server "Vault ${stage}" "${vault_payload}"
+            fi
+          fi
+
+          if [[ "${TARGET_SERVICES}" == all || "${TARGET_SERVICES}" == observability ]]; then
+            if [[ "${OPERATION}" != migrate || "${OBS_MIGRATION}" != none ]]; then
+              observability_action=deploy
+              [[ -n "${OBS_TARGET_IP}" ]] && observability_action=skip
+              observability_payload="$(jq -n \
+                --arg ref main --arg action "${observability_action}" --arg tag "${DEPLOY_TAG}" \
+                --arg source_ref "${GITOPS_REF}" --arg source_ip "${OBS_SOURCE_IP}" --arg target_ip "${OBS_TARGET_IP}" \
+                --arg migration "${OBS_MIGRATION}" --arg writers "${OBS_WRITERS_PAUSED}" \
+                --arg history "${OBS_HISTORY_VERIFIED}" --arg omitted "${OBS_HISTORY_OMITTED}" \
+                '{ref:$ref,inputs:{deploy_env:"uat",deployment_action:$action,instance_plan:"2C4G",deploy_tag:$tag,source_ref:$source_ref,mcp_services:"none",source_ip:$source_ip,target_ip_override:$target_ip,verify_existing_target:false,migration_mode:$migration,data_components:"all",confirm_source_writers_paused:($writers == "true"),confirm_target_historical_queries:($history == "true"),confirm_history_omission:($omitted == "true"),dns_action:"none",confirm_dns_change:false}}')"
+              dispatch_and_wait observability "Observability ${OBS_MIGRATION:-none}" "${observability_payload}"
+            fi
+          fi

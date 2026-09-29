@@ -101,6 +101,35 @@ if grep -Fq 'DRY-RUN open-platform' "${dry_run}"; then
   echo "UAT hybrid deploy must not reprovision shared open-platform resources" >&2
   exit 1
 fi
+
+for operation in plan apply destroy; do
+  non_deploy_output="$(
+    GH_TOKEN=dry-run \
+    GH_REPO=ai-workspace-infra/platform-ops-toolkit \
+    MATRIX_FILE="${matrix}" \
+    OPERATION="${operation}" \
+    CHILD_REF=main \
+    VAULT_ENV_PATH=uat \
+    TARGET_DOMAIN_BASE=onwalk.net \
+    OBSERVABILITY_ENDPOINT=https://observability.svc.plus \
+    AKAMAI_ACCOUNT=manbuzhe2026 \
+    AWS_ACCOUNT=081434641398 \
+    GCP_ACCOUNT=xworktech \
+    EXISTING_ACCOUNT=ucloud-ulighthost \
+    SOURCE_REF=main \
+    DEPLOY_TAG= \
+    VAULT_ADDR=https://vault.svc.plus \
+    XCONNECT_GATEWAY_REF=tw-xconnect.svc.plus \
+    XCONNECT_MIGRATION=false \
+    DRY_RUN=true \
+    bash "${dispatcher}"
+  )"
+  if grep -Fq 'DRY-RUN open-platform' <<<"${non_deploy_output}"; then
+    echo "Hybrid ${operation} must not touch shared open-platform resources" >&2
+    exit 1
+  fi
+done
+
 xc_line="$(line_for 'DRY-RUN XConnect Zero UAT (tw-xconnect.svc.plus)')"
 [[ -n "${xc_line}" ]] || {
   echo "hybrid deploy must dispatch the configurable XConnect gate" >&2

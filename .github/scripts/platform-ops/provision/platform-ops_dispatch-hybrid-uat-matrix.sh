@@ -198,8 +198,8 @@ skip_shared_service_release() {
   local row="$1" namespace scope
   namespace="$(jq -r '.namespace' <<<"${row}")"
   scope="$(jq -r '.release_scope // "business"' <<<"${row}")"
-  if [[ "${OPERATION}" == deploy && "${scope}" == shared-infrastructure ]]; then
-    echo "${namespace}: release_scope=${scope}; skipping routine UAT business release"
+  if [[ "${scope}" == shared-infrastructure ]]; then
+    echo "${namespace}: release_scope=${scope}; skipping Hybrid ${OPERATION}; managed by open-platform-orchestrator"
     return 0
   fi
   return 1
@@ -300,6 +300,9 @@ for row in "${rows[@]}"; do
   previous_order="${order}"
   namespace="$(jq -r '.namespace' <<<"${row}")"
   mode="$(jq -r '.management_mode' <<<"${row}")"
+  if skip_shared_service_release "${row}"; then
+    continue
+  fi
   provider="$(jq -r '.provider' <<<"${row}")"
   validate_matrix_provider "${provider}"
   account="$(account_for_row "${row}")"
