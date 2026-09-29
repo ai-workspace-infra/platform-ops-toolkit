@@ -18,9 +18,10 @@ public_key="$(ssh-keygen -y -f "${private_key}" 2>/dev/null)" || {
   exit 1
 }
 [[ -n "${public_key}" ]] || {
-  echo "::error::Could not derive an EC2 public key from the Vault deploy key." >&2
+  echo "::error::Could not derive a VM public key from the Vault deploy key." >&2
   exit 1
 }
 
 printf 'SSH_PUBLIC_DEPLOY_KEY=%s\n' "${public_key}" >> "${GITHUB_ENV}"
-echo "Derived the AWS EC2 public key from the Vault-managed deploy key."
+printf 'TF_VAR_ssh_public_key=%s\n' "${public_key}" >> "${GITHUB_ENV}"
+echo "Derived the VM public key from the Vault-managed deploy key."

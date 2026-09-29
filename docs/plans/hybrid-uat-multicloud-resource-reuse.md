@@ -1,5 +1,7 @@
 # UAT Hybrid 多云资源复用与串行部署计划
 
+> 更新（2026-09-29）：AI Workspace UAT 不再默认复用 `10.79.0.7`。最新的 GitOps Hybrid 矩阵声明 GCP Spot 4C8G 独立 Terraform namespace；本文件下文涉及该旧主机的段落仅保留历史背景，不可作为当前 dispatch 输入。运行时以 GitOps 矩阵及 `resources/svc.plus/uat/gcp/ai-workspace.yaml` 为准。
+
 状态：编排契约已实现，真实 apply/destroy、现有节点改规格、数据迁移和 DNS 切换仍需单独审批。
 
 关联任务：Epic [platform-ops-toolkit#838](https://github.com/ai-workspace-infra/platform-ops-toolkit/issues/838)、基础设施阶段 [#845](https://github.com/ai-workspace-infra/platform-ops-toolkit/issues/845)、业务部署与迁移阶段 [#846](https://github.com/ai-workspace-infra/platform-ops-toolkit/issues/846)。本文是上述任务的 Hybrid 多云演进方案；若 issue 中的旧六 Akamai namespace 与本文八项混合矩阵冲突，以后续经审批的 GitOps profile 和对应变更 PR 为准，不静默覆盖历史 state。

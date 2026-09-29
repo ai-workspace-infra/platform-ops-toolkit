@@ -218,12 +218,6 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     echo "::error::UAT target_domains=all is reserved for hybrid-orchestrator.yml. Dispatch the Hybrid workflow so each namespace keeps its declared provider; direct Selfhost all is disabled." >&2
     exit 1
   fi
-  if [[ "${deployment_env}" == "uat" && "${target_domains}" == "ai-workspace" ]]; then
-    [[ "${cloud_provider}" == "gcp-cloud" && "${existing_target_host}" == "10.79.0.7" ]] || {
-      echo "::error::UAT ai-workspace is existing-selfhost only; use cloud_provider=gcp-cloud and existing_target_host=10.79.0.7. Terraform creation is disabled." >&2
-      exit 1
-    }
-  fi
   if [[ -n "${existing_target_host}" ]]; then
     [[ "${deployment_env}" == uat ]] || {
       echo "::error::existing_target_host is UAT-only; existing production nodes are not deploy targets for this workflow." >&2
@@ -234,7 +228,7 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
       exit 1
     }
     [[ "${cloud_provider}" == gcp-cloud ]] || {
-      echo "::error::The reused AI Workspace host must retain the gcp-cloud provider identity; it does not create GCP infrastructure." >&2
+      echo "::error::An explicit existing AI Workspace host requires the gcp-cloud provider identity." >&2
       exit 1
     }
     [[ "${existing_target_host}" != *$'\n'* && "${existing_target_host}" != *$'\r'* && "${existing_target_host}" != *[[:space:]]* ]] || {

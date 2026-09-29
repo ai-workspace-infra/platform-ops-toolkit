@@ -68,16 +68,11 @@ if run_route env INPUT_TARGET_DOMAINS=all INPUT_CLOUD_PROVIDER=akamai-cloud INPU
   exit 1
 fi
 
-if run_route env INPUT_TARGET_DOMAINS=ai-workspace INPUT_CLOUD_PROVIDER=akamai-cloud INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=deploy INPUT_DNS_MODE=none >/dev/null 2>&1; then
-  echo "UAT ai-workspace unexpectedly accepted Akamai Terraform creation" >&2
-  exit 1
-fi
-
-ai_existing_output="$(run_route env INPUT_TARGET_DOMAINS=ai-workspace INPUT_CLOUD_PROVIDER=gcp-cloud INPUT_CLOUD_ACCOUNT=xworktech INPUT_EXISTING_TARGET_HOST=10.79.0.7 INPUT_OPERATION=deploy INPUT_DNS_MODE=none)"
-assert_contains "${ai_existing_output}" "reuse_existing_host=true"
-assert_contains "${ai_existing_output}" "existing_target_host=10.79.0.7"
-assert_contains "${ai_existing_output}" "terraform_action=none"
-assert_contains "${ai_existing_output}" "state_key="
+ai_spot_output="$(run_route env INPUT_TARGET_DOMAINS=ai-workspace INPUT_CLOUD_PROVIDER=gcp-cloud INPUT_CLOUD_ACCOUNT=xworktech INPUT_EXISTING_TARGET_HOST= INPUT_OPERATION=deploy INPUT_DNS_MODE=none)"
+assert_contains "${ai_spot_output}" "reuse_existing_host=false"
+assert_contains "${ai_spot_output}" "existing_target_host="
+assert_contains "${ai_spot_output}" "terraform_action=apply"
+assert_contains "${ai_spot_output}" "resource_files_full=${repo_root}/gitops/resources/svc.plus/uat/gcp/ai-workspace.yaml"
 
 namespace_state_keys=()
 for namespace in web-saas open-platform agent-proxy-jp agent-proxy-us agent-proxy-sg; do
@@ -99,7 +94,7 @@ for namespace in web-saas open-platform agent-proxy-jp agent-proxy-us agent-prox
 done
 unique_state_key_count="$(printf '%s\n' "${namespace_state_keys[@]}" | sort -u | wc -l | tr -d ' ')"
 if [[ "${unique_state_key_count}" -ne 5 || "${#namespace_state_keys[@]}" -ne 5 ]]; then
-  echo "expected exactly five direct UAT Akamai namespace state keys; AI Workspace is existing-selfhost" >&2
+  echo "expected exactly five direct UAT Akamai namespace state keys; AI Workspace uses its GCP Spot state" >&2
   exit 1
 fi
 

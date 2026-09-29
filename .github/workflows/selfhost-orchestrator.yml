@@ -552,8 +552,8 @@ jobs:
         echo "TF_STATE_SECRET_KEY=${{ steps.vault.outputs.TF_STATE_SECRET_KEY }}" >> "$GITHUB_ENV"
         echo "TF_STATE_REGION=${{ steps.vault.outputs.TF_STATE_REGION }}"         >> "$GITHUB_ENV"
 
-    - name: Derive AWS EC2 public key from the Vault deploy key
-      if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'aws-cloud'
+    - name: Derive cloud VM public key from the Vault deploy key
+      if: steps.route.outputs.run_infrastructure == 'true' && contains(fromJSON('["aws-cloud","gcp-cloud"]'), steps.route.outputs.cloud_provider)
       env:
         SSH_PRIVATE_DEPLOY_KEY_B64: ${{ steps.vault.outputs.SSH_PRIVATE_DEPLOY_KEY_B64 }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_derive-ssh-public-key.sh

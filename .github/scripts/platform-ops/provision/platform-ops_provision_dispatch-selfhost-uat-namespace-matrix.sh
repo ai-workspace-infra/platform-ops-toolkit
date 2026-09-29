@@ -4,7 +4,7 @@ set -euo pipefail
 # Retained only as a compatibility guard. The old Akamai-only aggregate path
 # used to create AI Workspace and every Agent Proxy on Akamai. The supported
 # entry point is now hybrid-orchestrator.yml, whose matrix selects the actual
-# provider for each namespace and reuses AI Workspace as existing-selfhost.
+# provider for each namespace, including the GitOps-selected AI Workspace provider.
 
 : "${GH_TOKEN:?GH_TOKEN is required}"
 : "${GH_REPO:?GH_REPO is required}"
@@ -22,7 +22,7 @@ set -euo pipefail
 : "${SKIP_STRIPE_CATALOG:?SKIP_STRIPE_CATALOG is required}"
 : "${VAULT_ADDR:?VAULT_ADDR is required}"
 
-echo "::error::The legacy Akamai-only UAT namespace dispatcher is disabled. Use hybrid-orchestrator.yml with target_domains=all; it routes JP=AWS, US=GCP, SG=Akamai, and AI Workspace=existing-selfhost." >&2
+echo "::error::The legacy Akamai-only UAT namespace dispatcher is disabled. Use hybrid-orchestrator.yml with target_domains=all; providers and management modes come from the GitOps matrix." >&2
 exit 1
 
 RUNNER_TYPE="${RUNNER_TYPE:-ubuntu-latest}"
