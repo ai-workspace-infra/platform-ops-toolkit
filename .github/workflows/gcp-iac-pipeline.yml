@@ -324,7 +324,10 @@ jobs:
         run: |
           set -euo pipefail
           tf=(terraform -chdir="envs/${DEPLOY_ENV}")
-          state_has() { "${tf[@]}" state list | grep -Fxq "$1"; }
+          state_entries="$("${tf[@]}" state list)"
+          state_has() {
+            grep -Fqx -- "$1" <<<"${state_entries}"
+          }
           import_if_missing() {
             local address="$1" remote_id="$2"
             if state_has "${address}"; then
