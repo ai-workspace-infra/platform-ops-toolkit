@@ -324,7 +324,7 @@ jobs:
           address='google_org_policy_policy.vm_external_ip_access'
           # Only the Vault namespace owns the project policy. The other
           # shared namespaces must not import or mutate it.
-          if ! rg -q 'resource "google_org_policy_policy" "vm_external_ip_access"' "${tf_dir}"; then
+          if ! grep -Rqs -- 'resource "google_org_policy_policy" "vm_external_ip_access"' "${tf_dir}"; then
             exit 0
           fi
           state_entries="$(terraform -chdir="${tf_dir}" state list 2>&1)" || {
