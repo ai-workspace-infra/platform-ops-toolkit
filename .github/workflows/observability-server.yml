@@ -588,7 +588,8 @@ jobs:
           EXPECTED_PROJECT: ${{ steps.gcp_auth.outputs.project_id }}
         run: |
           set -euo pipefail
-          MANIFEST="${MANIFEST}" EXPECTED_PROJECT="${EXPECTED_PROJECT}" ruby <<'RUBY' >> "${GITHUB_OUTPUT}"
+          target_env="${RUNNER_TEMP}/observability-shared-target.env"
+          MANIFEST="${MANIFEST}" EXPECTED_PROJECT="${EXPECTED_PROJECT}" ruby <<'RUBY' > "${target_env}"
           require "yaml"
           manifest = ENV.fetch("MANIFEST")
           abort "unsafe GitOps manifest path" unless manifest.match?(%r{\Aresources/svc\.plus/shared/gcp/[a-z0-9-]+\.yaml\z})
@@ -606,8 +607,10 @@ jobs:
           puts "node_name=#{node.fetch("name")}"
           puts "node_zone=#{node.fetch("zone")}"
           RUBY
-          instance="$(gcloud compute instances describe "${{ steps.target.outputs.node_name }}" \
-            --project="${{ steps.target.outputs.project_id }}" --zone="${{ steps.target.outputs.node_zone }}" --format=json)"
+          source "${target_env}"
+          cat "${target_env}" >> "${GITHUB_OUTPUT}"
+          instance="$(gcloud compute instances describe "${node_name}" \
+            --project="${project_id}" --zone="${node_zone}" --format=json)"
           test "$(jq -r '.status // empty' <<<"${instance}")" = RUNNING || { echo '::error::Shared Observability VM is not RUNNING' >&2; exit 1; }
           ip="$(jq -r '[.networkInterfaces[]?.accessConfigs[]?.natIP // empty] | first // empty' <<<"${instance}")"
           python3 - "${ip}" <<'PY'

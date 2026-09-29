@@ -48,6 +48,14 @@ assert shared_job["permissions"]["id-token"] == "write"
 assert "gcloud compute os-login ssh-keys add" in str(shared_job)
 assert "gcloud compute firewall-rules delete" in str(shared_job)
 assert "target_platform == 'shared-gcp'" in str(shared_job.get("if", ""))
+target_resolver = next(
+    step for step in shared_job["steps"]
+    if step["name"] == "Resolve declared shared GCP node and public address"
+)
+assert 'source "${target_env}"' in target_resolver["run"]
+assert "${{ steps.target.outputs." not in target_resolver["run"], (
+    "a step cannot consume its own GITHUB_OUTPUT values before it completes"
+)
 
 shared_role_path = root / "scripts/vault/roles/github-actions-platform-ops-toolkit-shared-gcp-service-open-platform-shared.json"
 shared_role = json.loads(shared_role_path.read_text())
