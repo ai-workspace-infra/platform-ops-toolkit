@@ -140,7 +140,14 @@ dispatch_serverless() {
 # business nodes use their declared runtime/network integration instead.
 dispatch_xconnect_migration() {
   local payload
-  payload="$(jq -n --arg ref "${CHILD_REF}" --arg gateway_ref "${XCONNECT_GATEWAY_REF}" '{ref:$ref,inputs:{deployment_profile:"existing-one",mode:"apply",gateway_provider:"external",external_gateway_server_name:$gateway_ref,gateway_vault_key:$gateway_ref,matrix_node_filter:"all"}}')"
+  payload="$(jq -n \
+    --arg ref "${CHILD_REF}" \
+    --arg gateway_ref "${XCONNECT_GATEWAY_REF}" \
+    --arg network_id "${XCONNECT_NETWORK_ID}" \
+    --arg gateway_vault_key "${XCONNECT_GATEWAY_VAULT_KEY}" \
+    --arg one_vault_key "${XCONNECT_ONE_VAULT_KEY}" \
+    --arg gateway_id "${XCONNECT_GATEWAY_ID}" \
+    '{ref:$ref,inputs:{deployment_profile:"existing-one",mode:"apply",gateway_provider:"external",external_gateway_id:$gateway_id,external_network_id:$network_id,network_id:$network_id,external_gateway_server_name:$gateway_ref,gateway_vault_key:$gateway_vault_key,one_vault_key:$one_vault_key,matrix_node_filter:"all"}}')"
   dispatch_and_wait xconnect-zero-cloud.yaml "${payload}" "XConnect Zero UAT (${XCONNECT_GATEWAY_REF})"
 }
 
@@ -152,6 +159,24 @@ dispatch_existing() {
 
 mapfile -t rows < <(jq -c '(.spec.resources // .resources) | sort_by(.order)[]' "${MATRIX_FILE}")
 [[ "${#rows[@]}" -eq 8 ]] || { echo "::error::Hybrid matrix must contain exactly eight resources" >&2; exit 1; }
+
+# XConnect is a separate network contract, not a provider/account property of
+# any Terraform namespace. Keep its public identity in GitOps and its runtime
+# material in Vault. The fallback preserves compatibility with the existing
+# UAT declaration while the catalog is rolled out.
+XCONNECT_NETWORK_ID="$(jq -r '.spec.xconnect_network.id // "net_uat"' "${MATRIX_FILE}")"
+XCONNECT_GATEWAY_REF="$(jq -r '.spec.xconnect_network.gateway_ref // empty' "${MATRIX_FILE}")"
+XCONNECT_GATEWAY_VAULT_KEY="$(jq -r '.spec.xconnect_network.gateway_vault_key // "tw-xconnect.svc.plus"' "${MATRIX_FILE}")"
+XCONNECT_ONE_VAULT_KEY="$(jq -r '.spec.xconnect_network.one_vault_key // "observability.svc.plus"' "${MATRIX_FILE}")"
+XCONNECT_GATEWAY_ID="$(jq -r '.spec.xconnect_network.gateway_id // "gw-uat-tw-xconnect"' "${MATRIX_FILE}")"
+[[ "${XCONNECT_NETWORK_ID}" =~ ^net_[A-Za-z0-9][A-Za-z0-9_-]{1,62}$ ]] || {
+  echo "::error::GitOps XConnect network id is invalid: ${XCONNECT_NETWORK_ID}" >&2
+  exit 1
+}
+[[ "${XCONNECT_GATEWAY_REF}" =~ ^[A-Za-z0-9.-]+$ ]] || {
+  echo "::error::GitOps XConnect Gateway ref is invalid: ${XCONNECT_GATEWAY_REF}" >&2
+  exit 1
+}
 
 validate_release_scopes() {
   local row namespace scope

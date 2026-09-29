@@ -49,6 +49,10 @@ jq -e '
   .spec.resources[2].region == "xconnect-private" and
   .spec.resources[2].existing_host == "10.79.0.7" and
   .spec.resources[2].xconnect_required == true and
+  .spec.xconnect_network.id == "net_uat" and
+  .spec.xconnect_network.gateway_ref == "tw-xconnect.svc.plus" and
+  .spec.xconnect_network.gateway_vault_key == "tw-xconnect.svc.plus" and
+  .spec.xconnect_network.one_vault_key == "observability.svc.plus" and
   ([.spec.resources[] | select((.management_mode == "terraform" or .management_mode == "terraform+serverless") and .lifecycle == "ephemeral") | .namespace] ==
     ["web-saas","agent-proxy-jp","agent-proxy-us","agent-proxy-sg"]) and
   all(.spec.resources[]; (.management_mode == "existing" or (.state_project == "svc.plus")))
@@ -100,6 +104,10 @@ fi
 xc_line="$(line_for 'DRY-RUN XConnect Zero UAT (tw-xconnect.svc.plus)')"
 [[ -n "${xc_line}" ]] || {
   echo "hybrid deploy must dispatch the configurable XConnect gate" >&2
+  exit 1
+}
+grep -Eq '"network_id"[[:space:]]*:[[:space:]]*"net_uat"' "${dry_run}" || {
+  echo "hybrid deploy must pass the GitOps XConnect network identity" >&2
   exit 1
 }
 (( sg_line < xc_line && xc_line < web_line )) || {
