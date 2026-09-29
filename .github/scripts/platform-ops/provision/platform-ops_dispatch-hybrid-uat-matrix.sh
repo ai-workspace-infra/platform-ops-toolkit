@@ -216,6 +216,9 @@ if [[ "${OPERATION}" == deploy ]]; then
   for row in "${rows[@]}"; do
     namespace="$(jq -r '.namespace' <<<"${row}")"
     mode="$(jq -r '.management_mode' <<<"${row}")"
+    if skip_shared_service_release "${row}"; then
+      continue
+    fi
     [[ "${mode}" == terraform ]] || continue
     provider="$(jq -r '.provider' <<<"${row}")"
     validate_matrix_provider "${provider}"
@@ -248,6 +251,9 @@ if [[ "${OPERATION}" == deploy ]]; then
   for row in "${rows[@]}"; do
     namespace="$(jq -r '.namespace' <<<"${row}")"
     mode="$(jq -r '.management_mode' <<<"${row}")"
+    if skip_shared_service_release "${row}"; then
+      continue
+    fi
     provider="$(jq -r '.provider' <<<"${row}")"
     account="$(account_for_row "${row}")"
     profile="$(jq -r '.profile' <<<"${row}")"
