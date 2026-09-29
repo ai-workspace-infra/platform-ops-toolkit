@@ -4,11 +4,27 @@ on:
   workflow_dispatch:
     inputs:
       deploy_env:
-        description: "Environment contract: UAT Akamai/Compose or PROD Flux/Kubernetes"
+        description: "Environment contract: UAT or PROD. Select target_platform for the concrete UAT runtime."
         type: choice
         required: true
         default: uat
         options: [uat, prod]
+      target_platform:
+        description: "UAT runtime target. shared-gcp resolves the target solely from the reviewed shared GitOps declaration."
+        type: choice
+        required: true
+        default: legacy-akamai
+        options: [legacy-akamai, shared-gcp]
+      gcp_account_id:
+        description: "Concrete shared GCP account/project identity; used only when target_platform=shared-gcp."
+        type: string
+        required: false
+        default: open-platform-shared
+      gcp_resource_manifest:
+        description: "Reviewed GitOps GCPWorkloadNamespace path for the shared Observability VM."
+        type: string
+        required: false
+        default: resources/svc.plus/shared/gcp/open-platform-shared-observability.yaml
       deployment_action:
         description: "UAT target action; PROD only accepts plan or skip for declaration audit"
         type: choice
@@ -98,6 +114,7 @@ on:
 permissions:
   actions: write
   contents: read
+  id-token: write
 
 concurrency:
   group: observability-server-${{ inputs.deploy_env }}
@@ -117,6 +134,9 @@ jobs:
       target_domain_base: ${{ steps.environment.outputs.target_domain_base }}
       source_domain_base: ${{ steps.environment.outputs.source_domain_base }}
       source_host: ${{ steps.environment.outputs.source_host }}
+      target_platform: ${{ steps.environment.outputs.target_platform }}
+      gcp_account_id: ${{ steps.environment.outputs.gcp_account_id }}
+      gcp_resource_manifest: ${{ steps.environment.outputs.gcp_resource_manifest }}
       matrix: ${{ steps.plan.outputs.matrix }}
       mcp_matrix: ${{ steps.plan.outputs.mcp_matrix }}
       mcp_enabled: ${{ steps.plan.outputs.mcp_enabled }}
@@ -126,17 +146,39 @@ jobs:
         id: environment
         env:
           DEPLOY_ENV: ${{ inputs.deploy_env }}
+          TARGET_PLATFORM: ${{ inputs.target_platform }}
+          GCP_ACCOUNT_ID: ${{ inputs.gcp_account_id }}
+          GCP_RESOURCE_MANIFEST: ${{ inputs.gcp_resource_manifest }}
         run: |
           set -euo pipefail
+          [[ "${TARGET_PLATFORM}" == legacy-akamai || "${TARGET_PLATFORM}" == shared-gcp ]] || {
+            echo "Unsupported target_platform: ${TARGET_PLATFORM}" >&2; exit 1;
+          }
+          if [[ "${TARGET_PLATFORM}" == shared-gcp ]]; then
+            [[ "${DEPLOY_ENV}" == uat ]] || { echo 'shared-gcp is currently an UAT service runtime' >&2; exit 1; }
+            [[ "${GCP_ACCOUNT_ID}" == open-platform-shared ]] || { echo 'shared Observability must use the reviewed open-platform-shared account' >&2; exit 1; }
+            [[ "${GCP_RESOURCE_MANIFEST}" == resources/svc.plus/shared/gcp/open-platform-shared-observability.yaml ]] || {
+              echo 'shared Observability manifest must be the reviewed open-platform shared declaration' >&2; exit 1;
+            }
+            matrix='{"include":[{"name":"shared-gcp","runtime_model":"gcp-oslogin-compose","cloud_provider":"gcp-cloud","evidence":"gitops-declaration"}]}'
+            runtime_model='gcp-oslogin-compose'
+            cloud_provider='gcp-cloud'
+            cloud_account="${GCP_ACCOUNT_ID}"
+            target_domain_base='svc.plus'
+            source_domain_base='svc.plus'
+            source_host=''
+          fi
           case "${DEPLOY_ENV}" in
             uat)
-              matrix='{"include":[{"name":"uat","runtime_model":"akamai-compose","cloud_provider":"akamai-cloud","evidence":"observed-runtime"}]}'
-              runtime_model='akamai-compose'
-              cloud_provider='akamai-cloud'
-              cloud_account='manbuzhe2026'
-              target_domain_base='onwalk.net'
-              source_domain_base='svc.plus'
-              source_host='observability.svc.plus'
+              if [[ "${TARGET_PLATFORM}" == legacy-akamai ]]; then
+                matrix='{"include":[{"name":"uat","runtime_model":"akamai-compose","cloud_provider":"akamai-cloud","evidence":"observed-runtime"}]}'
+                runtime_model='akamai-compose'
+                cloud_provider='akamai-cloud'
+                cloud_account='manbuzhe2026'
+                target_domain_base='onwalk.net'
+                source_domain_base='svc.plus'
+                source_host='observability.svc.plus'
+              fi
               ;;
             prod)
               matrix='{"include":[{"name":"prod","runtime_model":"flux-kubernetes","cloud_provider":"kubernetes","evidence":"gitops-declaration"}]}'
@@ -157,10 +199,14 @@ jobs:
           echo "target_domain_base=${target_domain_base}" >> "${GITHUB_OUTPUT}"
           echo "source_domain_base=${source_domain_base}" >> "${GITHUB_OUTPUT}"
           echo "source_host=${source_host}" >> "${GITHUB_OUTPUT}"
+          echo "target_platform=${TARGET_PLATFORM}" >> "${GITHUB_OUTPUT}"
+          echo "gcp_account_id=${GCP_ACCOUNT_ID}" >> "${GITHUB_OUTPUT}"
+          echo "gcp_resource_manifest=${GCP_RESOURCE_MANIFEST}" >> "${GITHUB_OUTPUT}"
 
       - name: Validate run controls
         env:
           DEPLOY_ENV: ${{ inputs.deploy_env }}
+          TARGET_PLATFORM: ${{ inputs.target_platform }}
           DEPLOYMENT_ACTION: ${{ inputs.deployment_action }}
           DEPLOY_TAG: ${{ inputs.deploy_tag }}
           SOURCE_REF: ${{ inputs.source_ref }}
@@ -187,6 +233,14 @@ jobs:
             }
             [[ -z "${DEPLOY_TAG}" && -z "${SOURCE_IP}" && -z "${TARGET_IP}" ]] || {
               echo 'PROD declaration audit does not accept UAT deploy tags or host IPs' >&2; exit 1;
+            }
+          fi
+          if [[ "${TARGET_PLATFORM}" == shared-gcp ]]; then
+            [[ -z "${TARGET_IP}" && "${VERIFY_EXISTING_TARGET}" == false ]] || {
+              echo 'shared-gcp resolves its target from GitOps; do not pass target_ip_override or verify_existing_target' >&2; exit 1;
+            }
+            [[ "${MIGRATION_MODE}" == none && "${DNS_ACTION}" == none ]] || {
+              echo 'shared-gcp deployment does not migrate history or change DNS; use a dedicated reviewed migration/cutover workflow' >&2; exit 1;
             }
           fi
           [[ "${SOURCE_REF}" =~ ^[A-Za-z0-9._/-]+$ && "${SOURCE_REF}" != *..* ]] || {
@@ -324,7 +378,7 @@ jobs:
           path: gitops
 
       - name: Check UAT Akamai Compose source and live core
-        if: matrix.name == 'uat'
+        if: matrix.name == 'uat' && needs.validate.outputs.target_platform == 'legacy-akamai'
         run: |
           set -euo pipefail
           grep -Eq '^observability\.svc\.plus[[:space:]]+ansible_host=45\.79\.175\.119([[:space:]]|$)' playbooks/inventory.ini
@@ -342,6 +396,31 @@ jobs:
               --connect-timeout 5 --max-time 20 "https://observability.svc.plus/${path}/metrics" >/dev/null
           done
           printf '### UAT Observability resource evidence\n\n- Runtime: Akamai Compose\n- Inventory target: 45.79.175.119\n- Evidence: live HTTP health and Playbooks source\n' >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Check shared GCP Observability declaration
+        if: matrix.name == 'shared-gcp'
+        env:
+          MANIFEST: ${{ needs.validate.outputs.gcp_resource_manifest }}
+          ACCOUNT: ${{ needs.validate.outputs.gcp_account_id }}
+        run: |
+          set -euo pipefail
+          MANIFEST="${MANIFEST}" ACCOUNT="${ACCOUNT}" ruby <<'RUBY'
+          require "yaml"
+          manifest = ENV.fetch("MANIFEST")
+          abort "unsafe GitOps manifest path" unless manifest.match?(%r{\Aresources/svc\.plus/shared/gcp/[a-z0-9-]+\.yaml\z})
+          doc = YAML.load_file(File.join("gitops", manifest))
+          metadata, spec = doc.fetch("metadata"), doc.fetch("spec")
+          abort "wrong resource kind" unless doc.fetch("kind") == "GCPWorkloadNamespace"
+          abort "shared GCP declaration required" unless metadata.fetch("environment") == "shared" && metadata.fetch("provider") == "gcp"
+          abort "unexpected GCP account" unless spec.fetch("gcp_account_id") == ENV.fetch("ACCOUNT")
+          nodes = spec.fetch("resources").fetch("vault_nodes")
+          abort "exactly one Observability node is required" unless nodes.length == 1
+          node = nodes.fetch(0)
+          abort "shared Observability node name mismatch" unless node.fetch("name") == "observability-shared-0"
+          abort "shared Observability requires a public IP" unless node.fetch("public_ip") == true
+          abort "observability service domain missing" unless Array(node.fetch("service_domains")).include?("observability.svc.plus")
+          RUBY
+          printf '### Shared GCP Observability resource evidence\n\n- Runtime: GCP VM with OS Login\n- Target: GitOps `open-platform-shared-observability` declaration\n- DNS: unchanged by this service deployment\n' >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Check PROD Flux and Kubernetes declaration
         if: matrix.name == 'prod'
@@ -385,7 +464,7 @@ jobs:
   deploy_target:
     name: Deploy only the Observability service
     needs: [validate, audit_environment]
-    if: inputs.deploy_env == 'uat' && inputs.deployment_action != 'skip'
+    if: inputs.deploy_env == 'uat' && inputs.target_platform == 'legacy-akamai' && inputs.deployment_action != 'skip'
     runs-on: ubuntu-latest
     outputs:
       child_run_id: ${{ steps.dispatch.outputs.child_run_id }}
@@ -458,18 +537,181 @@ jobs:
           gh run watch "${run_id}" --repo "${GH_REPO}" --interval 15 --exit-status --compact
           echo "child_run_id=${run_id}" >> "${GITHUB_OUTPUT}"
 
+  deploy_shared_target:
+    name: Deploy shared GCP Observability service
+    needs: [validate, audit_environment]
+    if: inputs.deploy_env == 'uat' && inputs.target_platform == 'shared-gcp' && inputs.deployment_action == 'deploy'
+    runs-on: ubuntu-latest
+    environment: prod
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      target_ip: ${{ steps.target.outputs.ip }}
+    steps:
+      - name: Checkout GitOps declaration
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.source_ref }}
+          path: gitops
+
+      - name: Checkout reviewed Playbooks
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ inputs.source_ref }}
+          path: playbooks
+
+      - name: Authenticate to shared GCP with the service-only Vault role
+        id: gcp_auth
+        uses: ./.github/actions/configure-gcp-oidc
+        with:
+          environment: shared
+          credential_environment: shared
+          account_id: ${{ needs.validate.outputs.gcp_account_id }}
+          vault_role: github-actions-platform-ops-toolkit-shared-gcp-service-open-platform-shared
+          load_state_contract: 'false'
+
+      - name: Install Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Resolve declared shared GCP node and public address
+        id: target
+        env:
+          MANIFEST: ${{ needs.validate.outputs.gcp_resource_manifest }}
+          EXPECTED_PROJECT: ${{ steps.gcp_auth.outputs.project_id }}
+        run: |
+          set -euo pipefail
+          MANIFEST="${MANIFEST}" EXPECTED_PROJECT="${EXPECTED_PROJECT}" ruby <<'RUBY' >> "${GITHUB_OUTPUT}"
+          require "yaml"
+          manifest = ENV.fetch("MANIFEST")
+          abort "unsafe GitOps manifest path" unless manifest.match?(%r{\Aresources/svc\.plus/shared/gcp/[a-z0-9-]+\.yaml\z})
+          doc = YAML.load_file(File.join("gitops", manifest))
+          metadata, spec = doc.fetch("metadata"), doc.fetch("spec")
+          abort "shared GCP declaration required" unless metadata.fetch("environment") == "shared" && metadata.fetch("provider") == "gcp"
+          abort "Vault identity project does not match GitOps" unless spec.fetch("project_id") == ENV.fetch("EXPECTED_PROJECT")
+          nodes = spec.fetch("resources").fetch("vault_nodes")
+          abort "exactly one Observability node is required" unless nodes.length == 1
+          node = nodes.fetch(0)
+          abort "unexpected shared Observability node" unless node.fetch("name") == "observability-shared-0" && node.fetch("public_ip") == true
+          abort "observability.svc.plus is required" unless Array(node.fetch("service_domains")).include?("observability.svc.plus")
+          puts "project_id=#{spec.fetch("project_id")}"
+          puts "network_name=#{spec.fetch("network_name")}"
+          puts "node_name=#{node.fetch("name")}"
+          puts "node_zone=#{node.fetch("zone")}"
+          RUBY
+          instance="$(gcloud compute instances describe "${{ steps.target.outputs.node_name }}" \
+            --project="${{ steps.target.outputs.project_id }}" --zone="${{ steps.target.outputs.node_zone }}" --format=json)"
+          test "$(jq -r '.status // empty' <<<"${instance}")" = RUNNING || { echo '::error::Shared Observability VM is not RUNNING' >&2; exit 1; }
+          ip="$(jq -r '[.networkInterfaces[]?.accessConfigs[]?.natIP // empty] | first // empty' <<<"${instance}")"
+          python3 - "${ip}" <<'PY'
+          import ipaddress, sys
+          ipaddress.IPv4Address(sys.argv[1])
+          PY
+          echo "ip=${ip}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create time-limited OS Login access and deployment inventory
+        id: access
+        env:
+          PROJECT_ID: ${{ steps.target.outputs.project_id }}
+          NETWORK_NAME: ${{ steps.target.outputs.network_name }}
+          NODE_NAME: ${{ steps.target.outputs.node_name }}
+          TARGET_IP: ${{ steps.target.outputs.ip }}
+        run: |
+          set -euo pipefail
+          access_dir="${RUNNER_TEMP}/observability-shared-access"
+          install -d -m 700 "${access_dir}"
+          key_path="${access_dir}/id_ed25519"
+          ssh-keygen -q -t ed25519 -N '' -f "${key_path}"
+          gcloud compute os-login ssh-keys add --project="${PROJECT_ID}" --key-file="${key_path}.pub" --ttl=35m >/dev/null
+          profile="$(gcloud compute os-login describe-profile --project="${PROJECT_ID}" --format=json)"
+          ssh_user="$(jq -er '[.posixAccounts[]? | select(.operatingSystemType == "LINUX") | .username] | first' <<<"${profile}")"
+          [[ "${ssh_user}" =~ ^[a-z_][a-z0-9_-]{0,31}\$?$ ]] || { echo '::error::GCP OS Login returned an invalid Linux user' >&2; exit 1; }
+          runner_ip="$(curl --fail --silent --show-error --retry 3 --connect-timeout 5 https://api.ipify.org)"
+          python3 - "${runner_ip}" "${TARGET_IP}" <<'PY'
+          import ipaddress, sys
+          for value in sys.argv[1:]: ipaddress.IPv4Address(value)
+          PY
+          rule="obs-shared-ssh-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          gcloud compute firewall-rules create "${rule}" \
+            --project="${PROJECT_ID}" --network="${NETWORK_NAME}" \
+            --direction=INGRESS --priority=1000 --action=ALLOW --rules=tcp:22 \
+            --source-ranges="${runner_ip}/32" --target-tags=vault \
+            --description="Ephemeral Observability deployment access; run ${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}" --quiet
+          jq -n --arg host "${NODE_NAME}" --arg ip "${TARGET_IP}" --arg user "${ssh_user}" \
+            '{($host): {ip:$ip, ansible_user:$user, ansible_port:22, groups:["observability_hosts"]}}' > "${access_dir}/cmdb.json"
+          cat > "${access_dir}/inventory.ini" <<EOF
+          [observability_hosts]
+          ${NODE_NAME} ansible_host=${TARGET_IP} ansible_user=${ssh_user} ansible_port=22 ansible_ssh_private_key_file=${key_path}
+          EOF
+          echo "access_dir=${access_dir}" >> "${GITHUB_OUTPUT}"
+          echo "key_path=${key_path}" >> "${GITHUB_OUTPUT}"
+          echo "rule=${rule}" >> "${GITHUB_OUTPUT}"
+
+      - name: Wait for OS Login SSH and install Ansible controller dependencies
+        env:
+          ACCESS_DIR: ${{ steps.access.outputs.access_dir }}
+          NODE_NAME: ${{ steps.target.outputs.node_name }}
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --quiet ansible hvac
+          for _ in $(seq 1 60); do
+            if ansible -i "${ACCESS_DIR}/inventory.ini" "${NODE_NAME}" -m ping >/dev/null 2>&1; then exit 0; fi
+            sleep 3
+          done
+          echo '::error::Timed out waiting for GCP OS Login SSH access' >&2
+          exit 1
+
+      - name: Deploy Observability stack without DNS cutover
+        working-directory: playbooks
+        env:
+          ACCESS_DIR: ${{ steps.access.outputs.access_dir }}
+        run: |
+          set -euo pipefail
+          ansible-playbook -i "${ACCESS_DIR}/inventory.ini" deploy_observability_server.yml \
+            --limit observability_hosts \
+            -e observability_server_hosts=observability_hosts \
+            -e observability_mcp_enabled=false
+
+      - name: Verify local Observability service health
+        env:
+          ACCESS_DIR: ${{ steps.access.outputs.access_dir }}
+          NODE_NAME: ${{ steps.target.outputs.node_name }}
+        run: |
+          set -euo pipefail
+          ansible -i "${ACCESS_DIR}/inventory.ini" "${NODE_NAME}" -b -m uri \
+            -a 'url=http://127.0.0.1:3030/api/health return_content=true status_code=200' | grep -F '"database": "ok"'
+          printf '### Shared GCP Observability deployment\n\n- Node: `%s`\n- Public DNS: unchanged\n- SSH: temporary OS Login key and /32 firewall rule revoked after this job\n' "${NODE_NAME}" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Revoke temporary OS Login access and SSH firewall rule
+        if: ${{ always() && steps.access.outputs.access_dir != '' }}
+        env:
+          ACCESS_DIR: ${{ steps.access.outputs.access_dir }}
+          RULE: ${{ steps.access.outputs.rule }}
+          PROJECT_ID: ${{ steps.target.outputs.project_id }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${RULE}" ]] && gcloud compute firewall-rules describe "${RULE}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+            gcloud compute firewall-rules delete "${RULE}" --project="${PROJECT_ID}" --quiet
+          fi
+          if [[ -s "${ACCESS_DIR}/id_ed25519.pub" ]]; then
+            gcloud compute os-login ssh-keys remove --project="${PROJECT_ID}" --key-file="${ACCESS_DIR}/id_ed25519.pub" || true
+          fi
+          rm -rf -- "${ACCESS_DIR}"
+
   resolve_target:
     name: Resolve the single Observability target IP
-    needs: [validate, deploy_target]
+    needs: [validate, deploy_target, deploy_shared_target]
     if: >-
       ${{ always() && !cancelled() &&
       inputs.deploy_env == 'uat' &&
       needs.validate.result == 'success' &&
       (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover' || inputs.verify_existing_target || needs.validate.outputs.mcp_enabled == 'true') &&
-      (needs.deploy_target.result == 'success' || inputs.deployment_action == 'skip') }}
+      (needs.deploy_target.result == 'success' || needs.deploy_shared_target.result == 'success' || inputs.deployment_action == 'skip') }}
     runs-on: ubuntu-latest
     outputs:
-      target_ip: ${{ steps.deployed_target.outputs.ip || steps.target.outputs.ip }}
+      target_ip: ${{ steps.deployed_target.outputs.ip || steps.shared_target.outputs.ip || steps.target.outputs.ip }}
     steps:
       - name: Download target CMDB from the deployment run
         id: deployed_target
@@ -488,6 +730,19 @@ jobs:
           ipaddress.IPv4Address(sys.argv[1])
           PY
           echo "ip=${ip}" >> "${GITHUB_OUTPUT}"
+
+      - name: Use GitOps-resolved shared GCP target IP
+        id: shared_target
+        if: inputs.target_platform == 'shared-gcp' && inputs.deployment_action == 'deploy'
+        env:
+          TARGET_IP: ${{ needs.deploy_shared_target.outputs.target_ip }}
+        run: |
+          set -euo pipefail
+          python3 - "${TARGET_IP}" <<'PY'
+          import ipaddress, sys
+          ipaddress.IPv4Address(sys.argv[1])
+          PY
+          echo "ip=${TARGET_IP}" >> "${GITHUB_OUTPUT}"
 
       - name: Use explicitly supplied existing target IP
         id: target
@@ -603,13 +858,13 @@ jobs:
 
   verify_target:
     name: Verify target service and Git-managed dashboards
-    needs: [validate, deploy_target, resolve_target, historical_data, verify_stores]
+    needs: [validate, deploy_target, deploy_shared_target, resolve_target, historical_data, verify_stores]
     if: >-
       ${{ always() && !cancelled() &&
-      inputs.deploy_env == 'uat' &&
+      inputs.deploy_env == 'uat' && inputs.target_platform == 'legacy-akamai' &&
       needs.validate.result == 'success' &&
       (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover' || inputs.verify_existing_target || needs.validate.outputs.mcp_enabled == 'true') &&
-      (needs.deploy_target.result == 'success' || inputs.deployment_action == 'skip') &&
+      (needs.deploy_target.result == 'success' || needs.deploy_shared_target.result == 'success' || inputs.deployment_action == 'skip') &&
       needs.resolve_target.result == 'success' &&
       (needs.historical_data.result == 'success' || needs.historical_data.result == 'skipped') &&
       (needs.verify_stores.result == 'success' || needs.verify_stores.result == 'skipped') }}
@@ -657,13 +912,13 @@ jobs:
 
   verify_mcp_matrix:
     name: "Verify ${{ matrix.component }} MCP protocol and backend auth"
-    needs: [validate, deploy_target, resolve_target, historical_data, verify_stores, verify_target]
+    needs: [validate, deploy_target, deploy_shared_target, resolve_target, historical_data, verify_stores, verify_target]
     if: >-
       ${{ always() && !cancelled() &&
-      inputs.deploy_env == 'uat' &&
+      inputs.deploy_env == 'uat' && inputs.target_platform == 'legacy-akamai' &&
       needs.validate.result == 'success' &&
       (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover' || needs.validate.outputs.mcp_enabled == 'true') &&
-      (needs.deploy_target.result == 'success' || inputs.deployment_action == 'skip') &&
+      (needs.deploy_target.result == 'success' || needs.deploy_shared_target.result == 'success' || inputs.deployment_action == 'skip') &&
       needs.resolve_target.result == 'success' && needs.verify_target.result == 'success' &&
       (needs.validate.outputs.mcp_enabled == 'true') &&
       (needs.historical_data.result == 'success' || needs.historical_data.result == 'skipped') &&
