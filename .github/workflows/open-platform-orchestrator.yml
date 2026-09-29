@@ -205,8 +205,12 @@ jobs:
           set -euo pipefail
           dispatch_and_wait() {
             local workflow="$1" label="$2" payload="$3" started run_id=""
+            local workflow_id
             started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/dispatches" --input - <<<"${payload}" >/dev/null
+            workflow_id="$(gh workflow list --repo "${GITHUB_REPOSITORY}" --all --json id,path \
+              --jq ".[] | select(.path == \".github/workflows/${workflow}\") | .id" | head -n 1)"
+            [[ -n "${workflow_id}" ]] || { echo "::error::Could not resolve workflow id for ${workflow}" >&2; exit 1; }
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}/dispatches" --input - <<<"${payload}" >/dev/null
             for _ in $(seq 1 60); do
               run_id="$(gh run list --repo "${GITHUB_REPOSITORY}" --workflow "${workflow}" --event workflow_dispatch --limit 50 --json databaseId,createdAt,headBranch --jq "[.[] | select(.headBranch == \"main\" and .createdAt >= \"${started}\")] | sort_by(.createdAt) | last | .databaseId // empty")"
               [[ -n "${run_id}" ]] && break
