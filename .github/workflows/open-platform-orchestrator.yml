@@ -149,8 +149,8 @@ jobs:
 
   observability-iac:
     name: Terraform | shared Observability state
-    needs: [contract, vault-iac]
-    if: ${{ always() && needs.contract.result == 'success' && (inputs.target_services == 'all' || inputs.target_services == 'observability') && (needs.vault-iac.result == 'success' || needs.vault-iac.result == 'skipped') }}
+    needs: contract
+    if: ${{ inputs.target_services == 'all' || inputs.target_services == 'observability' }}
     uses: ./.github/workflows/gcp-iac-pipeline.yml
     with:
       deploy_action: ${{ needs.contract.outputs.terraform_action }}
@@ -164,8 +164,8 @@ jobs:
 
   iam-iac:
     name: Terraform | shared IAM state
-    needs: [contract, observability-iac]
-    if: ${{ always() && needs.contract.result == 'success' && (inputs.target_services == 'all' || inputs.target_services == 'iam') && (needs.observability-iac.result == 'success' || needs.observability-iac.result == 'skipped') }}
+    needs: contract
+    if: ${{ inputs.target_services == 'all' || inputs.target_services == 'iam' }}
     uses: ./.github/workflows/gcp-iac-pipeline.yml
     with:
       deploy_action: ${{ needs.contract.outputs.terraform_action }}
