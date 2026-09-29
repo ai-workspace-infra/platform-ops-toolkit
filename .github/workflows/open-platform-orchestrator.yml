@@ -230,7 +230,7 @@ jobs:
                 --arg ref main --arg stage "${stage}" --arg confirm "${VAULT_CONFIRM}" \
                 --arg gitops "${GITOPS_REF}" --arg iac "${IAC_REF}" --arg playbooks "${PLAYBOOKS_REF}" \
                 '{ref:$ref,inputs:{cloud_provider:"gcp-cloud",deploy_action:"none",service_stage:$stage,confirm:$confirm,gitops_repo_ref:$gitops,service_manifest:"resources/svc.plus/shared/vault/server.yaml",provider_manifest:"resources/xworktech.com/shared/gcp/vault-shared.yaml",iac_ref:$iac,playbooks_ref:$playbooks}}')"
-              dispatch_and_wait vault-server "Vault ${stage}" "${vault_payload}"
+              dispatch_and_wait vault-server.yml "Vault ${stage}" "${vault_payload}"
             fi
           fi
 
@@ -244,6 +244,6 @@ jobs:
                 --arg migration "${OBS_MIGRATION}" --arg writers "${OBS_WRITERS_PAUSED}" \
                 --arg history "${OBS_HISTORY_VERIFIED}" --arg omitted "${OBS_HISTORY_OMITTED}" \
                 '{ref:$ref,inputs:{deploy_env:"uat",deployment_action:$action,instance_plan:"2C4G",deploy_tag:$tag,source_ref:$source_ref,mcp_services:"none",source_ip:$source_ip,target_ip_override:$target_ip,verify_existing_target:false,migration_mode:$migration,data_components:"all",confirm_source_writers_paused:($writers == "true"),confirm_target_historical_queries:($history == "true"),confirm_history_omission:($omitted == "true"),dns_action:"none",confirm_dns_change:false}}')"
-              dispatch_and_wait observability "Observability ${OBS_MIGRATION:-none}" "${observability_payload}"
+              dispatch_and_wait observability-server.yml "Observability ${OBS_MIGRATION:-none}" "${observability_payload}"
             fi
           fi
