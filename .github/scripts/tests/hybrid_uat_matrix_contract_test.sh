@@ -49,6 +49,10 @@ jq -e '
   .spec.resources[2].region == "xconnect-private" and
   .spec.resources[2].existing_host == "10.79.0.7" and
   .spec.resources[2].xconnect_required == true and
+  .spec.xconnect_network.id == "net_uat" and
+  .spec.xconnect_network.gateway_ref == "tw-xconnect.svc.plus" and
+  .spec.xconnect_network.gateway_vault_key == "tw-xconnect.svc.plus" and
+  .spec.xconnect_network.one_vault_key == "observability.svc.plus" and
   ([.spec.resources[] | select((.management_mode == "terraform" or .management_mode == "terraform+serverless") and .lifecycle == "ephemeral") | .namespace] ==
     ["web-saas","agent-proxy-jp","agent-proxy-us","agent-proxy-sg"]) and
   all(.spec.resources[]; (.management_mode == "existing" or (.state_project == "svc.plus")))
@@ -90,17 +94,26 @@ open_line="$(line_for 'DRY-RUN open-platform (gcp-cloud, 2C4G')"
   exit 1
 }
 (( open_line < jp_line && jp_line < us_line && us_line < sg_line && sg_line < web_line && web_line < ai_line && ai_line < tw_line && tw_line < ph_line )) || {
-  echo "hybrid deploy must follow the GitOps matrix order without the migration-only XConnect gate" >&2
+  echo "hybrid deploy must follow the GitOps matrix order after the XConnect gate" >&2
   exit 1
 }
 if ! grep -Fq 'DRY-RUN open-platform' "${dry_run}"; then
   echo "UAT hybrid deploy must provision the permanent open-platform GCP resource" >&2
   exit 1
 fi
-if grep -Fq 'DRY-RUN XConnect Zero UAT' "${dry_run}"; then
-  echo "routine UAT hybrid deploy must not dispatch migration-only XConnect Existing One" >&2
+xc_line="$(line_for 'DRY-RUN XConnect Zero UAT (tw-xconnect.svc.plus)')"
+[[ -n "${xc_line}" ]] || {
+  echo "hybrid deploy must dispatch the configurable XConnect gate" >&2
   exit 1
-fi
+}
+grep -Eq '"network_id"[[:space:]]*:[[:space:]]*"net_uat"' "${dry_run}" || {
+  echo "hybrid deploy must pass the GitOps XConnect network identity" >&2
+  exit 1
+}
+(( sg_line < xc_line && xc_line < web_line )) || {
+  echo "XConnect gate must run after Terraform readiness and before applications" >&2
+  exit 1
+}
 grep -Fq 'existing_target_host": "10.79.0.7"' "${dry_run}" || {
   echo "hybrid deploy must pass the protected AI Workspace existing host" >&2
   exit 1
