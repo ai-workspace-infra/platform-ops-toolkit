@@ -204,6 +204,15 @@ if [[ "${OPERATION}" == deploy ]]; then
   done
   echo "::endgroup::"
 
+  # Existing-selfhost and external nodes are reachable only after the
+  # configurable UAT XConnect Gateway/One path has been reconciled. Keep this
+  # as an explicit gate between Terraform readiness and all application or
+  # existing-node Playbooks; otherwise ai-workspace (10.79.0.7) is attempted
+  # over the public runner network and fails before the matrix can proceed.
+  echo "::group::UAT hybrid deploy gate: XConnect Zero / existing One"
+  dispatch_xconnect_migration
+  echo "::endgroup::"
+
   echo "::group::UAT hybrid deploy phase 2: Applications and existing nodes"
   for row in "${rows[@]}"; do
     namespace="$(jq -r '.namespace' <<<"${row}")"

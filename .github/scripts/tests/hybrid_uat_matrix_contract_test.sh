@@ -90,17 +90,22 @@ open_line="$(line_for 'DRY-RUN open-platform (gcp-cloud, 2C4G')"
   exit 1
 }
 (( open_line < jp_line && jp_line < us_line && us_line < sg_line && sg_line < web_line && web_line < ai_line && ai_line < tw_line && tw_line < ph_line )) || {
-  echo "hybrid deploy must follow the GitOps matrix order without the migration-only XConnect gate" >&2
+  echo "hybrid deploy must follow the GitOps matrix order after the XConnect gate" >&2
   exit 1
 }
 if ! grep -Fq 'DRY-RUN open-platform' "${dry_run}"; then
   echo "UAT hybrid deploy must provision the permanent open-platform GCP resource" >&2
   exit 1
 fi
-if grep -Fq 'DRY-RUN XConnect Zero UAT' "${dry_run}"; then
-  echo "routine UAT hybrid deploy must not dispatch migration-only XConnect Existing One" >&2
+xc_line="$(line_for 'DRY-RUN XConnect Zero UAT (tw-xconnect.svc.plus)')"
+[[ -n "${xc_line}" ]] || {
+  echo "hybrid deploy must dispatch the configurable XConnect gate" >&2
   exit 1
-fi
+}
+(( sg_line < xc_line && xc_line < web_line )) || {
+  echo "XConnect gate must run after Terraform readiness and before applications" >&2
+  exit 1
+}
 grep -Fq 'existing_target_host": "10.79.0.7"' "${dry_run}" || {
   echo "hybrid deploy must pass the protected AI Workspace existing host" >&2
   exit 1
