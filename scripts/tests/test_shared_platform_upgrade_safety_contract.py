@@ -182,5 +182,55 @@ class SpotVmRuntimeReconcileTests(unittest.TestCase):
         )
 
 
+
+class ZitadelUnbootstrappedRecoveryTests(unittest.TestCase):
+    """The ZITADEL database reset is explicit, confirmed and never upgrade-driven."""
+
+    TOKEN = "RESET-ZITADEL-DATABASE"
+
+    def setUp(self):
+        self.workflow = load("zitadel-server.yml")
+        on = self.workflow.get("on") or self.workflow[True]
+        self.inputs = on["workflow_dispatch"]["inputs"]
+        self.validate = next(
+            step["run"] for step in self.workflow["jobs"]["declaration"]["steps"]
+            if step.get("name") == "Validate one-time recovery request"
+        )
+
+    def validation(self, confirmation, stage="deploy", action="none", dns="none"):
+        env = dict(os.environ, RESET_CONFIRMATION=confirmation, SERVICE_STAGE=stage,
+                   DEPLOY_ACTION=action, DNS_ACTION=dns)
+        return subprocess.run(["bash", "-c", self.validate], env=env, capture_output=True, text=True).returncode
+
+    def test_input_is_optional_and_empty_by_default(self):
+        spec = self.inputs["reset_unbootstrapped_confirmation"]
+        self.assertEqual(spec["default"], "")
+        self.assertFalse(spec["required"])
+
+    def test_only_the_exact_token_with_a_plain_deploy_is_accepted(self):
+        self.assertEqual(self.validation(""), 0)
+        self.assertEqual(self.validation(self.TOKEN), 0)
+        self.assertNotEqual(self.validation("reset"), 0)
+        self.assertNotEqual(self.validation(self.TOKEN.lower()), 0)
+        self.assertNotEqual(self.validation(self.TOKEN, stage="verify"), 0)
+        self.assertNotEqual(self.validation(self.TOKEN, action="apply"), 0)
+        self.assertNotEqual(self.validation(self.TOKEN, dns="update"), 0)
+
+    def test_playbook_flag_is_set_only_for_the_exact_token(self):
+        script = (ROOT / ".github/scripts/service-deploy/zitadel.sh").read_text()
+        self.assertIn('== "RESET-ZITADEL-DATABASE":', script)
+        self.assertIn('extra["zitadel_reset_unbootstrapped_instance"] = True', script)
+        deploy = next(
+            step for step in self.workflow["jobs"]["service"]["steps"]
+            if step.get("name") == "Deploy or verify ZITADEL"
+        )
+        self.assertEqual(deploy["env"]["RESET_UNBOOTSTRAPPED_CONFIRMATION"],
+                         "${{ inputs.reset_unbootstrapped_confirmation }}")
+
+    def test_orchestrator_never_requests_the_reset(self):
+        orchestrator = (WORKFLOWS / "open-platform-orchestrator.yml").read_text()
+        self.assertNotIn("reset_unbootstrapped_confirmation", orchestrator)
+        self.assertNotIn(self.TOKEN, orchestrator)
+
 if __name__ == "__main__":
     unittest.main()

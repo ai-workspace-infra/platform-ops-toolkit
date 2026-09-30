@@ -56,6 +56,11 @@ on:
         type: boolean
         required: true
         default: false
+      reset_unbootstrapped_confirmation:
+        description: 'One-time recovery only. Type RESET-ZITADEL-DATABASE to back up and rebuild the ZITADEL database when its first-instance bootstrap never wrote the Login client PAT (refused if the PAT exists).'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -99,6 +104,24 @@ jobs:
           DEPLOY_ACTION: ${{ inputs.deploy_action }}
           SERVICE_STAGE: ${{ inputs.service_stage }}
 
+      - name: Validate one-time recovery request
+        env:
+          RESET_CONFIRMATION: ${{ inputs.reset_unbootstrapped_confirmation }}
+          SERVICE_STAGE: ${{ inputs.service_stage }}
+          DEPLOY_ACTION: ${{ inputs.deploy_action }}
+          DNS_ACTION: ${{ inputs.dns_action }}
+        run: |
+          set -euo pipefail
+          [[ -z "${RESET_CONFIRMATION}" ]] && exit 0
+          [[ "${RESET_CONFIRMATION}" == RESET-ZITADEL-DATABASE ]] || {
+            echo 'reset_unbootstrapped_confirmation must be empty or exactly RESET-ZITADEL-DATABASE' >&2
+            exit 1
+          }
+          [[ "${SERVICE_STAGE}" == deploy && "${DEPLOY_ACTION}" == none && "${DNS_ACTION}" == none ]] || {
+            echo 'The ZITADEL database recovery runs only with service_stage=deploy, deploy_action=none and dns_action=none' >&2
+            exit 1
+          }
+          echo '::warning::One-time recovery requested: the ZITADEL database is backed up and rebuilt if the Login client PAT is missing.'
       - name: Validate DNS action
         env:
           DNS_ACTION: ${{ inputs.dns_action }}
@@ -306,3 +329,4 @@ jobs:
         run: bash .github/scripts/service-deploy/zitadel.sh
         env:
           AUTH_PROJECT_ID: ${{ steps.auth.outputs.project_id }}
+          RESET_UNBOOTSTRAPPED_CONFIRMATION: ${{ inputs.reset_unbootstrapped_confirmation }}
