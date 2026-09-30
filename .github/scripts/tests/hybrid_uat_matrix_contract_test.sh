@@ -118,7 +118,22 @@ PY
 bash -n "${dispatcher}"
 
 dry_run="$(mktemp)"
-trap 'rm -f "${dry_run}"' EXIT
+invalid_matrix="$(mktemp)"
+trap 'rm -f "${dry_run}" "${invalid_matrix}"' EXIT
+jq '.spec.resources[0].release_scope = "business"' "${matrix}" >"${invalid_matrix}"
+if GH_TOKEN=dry-run GH_REPO=ai-workspace-infra/platform-ops-toolkit \
+  MATRIX_FILE="${invalid_matrix}" OPERATION=deploy CHILD_REF=main \
+  VAULT_ENV_PATH=uat TARGET_DOMAIN_BASE=onwalk.net \
+  OBSERVABILITY_ENDPOINT=https://observability.svc.plus \
+  DRY_RUN=true DEPLOY_TAG=uat-daily-build-2026.09.28-r1 \
+  bash "${dispatcher}" >"${dry_run}" 2>&1; then
+  echo 'Hybrid accepted open-platform as a business release lane' >&2
+  exit 1
+fi
+grep -Fq 'open-platform is independently managed' "${dry_run}" || {
+  echo 'Hybrid did not reject the unsafe open-platform release scope' >&2
+  exit 1
+}
 GH_TOKEN=dry-run \
 GH_REPO=ai-workspace-infra/platform-ops-toolkit \
 MATRIX_FILE="${matrix}" \
@@ -145,15 +160,18 @@ us_line="$(line_for 'DRY-RUN agent-proxy-us (gcp-cloud, 2C2G')"
 sg_line="$(line_for 'DRY-RUN agent-proxy-sg (akamai-cloud, 2C2G')"
 web_line="$(line_for 'DRY-RUN web-saas serverless')"
 ai_line="$(line_for 'DRY-RUN ai-workspace (gcp-cloud, 4C8G')"
-open_platform_line="$(line_for 'DRY-RUN open-platform (gcp-cloud, 2C4G')"
 tw_line="$(line_for 'DRY-RUN agent-proxy-tw (existing inventory)')"
 ph_line="$(line_for 'DRY-RUN agent-proxy-ph (existing inventory)')"
-[[ -n "${open_platform_line}${jp_line}${us_line}${sg_line}${web_line}${ai_line}${tw_line}${ph_line}" ]] || {
-  echo "hybrid deploy dry-run is missing a required platform prerequisite or business lane" >&2
+[[ -n "${jp_line}${us_line}${sg_line}${web_line}${ai_line}${tw_line}${ph_line}" ]] || {
+  echo "hybrid deploy dry-run is missing a required business lane" >&2
   exit 1
 }
-(( open_platform_line < ai_line && ai_line < jp_line && jp_line < us_line && us_line < sg_line && sg_line < web_line && web_line < tw_line && tw_line < ph_line )) || {
-  echo "hybrid deploy must reconcile the UAT platform before business lanes" >&2
+if grep -Fq 'DRY-RUN open-platform' "${dry_run}"; then
+  echo "Hybrid deploy must not dispatch the shared-infrastructure open-platform row" >&2
+  exit 1
+fi
+(( ai_line < jp_line && jp_line < us_line && us_line < sg_line && sg_line < web_line && web_line < tw_line && tw_line < ph_line )) || {
+  echo "hybrid deploy must preserve the business-lane order" >&2
   exit 1
 }
 

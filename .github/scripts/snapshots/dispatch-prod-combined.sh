@@ -6,6 +6,8 @@ set -euo pipefail
 # the immutable control-plane release tag. This keeps the GitHub OIDC `ref`
 # claim inside Vault's narrow PROD role binding (`refs/tags/v*`) as well as
 # pinning every component to the release tag.
+# Publishing application code and cutting over canonical DNS are separate
+# approvals. A Daily promotion never implicitly changes production DNS.
 gh_token="${GH_TOKEN:?GH_TOKEN must be set}"
 release_tag="${RELEASE_TAG:?RELEASE_TAG must be set}"
 skip_stripe_catalog="${SKIP_STRIPE_CATALOG:-false}"
@@ -99,7 +101,7 @@ fi
 serverless_url="$(dispatch_and_assert_ref serverless-orchestrator.yml \
   -f "operation=${serverless_op}" -f target_domains=web-saas -f vault_env_path=prod \
   -f "tag_ref=${release_tag}" -f deploy_cloudflare=true -f deploy_cloud_run=true \
-  -f dns_mode=prod-cutover -f supabase_target_existing_strategy=reject \
+  -f dns_mode=none -f supabase_target_existing_strategy=reject \
   -f supabase_target_confirm_replace=false -f skip_stripe_catalog="${skip_stripe_catalog}" | tail -n 1)"
 serverless_id="${serverless_url##*/}"
 echo "Dispatched production serverless deployment: ${serverless_url}"
@@ -111,7 +113,7 @@ aws_selfhost_url="$(dispatch_and_assert_ref selfhost-orchestrator.yml \
   -f include_external_agent_proxy=false \
   -f "deploy_tag=${release_tag}" \
   -f source_host=install.svc.plus -f source_domain_base=svc.plus \
-  -f target_domain_base=svc.plus -f dns_mode=prod-cutover \
+  -f target_domain_base=svc.plus -f dns_mode=none \
   -f "skip_stripe_catalog=${skip_stripe_catalog}" \
   -f agent_controller_url=https://accounts-serverless-prod.svc.plus | tail -n 1)"
 echo "Dispatched production existing AWS Agent Proxy pool (on-demand only): ${aws_selfhost_url}"
@@ -122,7 +124,7 @@ akamai_selfhost_url="$(dispatch_and_assert_ref selfhost-orchestrator.yml \
   -f include_external_agent_proxy=true \
   -f "deploy_tag=${release_tag}" \
   -f source_host=install.svc.plus -f source_domain_base=svc.plus \
-  -f target_domain_base=svc.plus -f dns_mode=prod-cutover \
+  -f target_domain_base=svc.plus -f dns_mode=none \
   -f "skip_stripe_catalog=${skip_stripe_catalog}" \
   -f agent_controller_url=https://accounts-serverless-prod.svc.plus | tail -n 1)"
 echo "Dispatched production Akamai JP/US/SG plus Ulighthost PH Agent Proxy pool: ${akamai_selfhost_url}"

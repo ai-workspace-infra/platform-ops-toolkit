@@ -61,6 +61,10 @@ grep -Fq -- 'resolved to ref' "${prod_dispatcher}"
 # and never implicitly require the separate PROD accounts-migration contract.
 grep -Fq -- 'serverless_op="upgrade"' "${prod_dispatcher}"
 grep -Fq -- '-f "operation=${serverless_op}" -f target_domains=web-saas' "${prod_dispatcher}"
-grep -Fq -- '-f target_domain_base=svc.plus -f dns_mode=prod-cutover' "${prod_dispatcher}"
+grep -Fq -- '-f target_domain_base=svc.plus -f dns_mode=none' "${prod_dispatcher}"
+if grep -Fq -- 'dns_mode=prod-cutover' "${prod_dispatcher}"; then
+  echo 'Daily PROD promotion must not cut over canonical DNS without a separate approval' >&2
+  exit 1
+fi
 
 echo "daily_snapshot_prod_manifest_test: PASS"
