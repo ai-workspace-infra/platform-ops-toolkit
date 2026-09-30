@@ -233,8 +233,13 @@ steps = selfhost["jobs"]["provision"]["steps"]
 adopt = next(step for step in steps if step.get("name") == "Adopt existing UAT external IP policy into open-platform state")
 assert "terraform_namespace == 'open-platform'" in adopt["if"]
 assert 'google_org_policy_policy.vm_external_ip_access' in adopt["run"]
+assert 'module.open_platform_uat.google_compute_address.public[0]' in adopt["run"]
+assert 'module.open_platform_uat.google_service_account.runtime' in adopt["run"]
 assert " import -input=false" in adopt["run"]
 assert steps.index(adopt) < next(i for i, step in enumerate(steps) if step.get("name") == "Terraform Plan / Apply / Destroy")
+apply_script = open('.github/scripts/platform-ops/provision/platform-ops_provision_terraform-apply-destroy.sh', encoding='utf-8').read()
+assert 'ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY:-}' in apply_script
+assert 'index("delete")' in apply_script
 PY
 
 echo "hybrid_uat_matrix_contract_test: PASS"
