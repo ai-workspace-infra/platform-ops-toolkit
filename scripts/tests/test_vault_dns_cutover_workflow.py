@@ -43,6 +43,7 @@ class VaultDnsCutoverWorkflowTests(unittest.TestCase):
         source = "\n".join(step.get("run", "") for step in discovery["steps"])
         self.assertIn("service['storage']['leader']", source)
         self.assertIn("provider['resources']['vault_nodes']", source)
+        self.assertIn("open-platform-shared-510113", source)
         self.assertIn("gcloud compute instances list", source)
         self.assertIn("'vault-legacy'", source)
         matrix = self.jobs["dns-validate-targets"]["strategy"]["matrix"]

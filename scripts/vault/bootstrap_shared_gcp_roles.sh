@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Reconcile shared GCP bootstrap/runtime and Vault node service JWT roles.
+# Reconcile shared GCP bootstrap/runtime and Vault node service JWT roles for
+# both the source open-platform-prod project and target open-platform-shared.
 # Default is read-only --check; use --apply to write the declared roles/policies.
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -17,7 +18,7 @@ while (($#)); do
     --apply) mode=apply ;;
     -h|--help)
       printf 'Usage: %s [--check|--apply]\n' "$0"
-      printf 'Targets only shared open-platform-prod GCP and Vault node JWT roles and policies.\n'
+  printf 'Targets only the reviewed shared GCP and Vault node JWT roles and policies.\n'
       exit 0
       ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
@@ -44,6 +45,7 @@ names=(
   github-actions-platform-ops-toolkit-shared-gcp-oidc-open-platform-shared
   github-actions-platform-ops-toolkit-shared-gcp-service-open-platform-shared
   github-actions-platform-ops-toolkit-shared-vault-node-oidc-open-platform-prod
+  github-actions-platform-ops-toolkit-shared-vault-node-oidc-open-platform-shared
   github-actions-platform-ops-toolkit-shared-vault-monitoring
   github-actions-platform-ops-toolkit-shared-vault-xconnect
   github-actions-platform-ops-toolkit-shared-vault-legacy-ssh

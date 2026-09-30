@@ -216,6 +216,17 @@ class MigrationWiringTests(unittest.TestCase):
         self.assertIn("legacy_source.py merge", self.steps["Select the prepared adapters"]["run"])
         self.assertIn("always()", self.steps["Close access to the existing node"]["if"])
 
+    def test_cross_project_migration_opens_two_gcp_oslogin_adapters(self):
+        source = self.steps["Open access to the GCP migration source"]
+        self.assertEqual(source["uses"], "./.github/actions/node-access-gcp")
+        self.assertEqual(source["with"]["contract_mode"], "source")
+        self.assertIn("source_provider_config", source["with"]["provider_config"])
+        select = self.steps["Select the prepared adapters"]["run"]
+        self.assertIn("GCP_SOURCE_CONTRACT", select)
+        self.assertIn("SOURCE_PROVIDER", select)
+        close = self.steps["Close access to the GCP migration source"]
+        self.assertIn("source_provider == 'gcp-cloud'", close["if"])
+
     def test_scoped_tokens_and_encrypted_snapshot(self):
         login = self.steps["Log in with the stage's scoped Vault role"]
         self.assertEqual(login["with"]["method"], "jwt")

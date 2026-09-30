@@ -54,7 +54,7 @@ on:
         description: Provider-specific node and network declaration inside GitOps.
         type: string
         required: true
-        default: resources/xworktech.com/shared/gcp/vault-shared.yaml
+        default: resources/svc.plus/shared/gcp/open-platform-shared-vault.yaml
       iac_ref:
         description: Reviewed iac_modules commit containing the GCP Vault renderer and VM modules.
         type: string
@@ -101,6 +101,8 @@ jobs:
       provider_config: ${{ steps.declaration.outputs.provider_config }}
       migration: ${{ steps.declaration.outputs.migration }}
       legacy_config: ${{ steps.declaration.outputs.legacy_config }}
+      source_provider: ${{ steps.declaration.outputs.source_provider }}
+      source_provider_config: ${{ steps.declaration.outputs.source_provider_config }}
       raft_operator_role: ${{ steps.declaration.outputs.raft_operator_role }}
       snapshot_role: ${{ steps.declaration.outputs.snapshot_role }}
       backup_config: ${{ steps.declaration.outputs.backup_config }}
@@ -277,6 +279,7 @@ jobs:
         uses: ./.github/actions/node-access-gcp
         with:
           phase: open
+          contract_mode: target
           provider_config: ${{ needs.declaration.outputs.provider_config }}
           service_manifest: ${{ inputs.service_manifest }}
           provider_manifest: ${{ inputs.provider_manifest }}
@@ -287,12 +290,25 @@ jobs:
 
       - name: Open access to the existing vault.svc.plus node
         id: legacy
-        if: ${{ needs.declaration.outputs.open_legacy == 'true' }}
+        if: ${{ needs.declaration.outputs.open_legacy == 'true' && needs.declaration.outputs.source_provider != 'gcp-cloud' }}
         uses: ./.github/actions/node-access-existing
         with:
           phase: open
           legacy_config: ${{ needs.declaration.outputs.legacy_config }}
           service_manifest: ${{ inputs.service_manifest }}
+          ssh_key: ${{ runner.temp }}/node-access/id_ed25519
+
+      - name: Open access to the GCP migration source
+        id: gcp_source
+        if: ${{ needs.declaration.outputs.open_legacy == 'true' && needs.declaration.outputs.source_provider == 'gcp-cloud' }}
+        uses: ./.github/actions/node-access-gcp
+        with:
+          phase: open
+          contract_mode: source
+          source_config: ${{ needs.declaration.outputs.source_provider_config }}
+          provider_config: ${{ needs.declaration.outputs.source_provider_config }}
+          connection_mode: bootstrap-public
+          work_dir: ${{ runner.temp }}/node-access/gcp-source
           ssh_key: ${{ runner.temp }}/node-access/id_ed25519
 
       - name: Select the prepared adapters
@@ -302,10 +318,13 @@ jobs:
         env:
           GCP_CONTRACT: ${{ steps.gcp.outputs.contract }}
           GCP_ADAPTER: ${{ steps.gcp.outputs.auth_adapter }}
+          GCP_SOURCE_CONTRACT: ${{ steps.gcp_source.outputs.contract }}
+          GCP_SOURCE_ADAPTER: ${{ steps.gcp_source.outputs.auth_adapter }}
           LEGACY_CONTRACT: ${{ steps.legacy.outputs.contract }}
           LEGACY_ADAPTER: ${{ steps.legacy.outputs.auth_adapter }}
           OPEN_NEW: ${{ needs.declaration.outputs.open_new }}
           OPEN_LEGACY: ${{ needs.declaration.outputs.open_legacy }}
+          SOURCE_PROVIDER: ${{ needs.declaration.outputs.source_provider }}
         run: |
           set -euo pipefail
           contracts=()
@@ -315,8 +334,13 @@ jobs:
             contracts+=("${GCP_CONTRACT}"); adapters+=("${GCP_ADAPTER}")
           fi
           if [[ "${OPEN_LEGACY}" == true ]]; then
-            [[ -s "${LEGACY_CONTRACT}" ]] || { echo '::error::The existing node was not prepared' >&2; exit 1; }
-            contracts+=("${LEGACY_CONTRACT}"); adapters+=("${LEGACY_ADAPTER}")
+            if [[ "${SOURCE_PROVIDER}" == gcp-cloud ]]; then
+              [[ -s "${GCP_SOURCE_CONTRACT}" ]] || { echo '::error::The GCP migration source was not prepared' >&2; exit 1; }
+              contracts+=("${GCP_SOURCE_CONTRACT}"); adapters+=("${GCP_SOURCE_ADAPTER}")
+            else
+              [[ -s "${LEGACY_CONTRACT}" ]] || { echo '::error::The existing node was not prepared' >&2; exit 1; }
+              contracts+=("${LEGACY_CONTRACT}"); adapters+=("${LEGACY_ADAPTER}")
+            fi
           fi
           contract="${NODE_ACCESS_DIR}/nodes.json"
           python3 scripts/node_deploy/legacy_source.py merge "${contracts[@]}" --output "${contract}"
@@ -560,11 +584,22 @@ jobs:
             | tee -a "${GITHUB_STEP_SUMMARY}"
 
       - name: Close access to the existing node
-        if: ${{ always() && needs.declaration.outputs.open_legacy == 'true' }}
+        if: ${{ always() && needs.declaration.outputs.open_legacy == 'true' && needs.declaration.outputs.source_provider != 'gcp-cloud' }}
         uses: ./.github/actions/node-access-existing
         with:
           phase: close
           legacy_config: ${{ needs.declaration.outputs.legacy_config }}
+          ssh_key: ${{ runner.temp }}/node-access/id_ed25519
+
+      - name: Close access to the GCP migration source
+        if: ${{ always() && needs.declaration.outputs.open_legacy == 'true' && needs.declaration.outputs.source_provider == 'gcp-cloud' }}
+        uses: ./.github/actions/node-access-gcp
+        with:
+          phase: close
+          contract_mode: source
+          provider_config: ${{ needs.declaration.outputs.source_provider_config }}
+          connection_mode: bootstrap-public
+          work_dir: ${{ runner.temp }}/node-access/gcp-source
           ssh_key: ${{ runner.temp }}/node-access/id_ed25519
 
       - name: Close node access through the GCP adapter
@@ -572,6 +607,7 @@ jobs:
         uses: ./.github/actions/node-access-gcp
         with:
           phase: close
+          contract_mode: target
           provider_config: ${{ needs.declaration.outputs.provider_config }}
           connection_mode: bootstrap-public
           work_dir: ${{ runner.temp }}/node-access/gcp
@@ -585,7 +621,7 @@ jobs:
   cleanup-node-access:
     name: Ensure temporary node access is closed
     needs: [declaration, node-stage]
-    if: ${{ always() && needs.declaration.result == 'success' && needs.node-stage.result != 'skipped' && needs.declaration.outputs.open_new == 'true' && inputs.cloud_provider == 'gcp-cloud' }}
+    if: ${{ always() && needs.declaration.result == 'success' && needs.node-stage.result != 'skipped' && (needs.declaration.outputs.open_new == 'true' || needs.declaration.outputs.open_legacy == 'true') && inputs.cloud_provider == 'gcp-cloud' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: ${{ needs.declaration.outputs.github_environment }}
@@ -599,12 +635,25 @@ jobs:
           persist-credentials: false
 
       - name: Close node access through the GCP adapter
+        if: ${{ needs.declaration.outputs.open_new == 'true' }}
         uses: ./.github/actions/node-access-gcp
         with:
           phase: close
+          contract_mode: target
           provider_config: ${{ needs.declaration.outputs.provider_config }}
           connection_mode: bootstrap-public
           work_dir: ${{ runner.temp }}/node-access/gcp
+          ssh_key: ${{ runner.temp }}/node-access/id_ed25519
+
+      - name: Close GCP migration source access
+        if: ${{ needs.declaration.outputs.open_legacy == 'true' && needs.declaration.outputs.source_provider == 'gcp-cloud' }}
+        uses: ./.github/actions/node-access-gcp
+        with:
+          phase: close
+          contract_mode: source
+          provider_config: ${{ needs.declaration.outputs.source_provider_config }}
+          connection_mode: bootstrap-public
+          work_dir: ${{ runner.temp }}/node-access/gcp-source
           ssh_key: ${{ runner.temp }}/node-access/id_ed25519
 
   dns-discovery:
@@ -671,7 +720,7 @@ jobs:
               return yaml.safe_load(path.read_text(encoding='utf-8'))
           service = load(os.environ['SERVICE_MANIFEST'])['spec']
           provider = load(os.environ['PROVIDER_MANIFEST'])['spec']
-          if service['service_domain'] != 'vault.svc.plus' or provider['project_id'] != 'open-platform-prod':
+          if service['service_domain'] != 'vault.svc.plus' or provider['project_id'] != 'open-platform-shared-510113':
               raise SystemExit('Vault DNS declaration does not match the production domain or project')
           leader = service['storage']['leader']
           names = [leader, *service['storage']['peers']]
