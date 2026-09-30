@@ -9,6 +9,21 @@ WORKFLOW = ROOT / ".github/workflows/open-platform-orchestrator.yml"
 
 
 class OpenPlatformOrchestratorContractTests(unittest.TestCase):
+    def test_all_reconciles_shared_states_in_order_before_services(self):
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        jobs = document["jobs"]
+
+        self.assertEqual(jobs["vault-iac"]["needs"], "contract")
+        self.assertEqual(jobs["observability-iac"]["needs"], ["contract", "vault-iac"])
+        self.assertEqual(jobs["iam-iac"]["needs"], ["contract", "observability-iac"])
+        self.assertEqual(
+            jobs["services"]["needs"],
+            ["contract", "vault-iac", "observability-iac", "iam-iac"],
+        )
+
+        self.assertIn("needs.vault-iac.result == 'success'", jobs["observability-iac"]["if"])
+        self.assertIn("needs.observability-iac.result == 'success'", jobs["iam-iac"]["if"])
+
     def test_shared_vault_dispatch_uses_shared_target_manifest(self):
         document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         jobs = document["jobs"]

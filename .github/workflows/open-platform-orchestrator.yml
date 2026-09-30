@@ -149,8 +149,12 @@ jobs:
 
   observability-iac:
     name: Terraform | shared Observability state
-    needs: contract
-    if: ${{ inputs.target_services == 'all' || inputs.target_services == 'observability' }}
+    # Keep the three shared Terraform states independently addressable, while
+    # making the default `target_services=all` path deterministic: Vault first,
+    # then Observability, then IAM. A single-service rerun may still skip the
+    # preceding state.
+    needs: [contract, vault-iac]
+    if: ${{ always() && needs.contract.result == 'success' && (inputs.target_services == 'all' || inputs.target_services == 'observability') && (inputs.target_services != 'all' || needs.vault-iac.result == 'success') }}
     uses: ./.github/workflows/gcp-iac-pipeline.yml
     with:
       deploy_action: ${{ needs.contract.outputs.terraform_action }}
@@ -164,8 +168,8 @@ jobs:
 
   iam-iac:
     name: Terraform | shared IAM state
-    needs: contract
-    if: ${{ inputs.target_services == 'all' || inputs.target_services == 'iam' }}
+    needs: [contract, observability-iac]
+    if: ${{ always() && needs.contract.result == 'success' && (inputs.target_services == 'all' || inputs.target_services == 'iam') && (inputs.target_services != 'all' || needs.observability-iac.result == 'success') }}
     uses: ./.github/workflows/gcp-iac-pipeline.yml
     with:
       deploy_action: ${{ needs.contract.outputs.terraform_action }}

@@ -1,5 +1,7 @@
 # Daily Snapshot 手动执行版
 
+> 2026-09-30 规划更新：Daily 目标职责为只读检查 Vault → Observability → IAM 就绪后发布业务，不再触发 Shared 平台部署/升级。当前代码仍有差距，本文旧操作步骤不能作为新规则已经生效的证据；先阅读 [Shared / UAT / PROD 多云环境与发布链路规划](plans/shared-uat-prod-multicloud-environment-delivery.md)。
+
 `Daily Main Snapshot` 仅使用 GitHub App 认证。workflow 通过 GitHub OIDC 登录 Vault，读取 App 私钥并按目标组织生成 installation token。
 
 本手册也支持受控的 PROD 发布：从 `main` 启动 workflow，选择一个已验证的

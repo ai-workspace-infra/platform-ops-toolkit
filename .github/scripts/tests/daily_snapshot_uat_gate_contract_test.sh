@@ -36,6 +36,17 @@ fi
 grep -Fq 'xconnect_one_release_tag:' "${workflow}"
 grep -Fq 'xconnect_gateway_release_tag:' "${workflow}"
 grep -Fq 'SNAPSHOT_TAG' "${dispatcher}"
+grep -Fq 'promote_prod_after_uat:' "${workflow}"
+grep -Fq 'steps.dispatch_uat_hybrid.outcome == '\''success'\''' "${workflow}"
+grep -Fq 'promote-uat-snapshot-tag.sh' "${workflow}"
+grep -Fq 'Dispatch promoted PROD hybrid deployment' "${workflow}"
+grep -Fq 'Check Shared platform readiness (read-only)' "${workflow}"
+grep -Fq 'check-shared-readiness.sh' "${workflow}"
+grep -Fq "steps.shared_readiness.outcome == 'success'" "${workflow}"
+if grep -Fq 'shared_platform_action' "${workflow}" || grep -Fq 'SHARED_PLATFORM_ACTION' "${dispatcher}"; then
+  echo 'Daily Snapshot must not expose or dispatch Shared Terraform apply.' >&2
+  exit 1
+fi
 
 python3 - "${workflow}" <<'PY'
 from pathlib import Path
