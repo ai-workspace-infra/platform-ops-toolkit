@@ -129,10 +129,16 @@ jobs:
           sparse-checkout: |
             topology/uat/hybrid/runtime-topology.yaml
             topology/uat/hybrid/resource-matrix.json
+            resources/onwalk.net/uat/gcp/open-platform.yaml
+            resources/onwalk.net/uat/gcp/web-saas.yaml
+            resources/svc.plus/uat/gcp/ai-workspace.yaml
+            resources/svc.plus/uat/gcp/agent-proxy-us.yaml
             topology/uat/serverless/runtime-topology.yaml
       - name: Validate GitOps resource matrix contract
         env:
           GITOPS_MATRIX_FILE: ${{ github.workspace }}/gitops/topology/uat/hybrid/resource-matrix.json
+          GITOPS_OPEN_PLATFORM_FILE: ${{ github.workspace }}/gitops/resources/onwalk.net/uat/gcp/open-platform.yaml
+          GITOPS_RESOURCE_ROOTS: ${{ github.workspace }}/gitops/resources/onwalk.net/uat/gcp:${{ github.workspace }}/gitops/resources/svc.plus/uat/gcp
         run: ./.github/scripts/tests/hybrid_uat_matrix_contract_test.sh
       - name: Validate hybrid routing contract
         run: |

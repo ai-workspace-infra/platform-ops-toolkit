@@ -3,6 +3,8 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 matrix="${GITOPS_MATRIX_FILE:?GITOPS_MATRIX_FILE must point to the GitOps resource matrix}"
+open_platform="${GITOPS_OPEN_PLATFORM_FILE:?GITOPS_OPEN_PLATFORM_FILE must point to the UAT open-platform declaration}"
+resource_roots="${GITOPS_RESOURCE_ROOTS:?GITOPS_RESOURCE_ROOTS must contain the GitOps GCP workload declaration roots}"
 dispatcher="${repo_root}/.github/scripts/platform-ops/provision/platform-ops_dispatch-hybrid-uat-matrix.sh"
 workflow="${repo_root}/.github/workflows/hybrid-orchestrator.yml"
 
@@ -57,6 +59,62 @@ jq -e '
     ["web-saas","ai-workspace","agent-proxy-jp","agent-proxy-us","agent-proxy-sg"]) and
   all(.spec.resources[]; (.management_mode == "existing" or (.state_project == "svc.plus")))
 ' "${matrix}" >/dev/null
+
+MATRIX_FILE="${matrix}" OPEN_PLATFORM_FILE="${open_platform}" RESOURCE_ROOTS="${resource_roots}" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+import yaml
+
+matrix = json.loads(Path(os.environ["MATRIX_FILE"]).read_text(encoding="utf-8"))
+platform_path = Path(os.environ["OPEN_PLATFORM_FILE"])
+platform = yaml.safe_load(platform_path.read_text(encoding="utf-8")) or {}
+global_config = platform.get("global") or {}
+project_id = global_config.get("project_id")
+if project_id != "open-platform-uat":
+    raise SystemExit(f"UAT open-platform policy must target open-platform-uat, got {project_id!r}")
+
+allowlist = global_config.get("external_ip_allowed_instances")
+if not isinstance(allowlist, list) or not allowlist:
+    raise SystemExit("UAT open-platform must declare a non-empty external_ip_allowed_instances allowlist")
+allowlisted = set()
+for item in allowlist:
+    if not isinstance(item, dict) or not item.get("name") or not item.get("zone"):
+        raise SystemExit("UAT external_ip_allowed_instances entries must contain name and zone")
+    key = (item["name"], item["zone"])
+    if key in allowlisted:
+        raise SystemExit(f"duplicate UAT external-IP allowlist entry: {key[0]} in {key[1]}")
+    allowlisted.add(key)
+
+roots = [Path(value) for value in os.environ["RESOURCE_ROOTS"].split(":") if value]
+expected = []
+for row in matrix["spec"]["resources"]:
+    namespace = row["namespace"]
+    if namespace == "open-platform":
+        for node in global_config.get("vault_nodes", []):
+            if node.get("public_ip"):
+                expected.append((node["name"], node["zone"], namespace))
+        continue
+    if row.get("provider") != "gcp-cloud" or row.get("management_mode") not in {"terraform", "terraform+serverless"}:
+        continue
+    manifest_path = next((root / f"{namespace}.yaml" for root in roots if (root / f"{namespace}.yaml").is_file()), None)
+    if manifest_path is None:
+        raise SystemExit(f"missing GitOps GCP workload declaration for matrix namespace {namespace}")
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+    spec = manifest.get("spec") or {}
+    if spec.get("project_id") != project_id:
+        raise SystemExit(f"{namespace} does not target {project_id}: {spec.get('project_id')!r}")
+    for vm in (spec.get("resources") or {}).get("spot_vms", []):
+        if vm.get("public_ip"):
+            expected.append((vm["name"], vm["zone"], namespace))
+
+missing = [(name, zone, namespace) for name, zone, namespace in expected if (name, zone) not in allowlisted]
+if missing:
+    details = ", ".join(f"{name} in {zone} ({namespace})" for name, zone, namespace in missing)
+    raise SystemExit(f"UAT public-IP workload is absent from the open-platform policy allowlist: {details}")
+PY
+
 bash -n "${dispatcher}"
 
 dry_run="$(mktemp)"
@@ -145,7 +203,7 @@ if grep -Fq '10.79.0.7' "${dry_run}"; then
   exit 1
 fi
 
-python3 - "${workflow}" <<'PY'
+python3 - "${workflow}" "${dispatcher}" <<'PY'
 import sys
 import yaml
 
@@ -158,11 +216,25 @@ assert inputs["xconnect_migration"]["default"] is False
 assert "CHILD_REF: ${{ inputs.source_ref || 'main' }}" in open(sys.argv[1], encoding="utf-8").read()
 assert "resource_orchestration" in doc["jobs"]
 assert "platform-ops_dispatch-hybrid-uat-matrix.sh" in open(sys.argv[1], encoding="utf-8").read()
+resource_job = doc["jobs"]["resource_orchestration"]
+assert "needs.preflight.result == 'success'" in resource_job["if"]
+edge_job = doc["jobs"]["edge_gateway"]
+assert edge_job["needs"] == "resource_orchestration"
+assert "needs.resource_orchestration.result == 'success'" in edge_job["if"]
+verify_job = doc["jobs"]["verify"]
+assert "needs.resource_orchestration.result == 'success'" in verify_job["if"]
+assert "needs.edge_gateway.result == 'success'" in verify_job["if"]
+dispatcher_text = open(sys.argv[2], encoding="utf-8").read()
+assert 'gh run watch "${run_id}"' in dispatcher_text
+assert "--exit-status" in dispatcher_text
+assert 'gh run view "${run_id}"' in dispatcher_text
 selfhost = yaml.safe_load(open(".github/workflows/selfhost-orchestrator.yml", encoding="utf-8"))
 steps = selfhost["jobs"]["provision"]["steps"]
 adopt = next(step for step in steps if step.get("name") == "Adopt existing UAT external IP policy into open-platform state")
 assert "terraform_namespace == 'open-platform'" in adopt["if"]
 assert 'google_org_policy_policy.vm_external_ip_access' in adopt["run"]
+assert " import -input=false" in adopt["run"]
+assert steps.index(adopt) < next(i for i, step in enumerate(steps) if step.get("name") == "Terraform Plan / Apply / Destroy")
 PY
 
 echo "hybrid_uat_matrix_contract_test: PASS"
