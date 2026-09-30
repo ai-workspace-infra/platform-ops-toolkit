@@ -22,6 +22,7 @@ def load(name):
 legacy_source = load("legacy_source")
 raft_operator = load("vault_raft_operator")
 declaration = load("resolve_vault_server_declaration")
+gcp_source = load("resolve_gcp_vault_source")
 HOST_KEY = base64.b64encode(b"\x00\x00\x00\x0bssh-ed25519" + b"\x00\x00\x00\x20" + b"1" * 32).decode()
 
 
@@ -182,6 +183,37 @@ class DeclarationTests(unittest.TestCase):
         document["spec"]["backup"]["age_recipient"] = "ssh-ed25519 AAAA"
         with self.assertRaisesRegex(ValueError, "age public key"):
             declaration.resolve_backup(document, "shared")
+
+
+class GcpSourceContractTests(unittest.TestCase):
+    def test_source_contract_uses_the_live_gcp_vm_and_overlay_address(self):
+        config = {
+            "environment": "shared",
+            "source_id": "vault-prod-0",
+            "source_zone": "asia-east1-a",
+            "project_id": "open-platform-prod",
+            "network_name": "vault-shared",
+            "expected_address": "35.221.167.104",
+            "overlay_address": "10.79.0.4",
+            "ssh_host_ed25519": HOST_KEY,
+        }
+        instances = [{
+            "name": "vault-prod-0",
+            "zone": "https://www.googleapis.com/compute/v1/projects/open-platform-prod/zones/asia-east1-a",
+            "status": "RUNNING",
+            "networkInterfaces": [{
+                "network": "https://www.googleapis.com/compute/v1/projects/open-platform-prod/global/networks/vault-shared",
+                "networkIP": "10.81.0.4",
+                "accessConfigs": [{"natIP": "35.221.167.104"}],
+            }],
+        }]
+        contract = gcp_source.resolve(config, instances, "gha_123")
+        node = contract["spec"]["nodes"][0]
+        self.assertEqual(node["id"], "vault-prod-0")
+        self.assertEqual(node["auth"], {"adapter": "gcp-oslogin-ephemeral"})
+        self.assertEqual(node["private_address"], "10.79.0.4")
+        self.assertIn("vault_legacy_source", node["groups"])
+
 
 
 def config(leader, voters=("legacy", "n0", "n1", "n2")):

@@ -7,6 +7,14 @@ inputs:
   phase:
     description: open (identity, contract, temporary ingress) or close (revoke and clean up)
     required: true
+  contract_mode:
+    description: target resolves the reviewed Vault node set; source resolves the reviewed migration source VM only
+    required: false
+    default: target
+  source_config:
+    description: source GCP adapter JSON emitted by the declaration resolver
+    required: false
+    default: '{}'
   provider_config:
     description: provider_config JSON from resolve_vault_server_declaration.py
     required: true
@@ -49,10 +57,12 @@ runs:
       shell: bash
       env:
         PROVIDER_CONFIG: ${{ inputs.provider_config }}
+        CONTRACT_MODE: ${{ inputs.contract_mode }}
         PHASE: ${{ inputs.phase }}
       run: |
         set -euo pipefail
         [[ "${PHASE}" == open || "${PHASE}" == close ]] || { echo '::error::phase must be open or close' >&2; exit 1; }
+        [[ "${CONTRACT_MODE}" == target || "${CONTRACT_MODE}" == source ]] || { echo '::error::contract_mode must be target or source' >&2; exit 1; }
         jq -e '.provider == "gcp-cloud"' <<<"${PROVIDER_CONFIG}" >/dev/null || {
           echo '::error::provider_config does not belong to the GCP adapter' >&2
           exit 1
@@ -140,21 +150,31 @@ runs:
         PROVIDER_MANIFEST: ${{ inputs.provider_manifest }}
         XCONNECT_TOPOLOGY: ${{ inputs.xconnect_topology }}
         CONNECTION_MODE: ${{ inputs.connection_mode }}
+        CONTRACT_MODE: ${{ inputs.contract_mode }}
+        SOURCE_CONFIG: ${{ inputs.source_config }}
       run: |
         set -euo pipefail
         contract="${WORK_DIR}/nodes.json"
         gcloud compute instances list --project="${GCP_PROJECT_ID}" --format=json > "${WORK_DIR}/instances.json"
         gcloud compute firewall-rules list --project="${GCP_PROJECT_ID}" --format=json > "${WORK_DIR}/firewalls.json"
-        python3 "${GITHUB_WORKSPACE}/scripts/node_deploy/resolve_gcp_vault.py" \
-          --manifest "gitops/${PROVIDER_MANIFEST}" \
-          --service-manifest "gitops/${SERVICE_MANIFEST}" \
-          --instances "${WORK_DIR}/instances.json" \
-          --firewalls "${WORK_DIR}/firewalls.json" \
-          --project-id "${GCP_PROJECT_ID}" \
-          --environment "${DEPLOY_ENVIRONMENT}" \
-          --ssh-user "${SSH_USER}" \
-          --xconnect-topology "gitops/${XCONNECT_TOPOLOGY}" \
-          --output "${contract}"
+        if [[ "${CONTRACT_MODE}" == source ]]; then
+          source_config="${WORK_DIR}/source-config.json"
+          jq -e . <<<"${SOURCE_CONFIG}" > "${source_config}"
+          python3 "${GITHUB_WORKSPACE}/scripts/node_deploy/resolve_gcp_vault_source.py" \
+            --config "${source_config}" --instances "${WORK_DIR}/instances.json" \
+            --ssh-user "${SSH_USER}" --output "${contract}"
+        else
+          python3 "${GITHUB_WORKSPACE}/scripts/node_deploy/resolve_gcp_vault.py" \
+            --manifest "gitops/${PROVIDER_MANIFEST}" \
+            --service-manifest "gitops/${SERVICE_MANIFEST}" \
+            --instances "${WORK_DIR}/instances.json" \
+            --firewalls "${WORK_DIR}/firewalls.json" \
+            --project-id "${GCP_PROJECT_ID}" \
+            --environment "${DEPLOY_ENVIRONMENT}" \
+            --ssh-user "${SSH_USER}" \
+            --xconnect-topology "gitops/${XCONNECT_TOPOLOGY}" \
+            --output "${contract}"
+        fi
         if [[ "${CONNECTION_MODE}" == "xconnect-zero" ]] && jq -e 'any(.spec.nodes[]; has("overlay_address"))' "${contract}" >/dev/null; then
           python3 - "${contract}" <<'PY'
         import json

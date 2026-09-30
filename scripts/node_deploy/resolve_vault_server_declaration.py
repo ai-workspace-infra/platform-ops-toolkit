@@ -34,28 +34,92 @@ S3_URL = re.compile(r"^s3://[a-z0-9.-]+(/[A-Za-z0-9._/-]*)?$")
 HTTPS_URL = re.compile(r"^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._/-]*)?$")
 
 
-def resolve_migration(service: dict, environment: str, vault_addr: str) -> dict[str, str]:
+def resolve_migration(
+    service: dict,
+    environment: str,
+    vault_addr: str,
+    gitops_root: Path | None = None,
+) -> dict[str, str]:
     """Validate spec.migration (the existing node being moved) if declared."""
     migration = service["spec"].get("migration")
     if not migration:
         return {"migration": "false", "legacy_config": "{}", "raft_operator_role": "", "observation": "{}"}
     source = migration["source"]
-    ssh_ca = migration["ssh_ca"]
     if not IDENTIFIER.fullmatch(str(source.get("id", ""))):
         raise ValueError("invalid migration source id")
     if source["id"] in {node["id"] for node in service["spec"].get("nodes", [])}:
         raise ValueError("the migration source must not also be a declared new node")
-    if not SSH_USER.fullmatch(str(source.get("ssh_user", ""))):
-        raise ValueError("invalid migration source ssh_user")
     if not HOST_KEY.fullmatch(str(source.get("ssh_host_ed25519", ""))):
         raise ValueError("migration source needs a pinned Ed25519 host key")
-    if not IDENTIFIER.fullmatch(str(ssh_ca.get("role", ""))) or not SIGN_PATH.fullmatch(str(ssh_ca.get("sign_path", ""))):
-        raise ValueError("migration ssh_ca needs a JWT role and an SSH sign path")
     raft_operator_role = str(service["spec"]["automation"].get("raft_operator_role", ""))
     if not IDENTIFIER.fullmatch(raft_operator_role):
         raise ValueError("a migration needs automation.raft_operator_role")
     if migration.get("raft_network", "private") not in {"private", "overlay"}:
         raise ValueError("migration.raft_network must be private or overlay")
+    source_provider = source.get("provider", "existing")
+    if source_provider == "gcp-cloud":
+        provider_manifest = str(source.get("provider_manifest", ""))
+        if gitops_root is None:
+            raise ValueError("a GCP migration source needs provider_manifest")
+        source_provider_doc = yaml.safe_load(checked_path(gitops_root, provider_manifest).read_text(encoding="utf-8"))
+        if source_provider_doc.get("kind") != "GCPWorkloadNamespace":
+            raise ValueError("migration source provider_manifest must be a GCPWorkloadNamespace")
+        source_spec = source_provider_doc.get("spec", {})
+        if source_provider_doc.get("metadata", {}).get("environment") != environment:
+            raise ValueError("migration source provider belongs to another environment")
+        source_project = str(source_spec.get("project_id", ""))
+        source_network = str(source_spec.get("network_name", ""))
+        source_nodes = source_spec.get("resources", {}).get("vault_nodes", [])
+        source_node = next((node for node in source_nodes if node.get("name") == source["id"]), None)
+        if source_node is None:
+            raise ValueError("migration source provider does not declare the source VM")
+        if source_node.get("ssh_host_ed25519") != source["ssh_host_ed25519"]:
+            raise ValueError("migration source host key differs from its provider declaration")
+        for name, value in {
+            "account_id": source_spec.get("gcp_account_id"),
+            "project_id": source_project,
+            "network_name": source_network,
+            "node_role": source.get("node_role"),
+            "runtime_identity_path": source.get("runtime_identity_path"),
+        }.items():
+            if not isinstance(value, str) or not value or "\n" in value or "\r" in value:
+                raise ValueError(f"invalid GCP migration source field: {name}")
+        if not IDENTIFIER.fullmatch(str(source_spec.get("gcp_account_id", ""))) or not IDENTIFIER.fullmatch(source_project):
+            raise ValueError("invalid GCP migration source project identity")
+        if not IDENTIFIER.fullmatch(source_network) or not IDENTIFIER.fullmatch(str(source.get("node_role"))):
+            raise ValueError("invalid GCP migration source identity or network")
+        source_identity = str(source["runtime_identity_path"])
+        if not KV_PATH.fullmatch(source_identity) or f"/{environment}/" not in source_identity:
+            raise ValueError("GCP migration source runtime identity must be a KV path in this environment")
+        source_config = {
+            "provider": "gcp-cloud",
+            "environment": environment,
+            "vault_addr": vault_addr,
+            "node_role": source["node_role"],
+            "runtime_identity_path": source_identity,
+            "account_id": source_spec["gcp_account_id"],
+            "project_id": source_project,
+            "network_name": source_network,
+            "source_id": source["id"],
+            "source_zone": source_node["zone"],
+            "expected_address": source["address"],
+            "overlay_address": source.get("overlay_address", ""),
+            "ssh_host_ed25519": source["ssh_host_ed25519"],
+        }
+        return {
+            "migration": "true",
+            "legacy_config": "{}",
+            "source_provider": "gcp-cloud",
+            "source_provider_config": json.dumps(source_config, separators=(",", ":"), sort_keys=True),
+            "raft_operator_role": raft_operator_role,
+            "observation": json.dumps(resolve_observation(migration), separators=(",", ":"), sort_keys=True),
+        }
+
+    ssh_ca = migration.get("ssh_ca")
+    if not SSH_USER.fullmatch(str(source.get("ssh_user", ""))):
+        raise ValueError("invalid migration source ssh_user")
+    if not isinstance(ssh_ca, dict) or not IDENTIFIER.fullmatch(str(ssh_ca.get("role", ""))) or not SIGN_PATH.fullmatch(str(ssh_ca.get("sign_path", ""))):
+        raise ValueError("migration ssh_ca needs a JWT role and an SSH sign path")
     config = {
         "environment": environment,
         "vault_addr": vault_addr,
@@ -70,6 +134,8 @@ def resolve_migration(service: dict, environment: str, vault_addr: str) -> dict[
     return {
         "migration": "true",
         "legacy_config": json.dumps(config, separators=(",", ":"), sort_keys=True),
+        "source_provider": "existing",
+        "source_provider_config": "{}",
         "raft_operator_role": raft_operator_role,
         "observation": json.dumps(resolve_observation(migration), separators=(",", ":"), sort_keys=True),
     }
@@ -129,7 +195,12 @@ def resolve_backup(service: dict, environment: str) -> dict[str, str]:
     return {"backup_config": json.dumps(config, separators=(",", ":"), sort_keys=True), "snapshot_role": role}
 
 
-def resolve(service: dict, provider: dict, provider_name: str) -> dict[str, str]:
+def resolve(
+    service: dict,
+    provider: dict,
+    provider_name: str,
+    gitops_root: Path | None = None,
+) -> dict[str, str]:
     if service.get("kind") != "VaultServerDeployment":
         raise ValueError("expected VaultServerDeployment service declaration")
     environment = service.get("metadata", {}).get("environment")
@@ -172,7 +243,7 @@ def resolve(service: dict, provider: dict, provider_name: str) -> dict[str, str]
         raise ValueError("Vault JWT endpoint must match the declared service domain")
     if values["ssh_access_mode"] not in {service["spec"]["access"]["bootstrap"], service["spec"]["access"]["steady_state"]}:
         raise ValueError("provider SSH mode is not declared by the Vault service")
-    values.update(resolve_migration(service, environment, values["vault_addr"]))
+    values.update(resolve_migration(service, environment, values["vault_addr"], gitops_root))
     values.update(resolve_backup(service, environment))
     # Only the provider adapter reads this blob; the generic stage runner
     # forwards it without interpreting cloud-specific fields.
@@ -204,7 +275,7 @@ def main() -> None:
     root = args.gitops_root.resolve()
     service = yaml.safe_load(checked_path(root, args.service_manifest).read_text(encoding="utf-8"))
     provider = yaml.safe_load(checked_path(root, args.provider_manifest).read_text(encoding="utf-8"))
-    values = resolve(service, provider, args.provider)
+    values = resolve(service, provider, args.provider, root)
     checked_path(root, values["xconnect_topology"])
     with args.output.open("a", encoding="utf-8") as stream:
         for name, value in values.items():
