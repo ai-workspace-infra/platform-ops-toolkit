@@ -42,4 +42,24 @@ if grep -Fq -- 'operation=destroy' "${workdir}/gh.log"; then
   exit 1
 fi
 
+# Requests the Hybrid Orchestrator cannot carry must fail before any dispatch
+# instead of being dropped while the run still reports success.
+for unsupported in ENABLE_MIGRATION=true APPLY_ACCOUNTS_SCHEMA_MIGRATION=true \
+    ADOPT_ACCOUNTS_BASELINE=true XCONNECT_ONE_RELEASE_TAG=v1.2.3 \
+    XCONNECT_GATEWAY_RELEASE_TAG=v1.2.3; do
+  : > "${workdir}/gh.log"
+  if env "${unsupported}" \
+    GH_LOG="${workdir}/gh.log" PATH="${workdir}:${PATH}" GH_TOKEN=test-token \
+    SNAPSHOT_TAG=uat-daily-build-2026.09.28-r2 \
+    bash "${dispatcher}" >/dev/null 2>"${workdir}/err"; then
+    echo "UAT dispatch must reject ${unsupported} (Hybrid cannot carry it)." >&2
+    exit 1
+  fi
+  grep -Fiq "${unsupported%%=*}" "${workdir}/err"
+  if [[ -s "${workdir}/gh.log" ]]; then
+    echo "Rejected request ${unsupported} must not dispatch anything." >&2
+    exit 1
+  fi
+done
+
 echo "daily_snapshot_combined_dispatch_test: PASS"
