@@ -90,9 +90,14 @@ ENSURE_VM = ROOT / ".github/scripts/service-deploy/ensure-declared-vm-running.sh
 FAKE_GCLOUD = """#!/usr/bin/env bash
 set -euo pipefail
 echo "$*" >> "${GCLOUD_LOG}"
+if [[ "$1 $2 $3" == "compute operations list" ]]; then
+  [[ -z "${OPERATIONS_DENIED:-}" ]] || { echo 'PERMISSION_DENIED' >&2; exit 1; }
+  echo "2026-09-30T13:26:00Z stop DONE"; exit 0
+fi
 case "$3" in
   describe)
     [[ -e "${STATE_FILE}" ]] || { echo 'ERROR: instance not found' >&2; exit 1; }
+    if [[ "$*" == *lastStopTimestamp* ]]; then echo "2026-09-30T13:26:30Z"; exit 0; fi
     cat "${STATE_FILE}" ;;
   start|resume)
     echo RUNNING > "${STATE_FILE}" ;;
@@ -105,7 +110,7 @@ esac
 class SpotVmRuntimeReconcileTests(unittest.TestCase):
     """A preempted Spot VM is started in place; nothing is ever created."""
 
-    def run_ensure(self, status):
+    def run_ensure(self, status, **extra_env):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             gcloud = tmp / "gcloud"
@@ -117,17 +122,29 @@ class SpotVmRuntimeReconcileTests(unittest.TestCase):
             env = dict(
                 os.environ, PATH=f"{tmp}:{os.environ['PATH']}", GCLOUD_LOG=str(log), STATE_FILE=str(state),
                 PROJECT_ID="p", NODE_NAME="iam-shared-0", NODE_ZONE="asia-east1-a",
-                VM_START_TIMEOUT_SECONDS="3", VM_START_POLL_SECONDS="1",
+                VM_START_TIMEOUT_SECONDS="3", VM_START_POLL_SECONDS="1", **extra_env,
             )
             result = subprocess.run(["bash", str(ENSURE_VM)], env=env, capture_output=True, text=True)
             calls = log.read_text().splitlines() if log.exists() else []
-            return result, [call.split()[2] for call in calls]
+            self.stdout = result.stdout
+            # Only instance actions matter for safety; evidence reads are separate.
+            return result, [call.split()[2] for call in calls if call.startswith("compute instances ")]
 
-    def test_preempted_vm_is_started_once_then_running(self):
+    def test_stopped_vm_is_started_once_then_running(self):
         result, calls = self.run_ensure("TERMINATED")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls.count("start"), 1)
         self.assertEqual(calls[-1], "describe")
+        # The stop evidence is recorded before the start, without the principal.
+        self.assertIn("2026-09-30T13:26:30Z", self.stdout)
+        self.assertIn("stop DONE", self.stdout)
+        self.assertLess(self.stdout.index("stop record"), self.stdout.index("starting the existing instance"))
+
+    def test_unreadable_operations_do_not_block_the_start(self):
+        result, calls = self.run_ensure("TERMINATED", OPERATIONS_DENIED="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls.count("start"), 1)
+        self.assertIn("Could not list GCP operations", self.stdout)
 
     def test_running_vm_is_left_alone(self):
         result, calls = self.run_ensure("RUNNING")
@@ -146,7 +163,7 @@ class SpotVmRuntimeReconcileTests(unittest.TestCase):
 
     def test_script_never_creates_replaces_or_deletes(self):
         script = ENSURE_VM.read_text()
-        for verb in ("instances create", "instances delete", "disks ", "--force", "|| true"):
+        for verb in ("instances create", "instances delete", "disks ", "--force", "|| true", "principalEmail", "user)"):
             self.assertNotIn(verb, script)
 
     def test_shared_service_deploys_start_the_declared_vm_before_use(self):
