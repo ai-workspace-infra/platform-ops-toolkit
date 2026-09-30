@@ -24,8 +24,8 @@ Stage names are grouped by prefix so the dispatch dropdown reads in order:
   from live state (see auto_migration.py) and stops at every manual gate.
 
 ``one_node`` stages change exactly one peer per dispatch (the first declared
-peer that has not joined); ``snapshot_first`` stages take an encrypted,
-restore-drilled snapshot before they change anything.
+peer that has not joined); the standalone ``vault-snapshot`` stage owns the
+optional encrypted, restore-drilled disaster-recovery snapshot.
 
 ``ssh`` selects which node sets the stage opens access to: ``new`` (provider
 adapter), ``legacy`` (the existing source node), ``all``, ``cluster`` (new
@@ -249,7 +249,6 @@ STAGES: dict[str, dict] = {
         "playbook": SHARED_PLAYBOOK,
         "tags": ["vault-shared-peers"],
         "one_node": True,
-        "snapshot_first": True,
         "confirms": ["selected-running"],
         "next": (
             "Unseal this node with the existing key and confirm vault operator raft list-peers shows it "
@@ -262,7 +261,6 @@ STAGES: dict[str, dict] = {
         "requires": ["access", "raft-quorum"],
         "action": "cutover",
         "token": "raft-operator",
-        "snapshot_first": True,
         # After the leadership transfer: the old node is a standby and the
         # whole cluster (new leader included) is healthy and agrees.
         "confirms": ["legacy-standby", "raft-quorum"],
@@ -279,7 +277,6 @@ STAGES: dict[str, dict] = {
         "ssh": "all",
         # Only after the service DNS moved and the observation window passed.
         "requires": ["access", "legacy-standby", "service-dns-moved", "observation-window"],
-        "snapshot_first": True,
         "action": "remove-legacy",
         "token": "raft-operator",
         # The action removes the Raft peer via the Vault API; the playbook

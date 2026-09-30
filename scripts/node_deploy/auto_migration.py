@@ -8,8 +8,8 @@ next step, or stops at a gate only a person may pass:
   PostgreSQL, unsealed            -> migrate-convert (after the read-only report)
   Raft, sealed                    -> stop: unseal the old node (existing key)
   a new node joined but sealed    -> stop: unseal it, confirm raft list-peers
-  Raft, active, a new node empty  -> migrate-join: snapshot + restore drill,
-                                     overlay path check, then ONE more node
+  Raft, active, a new node empty  -> migrate-join: overlay path check,
+                                     then ONE more node
   all unsealed, old node active   -> migrate-cutover (leader transfer + health)
   old node standby, DNS on it     -> stop: switch the service DNS (last)
   DNS moved, window still open    -> stop: observe; roll back = DNS back
@@ -18,8 +18,7 @@ next step, or stops at a gate only a person may pass:
 
 Rollback is never chosen automatically. The single MIGRATE-VAULT-AUTO
 confirmation authorizes whichever destructive step is chosen; the chosen
-stage's own requires/confirms gates (and its snapshot, for snapshot_first
-stages) still run before and after it.
+stage's own requires/confirms gates still run before and after it.
 """
 
 from __future__ import annotations
@@ -98,11 +97,6 @@ def decide(
     if any(phase == "empty" for phase in phases.values()):
         if not active(source):
             return blocked(f"{legacy['id']} is not the active node; new nodes can only join an active leader.")
-        if not backup_declared:
-            return blocked(
-                "Declare spec.backup in the Vault service declaration: every join is preceded by an "
-                "encrypted snapshot and a restore drill."
-            )
         return chosen("migrate-join")
 
     if active(source):

@@ -495,7 +495,7 @@ jobs:
 
       - name: Read off-site backup credentials
         id: backup
-        if: ${{ steps.stage.outputs.action == 'snapshot' || steps.stage.outputs.snapshot_first == 'true' }}
+        if: ${{ steps.stage.outputs.action == 'snapshot' }}
         uses: hashicorp/vault-action@v4
         with:
           url: ${{ needs.declaration.outputs.vault_addr }}
@@ -503,15 +503,14 @@ jobs:
           role: ${{ needs.declaration.outputs.snapshot_role }}
           jwtGithubAudience: vault
           exportToken: false
-          # The snapshot runs with this snapshot-only token, so a stage that
-          # snapshots first keeps its own (raft-operator) token for itself.
+          # The standalone snapshot stage runs with this snapshot-only token.
           outputToken: true
           secrets: |
             ${{ fromJSON(needs.declaration.outputs.backup_config).credentials_path }} access_key_id | BACKUP_ACCESS_KEY_ID ;
             ${{ fromJSON(needs.declaration.outputs.backup_config).credentials_path }} secret_access_key | BACKUP_SECRET_ACCESS_KEY
 
       - name: Take, encrypt and upload a Raft snapshot
-        if: ${{ steps.stage.outputs.action == 'snapshot' || steps.stage.outputs.snapshot_first == 'true' }}
+        if: ${{ steps.stage.outputs.action == 'snapshot' }}
         shell: bash
         env:
           VAULT_ADDR: ${{ needs.declaration.outputs.vault_addr }}

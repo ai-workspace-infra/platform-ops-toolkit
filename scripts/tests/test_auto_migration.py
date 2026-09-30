@@ -71,13 +71,12 @@ class AutoMigrationDecisionTests(unittest.TestCase):
         self.assertEqual(result["stage"], "")
         self.assertIn("unseal the converted node", result["blocked"])
 
-    def test_join_takes_a_snapshot_first_and_requires_a_declared_backup(self):
+    def test_join_does_not_depend_on_the_disaster_recovery_snapshot(self):
         result = decide(probes(running("raft")))
         self.assertEqual(result, {"stage": "migrate-join", "blocked": ""})
-        self.assertTrue(module.plan("migrate-join", migration=True)["snapshot_first"])
+        self.assertFalse(module.plan("migrate-join", migration=True)["snapshot_first"])
         result = decide(probes(running("raft")), backup=False)
-        self.assertEqual(result["stage"], "")
-        self.assertIn("spec.backup", result["blocked"])
+        self.assertEqual(result, {"stage": "migrate-join", "blocked": ""})
 
     def test_joined_but_sealed_nodes_stop_for_manual_unseal_and_list_peers(self):
         new = {"vault-0": running("raft", sealed=True), "vault-1": running("raft", sealed=True), "vault-2": running("raft", standby=True)}
@@ -154,7 +153,7 @@ class DnsCheckTests(unittest.TestCase):
 
 
 class OutputTests(unittest.TestCase):
-    def test_chosen_stage_outputs_carry_its_own_snapshot_and_one_node_flags(self):
+    def test_chosen_stage_outputs_carry_one_node_flags(self):
         result = module.plan("migrate-join", "", migration=True)
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "out"
@@ -162,9 +161,9 @@ class OutputTests(unittest.TestCase):
             values = dict(line.split("=", 1) for line in output.read_text().splitlines())
         self.assertEqual(values["stage"], "migrate-join")
         self.assertEqual(values["tags"], "vault-shared-peers")
-        # The snapshot uses the backup login's own token; join itself needs none.
+        # Join itself does not require disaster-recovery credentials.
         self.assertEqual(values["token"], "")
-        self.assertEqual(values["snapshot_first"], "true")
+        self.assertEqual(values["snapshot_first"], "false")
         self.assertEqual(values["one_node"], "true")
         convert = module.plan("migrate-convert", module.STAGES["migrate-convert"]["confirm"], migration=True)
         self.assertEqual(convert["confirm"], "CONVERT-VAULT-TO-RAFT")
