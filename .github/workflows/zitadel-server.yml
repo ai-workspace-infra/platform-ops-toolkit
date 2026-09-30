@@ -47,7 +47,7 @@ on:
         default: none
         options: [none, update]
       cloudflare_zone_id:
-        description: 'Cloudflare zone ID; required when dns_action=update'
+        description: 'Optional Cloudflare zone ID override; otherwise resolve the active zone from iam.svc.plus'
         type: string
         required: false
         default: ''
@@ -118,10 +118,10 @@ jobs:
                 echo 'dns_action=update requires confirm_dns_change=true' >&2
                 exit 1
               }
-              [[ "${CLOUDFLARE_ZONE_ID}" =~ ^[a-f0-9]{32}$ ]] || {
-                echo 'cloudflare_zone_id must be a 32-character hexadecimal zone ID' >&2
+              if [[ -n "${CLOUDFLARE_ZONE_ID}" && ! "${CLOUDFLARE_ZONE_ID}" =~ ^[a-f0-9]{32}$ ]]; then
+                echo 'cloudflare_zone_id must be empty or a 32-character hexadecimal zone ID' >&2
                 exit 1
-              }
+              fi
               ;;
             *) echo "unsupported dns_action=${DNS_ACTION}" >&2; exit 1 ;;
           esac
@@ -172,7 +172,7 @@ jobs:
           NODE_ZONE: ${{ needs.declaration.outputs.zone }}
           DOMAIN: ${{ needs.declaration.outputs.domain }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DNS_API_TOKEN }}
-          CLOUDFLARE_ZONE_ID: ${{ inputs.cloudflare_zone_id }}
+          CLOUDFLARE_ZONE_ID_INPUT: ${{ inputs.cloudflare_zone_id }}
         run: |
           set -euo pipefail
           : "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_DNS_API_TOKEN must be configured in the prod environment}"
@@ -183,10 +183,19 @@ jobs:
             echo 'declared IAM VM has no valid public IPv4 address' >&2
             exit 1
           }
+          if [[ -n "${CLOUDFLARE_ZONE_ID_INPUT}" ]]; then
+            zone_id="${CLOUDFLARE_ZONE_ID_INPUT}"
+          else
+            zone_name="${DOMAIN#*.}"
+            zones="$(curl --fail --silent --show-error --retry 3 \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              "https://api.cloudflare.com/client/v4/zones?name=${zone_name}&status=active&per_page=20")"
+            zone_id="$(jq -er '.result | if length == 1 then .[0].id else error("expected exactly one active Cloudflare zone") end' <<<"${zones}")"
+          fi
           response="$(curl --fail --silent --show-error --retry 3 \
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             -H 'Content-Type: application/json' \
-            "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/dns_records?type=A&name=${DOMAIN}" \
+            "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?type=A&name=${DOMAIN}&per_page=100" \
             )"
           [[ "$(jq -r '.success' <<<"${response}")" == true ]] || {
             echo 'Cloudflare DNS lookup failed' >&2
@@ -200,7 +209,7 @@ jobs:
               curl --fail --silent --show-error --retry 3 -X POST \
                 -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
                 -H 'Content-Type: application/json' -d "${payload}" \
-                "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/dns_records" \
+                "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records" \
                 | jq -e '.success == true' >/dev/null
               ;;
             1)
@@ -208,7 +217,7 @@ jobs:
               curl --fail --silent --show-error --retry 3 -X PUT \
                 -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
                 -H 'Content-Type: application/json' -d "${payload}" \
-                "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/dns_records/${record_id}" \
+                "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records/${record_id}" \
                 | jq -e '.success == true' >/dev/null
               ;;
             *)
