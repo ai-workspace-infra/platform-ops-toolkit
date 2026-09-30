@@ -36,6 +36,10 @@ fi
 grep -Fq 'xconnect_one_release_tag:' "${workflow}"
 grep -Fq 'xconnect_gateway_release_tag:' "${workflow}"
 grep -Fq 'SNAPSHOT_TAG' "${dispatcher}"
+grep -Fq 'promote_prod_after_uat:' "${workflow}"
+grep -Fq 'steps.dispatch_uat_hybrid.outcome == '\''success'\''' "${workflow}"
+grep -Fq 'promote-uat-snapshot-tag.sh' "${workflow}"
+grep -Fq 'Dispatch promoted PROD hybrid deployment' "${workflow}"
 
 python3 - "${workflow}" <<'PY'
 from pathlib import Path

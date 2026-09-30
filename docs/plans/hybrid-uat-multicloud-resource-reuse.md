@@ -1,5 +1,7 @@
 # UAT Hybrid 多云资源复用与串行部署计划
 
+> 2026-09-30：本文保留历史方案。最新目标已将 Shared 平台从 Hybrid 业务 matrix 拆离，禁止 Web SaaS 复用受保护 Vault 节点，并分别定义 UAT/PROD 生命周期。详见 [Shared / UAT / PROD 多云环境与发布链路规划](shared-uat-prod-multicloud-environment-delivery.md)；新目标尚待落实到 GitOps/代码，不表示已部署完成。
+
 > 更新（2026-09-29）：AI Workspace UAT 不再默认复用 `10.79.0.7`。最新的 GitOps Hybrid 矩阵声明 GCP Spot 4C8G 独立 Terraform namespace；本文件下文涉及该旧主机的段落仅保留历史背景，不可作为当前 dispatch 输入。运行时以 GitOps 矩阵及 `resources/svc.plus/uat/gcp/ai-workspace.yaml` 为准。当前操作与验收见 [GCP Spot UAT AI Workspace runbook](gcp-spot-ai-workspace-uat.md)。
 
 状态：编排契约已实现，真实 apply/destroy、现有节点改规格、数据迁移和 DNS 切换仍需单独审批。

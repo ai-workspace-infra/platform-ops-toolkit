@@ -33,6 +33,7 @@ docs/
 - [多环境交付与发布规范](standards/multi-environment-delivery-and-release-standard.md)
 - [公开主页与应用商店审核规范](standards/public-website-review-and-homepage-standard.md)
 - [Daily Snapshot 手册](daily-snapshot-manual.md)
+- [Shared / UAT / PROD 多云环境与发布链路规划](plans/shared-uat-prod-multicloud-environment-delivery.md)（2026-09-30 草案：Daily 只读平台就绪门禁、多云 renderer 与验收差距）
 - [实例规格调整](resize-instance.md)
 - [Stripe 套餐目录初始化 TL;DR](howto/stripe-billing-catalog-tldr.md)
 - [UAT r2：Xray → Exporter → Billing → PostgreSQL → Accounts → Portal 变更记录](tasks/2026-08-02-uat-r2-xray-billing-observability-change-log.md)
