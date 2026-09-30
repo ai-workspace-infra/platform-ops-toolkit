@@ -246,6 +246,12 @@ class MigrationCheckTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "migrate-convert"):
             module.verify(contract, ["legacy-raft"], probes)
 
+    def test_join_rejects_a_source_advertising_its_old_vpc_address(self):
+        contract, probes = migration_fixture()
+        probes["legacy"]["leader"]["leader_cluster_address"] = "https://10.81.0.4:8201"
+        with self.assertRaisesRegex(ValueError, "not the declared XConnect overlay"):
+            module.verify(contract, ["legacy-raft"], probes)
+
     def test_peers_join_one_at_a_time_and_each_is_unsealed_before_the_next(self):
         contract, probes = migration_fixture()
         for node_id in ("vault-0", "vault-1", "vault-2"):

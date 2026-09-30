@@ -385,6 +385,15 @@ def check_legacy_raft(contract: dict, probes: dict[str, dict]) -> None:
         raise ValueError(f"{legacy['id']}: convert the existing Vault to Raft (migrate-convert) first")
     if not active(state):
         raise ValueError(f"{legacy['id']}: the existing Vault must be unsealed and active before new nodes join")
+    leader = state.get("leader") if isinstance(state.get("leader"), dict) else {}
+    cluster_address = leader.get("leader_cluster_address")
+    parsed = urlparse(cluster_address) if isinstance(cluster_address, str) else None
+    if not parsed or parsed.scheme != "https" or parsed.hostname != legacy.get("overlay_address") or parsed.port != 8201:
+        raise ValueError(
+            f"{legacy['id']}: Vault advertises Raft cluster address {cluster_address!r}, "
+            f"not the declared XConnect overlay {legacy.get('overlay_address')}:8201; "
+            "do not join a peer until the source advertises its reachable overlay address"
+        )
 
 
 def check_legacy_standby(contract: dict, probes: dict[str, dict]) -> None:
