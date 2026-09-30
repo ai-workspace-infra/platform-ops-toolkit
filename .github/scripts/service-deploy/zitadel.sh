@@ -89,6 +89,11 @@ extra = {"domain": os.environ["DOMAIN"], "zitadel_domain": os.environ["DOMAIN"],
          "zitadel_admin_password": os.environ["ZITADEL_ADMIN_PASSWORD"],
          "db_configs_raw": [{"db": "zitadel", "user": "zitadel_user",
                              "env_var": "ZITADEL_PG_PASSWORD", "vault_key": "zitadel_pg_password"}]}
+# One-time, explicitly confirmed recovery; the playbook re-checks the token and
+# refuses when the Login client PAT exists.
+if os.environ.get("RESET_UNBOOTSTRAPPED_CONFIRMATION", "") == "RESET-ZITADEL-DATABASE":
+    extra["zitadel_reset_unbootstrapped_instance"] = True
+    extra["zitadel_reset_confirmation"] = "RESET-ZITADEL-DATABASE"
 (p / "extra.json").write_text(json.dumps(extra))
 (p / "extra.json").chmod(0o600)
 PY
