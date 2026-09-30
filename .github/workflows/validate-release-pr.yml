@@ -147,6 +147,13 @@ jobs:
     - name: Verify independent Shared ZITADEL delivery contract
       run: python3 -m unittest scripts.tests.test_zitadel_server_contract
 
+    # The orchestrator dispatches child workflows by JSON payload; a wrong
+    # input or manifest path only fails after the preceding stages already ran.
+    - name: Verify Shared platform orchestration and non-destructive upgrade contract
+      run: |
+        python3 -m unittest scripts.tests.test_open_platform_orchestrator_contract
+        python3 -m unittest scripts.tests.test_shared_platform_upgrade_safety_contract
+
     - name: Verify serverless then Agent Proxy dispatch ordering
       run: bash .github/scripts/tests/daily_snapshot_combined_dispatch_test.sh
 

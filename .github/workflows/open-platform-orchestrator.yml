@@ -247,7 +247,10 @@ jobs:
             done
             [[ -n "${run_id}" ]] || { echo "::error::Could not locate ${workflow} run for ${label}" >&2; exit 1; }
             echo "${label}: dispatched ${workflow} run ${run_id}"
-            gh run watch "${run_id}" --repo "${GITHUB_REPOSITORY}" --interval 10 --exit-status --compact
+            # A child service stage can run for 20+ minutes. At 10s every watch tick
+            # costs GITHUB_TOKEN requests fast enough to hit its hourly API limit,
+            # which fails this parent while the child keeps running.
+            gh run watch "${run_id}" --repo "${GITHUB_REPOSITORY}" --interval 30 --exit-status --compact
             echo "${label}: ${workflow} run ${run_id} succeeded"
           }
 
@@ -283,7 +286,7 @@ jobs:
                 --arg source_ref "${GITOPS_REF}" --arg source_ip "${OBS_SOURCE_IP}" --arg target_ip "${OBS_TARGET_IP}" \
                 --arg migration "${OBS_MIGRATION}" --arg writers "${OBS_WRITERS_PAUSED}" \
                 --arg history "${OBS_HISTORY_VERIFIED}" --arg omitted "${OBS_HISTORY_OMITTED}" \
-                '{ref:$ref,inputs:{deploy_env:"uat",target_platform:"shared-gcp",gcp_account_id:"open-platform-shared",gcp_resource_manifest:"resources.svc.plus/shared/gcp/open-platform-shared-observability.yaml",deployment_action:$action,instance_plan:"2C4G",deploy_tag:$tag,source_ref:$source_ref,mcp_services:"none",source_ip:$source_ip,target_ip_override:$target_ip,verify_existing_target:false,migration_mode:$migration,data_components:"all",confirm_source_writers_paused:($writers == "true"),confirm_target_historical_queries:($history == "true"),confirm_history_omission:($omitted == "true"),dns_action:"none",confirm_dns_change:false}}')"
+                '{ref:$ref,inputs:{deploy_env:"uat",target_platform:"shared-gcp",gcp_account_id:"open-platform-shared",gcp_resource_manifest:"resources/svc.plus/shared/gcp/open-platform-shared-observability.yaml",deployment_action:$action,instance_plan:"2C4G",deploy_tag:$tag,source_ref:$source_ref,mcp_services:"none",source_ip:$source_ip,target_ip_override:$target_ip,verify_existing_target:false,migration_mode:$migration,data_components:"all",confirm_source_writers_paused:($writers == "true"),confirm_target_historical_queries:($history == "true"),confirm_history_omission:($omitted == "true"),dns_action:"none",confirm_dns_change:false}}')"
               dispatch_and_wait observability-server.yml "Observability ${OBS_MIGRATION:-none}" "${observability_payload}"
             fi
           fi

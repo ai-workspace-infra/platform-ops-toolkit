@@ -1,3 +1,4 @@
+import re
 import unittest
 from pathlib import Path
 
@@ -61,6 +62,51 @@ class OpenPlatformOrchestratorContractTests(unittest.TestCase):
             script,
         )
 
+
+    def _dispatch_script(self):
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        steps = document["jobs"]["services"]["steps"]
+        return next(
+            step for step in steps if step.get("name") == "Dispatch and wait for shared service workflows"
+        )["run"]
+
+    def test_every_dispatch_payload_matches_its_target_workflow_inputs(self):
+        # A dispatched input the child does not declare, an invalid choice, or
+        # a manifest path the child rejects only fails after the preceding
+        # service stages have already run. Assert the contract here instead.
+        script = self._dispatch_script()
+        targets = {
+            "vault_payload": "vault-server.yml",
+            "zitadel_payload": "zitadel-server.yml",
+            "observability_payload": "observability-server.yml",
+        }
+        for variable, workflow in targets.items():
+            with self.subTest(workflow=workflow):
+                match = re.search(variable + r'="\$\(jq -n(.*?)\)"\n', script, re.S)
+                self.assertIsNotNone(match, f"{variable} is not built with jq")
+                body = re.search(r"'\{ref:\$ref,inputs:\{(.*)\}\}'", match.group(1), re.S).group(1)
+                sent = re.findall(r"(?:^|,)([a-z_]+):", body)
+                literals = dict(re.findall(r'([a-z_]+):"([^"]*)"', body))
+                target = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text(encoding="utf-8"))
+                declared = (target.get("on") or target[True])["workflow_dispatch"]["inputs"]
+
+                self.assertTrue(sent)
+                for key in sent:
+                    self.assertIn(key, declared, f"{workflow} does not declare input {key}")
+                for key, value in literals.items():
+                    spec = declared[key]
+                    if spec.get("type") == "choice":
+                        self.assertIn(value, spec["options"], f"{workflow} rejects {key}={value}")
+                    if key.endswith("manifest"):
+                        self.assertEqual(value, spec["default"], f"{workflow} {key} must be its reviewed declaration")
+
+    def test_observability_dispatch_uses_shared_observability_manifest(self):
+        script = self._dispatch_script()
+        self.assertIn(
+            'gcp_resource_manifest:"resources/svc.plus/shared/gcp/open-platform-shared-observability.yaml"',
+            script,
+        )
+        self.assertFalse("resources.svc.plus" in script, "Observability manifest path contains resources.svc.plus")
 
 if __name__ == "__main__":
     unittest.main()
