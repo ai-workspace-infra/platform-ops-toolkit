@@ -4,10 +4,18 @@ set -euo pipefail
 # Promote the exact immutable UAT component tags to a formal v* release tag.
 # This script is called only after the UAT Hybrid workflow has completed
 # successfully. Existing release tags are never moved.
+#
+# Every repository of the canonical snapshot organization is promoted, not only
+# the repositories that publish a production image: the PROD serverless
+# orchestrator checks out portal and frontend-router at the release tag, and
+# the direct PROD path tags the whole inventory as well. All UAT tags and any
+# existing release tags are verified before the first tag is created, so a
+# failed promotion never leaves a partially tagged release behind.
 
 uat_tag="${UAT_TAG:?UAT_TAG must be set}"
 build_config="${BUILD_CONFIG:?BUILD_CONFIG must be set}"
 control_plane_sha="${CONTROL_PLANE_SHA:?CONTROL_PLANE_SHA must be set}"
+promotion_organization="${PROMOTION_ORGANIZATION:-ai-workspace-services}"
 output_file="${GITHUB_OUTPUT:-/dev/stdout}"
 
 [[ "${uat_tag}" =~ ^(uat-)?daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?$ ]] || {
@@ -55,18 +63,8 @@ tag_sha() {
   gh_repo "${repository}" "repos/${repository}/git/ref/tags/${tag}" --jq '.object.sha' 2>/dev/null || true
 }
 
-create_or_verify_tag() {
-  local repository="$1" tag="$2" sha="$3" existing
-  existing="$(tag_sha "${repository}" "${tag}")"
-  if [[ -n "${existing}" ]]; then
-    [[ "${existing}" == "${sha}" ]] || {
-      echo "::error::Refusing to move ${repository}:${tag}; it points to ${existing}, expected ${sha}." >&2
-      return 1
-    }
-    echo "Verified ${repository}:${tag} -> ${sha}"
-    return 0
-  fi
-
+create_tag() {
+  local repository="$1" tag="$2" sha="$3"
   GH_TOKEN="$(token_for_org "${repository%%/*}")" gh api --method POST \
     "repos/${repository}/git/refs" \
     -f "ref=refs/tags/${tag}" \
@@ -75,26 +73,69 @@ create_or_verify_tag() {
 }
 
 mapfile -t repositories < <(
-  jq -r '.repositories[] | select(.production_promotion == true) | .repository' "${build_config}"
+  jq -r --arg org "${promotion_organization}" \
+    '.repositories[] | select(.repository | startswith($org + "/")) | .repository' "${build_config}"
 )
 [[ "${#repositories[@]}" -gt 0 ]] || {
-  echo "::error::No production promotion repositories are configured." >&2
+  echo "::error::No ${promotion_organization} repositories are configured for production promotion." >&2
   exit 1
 }
 
+# A repository that must publish a production image but lives outside the
+# promotion organization would be silently left untagged; refuse instead.
+mapfile -t unpromotable < <(
+  jq -r --arg org "${promotion_organization}" \
+    '.repositories[]
+     | select(.production_promotion == true and ((.repository | startswith($org + "/")) | not))
+     | .repository' "${build_config}"
+)
+[[ "${#unpromotable[@]}" -eq 0 ]] || {
+  echo "::error::production_promotion repositories outside ${promotion_organization} cannot be promoted: ${unpromotable[*]}" >&2
+  exit 1
+}
+
+control_plane_repository="ai-workspace-infra/platform-ops-toolkit"
+
+# Phase 1: verify everything before creating anything.
+declare -A source_sha=()
+declare -A release_exists=()
 for repository in "${repositories[@]}"; do
   uat_sha="$(tag_sha "${repository}" "${uat_tag}")"
   [[ "${uat_sha}" =~ ^[0-9a-f]{40}$ ]] || {
     echo "::error::UAT tag ${uat_tag} is missing from ${repository}; refusing PROD promotion." >&2
     exit 1
   }
-  create_or_verify_tag "${repository}" "${release_tag}" "${uat_sha}"
+  source_sha["${repository}"]="${uat_sha}"
+  existing="$(tag_sha "${repository}" "${release_tag}")"
+  if [[ -n "${existing}" ]]; then
+    [[ "${existing}" == "${uat_sha}" ]] || {
+      echo "::error::Refusing to move ${repository}:${release_tag}; it points to ${existing}, expected ${uat_sha}." >&2
+      exit 1
+    }
+    release_exists["${repository}"]=1
+  fi
 done
 
 # The control-plane repository is not part of the component build inventory,
 # but PROD workflows must run from the same protected release tag.
-control_plane_repository="ai-workspace-infra/platform-ops-toolkit"
-create_or_verify_tag "${control_plane_repository}" "${release_tag}" "${control_plane_sha}"
+source_sha["${control_plane_repository}"]="${control_plane_sha}"
+existing="$(tag_sha "${control_plane_repository}" "${release_tag}")"
+if [[ -n "${existing}" ]]; then
+  [[ "${existing}" == "${control_plane_sha}" ]] || {
+    echo "::error::Refusing to move ${control_plane_repository}:${release_tag}; it points to ${existing}, expected ${control_plane_sha}." >&2
+    exit 1
+  }
+  release_exists["${control_plane_repository}"]=1
+fi
+
+# Phase 2: create the missing tags (all verified above).
+for repository in "${repositories[@]}" "${control_plane_repository}"; do
+  if [[ -n "${release_exists[${repository}]:-}" ]]; then
+    echo "Verified ${repository}:${release_tag} -> ${source_sha[${repository}]}"
+  else
+    create_tag "${repository}" "${release_tag}" "${source_sha[${repository}]}"
+  fi
+done
 
 printf 'release_tag=%s\n' "${release_tag}" >> "${output_file}"
 echo "Promoted ${uat_tag} to ${release_tag} after successful UAT Hybrid validation."
