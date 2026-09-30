@@ -87,6 +87,24 @@ class ZitadelContractTest(unittest.TestCase):
             workflow_text,
         )
 
+    def test_dns_job_is_explicit_and_gates_service_deploy(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/zitadel-server.yml").read_text())
+        event = workflow.get("on", workflow.get(True))
+        inputs = event["workflow_dispatch"]["inputs"]
+        self.assertEqual(inputs["dns_action"]["default"], "none")
+        self.assertEqual(inputs["dns_action"]["options"], ["none", "update"])
+        self.assertEqual(inputs["confirm_dns_change"]["default"], False)
+        self.assertIn("dns", workflow["jobs"])
+        self.assertIn("inputs.dns_action == 'update'", workflow["jobs"]["dns"]["if"])
+        service_if = workflow["jobs"]["service"]["if"]
+        self.assertIn("needs.dns.result == 'success'", service_if)
+        self.assertIn("inputs.dns_action == 'none'", service_if)
+        dns_text = (ROOT / ".github/workflows/zitadel-server.yml").read_text()
+        self.assertIn("CLOUDFLARE_DNS_API_TOKEN must be configured in the prod environment", dns_text)
+        self.assertIn("case \"${record_count}\" in", dns_text)
+        self.assertIn("-X POST", dns_text)
+        self.assertIn("refusing an ambiguous update", dns_text)
+
 
 if __name__ == "__main__":
     unittest.main()

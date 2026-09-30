@@ -43,6 +43,19 @@ class OpenPlatformOrchestratorContractTests(unittest.TestCase):
             'provider_manifest:"resources/svc.plus/shared/gcp/open-platform-shared-vault.yaml"',
             script,
         )
+        self.assertIn(
+            "dispatch_and_wait zitadel-server.yml \"ZITADEL deploy\"",
+            script,
+        )
+        self.assertIn(
+            'provider_manifest:"resources/svc.plus/shared/gcp/open-platform-shared-iam.yaml"',
+            script,
+        )
+        self.assertIn('--arg vault_addr "${VAULT_ADDR}"', script)
+        self.assertLess(
+            script.index('dispatch_and_wait zitadel-server.yml "ZITADEL deploy"'),
+            script.index('dispatch_and_wait observability-server.yml'),
+        )
         self.assertNotIn(
             'provider_manifest:"resources/xworktech.com/shared/gcp/vault-shared.yaml"',
             script,
