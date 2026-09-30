@@ -22,6 +22,15 @@ case "${ACTION}" in
     terraform plan -input=false -out="${plan_file}"
     terraform show -json "${plan_file}" > "${plan_json}"
 
+    # A normal UAT deploy may create or update resources, but must never
+    # implicitly destroy/recreate them (including ForceNew replacements).
+    if [[ "${ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY:-}" == terraform/uat/* ]] && \
+      jq -e '[.resource_changes[]? | select(.change.actions | index("delete"))] | length > 0' \
+        "${plan_json}" >/dev/null; then
+      echo '::error::UAT apply plan contains a delete or replacement. Reconcile drift before applying.' >&2
+      exit 1
+    fi
+
     downgrade_count="$(jq '
       def rank:
         if . == "vc2-1c-1gb" then 1

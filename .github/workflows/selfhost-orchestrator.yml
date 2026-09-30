@@ -642,19 +642,34 @@ jobs:
         set -euo pipefail
         terraform -chdir='${{ steps.route.outputs.env_dir }}' workspace select -or-create \
           '${{ steps.route.outputs.terraform_workspace }}'
-        address='google_org_policy_policy.vm_external_ip_access'
         state_entries="$(terraform -chdir='${{ steps.route.outputs.env_dir }}' state list 2>&1)" || {
           [[ "${state_entries}" == *'No state file was found!'* ]] || { printf '%s\n' "${state_entries}" >&2; exit 1; }
           state_entries=''
         }
-        if grep -Fqx -- "${address}" <<<"${state_entries}"; then
-          echo 'UAT external IP policy is already present in open-platform state.'
-          exit 0
-        fi
+        import_if_absent() {
+          local address="$1" id="$2"
+          if grep -Fqx -- "${address}" <<<"${state_entries}"; then
+            echo "Already managed: ${address}"
+            return
+          fi
+          terraform -chdir='${{ steps.route.outputs.env_dir }}' import -input=false -no-color \
+            "${address}" "${id}"
+        }
         project_number="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
         [[ "${project_number}" =~ ^[0-9]+$ ]] || { echo 'Could not resolve UAT project number' >&2; exit 1; }
-        terraform -chdir='${{ steps.route.outputs.env_dir }}' import -input=false -no-color \
-          "${address}" "projects/${project_number}/policies/compute.vmExternalIpAccess"
+        import_if_absent 'google_org_policy_policy.vm_external_ip_access' \
+          "projects/${project_number}/policies/compute.vmExternalIpAccess"
+        # These prerequisites already exist in GCP. Fail closed if they cannot
+        # be inspected; treating an IAM error as "missing" causes duplicate creates.
+        gcloud compute addresses describe open-platform-uat-public-ip \
+          --project="${PROJECT_ID}" --region=asia-east1 >/dev/null
+        import_if_absent 'module.open_platform_uat.google_compute_address.public[0]' \
+          "projects/${PROJECT_ID}/regions/asia-east1/addresses/open-platform-uat-public-ip"
+        runtime_email="open-platform-uat-runtime@${PROJECT_ID}.iam.gserviceaccount.com"
+        gcloud iam service-accounts describe "${runtime_email}" \
+          --project="${PROJECT_ID}" >/dev/null
+        import_if_absent 'module.open_platform_uat.google_service_account.runtime' \
+          "projects/${PROJECT_ID}/serviceAccounts/${runtime_email}"
 
     # 必须排在 plan/apply/destroy 之前: terraform 的第一件事是 refresh, 而
     # state 里一个指向已删实例的 ID 会让 vultr provider 在 refresh 阶段硬失败,
