@@ -141,6 +141,9 @@ jobs:
     - name: Verify complete-snapshot combined UAT gate
       run: bash .github/scripts/tests/daily_snapshot_uat_gate_contract_test.sh
 
+    - name: Verify complete immutable UAT to PROD tag promotion
+      run: bash .github/scripts/tests/daily_snapshot_promote_uat_tag_test.sh
+
     - name: Verify independent Shared ZITADEL delivery contract
       run: python3 -m unittest scripts.tests.test_zitadel_server_contract
 

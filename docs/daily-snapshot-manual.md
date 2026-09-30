@@ -71,6 +71,15 @@ Hybrid 没有对应输入，因此 **`enable_migration`、`apply_accounts_schema
 
 ### UAT 成功后晋级 PROD（可选）
 
+跨仓 tag 写入不是原子事务：全量预检失败时不会写入；写入途中 API 失败时立即停止，
+不派发 PROD。保留已创建的不可变 tag，重跑时校验这些 tag 并补齐缺失项，不移动或删除 tag。
+
+部署本次代码前，由授权管理员更新 `github-actions-platform-ops-toolkit-prod-release`
+的托管 role/policy（`scripts/create_vault_service_repo_roles.sh --apply --role
+github-actions-platform-ops-toolkit-prod-release`）。该 role 精确绑定 Daily 的 protected
+main，只读取 GitHub App 专用 KV，不再继承可写业务秘密的通用 PROD policy。
+提交代码不会自动修改 Vault。晋级 Environment 的审批人员仍需在 GitHub 设置中配置。
+
 仅在 `deploy_env=uat`、未筛选仓库且勾选 `promote_prod_after_uat` 时，才会出现独立的 `promote-prod` job（定时任务不会晋级）：
 
 1. 只有 UAT Hybrid 步骤的结果为 `success`（`skipped` 不算）后，才请求 `production` Environment 审批——审批人看到的是已完成的 UAT 结果；

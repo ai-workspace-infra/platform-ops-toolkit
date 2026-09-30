@@ -10,7 +10,7 @@ on:
         default: plan
         options: [none, plan, apply]
       service_stage:
-        description: 'deploy installs PostgreSQL prerequisites and deploy_zitadel_docker.yaml; verify checks OIDC only'
+        description: 'deploy bootstraps host prerequisites and Doco-CD GitOps; verify checks OIDC only'
         type: choice
         required: true
         default: none
@@ -60,6 +60,10 @@ jobs:
       zone: ${{ steps.resolve.outputs.zone }}
       network: ${{ steps.resolve.outputs.network }}
       domain: ${{ steps.resolve.outputs.domain }}
+      gitops_sha: ${{ steps.resolve.outputs.gitops_sha }}
+      zitadel_image: ${{ steps.resolve.outputs.zitadel_image }}
+      zitadel_login_image: ${{ steps.resolve.outputs.zitadel_login_image }}
+      doco_cd_image: ${{ steps.resolve.outputs.doco_cd_image }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,7 +94,7 @@ jobs:
       github_environment: prod
       gcp_account_id: ${{ needs.declaration.outputs.account }}
       gcp_resource_manifest: ${{ inputs.provider_manifest }}
-      gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
+      gitops_repo_ref: ${{ needs.declaration.outputs.gitops_sha }}
       iac_ref: ${{ inputs.iac_ref }}
     secrets: inherit
 
@@ -110,6 +114,11 @@ jobs:
       NETWORK_NAME: ${{ needs.declaration.outputs.network }}
       DOMAIN: ${{ needs.declaration.outputs.domain }}
       SERVICE_STAGE: ${{ inputs.service_stage }}
+      ZITADEL_GITOPS_URL: https://github.com/ai-workspace-infra/gitops.git
+      ZITADEL_GITOPS_SHA: ${{ needs.declaration.outputs.gitops_sha }}
+      ZITADEL_IMAGE: ${{ needs.declaration.outputs.zitadel_image }}
+      ZITADEL_LOGIN_IMAGE: ${{ needs.declaration.outputs.zitadel_login_image }}
+      ZITADEL_DOCO_CD_IMAGE: ${{ needs.declaration.outputs.doco_cd_image }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -147,6 +156,7 @@ jobs:
           secrets: |
             kv/data/shared/iam masterkey | ZITADEL_MASTERKEY ;
             kv/data/shared/iam zitadel-admin@zitadel.iam.svc.plus | ZITADEL_ADMIN_PASSWORD ;
+            kv/data/shared/iam login_session_cookie_secret | ZITADEL_LOGIN_SESSION_COOKIE_SECRET ;
             kv/data/shared/databases postgres_root_password | POSTGRESQL_ADMIN_PASSWORD ;
             kv/data/shared/databases zitadel_pg_password | ZITADEL_PG_PASSWORD
       - name: Deploy or verify ZITADEL

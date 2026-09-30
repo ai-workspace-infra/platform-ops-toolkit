@@ -70,6 +70,17 @@ if promote is None:
     raise SystemExit("missing promote-prod job: UAT-to-PROD promotion must be its own approval-gated job")
 prod_role = "github-actions-platform-ops-toolkit-prod-release"
 
+import json
+root = Path(sys.argv[1]).resolve().parents[2]
+role = json.loads((root / "scripts/vault/roles" / f"{prod_role}.json").read_text())
+if role['token_policies'] != [prod_role]:
+    raise SystemExit("release role must not inherit the broad production deployment policy")
+if role['bound_claims']['job_workflow_ref'] != "ai-workspace-infra/platform-ops-toolkit/.github/workflows/daily-main-snapshot.yaml@refs/heads/main":
+    raise SystemExit("release role workflow ref must be exact protected main")
+policy = (root / "scripts/vault/policies" / f"{prod_role}.hcl").read_text()
+if '"kv/data/CICD/github-app/daily-snapshot"' not in policy or any(x in policy for x in ['*', '"update"', '"create"']):
+    raise SystemExit("release role must only read the exact GitHub App credential")
+
 # The production approval must be requested only after UAT succeeded: the UAT
 # job itself may be gated by `production` only for the direct PROD path.
 if "promote_prod_after_uat" in summary.get("environment", ""):

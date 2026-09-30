@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import re
+import subprocess
 import yaml
 
 
@@ -36,9 +37,34 @@ def resolve(root, manifest, action, stage, ref):
     return values
 
 
+def resolve_delivery(root):
+    root = Path(root)
+    config = yaml.safe_load((root / ".doco-cd.zitadel.yaml").read_text())
+    if (config.get("name") != "shared-zitadel" or config.get("working_dir") != "compose/zitadel"
+            or config.get("compose_files") != ["docker-compose.yml"]
+            or config.get("env_files") != [".env.shared"]):
+        raise ValueError("IAM Doco-CD must select only the declared ZITADEL stack")
+    images = {}
+    for line in (root / "compose/zitadel/.env.shared").read_text().splitlines():
+        if line and not line.startswith("#"):
+            key, value = line.split("=", 1)
+            images[key] = value
+    result = {}
+    for key, image in {"ZITADEL_IMAGE": "zitadel/zitadel", "ZITADEL_LOGIN_IMAGE": "zitadel/zitadel-login",
+                       "DOCO_CD_IMAGE": "kimdre/doco-cd"}.items():
+        value = images.get(key, "")
+        if not re.fullmatch(r"ghcr\.io/" + re.escape(image) + r"@sha256:[0-9a-f]{64}", value):
+            raise ValueError(f"GitOps {key} must be digest-pinned")
+        result[key.lower()] = value
+    return result
+
+
 if __name__ == "__main__":
     values = resolve("gitops", os.environ["MANIFEST"], os.environ["DEPLOY_ACTION"],
                      os.environ["SERVICE_STAGE"], os.environ["GITHUB_REF"])
+    values["gitops_sha"] = subprocess.check_output(["git", "-C", "gitops", "rev-parse", "HEAD"], text=True).strip()
+    if os.environ["SERVICE_STAGE"] == "deploy":
+        values.update(resolve_delivery("gitops"))
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         for key, value in values.items():
             output.write(f"{key}={value}\n")

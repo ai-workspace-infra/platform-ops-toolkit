@@ -20,6 +20,8 @@ fi
 [[ "${SERVICE_STAGE}" == deploy ]] || { echo 'Unsupported service stage' >&2; exit 2; }
 : "${PROJECT_ID:?}" "${AUTH_PROJECT_ID:?}" "${NODE_NAME:?}" "${NODE_ZONE:?}" "${NETWORK_NAME:?}"
 : "${ZITADEL_MASTERKEY:?}" "${ZITADEL_ADMIN_PASSWORD:?}" "${ZITADEL_PG_PASSWORD:?}" "${POSTGRESQL_ADMIN_PASSWORD:?}" "${VAULT_TOKEN:?}"
+: "${ZITADEL_GITOPS_SHA:?}" "${ZITADEL_GITOPS_URL:?}" "${ZITADEL_DOCO_CD_IMAGE:?}"
+: "${ZITADEL_IMAGE:?}" "${ZITADEL_LOGIN_IMAGE:?}" "${ZITADEL_LOGIN_SESSION_COOKIE_SECRET:?}"
 [[ "${AUTH_PROJECT_ID}" == "${PROJECT_ID}" ]] || { echo 'Vault GCP identity does not match GitOps project' >&2; exit 1; }
 [[ "${#ZITADEL_MASTERKEY}" == 32 && "${ZITADEL_MASTERKEY}" != MasterkeyNeedsToHave32Characters ]] || {
   echo 'Vault must contain a non-placeholder 32-character ZITADEL masterkey' >&2; exit 1;
@@ -81,6 +83,7 @@ vars = {"ansible_host": os.environ["TARGET_IP"], "ansible_user": os.environ["SSH
         "ansible_ssh_common_args": f"-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile={p}/known_hosts"}
 (p / "inventory.json").write_text(json.dumps({"all": {"hosts": {host: vars}}}))
 extra = {"domain": os.environ["DOMAIN"], "zitadel_domain": os.environ["DOMAIN"],
+         "zitadel_deployment_mode": "doco-cd",
          "zitadel_masterkey": os.environ["ZITADEL_MASTERKEY"],
          "zitadel_admin_password": os.environ["ZITADEL_ADMIN_PASSWORD"],
          "db_configs_raw": [{"db": "zitadel", "user": "zitadel_user",
