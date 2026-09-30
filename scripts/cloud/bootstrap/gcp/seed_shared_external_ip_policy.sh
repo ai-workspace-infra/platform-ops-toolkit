@@ -39,7 +39,8 @@ ruby -ryaml -rjson -e '
     doc.dig("metadata", "provider") == "gcp"
   spec = doc.fetch("spec")
   project = spec.fetch("project_id")
-  abort "account/project mismatch" unless spec.fetch("gcp_account_id") == project
+  account = spec.fetch("gcp_account_id").to_s
+  abort "invalid logical GCP account id" unless account.match?(/\A[A-Za-z0-9][A-Za-z0-9._%+@-]{0,126}[A-Za-z0-9]\z/)
   abort "invalid GCP project ID" unless project.match?(/\A[a-z][a-z0-9-]{4,28}[a-z0-9]\z/)
   instances = spec.fetch("external_ip_allowed_instances")
   abort "empty external IP allowlist" unless instances.is_a?(Array) && !instances.empty?
@@ -70,7 +71,7 @@ token_file="$(mktemp)"
 error_file="$(mktemp)"
 gcloud auth application-default print-access-token >"${token_file}"
 
-if gcloud --access-token-file="${token_file}" org-policies describe \
+if gcloud --access-token-file="${token_file}" --billing-project="${project_id}" org-policies describe \
   compute.vmExternalIpAccess --project="${project_id}" --format=json \
   >"${error_file}" 2>&1; then
   current="$(jq -c '.spec.rules[0].values.allowedValues // [] | sort' "${error_file}")"
@@ -81,7 +82,7 @@ if gcloud --access-token-file="${token_file}" org-policies describe \
   fi
   echo "${project_id}: external IP policy already matches GitOps."
 elif grep -Fq 'NOT_FOUND' "${error_file}"; then
-  gcloud --access-token-file="${token_file}" org-policies set-policy "${policy_file}" --quiet
+  gcloud --access-token-file="${token_file}" --billing-project="${project_id}" org-policies set-policy "${policy_file}" --quiet
   echo "${project_id}: GitOps external IP policy created."
 else
   sed -n '1,8p' "${error_file}" >&2

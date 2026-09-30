@@ -66,7 +66,10 @@ command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
 expected_project="${GCP_EXPECTED_PROJECT_ID:-}"
 if [[ -z "${expected_project}" ]]; then
   if [[ "${environment}" == shared ]]; then
-    expected_project="${account_id}"
+    case "${account_id}" in
+      open-platform-prod) expected_project="open-platform-prod" ;;
+      open-platform-shared) expected_project="open-platform-shared-510113" ;;
+    esac
   elif [[ "${account_id}" == "xworktech" ]]; then
     expected_project="${default_project}"
   else

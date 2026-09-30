@@ -115,20 +115,21 @@ bash scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh
 使用仓库脚本统一校验环境、账号标识和项目 ID，并通过 KV v2 HTTP API 写入。脚本会
 优先使用 `GCP_ACCESS_TOKEN`；未设置时自动调用 ADC 获取短期 token：
 
-`open-platform-shared` 使用独立的 shared 账号和项目。先更新本机 ADC 登录，
+`open-platform-shared` 是 Vault/GitHub Actions 使用的逻辑账号，实际 GCP
+project_id 为 `open-platform-shared-510113`。先更新本机 ADC 登录，
 再由脚本获取短期 token；ADC 失败时脚本会停止，不会向 Vault 写入空字段。
 
 ```bash
 gcloud auth application-default login
 GCP_ENVIRONMENT=shared \
 GCP_ACCOUNT_ID=open-platform-shared \
-GCP_PROJECT_ID=open-platform-shared \
+GCP_PROJECT_ID=open-platform-shared-510113 \
 bash scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh
 
 GCP_BOOTSTRAP_ACTION=check \
 GCP_ENVIRONMENT=shared \
 GCP_ACCOUNT_ID=open-platform-shared \
-GCP_PROJECT_ID=open-platform-shared \
+GCP_PROJECT_ID=open-platform-shared-510113 \
 bash scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh
 ```
 
