@@ -69,7 +69,7 @@ on:
         description: Reviewed playbooks commit for Vault node configuration.
         type: string
         required: true
-        default: e2b984d0e1bea6ff4e68e38dcbd2af592023e224
+        default: 450294be3a0c74e1ed34524bb0f3c0be274f2a60
 
 permissions:
   contents: read
@@ -529,6 +529,7 @@ jobs:
           VAULT_DRILL_BIN="${RUNNER_TEMP}/vault-drill-bin/vault" bash scripts/node_deploy/vault_snapshot.sh
 
       - name: Execute provider-neutral Vault node stage
+        id: node_deploy
         if: ${{ steps.access.outcome == 'success' && steps.stage.outputs.stage != '' }}
         uses: ./.github/actions/vault-node-stage
         env:
@@ -560,6 +561,49 @@ jobs:
           xconnect_topology: ${{ github.workspace }}/gitops/${{ needs.declaration.outputs.xconnect_topology }}
           xconnect_dir: ${{ runner.temp }}/xconnect
           gateway_state: /var/lib/xconnect-gateway/${{ needs.declaration.outputs.environment }}/state.json
+
+      - name: Point the XConnect Gateway hostname at the prepared gateway
+        if: ${{ inputs.service_stage == 'xconnect-gateway-frontend' && steps.node_deploy.outcome == 'success' && github.ref == 'refs/heads/main' && inputs.gitops_repo_ref == 'main' }}
+        shell: bash
+        env:
+          NODE_CONTRACT: ${{ steps.access.outputs.contract }}
+          XCONNECT_TOPOLOGY: ${{ github.workspace }}/gitops/${{ needs.declaration.outputs.xconnect_topology }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DNS_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_DNS_API_TOKEN is required in the prod environment}"
+          gateway_ip="$(jq -er '[.spec.nodes[] | select(.groups | index("xconnect_gateway")) | .address] | if length == 1 then .[0] else error("expected one gateway") end' "${NODE_CONTRACT}")"
+          [[ "${gateway_ip}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || { echo '::error::gateway has no public IPv4 address' >&2; exit 1; }
+          domain="$(python3 - "${XCONNECT_TOPOLOGY}" <<'PY'
+          import pathlib, sys, yaml
+          topology = yaml.safe_load(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+          print(topology['spec']['network']['transport_profile']['host'])
+          PY
+          )"
+          [[ "${domain}" == vault-xconnect.svc.plus ]] || { echo '::error::unexpected XConnect Gateway hostname' >&2; exit 1; }
+
+          # The frontend must already present a valid certificate at the new
+          # IP; its Xray backend is enrolled by the next stage.
+          curl --silent --show-error --connect-timeout 10 --max-time 20 \
+            --resolve "${domain}:443:${gateway_ip}" "https://${domain}/xconnect" \
+            -o /dev/null
+
+          zones="$(curl --fail-with-body --silent --show-error --retry 3 \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            'https://api.cloudflare.com/client/v4/zones?name=svc.plus&status=active&per_page=20')"
+          zone_id="$(jq -er '.result | if length == 1 then .[0].id else error("expected one active svc.plus zone") end' <<<"${zones}")"
+          records="$(curl --fail-with-body --silent --show-error --retry 3 \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?type=A&name=${domain}&per_page=100")"
+          record_id="$(jq -er '.result | if length == 1 then .[0].id else error("expected one existing gateway A record") end' <<<"${records}")"
+          payload="$(jq -n --arg name "${domain}" --arg ip "${gateway_ip}" '{type:"A",name:$name,content:$ip,ttl:60,proxied:false}')"
+          curl --fail-with-body --silent --show-error --retry 3 -X PATCH \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data "${payload}" \
+            "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records/${record_id}" \
+            | jq -e --arg ip "${gateway_ip}" '.success == true and .result.content == $ip and .result.proxied == false' >/dev/null
+          printf 'XConnect Gateway DNS: %s -> %s\n' "${domain}" "${gateway_ip}" >> "${GITHUB_STEP_SUMMARY}"
 
       # C5: after the stage gates (access, gateway-enrolled) passed above.
       - name: Issue the operator device invitation into Vault
