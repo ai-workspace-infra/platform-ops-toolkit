@@ -50,7 +50,9 @@ def resolve(config: dict, instances: list[dict], ssh_user: str) -> dict:
         "id": config["source_id"],
         "provider": "gcp",
         "address": public_ips[0],
-        "private_address": overlay or private_ip,
+        # A source retained as Gateway still advertises its original VPC
+        # address in Raft. XConnect routes that address during the handoff.
+        "private_address": private_ip if source_role == "gateway" else (overlay or private_ip),
         "overlay_address": overlay or None,
         "ssh_host_ed25519": config["ssh_host_ed25519"],
         "ssh_user": ssh_user,
