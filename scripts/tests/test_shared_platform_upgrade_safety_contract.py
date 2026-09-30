@@ -232,5 +232,45 @@ class ZitadelUnbootstrappedRecoveryTests(unittest.TestCase):
         self.assertNotIn("reset_unbootstrapped_confirmation", orchestrator)
         self.assertNotIn(self.TOKEN, orchestrator)
 
+
+class ZitadelHttpsVerificationTests(unittest.TestCase):
+    """A failed iam.svc.plus check must fail the deploy, with host evidence."""
+
+    SCRIPT = ROOT / ".github/scripts/service-deploy/zitadel.sh"
+
+    def verify_in_condition(self, curl_body, curl_rc=0):
+        text = self.SCRIPT.read_text()
+        start = text.index("verify() {")
+        end = text.index("\n}\n", start) + 3
+        with tempfile.TemporaryDirectory() as tmp:
+            curl = Path(tmp) / "curl"
+            curl.write_text(f"#!/usr/bin/env bash\nprintf '%s' '{curl_body}'\nexit {curl_rc}\n")
+            curl.chmod(0o755)
+            harness = "set -euo pipefail\n" + text[start:end] + "\nif ! verify; then echo FAILED; exit 3; fi\necho PASSED\n"
+            env = dict(os.environ, PATH=f"{tmp}:{os.environ['PATH']}", DOMAIN="iam.svc.plus")
+            return subprocess.run(["bash", "-c", harness], env=env, capture_output=True, text=True)
+
+    def test_verify_fails_in_a_condition_when_https_is_unreachable(self):
+        # set -e is off inside `if ! verify`; each check must return explicitly.
+        result = self.verify_in_condition("", curl_rc=7)
+        self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+
+    def test_verify_rejects_a_wrong_issuer_and_accepts_the_right_one(self):
+        wrong = self.verify_in_condition('{"issuer":"https://evil.example","jwks_uri":"https://evil.example/k"}')
+        self.assertEqual(wrong.returncode, 3)
+        right = self.verify_in_condition('{"issuer":"https://iam.svc.plus","jwks_uri":"https://iam.svc.plus/oauth/v2/keys"}')
+        self.assertEqual(right.returncode, 0, right.stderr)
+        self.assertIn("PASSED", right.stdout)
+
+    def test_deploy_collects_read_only_host_evidence_and_still_fails(self):
+        text = self.SCRIPT.read_text()
+        block = text[text.index("if ! verify; then"):text.index("printf '### ZITADEL server")]
+        for evidence in ("systemctl is-active caddy", "ss -ltnp", "journalctl -u caddy", "--resolve ${DOMAIN}:443:127.0.0.1"):
+            self.assertIn(evidence, block)
+        commands = block[block.index("<<EOF"):block.index("\nEOF\n")]
+        import re
+        self.assertIsNone(re.search(r"systemctl (restart|reload|stop|start|enable|disable)|\\bdocker\\b|\\brm\\b|caddy (reload|stop|start)", commands))
+        self.assertTrue(block.rstrip().endswith("exit 1\nfi") or "  exit 1\nfi" in block)
+
 if __name__ == "__main__":
     unittest.main()
