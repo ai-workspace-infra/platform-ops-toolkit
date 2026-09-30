@@ -56,7 +56,7 @@ provided. Normal UAT/PROD deployments remain strict and require:
 
 ```text
 kv/data/<env>/iam
-  zitadel-admin@zitadel.iam.svc.plus
+  zitadel-admin@iam.svc.plus
 ```
 
 Business migration and DNS cutover remain separate operations.

@@ -11,7 +11,7 @@ vault_addr="${VAULT_ADDR:-https://vault.svc.plus}"
 vault_mount="${VAULT_KV_MOUNT:-kv}"
 iam_path="${ZITADEL_IAM_PATH:-shared/iam}"
 database_path="${ZITADEL_DATABASE_PATH:-shared/databases}"
-admin_key="${ZITADEL_ADMIN_KEY:-zitadel-admin@zitadel.iam.svc.plus}"
+admin_key="${ZITADEL_ADMIN_KEY:-zitadel-admin@iam.svc.plus}"
 mode="check"
 generate_missing=0
 

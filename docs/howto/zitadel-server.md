@@ -45,7 +45,7 @@ bash scripts/iam/bootstrap_zitadel_kv.sh --check
 | KV v2 API path | 字段 |
 | --- | --- |
 | `kv/data/shared/platform/oidc/open-platform-shared` | 已有 GCP WIF identity 四字段 |
-| `kv/data/shared/iam` | `masterkey`、`zitadel-admin@zitadel.iam.svc.plus`、`login_session_cookie_secret`（至少 32 字符） |
+| `kv/data/shared/iam` | `masterkey`、`zitadel-admin@iam.svc.plus`、`login_session_cookie_secret`（至少 32 字符） |
 | `kv/data/shared/databases` | `postgres_root_password`、`zitadel_pg_password` |
 
 `masterkey` 必须是持久保存的非占位 32 字符密钥，重部署保持同一密钥。

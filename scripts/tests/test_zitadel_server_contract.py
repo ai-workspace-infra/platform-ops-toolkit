@@ -80,6 +80,13 @@ class ZitadelContractTest(unittest.TestCase):
         script = (ROOT / ".github/scripts/service-deploy/zitadel.sh").read_text()
         self.assertIn('"zitadel_deployment_mode": "doco-cd"', script)
 
+    def test_vault_selector_escapes_admin_key_with_jsonata_backticks(self):
+        workflow_text = (ROOT / ".github/workflows/zitadel-server.yml").read_text()
+        self.assertIn(
+            "kv/data/shared/iam `zitadel-admin@iam.svc.plus` | ZITADEL_ADMIN_PASSWORD",
+            workflow_text,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
