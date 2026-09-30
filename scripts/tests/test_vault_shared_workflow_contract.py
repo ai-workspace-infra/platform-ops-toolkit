@@ -199,7 +199,7 @@ class ProviderNeutralStageTests(unittest.TestCase):
         report = self.steps["Report where migrate-auto stopped"]
         self.assertIn("steps.stage.outputs.blocked != ''", report["if"])
         snapshot = self.steps["Take, encrypt and upload a Raft snapshot"]
-        self.assertIn("steps.stage.outputs.snapshot_first == 'true'", snapshot["if"])
+        self.assertEqual(snapshot["if"], "${{ steps.stage.outputs.action == 'snapshot' }}")
 
 
 class MigrationWiringTests(unittest.TestCase):

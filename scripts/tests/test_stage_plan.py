@@ -87,12 +87,10 @@ class StagePlanTests(unittest.TestCase):
         )
         self.assertEqual(entry("migrate-remove")["confirms"], ["raft-quorum-new"])
 
-    def test_every_live_raft_change_is_preceded_by_a_drilled_snapshot(self):
+    def test_disaster_recovery_snapshot_is_a_separate_stage(self):
         for stage in ("migrate-join", "migrate-cutover", "migrate-remove"):
-            self.assertTrue(entry(stage)["snapshot_first"], stage)
-            with self.assertRaisesRegex(ValueError, "declare spec.backup"):
-                module.plan(stage, entry(stage)["confirm"], migration=True, backup=False)
-            module.plan(stage, entry(stage)["confirm"], migration=True, backup=True)
+            self.assertFalse(entry(stage)["snapshot_first"], stage)
+            module.plan(stage, entry(stage)["confirm"], migration=True, backup=False)
         with self.assertRaisesRegex(ValueError, "declare spec.backup"):
             module.plan("vault-snapshot", backup=False)
         self.assertFalse(entry("migrate-convert")["snapshot_first"])
