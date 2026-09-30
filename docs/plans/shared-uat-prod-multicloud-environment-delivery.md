@@ -1,12 +1,12 @@
 # Shared / UAT / PROD 多云环境与发布链路规划
 
-日期：2026-09-30。状态：规划草案，未执行资源变更或发布。
+日期：2026-09-30。状态：规划与控制面契约；未执行资源变更或发布。
 
 本文整理最新目标、代码核查结果及实施验收项，不是新的运行时 matrix。资源声明仍以经审批的 GitOps commit 为准；本文中的目标表不能代替 GitOps。已有本地 workflow 修改不视为已合并实现。
 
 关联历史任务：[Epic #838](https://github.com/ai-workspace-infra/platform-ops-toolkit/issues/838)、[资源建设 #845](https://github.com/ai-workspace-infra/platform-ops-toolkit/issues/845)、[部署与迁移 #846](https://github.com/ai-workspace-infra/platform-ops-toolkit/issues/846)。#838 仍描述旧六 Akamai namespace，实施前须补充或拆出新任务，并关联本规划；不能将历史验收标准当作当前多云目标。
 
-本轮范围只有环境文档和只读代码核查，不执行 Terraform `plan/apply/destroy`、state import/removal、Org Policy 写入、DNS 切换、数据迁移或 GitHub workflow dispatch。
+本轮实现范围包含环境文档、Daily Snapshot 只读 Shared readiness gate 及其契约测试；不执行 Terraform `plan/apply/destroy`、state import/removal、Org Policy 写入、DNS 切换、数据迁移或 GitHub workflow dispatch。
 
 ## 1. 工程规范与职责边界
 
@@ -234,7 +234,7 @@ Daily 控制面可以从 `main` 创建 release，但 PROD 子工作流必须在�
 
 | ID | 核查发现 | 目标修正 / 风险 |
 | --- | --- | --- |
-| GAP-01 | UAT dispatch 脚本 `SHARED_PLATFORM_ACTION` 默认 apply，并调用 Open Platform deploy | 删除业务发布中的平台写入路径，改为串行只读 readiness |
+| GAP-01 | 已修正：Daily Snapshot 不再暴露 `SHARED_PLATFORM_ACTION`，也不调用 Open Platform deploy | Shared 由独立 `open-platform-orchestrator.yml` 管理；Daily 只执行 Vault → Observability → IAM 只读 readiness |
 | GAP-02 | GitOps UAT matrix 仍含 open-platform，SG 为 Akamai、业务项多为 ephemeral | 拆 Shared，落实最新 UAT/PROD 默认 provider 与生命周期；逐行固定身份 |
 | GAP-03 | UAT web-saas 使用 `resources.spot_vms`，GCP 模块固定 SPOT | 建持久计算 adapter/声明，独立保护；先评估现有数据，不自动替换 |
 | GAP-04 | GCP renderer 支持 state_project，pipeline key 校验只用 project_id | 统一 key 计算及测试；不得盲移 state |
@@ -259,9 +259,29 @@ Daily 控制面可以从 `main` 创建 release，但 PROD 子工作流必须在�
 | P5 UAT 演练 | 再获执行授权后 plan → 审批 apply/deploy | 云侧/输出/主机/数据流/父子 run 证据齐全，后续 plan 0/0/0 |
 | P6 PROD | 同制品晋级、独立审批及发布 | PROD ref/OIDC/GitOps 一致；持久资源零删除，完整回滚路径 |
 
+## 10. 本轮 Daily Snapshot 落地边界
+
+本轮代码变更已将 Daily Snapshot 与 Shared 平台写操作解耦：
+
+1. `snapshot-summary` 在完整快照成功后，依次执行只读的 Vault、Observability、IAM readiness 探针。
+2. 三个探针任意失败时，不 dispatch UAT Hybrid，也不执行 PROD 发布；失败结果必须保留在 workflow 日志中。
+3. UAT Hybrid 仍使用不可变 `daily-build-*` 制品并以 `target_domains=all / operation=deploy` 发布业务矩阵；普通发布不触发迁移或 destroy。
+4. 只有 UAT Hybrid 成功后，且显式开启生产晋级并通过 production Environment 审批，才把同一制品转换为 `v*` release tag 并进入 PROD 发布入口。
+5. Shared 的 Terraform、服务部署、升级和迁移仍通过独立 `open-platform-orchestrator.yml` 触发；Daily Snapshot 不创建、更新、销毁或迁移 Shared 资源。
+
+验证命令：
+
+```text
+bash .github/scripts/tests/shared_readiness_probe_test.sh
+bash .github/scripts/tests/daily_snapshot_uat_gate_contract_test.sh
+bash .github/scripts/tests/daily_snapshot_combined_dispatch_test.sh
+```
+
+这些是本地契约/模拟验证，不等同于真实云侧 `apply`、DNS 切换或业务发布成功；真实发布仍需在合并后的 `main` 上以 GitHub Actions run 作为证据。
+
 先建立任务溯源和跨仓兼容窗口。兼容变更按依赖顺序合并：声明/schema → IaC → Playbooks → Toolkit；若新声明依赖尚不可用的模块，可先合并兼容支持，再启用声明，不能把消费者上线到缺失契约。
 
-每仓独立 PR、测试与 merge SHA，均回指父任务；代码合并不证明部署成功。本轮不创建/关闭 Issue 或提交合并 PR，仅形成可供后续确认的任务草案。
+每仓独立 PR、测试与 merge SHA，均回指父任务；代码合并不证明部署成功。本轮仅提交控制面契约与验证代码，不触发真实 Terraform、DNS、迁移或销毁。
 
 ## 10. 回归用例与发布完成定义
 

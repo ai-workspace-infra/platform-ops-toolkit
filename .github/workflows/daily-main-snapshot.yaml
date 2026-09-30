@@ -70,24 +70,30 @@ on:
         description: "仅增量迁移：目标 .up.sql 文件的 SHA-256"
         required: false
         type: string
-      shared_platform_action:
-        description: "UAT 日常发布前对 open-platform-shared 执行的 GCP Terraform 动作；默认 apply，shared 项目只允许 plan/apply"
+      shared_vault_endpoint:
+        description: "只读 Shared Vault readiness endpoint；Daily 不会部署或修改 Shared"
         required: false
-        default: apply
-        type: choice
-        options:
-          - none
-          - plan
-          - apply
-      shared_platform_account:
-        description: "共享平台的具体 GCP project/account ID；默认 open-platform-shared"
-        required: false
-        default: open-platform-shared
+        default: https://vault.svc.plus
         type: string
-      shared_platform_manifest:
-        description: "共享平台 GitOps GCP 声明列表，逗号分隔；默认 Vault/Observability/IAM 三个独立 state"
+      shared_observability_endpoint:
+        description: "只读 Shared Observability readiness endpoint；Daily 不会部署或修改 Shared"
         required: false
-        default: resources/svc.plus/shared/gcp/open-platform-shared-vault.yaml,resources/svc.plus/shared/gcp/open-platform-shared-observability.yaml,resources/svc.plus/shared/gcp/open-platform-shared-iam.yaml
+        default: https://observability.svc.plus
+        type: string
+      shared_iam_endpoint:
+        description: "只读 Shared IAM OIDC endpoint；Daily 不会部署或修改 Shared"
+        required: false
+        default: https://iam.svc.plus
+        type: string
+      shared_iam_issuer:
+        description: "Shared IAM discovery 必须返回的 issuer"
+        required: false
+        default: https://iam.svc.plus
+        type: string
+      shared_readiness_timeout_seconds:
+        description: "Shared readiness 单个探针超时（秒）"
+        required: false
+        default: '20'
         type: string
       promote_prod_after_uat:
         description: "仅 UAT：UAT Hybrid 成功并通过 production approval 后，将 UAT tag 晋级为 v* 并发布 PROD 混合部署"
@@ -351,9 +357,20 @@ jobs:
           permission-contents: write
           permission-actions: write
 
+      - name: Check Shared platform readiness (read-only)
+        id: shared_readiness
+        if: ${{ (inputs.repositories || '') == '' && needs.snapshot.result == 'success' }}
+        run: ./.github/scripts/snapshots/check-shared-readiness.sh
+        env:
+          SHARED_VAULT_ENDPOINT: ${{ inputs.shared_vault_endpoint || 'https://vault.svc.plus' }}
+          SHARED_OBSERVABILITY_ENDPOINT: ${{ inputs.shared_observability_endpoint || 'https://observability.svc.plus' }}
+          SHARED_IAM_ENDPOINT: ${{ inputs.shared_iam_endpoint || 'https://iam.svc.plus' }}
+          SHARED_IAM_ISSUER: ${{ inputs.shared_iam_issuer || 'https://iam.svc.plus' }}
+          SHARED_READINESS_TIMEOUT_SECONDS: ${{ inputs.shared_readiness_timeout_seconds || '20' }}
+
       - name: Dispatch UAT Hybrid Orchestrator
         id: dispatch_uat_hybrid
-        if: ${{ (inputs.deploy_env || 'uat') == 'uat' && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' }}
+        if: ${{ (inputs.deploy_env || 'uat') == 'uat' && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' && steps.shared_readiness.outcome == 'success' }}
         run: ./.github/scripts/snapshots/dispatch-uat-combined.sh
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -367,9 +384,6 @@ jobs:
           ENABLE_MIGRATION: ${{ inputs.enable_migration }}
           APPLY_ACCOUNTS_SCHEMA_MIGRATION: ${{ inputs.apply_accounts_schema_migration || false }}
           ADOPT_ACCOUNTS_BASELINE: ${{ inputs.adopt_accounts_baseline || false }}
-          SHARED_PLATFORM_ACTION: ${{ inputs.shared_platform_action || 'apply' }}
-          SHARED_PLATFORM_ACCOUNT: ${{ inputs.shared_platform_account || 'open-platform-shared' }}
-          SHARED_PLATFORM_MANIFESTS: ${{ inputs.shared_platform_manifest || 'resources/svc.plus/shared/gcp/open-platform-shared-vault.yaml,resources/svc.plus/shared/gcp/open-platform-shared-observability.yaml,resources/svc.plus/shared/gcp/open-platform-shared-iam.yaml' }}
           ACCOUNTS_SCHEMA_EXPECTED_VERSION: ${{ inputs.accounts_schema_expected_version }}
           ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
           ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}
@@ -458,7 +472,7 @@ jobs:
           CONTROL_PLANE_SHA: ${{ github.sha }}
 
       - name: Dispatch production serverless and selfhost deployment
-        if: ${{ (inputs.deploy_env || 'uat') == 'prod' && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' }}
+        if: ${{ (inputs.deploy_env || 'uat') == 'prod' && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' && steps.shared_readiness.outcome == 'success' }}
         run: ./.github/scripts/snapshots/dispatch-prod-combined.sh
         env:
           GH_TOKEN: ${{ steps.prod-app-token.outputs.token }}

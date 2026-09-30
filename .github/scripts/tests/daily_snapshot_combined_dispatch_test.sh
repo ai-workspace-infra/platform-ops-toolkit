@@ -28,18 +28,11 @@ UAT_SERVERLESS_WAIT_INTERVAL_SECONDS=1 \
 bash "${dispatcher}"
 
 grep -Fq 'workflow run hybrid-orchestrator.yml' "${workdir}/gh.log"
-grep -Fq 'workflow run open-platform-orchestrator.yml' "${workdir}/gh.log"
-grep -Fq 'dispatch_and_wait vault-server.yml' "${repo_root}/.github/workflows/open-platform-orchestrator.yml"
-grep -Fq 'dispatch_and_wait observability-server.yml' "${repo_root}/.github/workflows/open-platform-orchestrator.yml"
-if grep -Fq 'workflow run gcp-iac-pipeline.yml' "${workdir}/gh.log"; then
-  echo 'Daily UAT snapshot must route shared infrastructure through open-platform-orchestrator.' >&2
+if grep -Fq 'workflow run open-platform-orchestrator.yml' "${workdir}/gh.log"; then
+  echo 'Daily UAT snapshot must not mutate the independent Shared platform lifecycle.' >&2
   exit 1
 fi
 grep -Fq -- '-f operation=deploy' "${workdir}/gh.log"
-grep -Fq -- '-f target_services=all' "${workdir}/gh.log"
-grep -Fq -- '-f gcp_account_id=open-platform-shared' "${workdir}/gh.log"
-grep -Fq -- '-f vault_service_stage=none' "${workdir}/gh.log"
-grep -Fq -- '-f observability_migration_mode=none' "${workdir}/gh.log"
 grep -Fq -- '-f target_domains=all' "${workdir}/gh.log"
 grep -Fq -- '-f deploy_tag=uat-daily-build-2026.09.28-r2' "${workdir}/gh.log"
 grep -Fq -- '-f source_ref=main' "${workdir}/gh.log"
