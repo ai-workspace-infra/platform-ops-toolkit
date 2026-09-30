@@ -176,15 +176,28 @@ def resolve(
     node_count = len(declared)
     if node_count not in {1, 3}:
         raise ValueError("GCP Vault scale must be one or three nodes")
-    expected_roles = ["gateway"] if node_count == 1 else ["gateway", "one", "one"]
+    migration_source = (migration or {}).get("source", {}).get("id")
+    transitional_single_peer = bool(migration and node_count == 1 and service_roles.get(next(iter(service_roles), "")) == "one")
+    if transitional_single_peer:
+        expected_roles = ["one"]
+        storage_shape_ok = (
+            storage.get("members") == node_count
+            and storage.get("leader") == migration_source
+            and set(storage.get("peers", [])) == set(service_roles)
+        )
+    else:
+        expected_roles = ["gateway"] if node_count == 1 else ["gateway", "one", "one"]
+        storage_shape_ok = (
+            storage.get("members") == node_count
+            and storage.get("leader") in service_roles
+            and service_roles[storage["leader"]] == "gateway"
+            and set(storage.get("peers", [])) == set(service_roles) - {storage["leader"]}
+        )
     if (
         len(service_roles) != node_count
         or declared_roles != service_roles
         or sorted(service_roles.values()) != sorted(expected_roles)
-        or storage.get("members") != node_count
-        or storage.get("leader") not in service_roles
-        or service_roles[storage["leader"]] != "gateway"
-        or set(storage.get("peers", [])) != set(service_roles) - {storage["leader"]}
+        or not storage_shape_ok
     ):
         raise ValueError("GCP nodes do not match the provider-neutral Vault service declaration")
     live = {(item.get("name"), item.get("zone", "").split("/")[-1]): item for item in instances}

@@ -56,6 +56,9 @@ def resolve_migration(
         raise ValueError("a migration needs automation.raft_operator_role")
     if migration.get("raft_network", "private") not in {"private", "overlay"}:
         raise ValueError("migration.raft_network must be private or overlay")
+    source_xconnect_role = str(source.get("xconnect_role", "one"))
+    if source_xconnect_role not in {"gateway", "one"}:
+        raise ValueError("migration source xconnect_role must be gateway or one")
     source_provider = source.get("provider", "existing")
     if source_provider == "gcp-cloud":
         provider_manifest = str(source.get("provider_manifest", ""))
@@ -104,6 +107,7 @@ def resolve_migration(
             "source_zone": source_node["zone"],
             "expected_address": source["address"],
             "overlay_address": source.get("overlay_address", ""),
+            "xconnect_role": source_xconnect_role,
             "ssh_host_ed25519": source["ssh_host_ed25519"],
         }
         return {

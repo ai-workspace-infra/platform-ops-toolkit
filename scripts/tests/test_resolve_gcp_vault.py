@@ -187,6 +187,31 @@ class GcpVaultResolutionTests(unittest.TestCase):
         result = resolver.resolve(manifest, service, instances, "open-platform-prod", "shared", "gha_1234567890")
         self.assertEqual([node["id"] for node in result["spec"]["nodes"]], ["vault-prod-0"])
 
+    def test_resolves_single_migration_peer_when_source_remains_gateway(self):
+        manifest, service, instances = fixture()
+        manifest["spec"]["resources"]["vault_nodes"] = [manifest["spec"]["resources"]["vault_nodes"][1]]
+        manifest["spec"]["resources"]["vault_nodes"][0]["name"] = "vault-shared-0"
+        manifest["spec"]["resources"]["vault_nodes"][0]["xconnect_role"] = "one"
+        manifest["spec"]["resources"]["vault_nodes"][0]["zone"] = "asia-east1-a"
+        instances = [{**instances[1], "name": "vault-shared-0", "zone": "asia-east1-a"}]
+        service["spec"]["migration"] = {"source": {"id": "vault-prod-0"}, "raft_network": "overlay"}
+        service["spec"]["storage"] = {"backend": "raft", "address_scope": "private", "members": 1,
+                                        "leader": "vault-prod-0", "peers": ["vault-shared-0"]}
+        service["spec"]["nodes"] = [{"id": "vault-shared-0", "xconnect_role": "one"}]
+        topology = {
+            "spec": {
+                "network": {"cidr": "10.79.0.0/24"},
+                "gateway": {"id": "vault-prod-0", "xconnect": {"overlay_ip": "10.79.0.1"}},
+                "fixed_nodes": [{"id": "vault-shared-0", "xconnect": {"overlay_ip": "10.79.0.10"}}],
+            },
+        }
+        result = resolver.resolve(manifest, service, instances, "open-platform-prod", "shared", "gha_1234567890", topology)
+        node = result["spec"]["nodes"][0]
+        self.assertEqual(node["id"], "vault-shared-0")
+        self.assertIn("xconnect_one", node["groups"])
+        self.assertIn("vault_shared_peers", node["groups"])
+        self.assertEqual(node["private_address"], "10.79.0.10")
+
     def test_rejects_two_node_scale(self):
         manifest, service, instances = fixture()
         manifest["spec"]["resources"]["vault_nodes"] = manifest["spec"]["resources"]["vault_nodes"][:2]

@@ -214,6 +214,32 @@ class GcpSourceContractTests(unittest.TestCase):
         self.assertEqual(node["private_address"], "10.79.0.4")
         self.assertIn("vault_legacy_source", node["groups"])
 
+    def test_source_contract_can_keep_the_live_gateway_role_during_join(self):
+        config = {
+            "environment": "shared",
+            "source_id": "vault-prod-0",
+            "source_zone": "asia-east1-a",
+            "project_id": "open-platform-prod",
+            "network_name": "vault-shared",
+            "expected_address": "35.221.167.104",
+            "overlay_address": "10.79.0.1",
+            "xconnect_role": "gateway",
+            "ssh_host_ed25519": HOST_KEY,
+        }
+        instances = [{
+            "name": "vault-prod-0",
+            "zone": "https://www.googleapis.com/compute/v1/projects/open-platform-prod/zones/asia-east1-a",
+            "status": "RUNNING",
+            "networkInterfaces": [{
+                "network": "https://www.googleapis.com/compute/v1/projects/open-platform-prod/global/networks/vault-shared",
+                "networkIP": "10.81.0.4",
+                "accessConfigs": [{"natIP": "35.221.167.104"}],
+            }],
+        }]
+        node = gcp_source.resolve(config, instances, "gha_123")["spec"]["nodes"][0]
+        self.assertIn("xconnect_gateway", node["groups"])
+        self.assertNotIn("xconnect_one", node["groups"])
+
 
 
 def config(leader, voters=("legacy", "n0", "n1", "n2")):
