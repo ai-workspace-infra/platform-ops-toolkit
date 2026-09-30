@@ -32,7 +32,7 @@ class VaultServerEntryTests(unittest.TestCase):
         self.assertIn("connection_mode: bootstrap-public", ENTRY.read_text(encoding="utf-8"))
         self.assertIn("xconnect-one", self.inputs["service_stage"]["options"])
         self.assertIn("vault-public-frontend", self.inputs["service_stage"]["options"])
-        self.assertEqual(self.inputs["playbooks_ref"]["default"], "e2b984d0e1bea6ff4e68e38dcbd2af592023e224")
+        self.assertEqual(self.inputs["playbooks_ref"]["default"], "450294be3a0c74e1ed34524bb0f3c0be274f2a60")
 
     def test_gateway_tls_is_read_with_the_scoped_xconnect_role_only_when_needed(self):
         steps = steps_by_name(self.jobs["node-stage"]["steps"])
@@ -49,6 +49,14 @@ class VaultServerEntryTests(unittest.TestCase):
         env = steps["Execute provider-neutral Vault node stage"]["env"]
         self.assertIn("steps.gateway_tls.outputs.VAULT_GATEWAY_TLS_KEY_B64", env["VAULT_GATEWAY_TLS_KEY_B64"])
         self.assertIn("xconnect-gateway-frontend", self.inputs["service_stage"]["options"])
+
+    def test_gateway_dns_is_published_only_after_frontend_success(self):
+        steps = steps_by_name(self.jobs["node-stage"]["steps"])
+        dns = steps["Point the XConnect Gateway hostname at the prepared gateway"]
+        self.assertIn("steps.node_deploy.outcome == 'success'", dns["if"])
+        self.assertIn("github.ref == 'refs/heads/main'", dns["if"])
+        self.assertIn('"${domain}" == vault-xconnect.svc.plus', dns["run"])
+        self.assertIn("CLOUDFLARE_DNS_API_TOKEN", dns["env"]["CLOUDFLARE_API_TOKEN"])
 
     def test_xconnect_enrollment_credentials_are_scoped_and_only_read_for_xconnect_stages(self):
         steps = steps_by_name(self.jobs["node-stage"]["steps"])
