@@ -271,6 +271,8 @@ for required in \
   '744119519286' \
   'open-platform-uat' \
   'open-platform-prod' \
+  'open-platform-shared-510113' \
+  'platform-ops-toolkit/shared/#{expected_project}/gcp-oidc-bootstrap/terraform.tfstate' \
   'spec.subjects' \
   'platform-ops-toolkit/#{environment}/#{account_id}/gcp-oidc-bootstrap/terraform.tfstate'; do
   grep -Fq -- "${required}" "${resolver}" || {

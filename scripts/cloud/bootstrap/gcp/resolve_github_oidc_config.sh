@@ -29,7 +29,12 @@ project_by_environment = {
 }
 expected_project = project_by_environment.fetch(environment)
 account_id = spec["gcp_account_id"].to_s
-expected_project = "open-platform-shared" if environment == "shared" && account_id == "open-platform-shared"
+expected_project = "open-platform-shared-510113" if environment == "shared" && account_id == "open-platform-shared"
+expected_state_key = if environment == "shared" && account_id == "open-platform-shared"
+  "platform-ops-toolkit/shared/#{expected_project}/gcp-oidc-bootstrap/terraform.tfstate"
+else
+  "platform-ops-toolkit/#{environment}/#{account_id}/gcp-oidc-bootstrap/terraform.tfstate"
+end
 expected_audience_prefix = "https://iam.googleapis.com/"
 custom_audience_prefix = "https://github.com/ai-workspace-infra/platform-ops-toolkit/"
 github_environment = environment == "shared" ? "prod" : environment
@@ -51,7 +56,7 @@ checks = {
   "spec.repository" => spec["repository"] == ENV.fetch("EXPECTED_REPOSITORY"),
   "spec.subjects" => spec["subjects"].is_a?(Array) && spec["subjects"].include?(required_subject),
   "spec.state.bucket" => spec.dig("state", "bucket").to_s.match?(/\A[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\z/),
-  "spec.state.key" => spec.dig("state", "key") == "platform-ops-toolkit/#{environment}/#{account_id}/gcp-oidc-bootstrap/terraform.tfstate"
+  "spec.state.key" => spec.dig("state", "key") == expected_state_key
 }
 failed = checks.select { |_name, passed| !passed }.keys
 abort "GCP OIDC declaration failed validation: #{failed.join(", ")}" unless failed.empty?

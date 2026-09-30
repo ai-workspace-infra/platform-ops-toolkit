@@ -120,7 +120,8 @@ token mode this destroys Vault copies without revoking the operator's ADC grant.
 
 ## 4. Run the GitHub Actions bootstrap
 
-For the new `open-platform-shared` project, the GitOps Vault declaration owns
+For the new `open-platform-shared-510113` project (logical Vault account
+`open-platform-shared`), the GitOps Vault declaration owns
 the allowlist for Vault, Observability and IAM VM public IPs. This policy needs
 an **organization-policy administrator once**, before the ordinary shared GCP
 IaC `apply`; the GitHub WIF deployment service account is not granted an

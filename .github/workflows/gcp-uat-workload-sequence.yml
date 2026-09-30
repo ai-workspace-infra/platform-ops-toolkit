@@ -23,7 +23,7 @@ on:
         description: Pinned iac_modules ref containing the GCP renderer.
         type: string
         required: true
-        default: 54e9f7ed2782f1d30befda6a70615168bcc44921
+        default: 7d379d08c30fa89856b999f12b1fb5167773bdcb
 
 permissions:
   contents: read
