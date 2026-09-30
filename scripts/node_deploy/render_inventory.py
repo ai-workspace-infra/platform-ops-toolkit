@@ -17,6 +17,7 @@ HOSTNAME = re.compile(r"^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z
 ALLOWED_AUTH_ADAPTERS = {"gcp-oslogin-ephemeral", "ssh-certificate", "ephemeral-ssh-key"}
 ALLOWED_STAGES = {
     "node-preflight",
+    "node-operator-prep",
     "vault-single-raft",
     "vault-legacy-convert",
     "vault-legacy-rollback",

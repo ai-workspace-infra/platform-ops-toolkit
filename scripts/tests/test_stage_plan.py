@@ -51,6 +51,10 @@ class StagePlanTests(unittest.TestCase):
 
     def test_monitoring_comes_first_and_needs_only_access(self):
         order = list(module.STAGES)
+        self.assertLess(order.index("node-preflight"), order.index("node-operator-prep"))
+        self.assertLess(order.index("node-operator-prep"), order.index("node-process-metrics"))
+        self.assertEqual(entry("node-operator-prep")["tags"], ["node-operator-prep"])
+        self.assertEqual(entry("node-operator-prep")["requires"], ["access"])
         self.assertLess(order.index("node-process-metrics"), order.index("fresh-leader"))
         self.assertLess(order.index("node-process-metrics"), order.index("migrate-preflight"))
         self.assertEqual(entry("node-process-metrics")["requires"], ["access"])

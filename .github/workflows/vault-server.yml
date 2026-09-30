@@ -33,7 +33,7 @@ on:
         type: choice
         required: true
         default: none
-        options: [none, node-preflight, node-process-metrics, vault-raft-verify, vault-snapshot, vault-service-verify, xconnect-gateway-frontend, vault-public-frontend, xconnect-gateway, xconnect-one, xconnect-operator-invite, fresh-leader, fresh-peers, migrate-auto, migrate-preflight, migrate-convert, migrate-rollback, migrate-join, migrate-cutover, migrate-remove]
+        options: [none, node-preflight, node-operator-prep, node-process-metrics, vault-raft-verify, vault-snapshot, vault-service-verify, xconnect-gateway-frontend, vault-public-frontend, xconnect-gateway, xconnect-one, xconnect-operator-invite, fresh-leader, fresh-peers, migrate-auto, migrate-preflight, migrate-convert, migrate-rollback, migrate-join, migrate-cutover, migrate-remove]
       dns_action:
         description: Verify public Vault endpoints, switch to the three GCP A records, or restore the legacy A record.
         type: choice

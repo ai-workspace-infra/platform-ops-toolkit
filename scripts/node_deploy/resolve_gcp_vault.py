@@ -15,6 +15,7 @@ from render_inventory import validate
 
 STAGES = [
     "node-preflight",
+    "node-operator-prep",
     "vault-shared-leader",
     "vault-shared-peers",
     "node-process-metrics",
@@ -27,6 +28,7 @@ STAGES = [
 RAFT_PORTS = (8200, 8201)
 STAGE_TARGETS = {
     "node-preflight": ["vault_shared_nodes"],
+    "node-operator-prep": ["vault_shared_nodes"],
     "vault-shared-leader": ["vault_shared_leader"],
     "vault-shared-peers": ["vault_shared_peers"],
     "node-process-metrics": ["vault_shared_nodes"],
