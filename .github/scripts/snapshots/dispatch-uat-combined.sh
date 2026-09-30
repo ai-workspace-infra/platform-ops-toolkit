@@ -83,50 +83,6 @@ fi
 
 export GH_TOKEN="${gh_token}"
 
-wait_for_run() {
-  local run_url="${1:?run URL is required}"
-  local run_label="${2:?run label is required}"
-  local timeout_seconds="${3:?timeout is required}"
-  local run_id="${run_url##*/}"
-  local started_at="${SECONDS}"
-  local state status conclusion
-
-  [[ "${run_id}" =~ ^[0-9]+$ ]] || {
-    echo "::error::Unable to determine ${run_label} run id from ${run_url}." >&2
-    exit 1
-  }
-
-  echo "Waiting for ${run_label} UAT deployment ${run_url}..."
-  while :; do
-    state="$(gh api "repos/${target_repo}/actions/runs/${run_id}" --jq '[.status, (.conclusion // "")] | @tsv')" || {
-      echo "::error::Unable to read ${run_label} run ${run_id} status." >&2
-      exit 1
-    }
-    status="${state%%$'\t'*}"
-    conclusion="${state#*$'\t'}"
-
-    if [[ "${status}" == "completed" ]]; then
-      if [[ "${conclusion}" != "success" ]]; then
-        echo "::error::${run_label} run ${run_id} completed with ${conclusion:-no conclusion}." >&2
-        exit 1
-      fi
-      echo "${run_label} UAT deployment ${run_id} completed successfully."
-      return 0
-    fi
-
-    if [[ "${status}" != "queued" && "${status}" != "in_progress" && "${status}" != "waiting" ]]; then
-      echo "::error::${run_label} run ${run_id} returned unexpected status ${status}." >&2
-      exit 1
-    fi
-
-    if (( SECONDS - started_at >= timeout_seconds )); then
-      echo "::error::Timed out waiting for ${run_label} run ${run_id} after ${timeout_seconds}s." >&2
-      exit 1
-    fi
-    sleep "${wait_interval_seconds}"
-  done
-}
-
 hybrid_workflow="${HYBRID_WORKFLOW:-hybrid-orchestrator.yml}"
 hybrid_run_url="$(gh workflow run "${hybrid_workflow}" \
   --repo "${target_repo}" \
@@ -147,4 +103,6 @@ hybrid_run_url="$(gh workflow run "${hybrid_workflow}" \
   -f vault_addr=https://vault.svc.plus \
   -f xconnect_gateway_ref=tw-xconnect.svc.plus)"
 echo "Dispatched UAT Hybrid Orchestrator for ${snapshot_tag}: ${hybrid_run_url}"
-wait_for_run "${hybrid_run_url}" "hybrid" "${selfhost_wait_timeout_seconds}"
+RUN_REPOSITORY="${target_repo}" RUN_POLL_INTERVAL_SECONDS="${wait_interval_seconds}" \
+  bash "$(dirname "${BASH_SOURCE[0]}")/wait-for-workflow-run.sh" \
+  "${hybrid_run_url}" "UAT Hybrid" "${selfhost_wait_timeout_seconds}"

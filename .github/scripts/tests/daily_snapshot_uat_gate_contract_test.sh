@@ -171,6 +171,16 @@ if "hybrid" in dispatch_prod["name"].lower():
 if dispatch_prod["env"]["ENABLE_MIGRATION"] not in (False, "false"):
     raise SystemExit("promoted PROD deployment must never enable data migration")
 
+# Every child wait reads run status with the job token, which outlives the
+# 60-minute GitHub App token used to dispatch; see wait-for-workflow-run.sh.
+uat_dispatch = next(step for step in summary["steps"] if step.get("id") == "dispatch_uat_hybrid")
+dispatch_steps = [uat_dispatch, dispatch_prod] + [
+    step for step in summary["steps"] if step.get("run") == "./.github/scripts/snapshots/dispatch-prod-combined.sh"
+]
+for step in dispatch_steps:
+    if step["env"].get("RUN_STATUS_TOKEN") != "${{ github.token }}":
+        raise SystemExit(f"{step['name']} must read child run status with the job token")
+
 # Failure diagnostics must survive a failed gate or UAT dispatch.
 publish = next(step for step in summary["steps"] if step.get("name") == "Publish unified snapshot matrix summary")
 if "!cancelled()" not in publish.get("if", ""):

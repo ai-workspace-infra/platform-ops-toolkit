@@ -10,6 +10,7 @@ cat > "${workdir}/gh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "${GH_LOG}"
+printf '%s %s %s\n' "${GH_TOKEN:-none}" "$1" "$2" >> "${GH_LOG}.tokens"
 if [[ "$1 $2" == "workflow run" ]]; then
   printf '%s\n' 'https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/1001'
 elif [[ "$1" == api && "$*" == *"/actions/runs/1001"* ]]; then
@@ -21,6 +22,7 @@ chmod +x "${workdir}/gh"
 GH_LOG="${workdir}/gh.log" \
 PATH="${workdir}:${PATH}" \
 GH_TOKEN=test-token \
+RUN_STATUS_TOKEN=job-token \
 SNAPSHOT_TAG=uat-daily-build-2026.09.28-r2 \
 SKIP_STRIPE_CATALOG=true \
 UAT_SELFHOST_WAIT_TIMEOUT_SECONDS=30 \
@@ -28,6 +30,14 @@ UAT_SERVERLESS_WAIT_INTERVAL_SECONDS=1 \
 bash "${dispatcher}"
 
 grep -Fq 'workflow run hybrid-orchestrator.yml' "${workdir}/gh.log"
+# The App token dispatches; the job token (which outlives the 60-minute App
+# token) reads the Hybrid run status until it completes.
+grep -Fxq 'test-token workflow run' "${workdir}/gh.log.tokens"
+grep -Fxq 'job-token api repos/ai-workspace-infra/platform-ops-toolkit/actions/runs/1001' "${workdir}/gh.log.tokens"
+if grep -Fq 'test-token api' "${workdir}/gh.log.tokens"; then
+  echo 'UAT Hybrid status must not be read with the dispatch App token.' >&2
+  exit 1
+fi
 if grep -Fq 'workflow run open-platform-orchestrator.yml' "${workdir}/gh.log"; then
   echo 'Daily UAT snapshot must not mutate the independent Shared platform lifecycle.' >&2
   exit 1

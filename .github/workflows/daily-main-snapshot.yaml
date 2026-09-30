@@ -381,6 +381,9 @@ jobs:
         run: ./.github/scripts/snapshots/dispatch-uat-combined.sh
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          # Child run status is read with the job token, which outlives the
+          # 60-minute GitHub App token used to dispatch (wait-for-workflow-run.sh).
+          RUN_STATUS_TOKEN: ${{ github.token }}
           SNAPSHOT_TAG: ${{ steps.resolve_snapshot_tag.outputs.snapshot_tag }}
           # Serverless Accounts is the controller for the separately deployed
           # UAT Agent Proxy. This is a public endpoint, not a credential.
@@ -433,6 +436,9 @@ jobs:
         run: ./.github/scripts/snapshots/dispatch-prod-combined.sh
         env:
           GH_TOKEN: ${{ steps.prod-app-token.outputs.token }}
+          # Child run status is read with the job token, which outlives the
+          # 60-minute GitHub App token used to dispatch (wait-for-workflow-run.sh).
+          RUN_STATUS_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.resolve_release_tag.outputs.release_tag }}
           SKIP_STRIPE_CATALOG: ${{ inputs.skip_stripe_catalog || false }}
           ENABLE_MIGRATION: ${{ inputs.enable_migration }}
@@ -531,6 +537,9 @@ jobs:
         run: ./.github/scripts/snapshots/dispatch-prod-combined.sh
         env:
           GH_TOKEN: ${{ steps.promote_infra_token.outputs.token }}
+          # Child run status is read with the job token, which outlives the
+          # 60-minute GitHub App token used to dispatch (wait-for-workflow-run.sh).
+          RUN_STATUS_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.promote_release.outputs.release_tag }}
           SKIP_STRIPE_CATALOG: ${{ inputs.skip_stripe_catalog || false }}
           ENABLE_MIGRATION: false

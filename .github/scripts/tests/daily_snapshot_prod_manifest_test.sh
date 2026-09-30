@@ -67,4 +67,19 @@ if grep -Fq -- 'dns_mode=prod-cutover' "${prod_dispatcher}"; then
   exit 1
 fi
 
+# PROD child runs are awaited with the shared waiter (job token, bounded
+# transient-error budget, explicit success), never `gh run watch`, which exits
+# on the first API error and would read status with the expiring App token.
+if grep -Fq 'gh run watch' "${prod_dispatcher}"; then
+  echo 'PROD dispatch must not wait with gh run watch.' >&2
+  exit 1
+fi
+grep -Fq 'wait-for-workflow-run.sh' "${prod_dispatcher}"
+for label in 'PROD Serverless' 'PROD AWS Selfhost' 'PROD Akamai Selfhost'; do
+  grep -Eq "^wait_for_prod_run \"[^\"]+\" \"${label}\"$" "${prod_dispatcher}" || {
+    echo "PROD dispatch must wait for ${label} with the shared waiter." >&2
+    exit 1
+  }
+done
+
 echo "daily_snapshot_prod_manifest_test: PASS"

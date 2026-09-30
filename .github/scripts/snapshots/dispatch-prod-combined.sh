@@ -14,6 +14,7 @@ skip_stripe_catalog="${SKIP_STRIPE_CATALOG:-false}"
 repo="${TARGET_REPOSITORY:-ai-workspace-infra/platform-ops-toolkit}"
 enable_migration="${ENABLE_MIGRATION:-false}"
 prod_serverless_operation="${PROD_SERVERLESS_OPERATION:-}"
+prod_wait_timeout_seconds="${PROD_RUN_WAIT_TIMEOUT_SECONDS:-10800}"
 
 [[ "${release_tag}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2})(-r[1-9][0-9]*)?$ ]] || {
   echo "::error::RELEASE_TAG must be a formal immutable v* release tag." >&2
@@ -86,6 +87,13 @@ dispatch_and_assert_ref() {
   return 1
 }
 
+# Status is read with the job token and tolerates transient API errors; see
+# wait-for-workflow-run.sh. A plain run watcher exits on the first API error.
+wait_for_prod_run() {
+  RUN_REPOSITORY="${repo}" bash "$(dirname "${BASH_SOURCE[0]}")/wait-for-workflow-run.sh" \
+    "$1" "$2" "${prod_wait_timeout_seconds}"
+}
+
 # A production daily snapshot publishes immutable application artifacts using 'upgrade'
 # instead of data migration. Data migration in PROD must be explicitly defined and is
 # never triggered by default.
@@ -103,9 +111,8 @@ serverless_url="$(dispatch_and_assert_ref serverless-orchestrator.yml \
   -f "tag_ref=${release_tag}" -f deploy_cloudflare=true -f deploy_cloud_run=true \
   -f dns_mode=none -f supabase_target_existing_strategy=reject \
   -f supabase_target_confirm_replace=false -f skip_stripe_catalog="${skip_stripe_catalog}" | tail -n 1)"
-serverless_id="${serverless_url##*/}"
 echo "Dispatched production serverless deployment: ${serverless_url}"
-gh run watch "${serverless_id}" --repo "${repo}" --exit-status --compact
+wait_for_prod_run "${serverless_url}" "PROD Serverless"
 
 aws_selfhost_url="$(dispatch_and_assert_ref selfhost-orchestrator.yml \
   -f operation=deploy -f vault_env_path=prod -f target_domains=agent-proxy \
@@ -129,5 +136,5 @@ akamai_selfhost_url="$(dispatch_and_assert_ref selfhost-orchestrator.yml \
   -f agent_controller_url=https://accounts-serverless-prod.svc.plus | tail -n 1)"
 echo "Dispatched production Akamai JP/US/SG plus Ulighthost PH Agent Proxy pool: ${akamai_selfhost_url}"
 
-gh run watch "${aws_selfhost_url##*/}" --repo "${repo}" --exit-status --compact
-gh run watch "${akamai_selfhost_url##*/}" --repo "${repo}" --exit-status --compact
+wait_for_prod_run "${aws_selfhost_url}" "PROD AWS Selfhost"
+wait_for_prod_run "${akamai_selfhost_url}" "PROD Akamai Selfhost"
