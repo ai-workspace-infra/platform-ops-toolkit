@@ -157,6 +157,12 @@ jobs:
     - name: Verify serverless then Agent Proxy dispatch ordering
       run: bash .github/scripts/tests/daily_snapshot_combined_dispatch_test.sh
 
+    - name: Verify Daily child-run waits, PROD dispatch and Shared readiness
+      run: |
+        bash .github/scripts/tests/daily_snapshot_run_wait_test.sh
+        bash .github/scripts/tests/daily_snapshot_prod_manifest_test.sh
+        bash .github/scripts/tests/shared_readiness_probe_test.sh
+
     - name: Verify opt-in UAT Accounts schema migration is fail-closed
       run: |
         bash .github/scripts/tests/uat_accounts_schema_migration_contract_test.sh
