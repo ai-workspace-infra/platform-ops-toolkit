@@ -182,8 +182,10 @@ def resolve(
         expected_roles = ["one"]
         storage_shape_ok = (
             storage.get("members") == node_count
-            and storage.get("leader") == migration_source
-            and set(storage.get("peers", [])) == set(service_roles)
+            and (
+                (storage.get("leader") == migration_source and set(storage.get("peers", [])) == set(service_roles))
+                or (storage.get("leader") in service_roles and not storage.get("peers", []))
+            )
         )
     else:
         expected_roles = ["gateway"] if node_count == 1 else ["gateway", "one", "one"]

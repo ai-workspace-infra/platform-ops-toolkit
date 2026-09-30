@@ -239,6 +239,8 @@ class GcpSourceContractTests(unittest.TestCase):
         node = gcp_source.resolve(config, instances, "gha_123")["spec"]["nodes"][0]
         self.assertIn("xconnect_gateway", node["groups"])
         self.assertNotIn("xconnect_one", node["groups"])
+        self.assertEqual(node["private_address"], "10.81.0.4")
+        self.assertEqual(node["overlay_address"], "10.79.0.1")
 
 
 

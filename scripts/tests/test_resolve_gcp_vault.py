@@ -211,6 +211,10 @@ class GcpVaultResolutionTests(unittest.TestCase):
         self.assertIn("xconnect_one", node["groups"])
         self.assertIn("vault_shared_peers", node["groups"])
         self.assertEqual(node["private_address"], "10.79.0.10")
+        service["spec"]["storage"]["leader"] = "vault-shared-0"
+        service["spec"]["storage"]["peers"] = []
+        after = resolver.resolve(manifest, service, instances, "open-platform-prod", "shared", "gha_1234567890", topology)
+        self.assertEqual(after["spec"]["nodes"][0]["private_address"], "10.79.0.10")
 
     def test_rejects_two_node_scale(self):
         manifest, service, instances = fixture()
