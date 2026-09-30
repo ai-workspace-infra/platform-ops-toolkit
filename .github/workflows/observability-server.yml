@@ -236,12 +236,18 @@ jobs:
             }
           fi
           if [[ "${TARGET_PLATFORM}" == shared-gcp ]]; then
-            [[ -z "${TARGET_IP}" && "${VERIFY_EXISTING_TARGET}" == false ]] || {
-              echo 'shared-gcp resolves its target from GitOps; do not pass target_ip_override or verify_existing_target' >&2; exit 1;
-            }
-            [[ "${MIGRATION_MODE}" == none && "${DNS_ACTION}" == none ]] || {
-              echo 'shared-gcp deployment does not migrate history or change DNS; use a dedicated reviewed migration/cutover workflow' >&2; exit 1;
-            }
+            if [[ "${DNS_ACTION}" == none ]]; then
+              [[ -z "${TARGET_IP}" && "${VERIFY_EXISTING_TARGET}" == false ]] || {
+                echo 'shared-gcp deployment resolves its target from GitOps; do not pass target_ip_override or verify_existing_target' >&2; exit 1;
+              }
+            else
+              [[ "${DNS_ACTION}" == cutover && "${DEPLOYMENT_ACTION}" == skip && "${MIGRATION_MODE}" == none ]] || {
+                echo 'shared-gcp only permits an explicit non-migrating DNS cutover after deployment' >&2; exit 1;
+              }
+              [[ -n "${TARGET_IP}" && "${VERIFY_EXISTING_TARGET}" == false ]] || {
+                echo 'shared-gcp DNS cutover requires target_ip_override and does not use read-only target verification' >&2; exit 1;
+              }
+            fi
           fi
           [[ "${SOURCE_REF}" =~ ^[A-Za-z0-9._/-]+$ && "${SOURCE_REF}" != *..* ]] || {
             echo 'source_ref must be a simple reviewed Git ref' >&2; exit 1;
