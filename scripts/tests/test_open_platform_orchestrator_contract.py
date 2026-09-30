@@ -1,4 +1,7 @@
+import os
 import re
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -107,6 +110,67 @@ class OpenPlatformOrchestratorContractTests(unittest.TestCase):
             script,
         )
         self.assertFalse("resources.svc.plus" in script, "Observability manifest path contains resources.svc.plus")
+
+    def _run_dispatch(self, run_states, run_list_failures=0):
+        """Run the real dispatch script for one child against a fake gh CLI."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / "states").write_text("\n".join(run_states) + "\n")
+            (tmp / "run_list_failures").write_text(str(run_list_failures))
+            fake = tmp / "gh"
+            fake.write_text("""#!/usr/bin/env bash
+set -u
+d="$(dirname "$0")"
+echo "$*" >> "$d/calls"
+case "$1 $2" in
+  "workflow list") echo 4242 ;;
+  "run list")
+    n="$(cat "$d/run_list_failures")"
+    if [ "$n" -gt 0 ]; then echo $((n - 1)) > "$d/run_list_failures"; echo 'HTTP 502' >&2; exit 1; fi
+    echo 9001 ;;
+  *)
+    if [ "$2" = "--method" ]; then cat >/dev/null; exit 0; fi
+    line="$(head -n 1 "$d/states")"; sed -i 1d "$d/states"
+    [ -n "$line" ] || line="$(tail -n 1 "$d/last")"
+    echo "$line" > "$d/last"
+    if [ "$line" = ERROR ]; then echo 'HTTP 502: Server Error' >&2; exit 1; fi
+    printf '%b\n' "$line" ;;
+esac
+""")
+            fake.chmod(0o755)
+            env = dict(os.environ, PATH=f"{tmp}:{os.environ['PATH']}", GITHUB_REPOSITORY="o/r",
+                       CHILD_POLL_INTERVAL_SECONDS="0", CHILD_MAX_READ_FAILURES="3",
+                       TARGET_SERVICES="observability", OPERATION="upgrade", DEPLOY_TAG="daily-build-2026.09.28-r5",
+                       GITOPS_REF="main", OBS_MIGRATION="none", OBS_SOURCE_IP="", OBS_TARGET_IP="",
+                       OBS_WRITERS_PAUSED="false", OBS_HISTORY_VERIFIED="false", OBS_HISTORY_OMITTED="false")
+            result = subprocess.run(["bash", "-c", self._dispatch_script()], env=env,
+                                    capture_output=True, text=True, timeout=60)
+            calls = (tmp / "calls").read_text().splitlines()
+            posts = [call for call in calls if "--method POST" in call]
+            return result, posts
+
+    def test_transient_api_errors_do_not_fail_a_running_child(self):
+        result, posts = self._run_dispatch(["ERROR", "in_progress\\t", "ERROR", "ERROR", "completed\\tsuccess"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(posts), 1, "the dispatch must never be retried")
+        self.assertIn("succeeded", result.stdout)
+
+    def test_run_lookup_survives_a_transient_error_without_redispatch(self):
+        result, posts = self._run_dispatch(["completed\\tsuccess"], run_list_failures=1)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(posts), 1)
+
+    def test_child_failure_still_fails_the_parent(self):
+        result, posts = self._run_dispatch(["in_progress\\t", "completed\\tfailure"])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("concluded failure", result.stderr)
+        self.assertEqual(len(posts), 1)
+
+    def test_persistently_unreadable_child_fails_the_parent(self):
+        result, posts = self._run_dispatch(["ERROR"])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not read", result.stderr)
+        self.assertEqual(len(posts), 1)
 
 if __name__ == "__main__":
     unittest.main()
