@@ -718,6 +718,22 @@ jobs:
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_terraform-apply-destroy.sh
 
+    # Terraform considers a stopped Spot VM reconciled because the resource
+    # still exists in the provider.  The application jobs need a live SSH
+    # target, so wake only the VMs declared by this state before rendering the
+    # CMDB.  This is apply-only and never creates, replaces, or destroys VMs.
+    - name: Ensure declared GCP VMs are running
+      if: >-
+        ${{ steps.route.outputs.run_infrastructure == 'true' &&
+        steps.route.outputs.terraform_action == 'apply' &&
+        steps.route.outputs.cloud_provider == 'gcp-cloud' }}
+      env:
+        GCP_PROJECT_ID: ${{ steps.gcp_oidc.outputs.project_id }}
+      run: |
+        python3 "${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_ensure-gcp-vm-running.py" \
+          --manifest "${{ steps.route.outputs.env_dir }}/resources_manifest.json" \
+          --project "${GCP_PROJECT_ID}"
+
     - name: generate.py inventory
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.terraform_action == 'apply'
       working-directory: ${{ steps.route.outputs.vps_root }}
