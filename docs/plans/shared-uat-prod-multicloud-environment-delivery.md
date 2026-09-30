@@ -246,6 +246,11 @@ Daily 控制面可以从 `main` 创建 release，但 PROD 子工作流必须在�
 | GAP-10 | Observability 验证脚本仍写死生产服务域名 | 从依赖声明注入端点，分别核查 endpoint health 和实际数据流 |
 | GAP-11 | 本地存在未合并的串行 shared jobs / promotion 草稿 | 不算已交付；按最新只读 Daily 边界审查，不能直接上线旧草稿 |
 | GAP-12 | #838 仍为旧六 Akamai 规划 | 回写最新目标、受保护资源、跨仓任务和可证伪验收，再实现 |
+| GAP-13 | 已修正：UAT→PROD 晋级只给 3 个 `production_promotion` 仓库建 `v*` tag，但 PROD Serverless 以 `v*` checkout `portal` / `frontend-router` | `promote-uat-snapshot-tag.sh` 覆盖规范组织全部清单仓库，先全量校验再创建；由 `daily_snapshot_promote_uat_tag_test.sh` 覆盖 |
+| GAP-14 | 已修正：`production` 审批挂在整个汇总 job，先于 UAT 部署 | 晋级拆为独立 `promote-prod` job，须 UAT Hybrid 步骤 `success`（`skipped` 不算）后才审批，并在派发前重新做只读 Shared readiness |
+| GAP-15 | 已修正：Hybrid 无法承载 `enable_migration`、schema 迁移、基线采纳、XConnect release 覆盖，Daily 校验后静默丢弃 | UAT 派发前明确失败；转发能力需扩展 Hybrid → 子流水线的输入并经真实 UAT 演练验证，尚未实现 |
+| GAP-16 | 未解决：PROD Cloud Run 镜像由 `serverless-orchestrator.yml` 从 `v*` 源码重新构建，不是 UAT 验收过的同一 digest | 需要 digest 晋级方案（跨仓），与 §7“同制品晋级”要求仍有差距 |
+| GAP-17 | 待决策：PROD dispatch 固定 `dns_mode=prod-cutover`，而 [交付规范 §1.2](../standards/multi-environment-delivery-and-release-standard.md) 要求生产部署与公网 DNS 切换分别审批 | 需要确认自动接管 canonical 记录是否为预期，未在本次修改 |
 
 ## 9. 小步实施计划与合并顺序
 
@@ -275,6 +280,7 @@ Daily 控制面可以从 `main` 创建 release，但 PROD 子工作流必须在�
 bash .github/scripts/tests/shared_readiness_probe_test.sh
 bash .github/scripts/tests/daily_snapshot_uat_gate_contract_test.sh
 bash .github/scripts/tests/daily_snapshot_combined_dispatch_test.sh
+bash .github/scripts/tests/daily_snapshot_promote_uat_tag_test.sh
 ```
 
 这些是本地契约/模拟验证，不等同于真实云侧 `apply`、DNS 切换或业务发布成功；真实发布仍需在合并后的 `main` 上以 GitHub Actions run 作为证据。
