@@ -28,6 +28,7 @@ fi
 }
 [[ -f playbooks/deploy_zitadel_docker.yaml ]] || { echo 'Requested ZITADEL playbook is missing' >&2; exit 1; }
 
+bash "$(dirname "${BASH_SOURCE[0]}")/ensure-declared-vm-running.sh"
 instance="$(gcloud compute instances describe "${NODE_NAME}" --project="${PROJECT_ID}" --zone="${NODE_ZONE}" --format=json)"
 [[ "$(jq -r .status <<<"${instance}")" == RUNNING ]] || { echo 'IAM VM is not RUNNING' >&2; exit 1; }
 target_ip="$(jq -er '[.networkInterfaces[]?.accessConfigs[]?.natIP // empty] | first' <<<"${instance}")"

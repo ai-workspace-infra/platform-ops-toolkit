@@ -165,6 +165,12 @@ jobs:
           load_state_contract: 'false'
       - name: Install Google Cloud CLI
         uses: google-github-actions/setup-gcloud@v2
+      - name: Start the declared IAM VM if GCP stopped it
+        env:
+          PROJECT_ID: ${{ needs.declaration.outputs.project }}
+          NODE_NAME: ${{ needs.declaration.outputs.node }}
+          NODE_ZONE: ${{ needs.declaration.outputs.zone }}
+        run: bash .github/scripts/service-deploy/ensure-declared-vm-running.sh
       - name: Point IAM DNS to declared VM
         env:
           PROJECT_ID: ${{ needs.declaration.outputs.project }}

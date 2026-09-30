@@ -1,4 +1,8 @@
 """Shared open-platform upgrades must never silently destroy persistent state."""
+import os
+import stat
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -80,6 +84,85 @@ class OrchestratorUpgradeBoundaryTests(unittest.TestCase):
             script.index("dispatch_and_wait observability-server.yml"),
         ]
         self.assertEqual(order, sorted(order))
+
+
+ENSURE_VM = ROOT / ".github/scripts/service-deploy/ensure-declared-vm-running.sh"
+FAKE_GCLOUD = """#!/usr/bin/env bash
+set -euo pipefail
+echo "$*" >> "${GCLOUD_LOG}"
+case "$3" in
+  describe)
+    [[ -e "${STATE_FILE}" ]] || { echo 'ERROR: instance not found' >&2; exit 1; }
+    cat "${STATE_FILE}" ;;
+  start|resume)
+    echo RUNNING > "${STATE_FILE}" ;;
+  *)
+    echo "unexpected gcloud call: $*" >&2; exit 9 ;;
+esac
+"""
+
+
+class SpotVmRuntimeReconcileTests(unittest.TestCase):
+    """A preempted Spot VM is started in place; nothing is ever created."""
+
+    def run_ensure(self, status):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            gcloud = tmp / "gcloud"
+            gcloud.write_text(FAKE_GCLOUD)
+            gcloud.chmod(gcloud.stat().st_mode | stat.S_IEXEC)
+            state, log = tmp / "state", tmp / "gcloud.log"
+            if status is not None:
+                state.write_text(status + "\n")
+            env = dict(
+                os.environ, PATH=f"{tmp}:{os.environ['PATH']}", GCLOUD_LOG=str(log), STATE_FILE=str(state),
+                PROJECT_ID="p", NODE_NAME="iam-shared-0", NODE_ZONE="asia-east1-a",
+                VM_START_TIMEOUT_SECONDS="3", VM_START_POLL_SECONDS="1",
+            )
+            result = subprocess.run(["bash", str(ENSURE_VM)], env=env, capture_output=True, text=True)
+            calls = log.read_text().splitlines() if log.exists() else []
+            return result, [call.split()[2] for call in calls]
+
+    def test_preempted_vm_is_started_once_then_running(self):
+        result, calls = self.run_ensure("TERMINATED")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls.count("start"), 1)
+        self.assertEqual(calls[-1], "describe")
+
+    def test_running_vm_is_left_alone(self):
+        result, calls = self.run_ensure("RUNNING")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, ["describe"])
+
+    def test_suspended_vm_is_resumed(self):
+        result, calls = self.run_ensure("SUSPENDED")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls.count("resume"), 1)
+
+    def test_missing_vm_fails_without_creating_one(self):
+        result, calls = self.run_ensure(None)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(calls, ["describe"])
+
+    def test_script_never_creates_replaces_or_deletes(self):
+        script = ENSURE_VM.read_text()
+        for verb in ("instances create", "instances delete", "disks ", "--force", "|| true"):
+            self.assertNotIn(verb, script)
+
+    def test_shared_service_deploys_start_the_declared_vm_before_use(self):
+        zitadel = load("zitadel-server.yml")["jobs"]["dns"]["steps"]
+        names = [step.get("name") for step in zitadel]
+        self.assertLess(names.index("Start the declared IAM VM if GCP stopped it"), names.index("Point IAM DNS to declared VM"))
+        service = (ROOT / ".github/scripts/service-deploy/zitadel.sh").read_text()
+        self.assertLess(service.index("ensure-declared-vm-running.sh"), service.index("IAM VM is not RUNNING"))
+        observability = next(
+            step for step in load("observability-server.yml")["jobs"]["deploy_shared_target"]["steps"]
+            if step.get("name") == "Resolve declared shared GCP node and public address"
+        )["run"]
+        self.assertLess(
+            observability.index("ensure-declared-vm-running.sh"),
+            observability.index("Shared Observability VM is not RUNNING"),
+        )
 
 
 if __name__ == "__main__":
