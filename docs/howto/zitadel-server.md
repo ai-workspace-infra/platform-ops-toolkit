@@ -15,7 +15,19 @@
 参照 Vault/Observability 入口，Shared 服务 job 使用 GitHub `prod` Environment
 和 `main` ref；资源身份从声明获取，GCP 身份经 GitHub OIDC → Vault → WIF 加载。
 运行时生成临时 OS Login key、runner `/32` SSH 防火墙规则和单主机 inventory，
-任务结束后撤销访问。默认操作是 plan，无 destroy、迁移或 DNS 修改入口。
+任务结束后撤销访问。默认操作是 plan，无 destroy 或迁移入口。
+
+如果 `iam.svc.plus` 尚未指向新 VM，可在同一次运行中显式启用 DNS job：
+
+```text
+dns_action=update
+confirm_dns_change=true
+cloudflare_zone_id=<32-character-zone-id>
+```
+
+DNS job 使用 `prod` Environment 中的 `CLOUDFLARE_DNS_API_TOKEN`，只更新声明的
+`iam.svc.plus` A 记录，并等待解析指向 Terraform 声明的 VM；默认 `dns_action=none`。
+DNS 成功后才会进入 ZITADEL Ansible/Doco-CD 部署。
 
 首次部署前，先创建专用 Vault role/policy：
 
