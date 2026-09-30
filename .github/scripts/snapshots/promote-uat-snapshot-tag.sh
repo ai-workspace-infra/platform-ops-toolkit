@@ -9,8 +9,10 @@ set -euo pipefail
 # the repositories that publish a production image: the PROD serverless
 # orchestrator checks out portal and frontend-router at the release tag, and
 # the direct PROD path tags the whole inventory as well. All UAT tags and any
-# existing release tags are verified before the first tag is created, so a
-# failed promotion never leaves a partially tagged release behind.
+# existing release tags are verified before the first tag is created. GitHub
+# cannot atomically write refs across repositories: an API failure during phase
+# 2 stops promotion and PROD dispatch; a rerun verifies and completes missing
+# tags without moving or deleting already-created refs.
 
 uat_tag="${UAT_TAG:?UAT_TAG must be set}"
 build_config="${BUILD_CONFIG:?BUILD_CONFIG must be set}"

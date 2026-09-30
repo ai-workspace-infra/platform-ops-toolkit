@@ -3,7 +3,7 @@ set -euo pipefail
 
 # UAT -> PROD promotion must tag every repository the PROD orchestrators check
 # out at the release tag (portal and frontend-router included), must be
-# all-or-nothing, and must never move an existing release tag.
+# preflight all inputs before mutation, and never move an existing release tag.
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 promote="${repo_root}/.github/scripts/snapshots/promote-uat-snapshot-tag.sh"
@@ -27,6 +27,7 @@ while [[ "$1" == --method ]]; do method="$2"; shift 2; done
 endpoint="$1"; shift
 if [[ "${method}" == POST ]]; then
   repository="${endpoint#repos/}"; repository="${repository%/git/refs}"
+  [[ "${repository}" != "${FAIL_POST_REPOSITORY:-}" ]] || { echo 'Simulated GitHub API failure' >&2; exit 1; }
   ref=''; sha=''
   while [[ $# -gt 0 ]]; do
     case "$2" in
@@ -117,5 +118,18 @@ if run_promote "${workdir}/builds.json" >/dev/null 2>"${workdir}/err"; then
   echo 'Promotion must reject production_promotion repositories it cannot tag' >&2; exit 1
 fi
 grep -Fq 'ai-workspace-lab/example' "${workdir}/err"
+
+# 6. Cross-repository writes are not atomic. A write failure must stop before
+# publishing the successful release output; retry completes missing refs only.
+seed_uat_tags
+: > "${workdir}/output"
+if FAIL_POST_REPOSITORY=ai-workspace-services/frontend-router run_promote > /dev/null 2>"${workdir}/err"; then
+  echo 'Promotion must stop on tag creation API failure' >&2; exit 1
+fi
+[[ ! -s "${workdir}/output" ]]
+[[ -s "${workdir}/gh.log" ]]
+[[ ! -e "$(tag_file ai-workspace-infra/platform-ops-toolkit "${release_tag}")" ]]
+run_promote >/dev/null
+grep -Fxq "release_tag=${release_tag}" "${workdir}/output"
 
 echo "daily_snapshot_promote_uat_tag_test: PASS"

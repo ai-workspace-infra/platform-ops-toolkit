@@ -70,6 +70,17 @@ if promote is None:
     raise SystemExit("missing promote-prod job: UAT-to-PROD promotion must be its own approval-gated job")
 prod_role = "github-actions-platform-ops-toolkit-prod-release"
 
+import json
+root = Path(sys.argv[1]).resolve().parents[2]
+role = json.loads((root / "scripts/vault/roles" / f"{prod_role}.json").read_text())
+if role['token_policies'] != [prod_role]:
+    raise SystemExit("release role must not inherit the broad production deployment policy")
+if role['bound_claims']['job_workflow_ref'] != "ai-workspace-infra/platform-ops-toolkit/.github/workflows/daily-main-snapshot.yaml@refs/heads/main":
+    raise SystemExit("release role workflow ref must be exact protected main")
+policy = (root / "scripts/vault/policies" / f"{prod_role}.hcl").read_text()
+if '"kv/data/CICD/github-app/daily-snapshot"' not in policy or any(x in policy for x in ['*', '"update"', '"create"']):
+    raise SystemExit("release role must only read the exact GitHub App credential")
+
 # The production approval must be requested only after UAT succeeded: the UAT
 # job itself may be gated by `production` only for the direct PROD path.
 if "promote_prod_after_uat" in summary.get("environment", ""):
@@ -90,6 +101,37 @@ for required in (
 ):
     if required not in condition:
         raise SystemExit(f"promotion is missing gate: {required}")
+
+# Evaluate the original promotion expression across success, failure, skipped,
+# cancelled, scheduled, direct-PROD and partial-snapshot scenarios.
+cases = [
+    ('verified UAT', 'uat', True, '', 'success', 'success', 'success', False, True),
+    ('scheduled', '', False, '', 'success', 'success', 'success', False, False),
+    ('not requested', 'uat', False, '', 'success', 'success', 'success', False, False),
+    ('direct PROD', 'prod', True, '', 'success', 'success', 'success', False, False),
+    ('partial snapshot', 'uat', True, 'portal', 'success', 'success', 'success', False, False),
+    ('build failed', 'uat', True, '', 'failure', 'success', 'success', False, False),
+    ('summary failed', 'uat', True, '', 'success', 'failure', 'success', False, False),
+    ('Hybrid skipped', 'uat', True, '', 'success', 'success', 'skipped', False, False),
+    ('Hybrid failed', 'uat', True, '', 'success', 'success', 'failure', False, False),
+    ('cancelled', 'uat', True, '', 'success', 'success', 'success', True, False),
+]
+for name, env, requested, repos, build, result, hybrid, cancelled, expected in cases:
+    expression = condition.removeprefix('${{').removesuffix('}}').strip()
+    replacements = {
+        '!cancelled()': repr(not cancelled),
+        "(inputs.deploy_env || 'uat')": repr(env or 'uat'),
+        'inputs.promote_prod_after_uat': repr(requested),
+        "(inputs.repositories || '')": repr(repos),
+        'needs.snapshot.result': repr(build),
+        'needs.snapshot-summary.result': repr(result),
+        'needs.snapshot-summary.outputs.uat_hybrid_outcome': repr(hybrid),
+    }
+    for atom, value in replacements.items():
+        expression = expression.replace(atom, value)
+    expression = expression.replace('&&', ' and ').replace('||', ' or ')
+    if eval(expression, {'__builtins__': {}}, {}) != expected:
+        raise SystemExit(f'promotion gate truth table failed: {name}')
 
 # The UAT job must publish the Hybrid step outcome (a skipped dispatch is not a
 # verified UAT deployment) and the immutable UAT tag that gets promoted.

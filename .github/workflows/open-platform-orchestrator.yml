@@ -39,6 +39,11 @@ on:
         type: string
         required: true
         default: main
+      vault_addr:
+        description: "Vault service address used by delegated service workflows"
+        type: string
+        required: true
+        default: https://vault.svc.plus
       gcp_account_id:
         description: "Concrete shared GCP project/account ID"
         type: string
@@ -83,6 +88,22 @@ on:
         default: false
       observability_confirm_history_omission:
         description: "Accept omission of historical Observability data when no migration is selected"
+        type: boolean
+        required: true
+        default: false
+      zitadel_dns_action:
+        description: "ZITADEL IAM DNS: none keeps the record; update points iam.svc.plus to the Shared IAM VM"
+        type: choice
+        required: true
+        default: none
+        options: [none, update]
+      zitadel_cloudflare_zone_id:
+        description: "Cloudflare zone ID for iam.svc.plus; required when zitadel_dns_action=update"
+        type: string
+        required: false
+        default: ""
+      zitadel_confirm_dns_change:
+        description: "Acknowledge the public iam.svc.plus DNS update"
         type: boolean
         required: true
         default: false
@@ -184,7 +205,7 @@ jobs:
   services:
     name: Delegate shared service stage
     needs: [contract, vault-iac, observability-iac, iam-iac]
-    if: ${{ always() && needs.contract.result == 'success' && (inputs.operation == 'deploy' || inputs.operation == 'upgrade' || inputs.operation == 'migrate') && (needs.vault-iac.result == 'success' || needs.vault-iac.result == 'skipped') && (needs.observability-iac.result == 'success' || needs.observability-iac.result == 'skipped') && (needs.iam-iac.result == 'success' || needs.iam-iac.result == 'skipped') && (inputs.target_services == 'all' || inputs.target_services == 'vault' || inputs.target_services == 'observability') }}
+    if: ${{ always() && needs.contract.result == 'success' && (inputs.operation == 'deploy' || inputs.operation == 'upgrade' || inputs.operation == 'migrate') && (needs.vault-iac.result == 'success' || needs.vault-iac.result == 'skipped') && (needs.observability-iac.result == 'success' || needs.observability-iac.result == 'skipped') && (needs.iam-iac.result == 'success' || needs.iam-iac.result == 'skipped') && (inputs.target_services == 'all' || inputs.target_services == 'vault' || inputs.target_services == 'observability' || inputs.target_services == 'iam') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -197,6 +218,7 @@ jobs:
           GITOPS_REF: ${{ inputs.gitops_repo_ref }}
           IAC_REF: ${{ inputs.iac_ref }}
           PLAYBOOKS_REF: ${{ inputs.playbooks_ref }}
+          VAULT_ADDR: ${{ inputs.vault_addr }}
           DEPLOY_TAG: ${{ inputs.deploy_tag }}
           OBS_MIGRATION: ${{ inputs.observability_migration_mode }}
           OBS_SOURCE_IP: ${{ inputs.observability_source_ip }}
@@ -204,6 +226,9 @@ jobs:
           OBS_WRITERS_PAUSED: ${{ inputs.observability_confirm_source_writers_paused }}
           OBS_HISTORY_VERIFIED: ${{ inputs.observability_confirm_target_historical_queries }}
           OBS_HISTORY_OMITTED: ${{ inputs.observability_confirm_history_omission }}
+          ZITADEL_DNS_ACTION: ${{ inputs.zitadel_dns_action }}
+          ZITADEL_ZONE_ID: ${{ inputs.zitadel_cloudflare_zone_id }}
+          ZITADEL_CONFIRM_DNS: ${{ inputs.zitadel_confirm_dns_change }}
           TARGET_SERVICES: ${{ inputs.target_services }}
         run: |
           set -euo pipefail
@@ -238,6 +263,17 @@ jobs:
             fi
           fi
 
+          if [[ "${TARGET_SERVICES}" == all || "${TARGET_SERVICES}" == iam ]] &&
+             [[ "${OPERATION}" == deploy || "${OPERATION}" == upgrade ]]; then
+            zitadel_payload="$(jq -n \
+              --arg ref main --arg dns_action "${ZITADEL_DNS_ACTION}" \
+              --arg zone_id "${ZITADEL_ZONE_ID}" --arg confirm_dns "${ZITADEL_CONFIRM_DNS}" \
+              --arg gitops "${GITOPS_REF}" --arg iac "${IAC_REF}" --arg playbooks "${PLAYBOOKS_REF}" \
+              --arg vault_addr "${VAULT_ADDR}" \
+              '{ref:$ref,inputs:{deploy_action:"none",service_stage:"deploy",provider_manifest:"resources/svc.plus/shared/gcp/open-platform-shared-iam.yaml",gitops_repo_ref:$gitops,iac_ref:$iac,playbooks_ref:$playbooks,vault_addr:$vault_addr,dns_action:$dns_action,cloudflare_zone_id:$zone_id,confirm_dns_change:($confirm_dns == "true")}}')"
+            dispatch_and_wait zitadel-server.yml "ZITADEL deploy" "${zitadel_payload}"
+          fi
+
           if [[ "${TARGET_SERVICES}" == all || "${TARGET_SERVICES}" == observability ]]; then
             if [[ "${OPERATION}" != migrate || "${OBS_MIGRATION}" != none ]]; then
               observability_action=deploy
@@ -247,7 +283,7 @@ jobs:
                 --arg source_ref "${GITOPS_REF}" --arg source_ip "${OBS_SOURCE_IP}" --arg target_ip "${OBS_TARGET_IP}" \
                 --arg migration "${OBS_MIGRATION}" --arg writers "${OBS_WRITERS_PAUSED}" \
                 --arg history "${OBS_HISTORY_VERIFIED}" --arg omitted "${OBS_HISTORY_OMITTED}" \
-                '{ref:$ref,inputs:{deploy_env:"uat",target_platform:"shared-gcp",gcp_account_id:"open-platform-shared",gcp_resource_manifest:"resources/svc.plus/shared/gcp/open-platform-shared-observability.yaml",deployment_action:$action,instance_plan:"2C4G",deploy_tag:$tag,source_ref:$source_ref,mcp_services:"none",source_ip:$source_ip,target_ip_override:$target_ip,verify_existing_target:false,migration_mode:$migration,data_components:"all",confirm_source_writers_paused:($writers == "true"),confirm_target_historical_queries:($history == "true"),confirm_history_omission:($omitted == "true"),dns_action:"none",confirm_dns_change:false}}')"
+                '{ref:$ref,inputs:{deploy_env:"uat",target_platform:"shared-gcp",gcp_account_id:"open-platform-shared",gcp_resource_manifest:"resources.svc.plus/shared/gcp/open-platform-shared-observability.yaml",deployment_action:$action,instance_plan:"2C4G",deploy_tag:$tag,source_ref:$source_ref,mcp_services:"none",source_ip:$source_ip,target_ip_override:$target_ip,verify_existing_target:false,migration_mode:$migration,data_components:"all",confirm_source_writers_paused:($writers == "true"),confirm_target_historical_queries:($history == "true"),confirm_history_omission:($omitted == "true"),dns_action:"none",confirm_dns_change:false}}')"
               dispatch_and_wait observability-server.yml "Observability ${OBS_MIGRATION:-none}" "${observability_payload}"
             fi
           fi
