@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Shared service VMs are Spot instances with instance_termination_action=STOP,
-# so a preemption leaves them TERMINATED and Terraform still reports no change.
-# Start (or resume) only the existing, GitOps-declared instance and wait for
-# RUNNING. This never creates, replaces or deletes an instance or its disks;
-# a missing instance fails the describe call.
+# Shared service nodes are standard (vault_vm) instances with reserved static
+# IPs. If one was stopped (TERMINATED), Terraform still reports no change, so
+# record when and how it stopped, then start (or resume) only the existing,
+# GitOps-declared instance and wait for RUNNING. This never creates, replaces
+# or deletes an instance or its disks; a missing instance fails the describe.
 
 : "${PROJECT_ID:?PROJECT_ID is required}"
 : "${NODE_NAME:?NODE_NAME is required}"
@@ -16,6 +16,22 @@ interval="${VM_START_POLL_SECONDS:-5}"
 vm_status() {
   gcloud compute instances describe "${NODE_NAME}" \
     --project="${PROJECT_ID}" --zone="${NODE_ZONE}" --format='value(status)'
+}
+
+# Evidence only: operation type and time, never the acting principal (the
+# Actions log is public). A missing list permission must not block recovery.
+report_stop() {
+  local operations
+  echo "GCP VM ${NODE_NAME} stop record: $(gcloud compute instances describe "${NODE_NAME}" \
+    --project="${PROJECT_ID}" --zone="${NODE_ZONE}" --format='value(lastStopTimestamp,lastSuspendedTimestamp)')"
+  if operations="$(gcloud compute operations list --project="${PROJECT_ID}" \
+      --zones="${NODE_ZONE}" --filter="targetLink~/instances/${NODE_NAME}\$" \
+      --sort-by=~insertTime --limit=5 --format='value(insertTime,operationType,status)')"; then
+    echo "Recent operations on ${NODE_NAME}:"
+    echo "${operations}"
+  else
+    echo "::warning::Could not list GCP operations for ${NODE_NAME}; check Cloud Audit Logs for the stop cause"
+  fi
 }
 
 deadline=$((SECONDS + timeout))
@@ -29,6 +45,7 @@ while true; do
       ;;
     TERMINATED|STOPPED)
       if [[ "${requested}" == false ]]; then
+        report_stop
         echo "GCP VM ${NODE_NAME} is ${status}; starting the existing instance (nothing is created or replaced)"
         gcloud compute instances start "${NODE_NAME}" --project="${PROJECT_ID}" --zone="${NODE_ZONE}" --quiet
         requested=true
@@ -36,6 +53,7 @@ while true; do
       ;;
     SUSPENDED)
       if [[ "${requested}" == false ]]; then
+        report_stop
         echo "GCP VM ${NODE_NAME} is SUSPENDED; resuming the existing instance"
         gcloud compute instances resume "${NODE_NAME}" --project="${PROJECT_ID}" --zone="${NODE_ZONE}" --quiet
         requested=true
