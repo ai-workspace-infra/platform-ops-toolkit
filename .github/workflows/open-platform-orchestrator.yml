@@ -232,25 +232,56 @@ jobs:
           TARGET_SERVICES: ${{ inputs.target_services }}
         run: |
           set -euo pipefail
+          # Only read-only GitHub API calls are retried. A transient 5xx or
+          # rate-limit answer says nothing about the child run, but used to fail
+          # this parent while the child kept running. The dispatch POST itself is
+          # never retried: a 5xx after an accepted dispatch would start a second
+          # deployment.
+          poll_interval="${CHILD_POLL_INTERVAL_SECONDS:-30}"
+          max_read_failures="${CHILD_MAX_READ_FAILURES:-10}"
           dispatch_and_wait() {
-            local workflow="$1" label="$2" payload="$3" started run_id=""
-            local workflow_id
+            local workflow="$1" label="$2" payload="$3" started run_id="" workflow_id=""
+            local state status conclusion last_status="" read_failures=0
             started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            workflow_id="$(gh workflow list --repo "${GITHUB_REPOSITORY}" --all --json id,path \
-              --jq ".[] | select(.path == \".github/workflows/${workflow}\") | .id" | head -n 1)"
+            for _ in $(seq 1 5); do
+              workflow_id="$(gh workflow list --repo "${GITHUB_REPOSITORY}" --all --json id,path \
+                --jq ".[] | select(.path == \".github/workflows/${workflow}\") | .id" 2>/dev/null | head -n 1 || true)"
+              [[ -n "${workflow_id}" ]] && break
+              sleep 2
+            done
             [[ -n "${workflow_id}" ]] || { echo "::error::Could not resolve workflow id for ${workflow}" >&2; exit 1; }
             gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}/dispatches" --input - <<<"${payload}" >/dev/null
             for _ in $(seq 1 60); do
-              run_id="$(gh run list --repo "${GITHUB_REPOSITORY}" --workflow "${workflow}" --event workflow_dispatch --limit 50 --json databaseId,createdAt,headBranch --jq "[.[] | select(.headBranch == \"main\" and .createdAt >= \"${started}\")] | sort_by(.createdAt) | last | .databaseId // empty")"
+              run_id="$(gh run list --repo "${GITHUB_REPOSITORY}" --workflow "${workflow}" --event workflow_dispatch --limit 50 --json databaseId,createdAt,headBranch --jq "[.[] | select(.headBranch == \"main\" and .createdAt >= \"${started}\")] | sort_by(.createdAt) | last | .databaseId // empty" 2>/dev/null || true)"
               [[ -n "${run_id}" ]] && break
               sleep 2
             done
             [[ -n "${run_id}" ]] || { echo "::error::Could not locate ${workflow} run for ${label}" >&2; exit 1; }
             echo "${label}: dispatched ${workflow} run ${run_id}"
-            # A child service stage can run for 20+ minutes. At 10s every watch tick
-            # costs GITHUB_TOKEN requests fast enough to hit its hourly API limit,
-            # which fails this parent while the child keeps running.
-            gh run watch "${run_id}" --repo "${GITHUB_REPOSITORY}" --interval 30 --exit-status --compact
+            while :; do
+              if state="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '[.status, (.conclusion // "")] | @tsv' 2>/dev/null)"; then
+                read_failures=0
+                status="${state%%$'\t'*}"
+                conclusion="${state#*$'\t'}"
+                [[ "${status}" == "${last_status}" ]] || echo "${label}: ${workflow} run ${run_id} is ${status}"
+                last_status="${status}"
+                if [[ "${status}" == completed ]]; then
+                  [[ "${conclusion}" == success ]] || {
+                    echo "::error::${label}: ${workflow} run ${run_id} concluded ${conclusion:-without a conclusion}" >&2
+                    exit 1
+                  }
+                  break
+                fi
+              else
+                read_failures=$((read_failures + 1))
+                (( read_failures < max_read_failures )) || {
+                  echo "::error::${label}: could not read ${workflow} run ${run_id} status ${read_failures} times in a row" >&2
+                  exit 1
+                }
+                echo "::warning::${label}: could not read ${workflow} run ${run_id} status (${read_failures}/${max_read_failures}); retrying"
+              fi
+              sleep "${poll_interval}"
+            done
             echo "${label}: ${workflow} run ${run_id} succeeded"
           }
 

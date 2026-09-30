@@ -70,7 +70,10 @@ class OrchestratorUpgradeBoundaryTests(unittest.TestCase):
             if step.get("name") == "Dispatch and wait for shared service workflows"
         )["run"]
         self.assertTrue(script.lstrip().startswith("set -euo pipefail"))
-        self.assertIn("--exit-status", script)
+        # Only an explicit success conclusion of the child counts; no gh run watch,
+        # which exits on a transient API error while the child keeps running.
+        self.assertIn('[[ "${conclusion}" == success ]]', script)
+        self.assertNotIn("gh run watch", script)
         order = [
             script.index("dispatch_and_wait vault-server.yml"),
             script.index("dispatch_and_wait zitadel-server.yml"),
