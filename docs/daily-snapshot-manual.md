@@ -62,12 +62,32 @@ observed state。只有声明而没有观察记录的资源必须显示为 `decl
 当 `deploy_env=uat` 且未使用 `repositories` 缩小范围时，快照矩阵全部构建成功后会自动：
 
 1. 从各组织状态 artifact 解析唯一的不可变快照 tag；
-2. 使用 GitHub App installation token dispatch `serverless-orchestrator.yml`；
-3. 固定传入 `operation=deploy+migrate`、`vault_env_path=uat` 和该 tag；
-4. 等待 Serverless Orchestrator 完成 Cloud Run/Cloudflare 发布，再执行 Supabase Accounts 增量迁移与验证。
+2. 只读检查 Shared 就绪：Vault → Observability → IAM（`check-shared-readiness.sh`）。任一失败即停止，不发布业务；Shared 的部署、升级、迁移属于独立的 `open-platform-orchestrator.yml`，Daily 不触碰；
+3. dispatch `hybrid-orchestrator.yml`（`operation=deploy`、`target_domains=all`、`vault_env_path=uat` 和该 tag）并等待其完成。Serverless / Selfhost 子流水线由 Hybrid 按 GitOps UAT 矩阵逐行派发。
 
-因此 Daily Main Snapshot 成功后不再需要手工复制 tag 到第二个 workflow。部分仓库筛选、SIT 或 PROD 快照不会自动触发 UAT；这避免不完整制品集进入 UAT。手工重跑仍可直接执行
-`serverless-orchestrator.yml` 的 `deploy+migrate`。
+Hybrid 没有对应输入，因此 **`enable_migration`、`apply_accounts_schema_migration`、`adopt_accounts_baseline`、`xconnect_one_release_tag`、`xconnect_gateway_release_tag` 在 UAT 下会在派发前直接失败**，而不是被静默忽略后仍显示成功。需要这些操作时，直接执行 `serverless-orchestrator.yml`（例如 `deploy+migrate`）或对应的 XConnect 工作流。Hybrid 固定以 `skip_stripe_catalog=true` 派发子流水线，Daily 的该开关对 UAT Hybrid 不生效。
+
+部分仓库筛选、SIT 或 PROD 快照不会自动触发 UAT；这避免不完整制品集进入 UAT。
+
+### UAT 成功后晋级 PROD（可选）
+
+跨仓 tag 写入不是原子事务：全量预检失败时不会写入；写入途中 API 失败时立即停止，
+不派发 PROD。保留已创建的不可变 tag，重跑时校验这些 tag 并补齐缺失项，不移动或删除 tag。
+
+部署本次代码前，由授权管理员更新 `github-actions-platform-ops-toolkit-prod-release`
+的托管 role/policy（`scripts/create_vault_service_repo_roles.sh --apply --role
+github-actions-platform-ops-toolkit-prod-release`）。该 role 精确绑定 Daily 的 protected
+main，只读取 GitHub App 专用 KV，不再继承可写业务秘密的通用 PROD policy。
+提交代码不会自动修改 Vault。晋级 Environment 的审批人员仍需在 GitHub 设置中配置。
+
+仅在 `deploy_env=uat`、未筛选仓库且勾选 `promote_prod_after_uat` 时，才会出现独立的 `promote-prod` job（定时任务不会晋级）：
+
+1. 只有 UAT Hybrid 步骤的结果为 `success`（`skipped` 不算）后，才请求 `production` Environment 审批——审批人看到的是已完成的 UAT 结果；
+2. 审批通过后再次只读检查 Shared 就绪（审批可能晚于 UAT 数小时）；
+3. 使用 `github-actions-platform-ops-toolkit-prod-release` 角色，把 UAT 部署过的同一个快照 tag 重新标记为 `v*`。规范组织 `ai-workspace-services` 的**全部**清单仓库（含 `portal`、`frontend-router`）与控制面仓库都会打 tag：全部 UAT tag 与已有 release tag 校验通过后才创建，已存在且指向别处的 tag 永不移动；
+4. dispatch `dispatch-prod-combined.sh`（当前直接派发 Serverless 与 AWS / Akamai Selfhost，尚未经过 PROD Hybrid）。
+
+直接选择 `deploy_env=prod` 的路径仍在汇总 job 上挂 `production` 审批。
 
 UAT 的后续 Agent Proxy 部署由 `selfhost-orchestrator.yml` 路由到 Akamai Cloud
 JP/US/SG，并把 Ulighthost existing TW 作为独立 non-IaC leg。PROD 则拆成两条

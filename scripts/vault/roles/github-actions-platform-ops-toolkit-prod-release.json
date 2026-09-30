@@ -9,11 +9,11 @@
   "bound_claims_type": "glob",
   "bound_claims": {
     "repository": "ai-workspace-infra/platform-ops-toolkit",
-    "job_workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/daily-main-snapshot.yaml@*",
+    "job_workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/daily-main-snapshot.yaml@refs/heads/main",
     "ref": "refs/heads/main"
   },
   "token_policies": [
-    "github-actions-platform-ops-toolkit-prod"
+    "github-actions-platform-ops-toolkit-prod-release"
   ],
   "token_no_default_policy": true,
   "token_type": "batch",

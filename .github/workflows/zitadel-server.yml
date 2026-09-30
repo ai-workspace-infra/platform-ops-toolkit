@@ -1,0 +1,165 @@
+name: ZITADEL server
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_action:
+        description: 'Independent IAM Terraform state action'
+        type: choice
+        required: true
+        default: plan
+        options: [none, plan, apply]
+      service_stage:
+        description: 'deploy bootstraps host prerequisites and Doco-CD GitOps; verify checks OIDC only'
+        type: choice
+        required: true
+        default: none
+        options: [none, deploy, verify]
+      provider_manifest:
+        description: 'Reviewed Shared IAM GitOps resource declaration'
+        type: string
+        default: resources/svc.plus/shared/gcp/open-platform-shared-iam.yaml
+        required: true
+      gitops_repo_ref:
+        description: 'Reviewed GitOps ref'
+        type: string
+        default: main
+        required: true
+      iac_ref:
+        description: 'Reviewed IaC ref'
+        type: string
+        default: main
+        required: true
+      playbooks_ref:
+        description: 'Reviewed Playbooks ref'
+        type: string
+        default: main
+        required: true
+      vault_addr:
+        description: 'Vault service address'
+        type: string
+        default: https://vault.svc.plus
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: zitadel-server-${{ inputs.provider_manifest }}
+  cancel-in-progress: false
+
+jobs:
+  declaration:
+    name: Resolve Shared IAM declaration
+    runs-on: ubuntu-latest
+    outputs:
+      account: ${{ steps.resolve.outputs.account }}
+      project: ${{ steps.resolve.outputs.project }}
+      node: ${{ steps.resolve.outputs.node }}
+      zone: ${{ steps.resolve.outputs.zone }}
+      network: ${{ steps.resolve.outputs.network }}
+      domain: ${{ steps.resolve.outputs.domain }}
+      gitops_sha: ${{ steps.resolve.outputs.gitops_sha }}
+      zitadel_image: ${{ steps.resolve.outputs.zitadel_image }}
+      zitadel_login_image: ${{ steps.resolve.outputs.zitadel_login_image }}
+      doco_cd_image: ${{ steps.resolve.outputs.doco_cd_image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_repo_ref }}
+          path: gitops
+          persist-credentials: false
+      - run: python3 -m pip install 'pyyaml==6.0.2'
+      - name: Resolve node identity and validate operations
+        id: resolve
+        run: python3 .github/scripts/service-deploy/resolve_zitadel.py
+        env:
+          MANIFEST: ${{ inputs.provider_manifest }}
+          DEPLOY_ACTION: ${{ inputs.deploy_action }}
+          SERVICE_STAGE: ${{ inputs.service_stage }}
+
+  infrastructure:
+    name: Terraform | independent Shared IAM state
+    needs: declaration
+    if: ${{ inputs.deploy_action != 'none' }}
+    uses: ./.github/workflows/gcp-iac-pipeline.yml
+    with:
+      deploy_action: ${{ inputs.deploy_action }}
+      vault_env_path: shared
+      github_environment: prod
+      gcp_account_id: ${{ needs.declaration.outputs.account }}
+      gcp_resource_manifest: ${{ inputs.provider_manifest }}
+      gitops_repo_ref: ${{ needs.declaration.outputs.gitops_sha }}
+      iac_ref: ${{ inputs.iac_ref }}
+    secrets: inherit
+
+  service:
+    name: ZITADEL | ${{ inputs.service_stage }}
+    needs: [declaration, infrastructure]
+    if: ${{ always() && !cancelled() && needs.declaration.result == 'success' && (needs.infrastructure.result == 'success' || (inputs.deploy_action == 'none' && needs.infrastructure.result == 'skipped')) && inputs.service_stage != 'none' }}
+    runs-on: ubuntu-latest
+    environment: prod
+    timeout-minutes: 20
+    env:
+      VAULT_ADDR: ${{ inputs.vault_addr }}
+      VAULT_ENV_PATH: shared
+      PROJECT_ID: ${{ needs.declaration.outputs.project }}
+      NODE_NAME: ${{ needs.declaration.outputs.node }}
+      NODE_ZONE: ${{ needs.declaration.outputs.zone }}
+      NETWORK_NAME: ${{ needs.declaration.outputs.network }}
+      DOMAIN: ${{ needs.declaration.outputs.domain }}
+      SERVICE_STAGE: ${{ inputs.service_stage }}
+      ZITADEL_GITOPS_URL: https://github.com/ai-workspace-infra/gitops.git
+      ZITADEL_GITOPS_SHA: ${{ needs.declaration.outputs.gitops_sha }}
+      ZITADEL_IMAGE: ${{ needs.declaration.outputs.zitadel_image }}
+      ZITADEL_LOGIN_IMAGE: ${{ needs.declaration.outputs.zitadel_login_image }}
+      ZITADEL_DOCO_CD_IMAGE: ${{ needs.declaration.outputs.doco_cd_image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        if: ${{ inputs.service_stage == 'deploy' }}
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ inputs.playbooks_ref }}
+          path: playbooks
+          persist-credentials: false
+      - name: Authenticate GCP through GitHub OIDC and Vault
+        if: ${{ inputs.service_stage == 'deploy' }}
+        id: auth
+        uses: ./.github/actions/configure-gcp-oidc
+        with:
+          environment: shared
+          credential_environment: shared
+          account_id: ${{ needs.declaration.outputs.account }}
+          vault_addr: ${{ inputs.vault_addr }}
+          vault_role: github-actions-platform-ops-toolkit-shared-zitadel
+          load_state_contract: 'false'
+      - name: Install Google Cloud CLI
+        if: ${{ inputs.service_stage == 'deploy' }}
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Read IAM and database credentials
+        if: ${{ inputs.service_stage == 'deploy' }}
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ inputs.vault_addr }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-shared-zitadel
+          jwtGithubAudience: vault
+          exportToken: true
+          secrets: |
+            kv/data/shared/iam masterkey | ZITADEL_MASTERKEY ;
+            kv/data/shared/iam zitadel-admin@zitadel.iam.svc.plus | ZITADEL_ADMIN_PASSWORD ;
+            kv/data/shared/iam login_session_cookie_secret | ZITADEL_LOGIN_SESSION_COOKIE_SECRET ;
+            kv/data/shared/databases postgres_root_password | POSTGRESQL_ADMIN_PASSWORD ;
+            kv/data/shared/databases zitadel_pg_password | ZITADEL_PG_PASSWORD
+      - name: Deploy or verify ZITADEL
+        run: bash .github/scripts/service-deploy/zitadel.sh
+        env:
+          AUTH_PROJECT_ID: ${{ steps.auth.outputs.project_id }}

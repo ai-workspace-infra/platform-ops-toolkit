@@ -299,7 +299,14 @@ jobs:
     name: Summarize daily snapshot status
     needs: [resolve-snapshot-tag, snapshot]
     if: ${{ always() && needs.resolve-snapshot-tag.result == 'success' && needs.snapshot.result != 'skipped' }}
-    environment: ${{ ((inputs.deploy_env || 'uat') == 'prod' || ((inputs.deploy_env || 'uat') == 'uat' && inputs.promote_prod_after_uat)) && 'production' || '' }}
+    # Only the direct PROD path is approved here. UAT-to-PROD promotion is a
+    # separate job (promote-prod) so the production approval is requested after
+    # the UAT Hybrid deployment has succeeded, not before it starts.
+    environment: ${{ (inputs.deploy_env || 'uat') == 'prod' && 'production' || '' }}
+    outputs:
+      uat_snapshot_tag: ${{ steps.resolve_snapshot_tag.outputs.snapshot_tag }}
+      # `skipped` must never be mistaken for a verified UAT deployment.
+      uat_hybrid_outcome: ${{ steps.dispatch_uat_hybrid.outcome }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -388,56 +395,6 @@ jobs:
           ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
           ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}
 
-      - name: Load GitHub App private key for UAT-to-PROD promotion
-        if: ${{ (inputs.deploy_env || 'uat') == 'uat' && inputs.promote_prod_after_uat && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' && steps.dispatch_uat_hybrid.outcome == 'success' }}
-        id: promote_vault
-        uses: hashicorp/vault-action@v4
-        with:
-          url: https://vault.svc.plus
-          method: jwt
-          role: github-actions-platform-ops-toolkit-prod-release
-          jwtGithubAudience: vault
-          secrets: |
-            kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
-
-      - name: Create GitHub App token for UAT-to-PROD promotion (services)
-        if: ${{ (inputs.deploy_env || 'uat') == 'uat' && inputs.promote_prod_after_uat && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' && steps.dispatch_uat_hybrid.outcome == 'success' }}
-        id: promote_services_token
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: Iv23liNwStpQIiXajhpb
-          private-key: ${{ steps.promote_vault.outputs.APP_PRIVATE_KEY }}
-          owner: ai-workspace-services
-          repositories: |
-            accounts
-            billing-service
-            content-service
-            portal
-            edge-gateway
-            frontend-router
-            postgresql.svc.plus
-          permission-contents: write
-
-      - name: Promote verified UAT tag to PROD release tag
-        if: ${{ (inputs.deploy_env || 'uat') == 'uat' && inputs.promote_prod_after_uat && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' && steps.dispatch_uat_hybrid.outcome == 'success' }}
-        id: promote_release
-        run: ./.github/scripts/snapshots/promote-uat-snapshot-tag.sh
-        env:
-          UAT_TAG: ${{ steps.resolve_snapshot_tag.outputs.snapshot_tag }}
-          BUILD_CONFIG: ${{ github.workspace }}/.github/daily-snapshot-builds.json
-          CONTROL_PLANE_SHA: ${{ github.sha }}
-          GH_TOKEN_INFRA: ${{ steps.app-token.outputs.token }}
-          GH_TOKEN_SERVICES: ${{ steps.promote_services_token.outputs.token }}
-
-      - name: Dispatch promoted PROD hybrid deployment
-        if: ${{ (inputs.deploy_env || 'uat') == 'uat' && inputs.promote_prod_after_uat && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' && steps.dispatch_uat_hybrid.outcome == 'success' && steps.promote_release.outcome == 'success' }}
-        run: ./.github/scripts/snapshots/dispatch-prod-combined.sh
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          RELEASE_TAG: ${{ steps.promote_release.outputs.release_tag }}
-          SKIP_STRIPE_CATALOG: ${{ inputs.skip_stripe_catalog || false }}
-          ENABLE_MIGRATION: false
-
       - name: Load GitHub App private key for production dispatch
         if: ${{ (inputs.deploy_env || 'uat') == 'prod' && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' }}
         id: prod-vault
@@ -481,6 +438,9 @@ jobs:
           ENABLE_MIGRATION: ${{ inputs.enable_migration }}
 
       - name: Publish unified snapshot matrix summary
+        # Also on failure: the per-repository matrix is the evidence needed to
+        # diagnose a failed readiness gate or UAT dispatch.
+        if: ${{ !cancelled() }}
         env:
           SNAPSHOT_STATUS_DIRECTORY: ${{ runner.temp }}/daily-snapshot-status
           DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
@@ -494,3 +454,83 @@ jobs:
           name: daily-snapshot-summary-${{ inputs.deploy_env || 'uat' }}
           path: ${{ runner.temp }}/daily-snapshot-summary.json
           if-no-files-found: warn
+
+  promote-prod:
+    name: Promote verified UAT snapshot to PROD
+    needs: [snapshot, snapshot-summary]
+    # Requested only after the UAT Hybrid deployment of this exact snapshot
+    # succeeded. A skipped or failed UAT dispatch never reaches the production
+    # approval. Scheduled runs (no inputs) never promote.
+    if: ${{ !cancelled() && (inputs.deploy_env || 'uat') == 'uat' && inputs.promote_prod_after_uat && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' && needs.snapshot-summary.result == 'success' && needs.snapshot-summary.outputs.uat_hybrid_outcome == 'success' }}
+    environment: production
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      # The approval can arrive long after the UAT run; do not deploy to PROD
+      # on a stale readiness result.
+      - name: Re-check Shared platform readiness before PROD (read-only)
+        run: ./.github/scripts/snapshots/check-shared-readiness.sh
+        env:
+          SHARED_VAULT_ENDPOINT: ${{ inputs.shared_vault_endpoint || 'https://vault.svc.plus' }}
+          SHARED_OBSERVABILITY_ENDPOINT: ${{ inputs.shared_observability_endpoint || 'https://observability.svc.plus' }}
+          SHARED_IAM_ENDPOINT: ${{ inputs.shared_iam_endpoint || 'https://iam.svc.plus' }}
+          SHARED_IAM_ISSUER: ${{ inputs.shared_iam_issuer || 'https://iam.svc.plus' }}
+          SHARED_READINESS_TIMEOUT_SECONDS: ${{ inputs.shared_readiness_timeout_seconds || '20' }}
+
+      - name: Load GitHub App private key for UAT-to-PROD promotion
+        id: promote_vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-prod-release
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
+
+      - name: Create GitHub App token for UAT-to-PROD promotion (infra)
+        id: promote_infra_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: Iv23liNwStpQIiXajhpb
+          private-key: ${{ steps.promote_vault.outputs.APP_PRIVATE_KEY }}
+          owner: ai-workspace-infra
+          permission-contents: write
+          permission-actions: write
+
+      - name: Create GitHub App token for UAT-to-PROD promotion (services)
+        id: promote_services_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: Iv23liNwStpQIiXajhpb
+          private-key: ${{ steps.promote_vault.outputs.APP_PRIVATE_KEY }}
+          owner: ai-workspace-services
+          repositories: |
+            accounts
+            billing-service
+            content-service
+            portal
+            edge-gateway
+            frontend-router
+            postgresql.svc.plus
+          permission-contents: write
+
+      - name: Promote verified UAT tag to PROD release tag
+        id: promote_release
+        run: ./.github/scripts/snapshots/promote-uat-snapshot-tag.sh
+        env:
+          UAT_TAG: ${{ needs.snapshot-summary.outputs.uat_snapshot_tag }}
+          BUILD_CONFIG: ${{ github.workspace }}/.github/daily-snapshot-builds.json
+          CONTROL_PLANE_SHA: ${{ github.sha }}
+          GH_TOKEN_INFRA: ${{ steps.promote_infra_token.outputs.token }}
+          GH_TOKEN_SERVICES: ${{ steps.promote_services_token.outputs.token }}
+
+      - name: Dispatch promoted PROD serverless and selfhost deployment
+        run: ./.github/scripts/snapshots/dispatch-prod-combined.sh
+        env:
+          GH_TOKEN: ${{ steps.promote_infra_token.outputs.token }}
+          RELEASE_TAG: ${{ steps.promote_release.outputs.release_tag }}
+          SKIP_STRIPE_CATALOG: ${{ inputs.skip_stripe_catalog || false }}
+          ENABLE_MIGRATION: false

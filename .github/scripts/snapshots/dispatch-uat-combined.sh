@@ -62,6 +62,25 @@ for release_tag in "${xconnect_one_release_override}" "${xconnect_gateway_releas
   fi
 done
 
+# The Hybrid Orchestrator is the only UAT dispatch target and it has no inputs
+# for data migration, Accounts schema migration / baseline adoption or the
+# XConnect Lab release overrides. Dropping them would report a green UAT deploy
+# that never performed the requested operation, so refuse the request instead.
+unsupported_requests=()
+[[ "${enable_migration}" == "true" ]] && unsupported_requests+=("enable_migration")
+[[ "${apply_accounts_schema_migration}" == "true" ]] && unsupported_requests+=("apply_accounts_schema_migration")
+[[ "${adopt_accounts_baseline}" == "true" ]] && unsupported_requests+=("adopt_accounts_baseline")
+[[ -n "${xconnect_one_release_override}" ]] && unsupported_requests+=("xconnect_one_release_tag")
+[[ -n "${xconnect_gateway_release_override}" ]] && unsupported_requests+=("xconnect_gateway_release_tag")
+if [[ "${#unsupported_requests[@]}" -gt 0 ]]; then
+  echo "::error::UAT Hybrid deploy cannot carry: ${unsupported_requests[*]}. Refusing to report a deploy that silently skips them; run the explicit migration/XConnect workflow separately." >&2
+  exit 2
+fi
+
+if [[ "${skip_stripe_catalog}" != "true" ]]; then
+  echo "::notice::UAT Hybrid always dispatches its children with skip_stripe_catalog=true; the Stripe catalog is not synchronized by this run."
+fi
+
 export GH_TOKEN="${gh_token}"
 
 wait_for_run() {
