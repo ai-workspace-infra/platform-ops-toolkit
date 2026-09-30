@@ -83,7 +83,7 @@ class ZitadelContractTest(unittest.TestCase):
     def test_vault_selector_escapes_admin_key_with_jsonata_backticks(self):
         workflow_text = (ROOT / ".github/workflows/zitadel-server.yml").read_text()
         self.assertIn(
-            "kv/data/shared/iam `zitadel-admin@zitadel.iam.svc.plus` | ZITADEL_ADMIN_PASSWORD",
+            "kv/data/shared/iam `zitadel-admin@iam.svc.plus` | ZITADEL_ADMIN_PASSWORD",
             workflow_text,
         )
 

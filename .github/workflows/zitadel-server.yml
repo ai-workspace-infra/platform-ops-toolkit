@@ -155,7 +155,7 @@ jobs:
           exportToken: true
           secrets: |
             kv/data/shared/iam masterkey | ZITADEL_MASTERKEY ;
-            kv/data/shared/iam `zitadel-admin@zitadel.iam.svc.plus` | ZITADEL_ADMIN_PASSWORD ;
+            kv/data/shared/iam `zitadel-admin@iam.svc.plus` | ZITADEL_ADMIN_PASSWORD ;
             kv/data/shared/iam login_session_cookie_secret | ZITADEL_LOGIN_SESSION_COOKIE_SECRET ;
             kv/data/shared/databases postgres_root_password | POSTGRESQL_ADMIN_PASSWORD ;
             kv/data/shared/databases zitadel_pg_password | ZITADEL_PG_PASSWORD
