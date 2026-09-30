@@ -92,6 +92,7 @@ if "snapshot-summary" not in promote.get("needs", []):
 
 condition = promote["if"]
 for required in (
+    "!cancelled()",
     "promote_prod_after_uat",
     "(inputs.repositories || '') == ''",
     "needs.snapshot.result == 'success'",
@@ -100,6 +101,37 @@ for required in (
 ):
     if required not in condition:
         raise SystemExit(f"promotion is missing gate: {required}")
+
+# Evaluate the original promotion expression across success, failure, skipped,
+# cancelled, scheduled, direct-PROD and partial-snapshot scenarios.
+cases = [
+    ('verified UAT', 'uat', True, '', 'success', 'success', 'success', False, True),
+    ('scheduled', '', False, '', 'success', 'success', 'success', False, False),
+    ('not requested', 'uat', False, '', 'success', 'success', 'success', False, False),
+    ('direct PROD', 'prod', True, '', 'success', 'success', 'success', False, False),
+    ('partial snapshot', 'uat', True, 'portal', 'success', 'success', 'success', False, False),
+    ('build failed', 'uat', True, '', 'failure', 'success', 'success', False, False),
+    ('summary failed', 'uat', True, '', 'success', 'failure', 'success', False, False),
+    ('Hybrid skipped', 'uat', True, '', 'success', 'success', 'skipped', False, False),
+    ('Hybrid failed', 'uat', True, '', 'success', 'success', 'failure', False, False),
+    ('cancelled', 'uat', True, '', 'success', 'success', 'success', True, False),
+]
+for name, env, requested, repos, build, result, hybrid, cancelled, expected in cases:
+    expression = condition.removeprefix('${{').removesuffix('}}').strip()
+    replacements = {
+        '!cancelled()': repr(not cancelled),
+        "(inputs.deploy_env || 'uat')": repr(env or 'uat'),
+        'inputs.promote_prod_after_uat': repr(requested),
+        "(inputs.repositories || '')": repr(repos),
+        'needs.snapshot.result': repr(build),
+        'needs.snapshot-summary.result': repr(result),
+        'needs.snapshot-summary.outputs.uat_hybrid_outcome': repr(hybrid),
+    }
+    for atom, value in replacements.items():
+        expression = expression.replace(atom, value)
+    expression = expression.replace('&&', ' and ').replace('||', ' or ')
+    if eval(expression, {'__builtins__': {}}, {}) != expected:
+        raise SystemExit(f'promotion gate truth table failed: {name}')
 
 # The UAT job must publish the Hybrid step outcome (a skipped dispatch is not a
 # verified UAT deployment) and the immutable UAT tag that gets promoted.
