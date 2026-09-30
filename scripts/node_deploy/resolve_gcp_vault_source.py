@@ -42,6 +42,10 @@ def resolve(config: dict, instances: list[dict], ssh_user: str) -> dict:
     overlay = config.get("overlay_address")
     if overlay and not ipaddress.ip_address(overlay).is_private:
         raise ValueError("source overlay address must be private")
+    source_role = config.get("xconnect_role", "one")
+    if source_role not in {"gateway", "one"}:
+        raise ValueError("source GCP xconnect_role must be gateway or one")
+    xconnect_group = "xconnect_gateway" if source_role == "gateway" else "xconnect_one"
     node = {
         "id": config["source_id"],
         "provider": "gcp",
@@ -51,17 +55,19 @@ def resolve(config: dict, instances: list[dict], ssh_user: str) -> dict:
         "ssh_host_ed25519": config["ssh_host_ed25519"],
         "ssh_user": ssh_user,
         "auth": {"adapter": "gcp-oslogin-ephemeral"},
-        "groups": ["vault_legacy_source", "vault_shared_leader", "vault_single_node", "xconnect_one"],
+        "groups": ["vault_legacy_source", "vault_shared_leader", "vault_single_node", xconnect_group],
     }
     node = {key: value for key, value in node.items() if value is not None}
+    stages = STAGES if source_role == "one" else [stage for stage in STAGES if stage != "xconnect-one"]
+    stage_targets = {stage: groups for stage, groups in STAGE_TARGETS.items() if stage in stages}
     return validate({
         "apiVersion": "ops.svc.plus/v1alpha1",
         "kind": "NodeDeployment",
         "metadata": {"name": "vault-server"},
         "spec": {
             "environment": config["environment"],
-            "stages": STAGES,
-            "stage_targets": STAGE_TARGETS,
+            "stages": stages,
+            "stage_targets": stage_targets,
             "connection": {"mode": "bootstrap-public"},
             "nodes": [node],
         },
