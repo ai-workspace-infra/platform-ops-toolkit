@@ -94,6 +94,7 @@ class ZitadelContractTest(unittest.TestCase):
         self.assertEqual(inputs["dns_action"]["default"], "none")
         self.assertEqual(inputs["dns_action"]["options"], ["none", "update"])
         self.assertEqual(inputs["confirm_dns_change"]["default"], False)
+        self.assertFalse(inputs["cloudflare_zone_id"]["required"])
         self.assertIn("dns", workflow["jobs"])
         self.assertIn("inputs.dns_action == 'update'", workflow["jobs"]["dns"]["if"])
         service_if = workflow["jobs"]["service"]["if"]
@@ -104,6 +105,8 @@ class ZitadelContractTest(unittest.TestCase):
         self.assertIn("case \"${record_count}\" in", dns_text)
         self.assertIn("-X POST", dns_text)
         self.assertIn("refusing an ambiguous update", dns_text)
+        self.assertIn("zones?name=${zone_name}&status=active", dns_text)
+        self.assertIn("CLOUDFLARE_ZONE_ID_INPUT", dns_text)
 
 
 if __name__ == "__main__":

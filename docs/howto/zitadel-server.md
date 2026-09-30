@@ -22,11 +22,13 @@
 ```text
 dns_action=update
 confirm_dns_change=true
-cloudflare_zone_id=<32-character-zone-id>
+cloudflare_zone_id=<optional-32-character-zone-id>
 ```
 
 DNS job 使用 `prod` Environment 中的 `CLOUDFLARE_DNS_API_TOKEN`，只更新声明的
-`iam.svc.plus` A 记录，并等待解析指向 Terraform 声明的 VM；默认 `dns_action=none`。
+`iam.svc.plus` A 记录，并等待解析指向 Terraform 声明的 VM。未提供
+`cloudflare_zone_id` 时，按 `iam.svc.plus` 的 `svc.plus` 后缀自动解析唯一的 active
+Cloudflare zone；默认 `dns_action=none`。
 DNS 成功后才会进入 ZITADEL Ansible/Doco-CD 部署。
 
 首次部署前，先创建专用 Vault role/policy：
