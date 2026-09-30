@@ -26,6 +26,22 @@ bash scripts/create_vault_service_repo_roles.sh --apply \
 
 使用 CLI 的授权管理员会话。部署任务只读取：
 
+Shared KV 首次初始化使用 Toolkit 的 IAM bootstrap 入口。它只写入以下两个
+KV v2 路径，不创建 VM、不执行 Terraform/Ansible、不改 DNS，也不迁移旧服务：
+
+```bash
+export VAULT_ADDR='https://vault.svc.plus'
+# 使用授权管理员会话：VAULT_TOKEN 或本机 vault login
+bash scripts/iam/bootstrap_zitadel_kv.sh --check
+bash scripts/iam/bootstrap_zitadel_kv.sh --apply --generate-missing
+bash scripts/iam/bootstrap_zitadel_kv.sh --check
+```
+
+`--generate-missing` 只为缺失字段生成独立随机值，并保留已有字段；如需显式
+轮换，使用同名环境变量配合 `--apply` 覆盖。脚本不会打印任何秘密值。
+
+部署任务读取的契约如下：
+
 | KV v2 API path | 字段 |
 | --- | --- |
 | `kv/data/shared/platform/oidc/open-platform-shared` | 已有 GCP WIF identity 四字段 |

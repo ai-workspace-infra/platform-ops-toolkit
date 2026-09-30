@@ -11,6 +11,7 @@ canonical_scripts=(
   scripts/cloud/bootstrap/gcp/bootstrap_shared_iac_state_kv.sh
   scripts/cloud/bootstrap/gcp/gcp_account_migration.sh
   scripts/cloud/bootstrap/gcp/resolve_github_oidc_config.sh
+  scripts/cloud/bootstrap/iam/bootstrap_zitadel_kv.sh
   scripts/cloud/bootstrap/Akamai-Cloud/bootstrap_akamai_cloud_kv.sh
   scripts/cloud/bootstrap/Akamai-Cloud/bootstrap_akamai_oidc_roles.sh
   scripts/cloud/bootstrap/vultr-VPS/bootstrap_vultr_auth_kv.sh
@@ -27,6 +28,7 @@ compatibility_wrappers=(
   scripts/gcp/bootstrap_gcp_auth_kv.sh
   scripts/gcp/bootstrap_shared_iac_state_kv.sh
   scripts/gcp/gcp_account_migration.sh
+  scripts/iam/bootstrap_zitadel_kv.sh
   scripts/ucloud/bootstrap_ucloud_auth_kv.sh
   scripts/vault/bootstrap_akamai_cloud_kv.sh
   scripts/vault/bootstrap_akamai_oidc_roles.sh

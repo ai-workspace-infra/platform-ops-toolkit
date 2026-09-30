@@ -206,6 +206,9 @@ jobs:
     - name: Verify shared GCP Vault prerequisite scripts
       run: bash scripts/tests/shared_gcp_vault_prerequisites_contract_test.sh
 
+    - name: Verify Shared ZITADEL Vault bootstrap contract
+      run: bash scripts/tests/zitadel_bootstrap_kv_contract_test.sh
+
     - name: Verify AWS OIDC bootstrap recovery contract
       run: bash .github/scripts/tests/aws_oidc_bootstrap_recovery_contract_test.sh
 
