@@ -250,7 +250,7 @@ Daily 控制面可以从 `main` 创建 release，但 PROD 子工作流必须在�
 | GAP-14 | 已修正：`production` 审批挂在整个汇总 job，先于 UAT 部署 | 晋级拆为独立 `promote-prod` job，须 UAT Hybrid 步骤 `success`（`skipped` 不算）后才审批，并在派发前重新做只读 Shared readiness |
 | GAP-15 | 已修正：Hybrid 无法承载 `enable_migration`、schema 迁移、基线采纳、XConnect release 覆盖，Daily 校验后静默丢弃 | UAT 派发前明确失败；转发能力需扩展 Hybrid → 子流水线的输入并经真实 UAT 演练验证，尚未实现 |
 | GAP-16 | 未解决：PROD Cloud Run 镜像由 `serverless-orchestrator.yml` 从 `v*` 源码重新构建，不是 UAT 验收过的同一 digest | 需要 digest 晋级方案（跨仓），与 §7“同制品晋级”要求仍有差距 |
-| GAP-17 | 待决策：PROD dispatch 固定 `dns_mode=prod-cutover`，而 [交付规范 §1.2](../standards/multi-environment-delivery-and-release-standard.md) 要求生产部署与公网 DNS 切换分别审批 | 需要确认自动接管 canonical 记录是否为预期，未在本次修改 |
+| GAP-17 | 已修正控制面：Daily PROD dispatch 使用 `dns_mode=none`，不再隐式接管 canonical DNS | 单独 DNS 切换工作流、审批和真实回滚演练仍需独立验收；此项不代表 PROD Hybrid 或同 digest 晋级完成 |
 
 ## 9. 小步实施计划与合并顺序
 
@@ -494,3 +494,16 @@ Daily 仍只检查 Shared Vault → Observability → IAM，不负责 Gateway �
 该序列不包含 Shared ID/CIDR 迁移，不改变 Vault 主节点、Shared 服务入口或 Shared Gateway。
 
 只读核查来源为 GitOps `e505d9e020986c1ba4df8c6ece80bc17f8a596ef` 的 [三网边界](https://github.com/ai-workspace-infra/gitops/blob/e505d9e020986c1ba4df8c6ece80bc17f8a596ef/topology/xconnect/network-boundaries.yaml)、[Shared One](https://github.com/ai-workspace-infra/gitops/blob/e505d9e020986c1ba4df8c6ece80bc17f8a596ef/vpn-overlay/shared/xconnect-vault-shared.yaml)、[UAT One](https://github.com/ai-workspace-infra/gitops/blob/e505d9e020986c1ba4df8c6ece80bc17f8a596ef/vpn-overlay/uat/xconnect-one-nodes.yaml)、[PROD One](https://github.com/ai-workspace-infra/gitops/blob/e505d9e020986c1ba4df8c6ece80bc17f8a596ef/vpn-overlay/prod/xconnect-one-nodes.yaml)。它们是声明证据，不是线上网络已打通的证明。
+
+## 13. 2026-10-01 发布链路复核（未完成验收）
+
+本节是运行状态快照，不代替上文目标契约，也不授权自动修复 Shared 服务或触发生产 DNS 切换。
+
+| 检查项 | 当前证据 | 结果 / 下一步 |
+| --- | --- | --- |
+| Daily → UAT Hybrid | [Daily #36677613375](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/36677613375) 派发的 [Hybrid #36678815749](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/36678815749) 在 AI Workspace GCP VM 失败；项目要求 OS Login，旧声明未启用 | 未通过。先对齐 GitOps VM metadata、部署主体 OS Login IAM 权限及后续 Ansible SSH 方式，再重跑完整 UAT。不能只让 Terraform `apply` 变绿。 |
+| Shared readiness | Vault `/v1/sys/health` 返回 200；Observability HTTPS 握手超时；IAM HTTPS 握手失败。最新 [ZITADEL #36738171868](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/36738171868) 中 Doco-CD 已拉取 GitOps，但 ZITADEL 容器 unhealthy，Login 仍未启动 | Daily 必须停止。通过独立服务工作流排障；保留 Vault 数据，禁止 Daily 自动重装、迁移或切 DNS。 |
+| UAT Hybrid 与 Shared 隔离 | Hybrid 的普通 `all/deploy` 曾额外调用 `open-platform`，即使矩阵行标记 `release_scope=shared-infrastructure` | 本轮代码移除额外调用，并新增回归断言：业务 Hybrid 不派发该行；错误将它改成 `business` 时直接拒绝。仍需在合并后的 `main` 验证。 |
+| PROD 同制品晋级 | 当前 `dispatch-prod-combined.sh` 仍直接扇出 Serverless、AWS 和 Akamai Selfhost；Serverless 从 tag 重新构建镜像 | 不符合 §7 / GAP-06、07、16。Daily dispatch 已改为 `dns_mode=none`，但仍需补 PROD GitOps matrix、PROD Hybrid、digest/制品清单与独立 DNS 切换工作流，之后才能以完整父子 run 证明晋级成功。不能把 tag 一致误报成镜像一致。 |
+
+本地 Daily 门禁、生产 manifest、Shared readiness 和 UAT matrix 契约测试通过，只证明对应代码路径；在上述线上失败和 PROD 差距未消除前，不标记 UAT 或 PROD 发布验收完成。
