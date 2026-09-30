@@ -51,7 +51,15 @@ STAGES: dict[str, dict] = {
         "path": "any",
         "ssh": "new",
         "requires": ["access"],
-        "next": "Run node-process-metrics so the rollout is observable from the start.",
+        "next": "Run node-operator-prep to prepare and check root-only operator files on the target.",
+    },
+    "node-operator-prep": {
+        "path": "any",
+        "ssh": "new",
+        "requires": ["access"],
+        "playbook": SHARED_PLAYBOOK,
+        "tags": ["node-operator-prep"],
+        "next": "Run node-process-metrics after filling the target operator files.",
     },
     "node-process-metrics": {
         "path": "any",
