@@ -195,6 +195,7 @@ jobs:
             organization_id = spec.fetch("organization_id").to_s
             state_workspace = spec.fetch("workspace").to_s
             state_namespace = spec.fetch("state_namespace").to_s
+            network_name = spec.fetch("network_name").to_s
             abort "workspace/state_namespace/metadata.name must match" unless state_workspace == state_namespace && state_workspace == metadata.fetch("name")
             state_key = spec.fetch("state").fetch("key").to_s
             expected_key = "terraform/#{environment}/#{project_id}/gcp-cloud/#{account_id}/#{state_workspace}/terraform.tfstate"
@@ -208,6 +209,7 @@ jobs:
             organization_id = global.fetch("organization_id").to_s
             state_workspace = manifest == "resources/xworktech.com/#{environment}/gcp/open-platform-#{environment}.yaml" ? "platform" : File.basename(manifest, ".yaml")
             state_key = "terraform/#{environment}/#{project_id}/gcp-cloud/#{account_id}/#{state_workspace}/terraform.tfstate"
+            network_name = global.fetch("network_name", "").to_s
             spot = Array(doc["spot_vms"]).first
           end
           abort "invalid GCP project_id" unless project_id.match?(/\A[a-z][a-z0-9-]{4,28}[a-z0-9]\z/)
@@ -218,6 +220,7 @@ jobs:
             io.puts "project_id=#{project_id}"
             io.puts "state_workspace=#{state_workspace}"
             io.puts "state_key=#{state_key}"
+            io.puts "network_name=#{network_name}"
             io.puts "spot_instance_name=#{spot&.fetch("name", "")}" 
             io.puts "spot_instance_zone=#{spot&.fetch("zone", "")}" 
           end
@@ -367,6 +370,41 @@ jobs:
             fi
             exit "${rc}"
           fi
+
+      - name: Adopt shared Vault HTTPS firewall
+        if: ${{ env.DEPLOY_ENV == 'shared' && env.DEPLOY_ACTION == 'apply' && steps.config.outputs.manifest == 'resources/svc.plus/shared/gcp/open-platform-shared-vault.yaml' }}
+        working-directory: ${{ env.GCP_IAC_DIR }}
+        env:
+          PROJECT_ID: ${{ steps.config.outputs.project_id }}
+          NETWORK_NAME: ${{ steps.config.outputs.network_name }}
+          RUNTIME_VARS: ${{ runner.temp }}/gcp-runtime.auto.tfvars.json
+        run: |
+          set -euo pipefail
+          tf_dir="envs/${DEPLOY_ENV}"
+          address='google_compute_firewall.vault_gateway_https'
+          if ! grep -Rqs -- 'resource "google_compute_firewall" "vault_gateway_https"' "${tf_dir}"; then
+            echo 'Shared Vault HTTPS firewall is not declared by this renderer; nothing to adopt.'
+            exit 0
+          fi
+          [[ -n "${NETWORK_NAME}" ]] || {
+            echo '::error::Shared Vault network_name is missing from the GitOps declaration.' >&2
+            exit 1
+          }
+          state_entries="$(terraform -chdir="${tf_dir}" state list 2>&1)" || {
+            [[ "${state_entries}" == *'No state file was found!'* ]] || {
+              printf '%s\n' "${state_entries}" >&2
+              exit 1
+            }
+            state_entries=''
+          }
+          if grep -Fqx -- "${address}" <<<"${state_entries}"; then
+            echo "state already contains ${address}"
+            exit 0
+          fi
+          remote_id="projects/${PROJECT_ID}/global/firewalls/${NETWORK_NAME}-vault-gateway-https"
+          echo "Adopting the pre-existing shared Vault HTTPS firewall from ${remote_id}."
+          terraform -chdir="${tf_dir}" import -input=false -no-color \
+            -var-file="${RUNTIME_VARS}" "${address}" "${remote_id}"
 
       - name: Adopt existing GCP platform resources into target state
         if: ${{ env.DEPLOY_ACTION == 'apply' && env.ADOPT_EXISTING_PLATFORM_RESOURCES == 'true' }}

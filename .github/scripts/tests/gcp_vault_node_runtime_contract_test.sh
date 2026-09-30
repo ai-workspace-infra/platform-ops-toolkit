@@ -16,5 +16,9 @@ grep -Fq 'projects/${PROJECT_ID}/policies/compute.vmExternalIpAccess' "${workflo
 grep -Fq 'projects/${project_number}/policies/compute.vmExternalIpAccess' "${workflow}"
 grep -Fq 'Shared external IP policy was not recorded in Terraform state' "${workflow}"
 grep -Fq 'Shared external IP policy differs from GitOps' "${workflow}"
+grep -Fq 'Adopt shared Vault HTTPS firewall' "${workflow}"
+grep -Fq 'google_compute_firewall.vault_gateway_https' "${workflow}"
+grep -Fq 'projects/${PROJECT_ID}/global/firewalls/${NETWORK_NAME}-vault-gateway-https' "${workflow}"
+grep -Fq 'steps.config.outputs.network_name' "${workflow}"
 
 echo 'GCP Vault VM runtime verification contract: OK'
