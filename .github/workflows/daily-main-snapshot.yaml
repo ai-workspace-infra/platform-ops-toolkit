@@ -461,7 +461,11 @@ jobs:
     # Requested only after the UAT Hybrid deployment of this exact snapshot
     # succeeded. A skipped or failed UAT dispatch never reaches the production
     # approval. Scheduled runs (no inputs) never promote.
-    if: ${{ (inputs.deploy_env || 'uat') == 'uat' && inputs.promote_prod_after_uat && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' && needs.snapshot-summary.result == 'success' && needs.snapshot-summary.outputs.uat_hybrid_outcome == 'success' }}
+    # snapshot-summary runs under always(), so this job needs its own guard or
+    # its condition would never be evaluated (scripts/ci/workflow_gating_verify.py
+    # C2). !cancelled() drops the implicit success(); every upstream result is
+    # therefore asserted explicitly.
+    if: ${{ !cancelled() && (inputs.deploy_env || 'uat') == 'uat' && inputs.promote_prod_after_uat && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' && needs.snapshot-summary.result == 'success' && needs.snapshot-summary.outputs.uat_hybrid_outcome == 'success' }}
     environment: production
     runs-on: ubuntu-latest
     steps:

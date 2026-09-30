@@ -81,6 +81,7 @@ if "snapshot-summary" not in promote.get("needs", []):
 
 condition = promote["if"]
 for required in (
+    "!cancelled()",
     "promote_prod_after_uat",
     "(inputs.repositories || '') == ''",
     "needs.snapshot.result == 'success'",
