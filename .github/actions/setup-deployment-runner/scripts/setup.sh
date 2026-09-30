@@ -70,7 +70,10 @@ ssh_with_timeout() {
 wait_for_ssh() {
   resolve_host_ip
   configure_ssh_options 5
-  local timeout_secs="${HOST_SSH_WAIT_TIMEOUT:-180}"
+  # Fresh cloud VMs can take several minutes to finish first-boot networking
+  # and start sshd. Keep this bounded, but don't fail normal deployments just
+  # because cloud-init exceeded the former three-minute window.
+  local timeout_secs="${HOST_SSH_WAIT_TIMEOUT:-600}"
   local deadline=$((SECONDS + timeout_secs))
   echo "Waiting for SSH to become ready on ${ACTION_MATRIX_HOST} (${target_user}@${target_ip}:${target_port})..."
   while ((SECONDS < deadline)); do
