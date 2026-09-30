@@ -247,6 +247,9 @@ jobs:
               [[ -n "${TARGET_IP}" && "${VERIFY_EXISTING_TARGET}" == false ]] || {
                 echo 'shared-gcp DNS cutover requires target_ip_override and does not use read-only target verification' >&2; exit 1;
               }
+              [[ "${SOURCE_IP}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || {
+                echo 'shared-gcp DNS cutover requires the current source IPv4 for safe single-record reconciliation' >&2; exit 1;
+              }
             fi
           fi
           [[ "${SOURCE_REF}" =~ ^[A-Za-z0-9._/-]+$ && "${SOURCE_REF}" != *..* ]] || {
@@ -881,7 +884,7 @@ jobs:
     needs: [validate, deploy_target, deploy_shared_target, resolve_target, historical_data, verify_stores]
     if: >-
       ${{ always() && !cancelled() &&
-      inputs.deploy_env == 'uat' && inputs.target_platform == 'legacy-akamai' &&
+      inputs.deploy_env == 'uat' && (inputs.target_platform == 'legacy-akamai' || (inputs.target_platform == 'shared-gcp' && inputs.dns_action == 'cutover')) &&
       needs.validate.result == 'success' &&
       (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover' || inputs.verify_existing_target || needs.validate.outputs.mcp_enabled == 'true') &&
       (needs.deploy_target.result == 'success' || needs.deploy_shared_target.result == 'success' || inputs.deployment_action == 'skip') &&
@@ -897,12 +900,14 @@ jobs:
       - name: Checkout toolkit
         uses: actions/checkout@v4
       - name: Checkout Playbooks dashboard source
+        if: inputs.target_platform == 'legacy-akamai'
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/playbooks
           ref: ${{ inputs.source_ref }}
           path: playbooks
       - name: Load SSH deployment key from Vault
+        if: inputs.target_platform == 'legacy-akamai'
         id: vault
         uses: hashicorp/vault-action@v4
         with:
@@ -913,6 +918,7 @@ jobs:
           secrets: |
             kv/data/CICD SSH_PRIVATE_DEPLOY_KEY_B64 | SSH_PRIVATE_DEPLOY_KEY_B64
       - name: Configure SSH key
+        if: inputs.target_platform == 'legacy-akamai'
         env:
           SSH_PRIVATE_DEPLOY_KEY_B64: ${{ steps.vault.outputs.SSH_PRIVATE_DEPLOY_KEY_B64 }}
         run: |
@@ -921,6 +927,7 @@ jobs:
           printf '%s' "${SSH_PRIVATE_DEPLOY_KEY_B64}" | base64 --decode > "${RUNNER_TEMP}/observability-ssh/id_deploy"
           chmod 600 "${RUNNER_TEMP}/observability-ssh/id_deploy"
       - name: Verify Grafana health and exact dashboard asset set
+        if: inputs.target_platform == 'legacy-akamai'
         env:
           SSH_PRIVATE_KEY_PATH: ${{ runner.temp }}/observability-ssh/id_deploy
           TARGET_IP: ${{ needs.resolve_target.outputs.target_ip }}
@@ -929,6 +936,25 @@ jobs:
           DASHBOARD_SOURCE: playbooks/roles/docker/observability-server/files
           DNS_ACTION: ${{ inputs.dns_action }}
         run: .github/scripts/observability/observability_verify_target.sh
+
+      - name: Verify shared GCP Observability HTTPS target
+        if: inputs.target_platform == 'shared-gcp'
+        env:
+          TARGET_IP: ${{ needs.resolve_target.outputs.target_ip }}
+        run: |
+          set -euo pipefail
+          domain='observability.svc.plus'
+          curl --fail --silent --show-error --retry 4 --retry-all-errors --retry-delay 2 \
+            --connect-timeout 5 --max-time 20 --insecure \
+            --resolve "${domain}:443:${TARGET_IP}" \
+            "https://${domain}/grafana/api/health" | jq -e '.database == "ok"' >/dev/null
+          for path in victoriametrics victorialogs victoriatraces; do
+            curl --fail --silent --show-error --retry 4 --retry-all-errors --retry-delay 2 \
+              --connect-timeout 5 --max-time 20 --insecure \
+              --resolve "${domain}:443:${TARGET_IP}" \
+              "https://${domain}/${path}/metrics" >/dev/null
+          done
+          printf 'Shared GCP target %s passed HTTPS health checks before DNS cutover.\n' "${TARGET_IP}" >> "${GITHUB_STEP_SUMMARY}"
 
   verify_mcp_matrix:
     name: "Verify ${{ matrix.component }} MCP protocol and backend auth"
@@ -1026,6 +1052,7 @@ jobs:
           secrets: |
             kv/data/CICD CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN
       - name: Load SSH deployment key from Vault
+        if: inputs.target_platform == 'legacy-akamai'
         id: ssh-vault
         uses: hashicorp/vault-action@v4
         with:
@@ -1036,6 +1063,7 @@ jobs:
           secrets: |
             kv/data/CICD SSH_PRIVATE_DEPLOY_KEY_B64 | SSH_PRIVATE_DEPLOY_KEY_B64
       - name: Configure SSH key for Caddy certificate refresh
+        if: inputs.target_platform == 'legacy-akamai'
         env:
           SSH_PRIVATE_DEPLOY_KEY_B64: ${{ steps.ssh-vault.outputs.SSH_PRIVATE_DEPLOY_KEY_B64 }}
         run: |
@@ -1050,4 +1078,5 @@ jobs:
           DNS_ACTION: ${{ inputs.dns_action }}
           SOURCE_IP: ${{ inputs.source_ip }}
           TARGET_IP: ${{ needs.resolve_target.outputs.target_ip || inputs.target_ip_override }}
+          TARGET_PLATFORM: ${{ inputs.target_platform }}
         run: .github/scripts/observability/observability_dns_switch.sh

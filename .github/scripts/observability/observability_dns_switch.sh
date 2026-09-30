@@ -5,7 +5,10 @@ trap 'status=$?; echo "::error::Observability DNS script failed at line ${LINENO
 : "${CLOUDFLARE_DNS_API_TOKEN:?CLOUDFLARE_DNS_API_TOKEN is required}"
 : "${DNS_ACTION:?DNS_ACTION is required}"
 : "${SOURCE_IP:?SOURCE_IP is required}"
-: "${SSH_PRIVATE_KEY_PATH:?SSH_PRIVATE_KEY_PATH is required}"
+: "${TARGET_PLATFORM:=legacy-akamai}"
+if [[ "${TARGET_PLATFORM}" != shared-gcp ]]; then
+  : "${SSH_PRIVATE_KEY_PATH:?SSH_PRIVATE_KEY_PATH is required}"
+fi
 readonly API="https://api.cloudflare.com/client/v4"
 readonly ZONE="svc.plus"
 readonly NAME="observability.svc.plus"
@@ -127,9 +130,11 @@ actual_ip="$(jq -er '.result | if length == 1 then .[0].content else error("expe
 actual_proxied="$(jq -r '.result | if length == 1 then .[0].proxied else error("expected exactly one A record after update") end' <<<"${updated_record}")"
 [[ "${actual_proxied}" == false ]] || { echo "Cloudflare record ${NAME} must be DNS-only for direct origin validation." >&2; exit 1; }
 if [[ "${DNS_ACTION}" == cutover ]]; then
-  if ! ssh -i "${SSH_PRIVATE_KEY_PATH}" -o IdentitiesOnly=yes -o BatchMode=yes \
-    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 \
-    "root@${TARGET_IP}" 'systemctl restart caddy'; then
+  if [[ "${TARGET_PLATFORM}" == shared-gcp ]]; then
+    echo "Shared GCP target: Caddy restart is intentionally skipped; the service was verified before cutover."
+  elif ! ssh -i "${SSH_PRIVATE_KEY_PATH}" -o IdentitiesOnly=yes -o BatchMode=yes \
+      -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 \
+      "root@${TARGET_IP}" 'systemctl restart caddy'; then
     restore_dns Caddy
     exit 1
   fi
