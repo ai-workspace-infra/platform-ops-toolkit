@@ -26,9 +26,11 @@ done
 [[ -f "${playbooks_root}/${playbook_path}" ]] || { echo "Playbook not found" >&2; exit 1; }
 
 inventory="$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/node-inventory.XXXXXX")"
+stage_log="$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/node-stage-log.XXXXXX")"
 chmod 600 "${inventory}"
+chmod 600 "${stage_log}"
 cleanup() {
-  rm -f -- "${inventory}"
+  rm -f -- "${inventory}" "${stage_log}"
 }
 trap cleanup EXIT
 
@@ -71,9 +73,33 @@ if [[ -n "${NODE_STAGE_EXTRA_VARS:-}" && "${NODE_STAGE_EXTRA_VARS}" != '{}' ]]; 
 fi
 
 export ANSIBLE_HOST_KEY_CHECKING=True
+export ANSIBLE_NOCOLOR=1
 ansible-playbook \
   -i "${inventory}" \
   "${playbooks_root}/${playbook_path}" \
   --limit "${stage_limit}" \
   --tags "${stage}" \
-  "${extra_args[@]}"
+  "${extra_args[@]}" | tee "${stage_log}"
+
+# Ansible exits successfully when a requested tag matches no tasks. For a
+# migration stage that is a false success, so require a real task on every
+# selected node before reporting completion.
+if [[ -n "${NODE_STAGE_ONLY:-}" ]]; then
+  expected_nodes="${NODE_STAGE_ONLY}"
+else
+  expected_nodes="$(jq -r --arg stage "${stage}" \
+    '.spec as $spec | $spec.nodes[] | select(any(.groups[]; . as $group | $spec.stage_targets[$stage] | index($group))) | .id' \
+    "${contract_path}")"
+fi
+[[ -n "${expected_nodes}" ]] || {
+  echo "::error::No target nodes are declared for tag ${stage}" >&2
+  exit 1
+}
+while IFS= read -r node; do
+  [[ -n "${node}" ]] || continue
+  awk -v node="${node}" '$1 == node && $2 == ":" && $3 ~ /^ok=[1-9][0-9]*$/ {found=1} END {exit !found}' \
+    "${stage_log}" || {
+      echo "::error::No Ansible task ran on ${node} for tag ${stage}; check the pinned playbooks ref" >&2
+      exit 1
+    }
+done <<<"${expected_nodes}"
