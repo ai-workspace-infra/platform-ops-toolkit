@@ -671,6 +671,21 @@ jobs:
         import_if_absent 'module.open_platform_uat.google_service_account.runtime' \
           "projects/${PROJECT_ID}/serviceAccounts/${runtime_email}"
 
+    - name: Adopt existing GitOps-declared UAT Open Platform VM
+      if: >-
+        ${{ steps.route.outputs.run_infrastructure == 'true' &&
+        steps.route.outputs.terraform_action == 'apply' &&
+        steps.route.outputs.deployment_env == 'uat' &&
+        steps.route.outputs.cloud_provider == 'gcp-cloud' &&
+        steps.route.outputs.terraform_namespace == 'open-platform' }}
+      env:
+        GITOPS_MANIFEST: ${{ steps.route.outputs.resource_files_full }}
+        TERRAFORM_DIR: ${{ steps.route.outputs.env_dir }}
+      run: >-
+        python3 .github/scripts/platform-ops/provision/adopt_uat_open_platform_vm.py
+        --manifest "${GITOPS_MANIFEST}"
+        --terraform-dir "${TERRAFORM_DIR}"
+
     # 必须排在 plan/apply/destroy 之前: terraform 的第一件事是 refresh, 而
     # state 里一个指向已删实例的 ID 会让 vultr provider 在 refresh 阶段硬失败,
     # 重跑也不会自愈。这一步把"有人手工 terraform state rm"变成流水线自己的

@@ -236,7 +236,14 @@ assert 'google_org_policy_policy.vm_external_ip_access' in adopt["run"]
 assert 'module.open_platform_uat.google_compute_address.public[0]' in adopt["run"]
 assert 'module.open_platform_uat.google_service_account.runtime' in adopt["run"]
 assert " import -input=false" in adopt["run"]
-assert steps.index(adopt) < next(i for i, step in enumerate(steps) if step.get("name") == "Terraform Plan / Apply / Destroy")
+adopt_vm = next(step for step in steps if step.get("name") == "Adopt existing GitOps-declared UAT Open Platform VM")
+assert "terraform_namespace == 'open-platform'" in adopt_vm["if"]
+assert "deployment_env == 'uat'" in adopt_vm["if"]
+assert "terraform_action == 'apply'" in adopt_vm["if"]
+assert "steps.route.outputs.resource_files_full" in adopt_vm["env"]["GITOPS_MANIFEST"]
+assert "adopt_uat_open_platform_vm.py" in adopt_vm["run"]
+plan_apply = next(i for i, step in enumerate(steps) if step.get("name") == "Terraform Plan / Apply / Destroy")
+assert steps.index(adopt) < steps.index(adopt_vm) < plan_apply
 apply_script = open('.github/scripts/platform-ops/provision/platform-ops_provision_terraform-apply-destroy.sh', encoding='utf-8').read()
 assert 'ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY:-}' in apply_script
 assert 'index("delete")' in apply_script
