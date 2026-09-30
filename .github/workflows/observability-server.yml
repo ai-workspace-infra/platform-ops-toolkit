@@ -879,12 +879,14 @@ jobs:
           SSH_PRIVATE_KEY_PATH: ${{ runner.temp }}/observability-ssh/id_deploy
         run: .github/scripts/observability/observability_verify_store.sh
 
+  # Shared GCP runs its HTTPS and store health checks after every deploy, not
+  # only before a DNS cutover: an ordinary upgrade must prove the public entry.
   verify_target:
     name: Verify target service and Git-managed dashboards
     needs: [validate, deploy_target, deploy_shared_target, resolve_target, historical_data, verify_stores]
     if: >-
       ${{ always() && !cancelled() &&
-      inputs.deploy_env == 'uat' && (inputs.target_platform == 'legacy-akamai' || (inputs.target_platform == 'shared-gcp' && inputs.dns_action == 'cutover')) &&
+      inputs.deploy_env == 'uat' && (inputs.target_platform == 'legacy-akamai' || inputs.target_platform == 'shared-gcp') &&
       needs.validate.result == 'success' &&
       (inputs.deployment_action == 'deploy' || inputs.migration_mode != 'none' || inputs.dns_action == 'cutover' || inputs.verify_existing_target || needs.validate.outputs.mcp_enabled == 'true') &&
       (needs.deploy_target.result == 'success' || needs.deploy_shared_target.result == 'success' || inputs.deployment_action == 'skip') &&

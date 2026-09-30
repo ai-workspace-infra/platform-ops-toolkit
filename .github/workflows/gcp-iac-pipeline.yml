@@ -453,19 +453,44 @@ jobs:
               "projects/${PROJECT_ID}/policies/compute.vmExternalIpAccess"
           fi
 
+      # Apply only the plan that was inspected. Shared and PROD hold persistent
+      # state (Vault Raft data, ZITADEL/PostgreSQL, Observability history), so
+      # a plan that deletes or replaces anything -- including a ForceNew
+      # instance or disk rebuild -- is refused before apply.
       - name: Terraform plan
         if: ${{ env.DEPLOY_ACTION == 'plan' || env.DEPLOY_ACTION == 'apply' }}
         working-directory: ${{ env.GCP_IAC_DIR }}
         env:
           RUNTIME_VARS: ${{ runner.temp }}/gcp-runtime.auto.tfvars.json
-        run: terraform -chdir="envs/${DEPLOY_ENV}" plan -input=false -no-color -var-file="${RUNTIME_VARS}"
+          PLAN_FILE: ${{ runner.temp }}/gcp-platform.tfplan
+        run: |
+          set -euo pipefail
+          if [[ "${DEPLOY_ACTION}" != apply ]]; then
+            terraform -chdir="envs/${DEPLOY_ENV}" plan -input=false -no-color -var-file="${RUNTIME_VARS}"
+            exit 0
+          fi
+          terraform -chdir="envs/${DEPLOY_ENV}" plan -input=false -no-color -var-file="${RUNTIME_VARS}" -out="${PLAN_FILE}"
+          if [[ "${DEPLOY_ENV}" == shared || "${DEPLOY_ENV}" == prod ]]; then
+            # Read the JSON from the real binary: the setup-terraform wrapper
+            # may add its own lines to stdout.
+            tf_bin=terraform
+            [[ -x "${TERRAFORM_CLI_PATH:-}/terraform-bin" ]] && tf_bin="${TERRAFORM_CLI_PATH}/terraform-bin"
+            destructive="$("${tf_bin}" -chdir="envs/${DEPLOY_ENV}" show -json "${PLAN_FILE}" \
+              | jq -r '.resource_changes[]? | select(.change.actions | index("delete")) | "\(.address) \(.change.actions | join("/"))"')"
+            if [[ -n "${destructive}" ]]; then
+              printf '::error::%s apply plan deletes or replaces persistent resources; reconcile drift explicitly before applying:\n%s\n' \
+                "${DEPLOY_ENV}" "${destructive}" >&2
+              exit 1
+            fi
+            echo "Plan contains no delete or replacement for persistent ${DEPLOY_ENV} resources."
+          fi
 
       - name: Terraform apply
         if: ${{ env.DEPLOY_ACTION == 'apply' }}
         working-directory: ${{ env.GCP_IAC_DIR }}
         env:
-          RUNTIME_VARS: ${{ runner.temp }}/gcp-runtime.auto.tfvars.json
-        run: terraform -chdir="envs/${DEPLOY_ENV}" apply -input=false -auto-approve -var-file="${RUNTIME_VARS}"
+          PLAN_FILE: ${{ runner.temp }}/gcp-platform.tfplan
+        run: terraform -chdir="envs/${DEPLOY_ENV}" apply -input=false -auto-approve "${PLAN_FILE}"
 
       - name: Terraform destroy
         if: ${{ env.DEPLOY_ACTION == 'destroy' }}
