@@ -618,6 +618,8 @@ jobs:
           RUBY
           source "${target_env}"
           cat "${target_env}" >> "${GITHUB_OUTPUT}"
+          PROJECT_ID="${project_id}" NODE_NAME="${node_name}" NODE_ZONE="${node_zone}" \
+            bash .github/scripts/service-deploy/ensure-declared-vm-running.sh
           instance="$(gcloud compute instances describe "${node_name}" \
             --project="${project_id}" --zone="${node_zone}" --format=json)"
           test "$(jq -r '.status // empty' <<<"${instance}")" = RUNNING || { echo '::error::Shared Observability VM is not RUNNING' >&2; exit 1; }
