@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -37,8 +38,9 @@ def instance_specs(manifest: dict) -> list[tuple[str, str]]:
     return specs
 
 
-def reconcile(project: str, specs: list[tuple[str, str]], timeout: int, interval: int) -> None:
+def reconcile(project: str, specs: list[tuple[str, str]], timeout: int, interval: int) -> list[str]:
     deadline = time.monotonic() + timeout
+    started: list[str] = []
     for name, zone in specs:
         status = gcloud("compute", "instances", "describe", name, "--project", project, "--zone", zone)
         print(f"GCP VM {name} ({zone}) status={status or 'unknown'}")
@@ -47,6 +49,7 @@ def reconcile(project: str, specs: list[tuple[str, str]], timeout: int, interval
             subprocess.check_call(
                 ["gcloud", "compute", "instances", "start", name, "--project", project, "--zone", zone, "--quiet"]
             )
+            started.append(name)
 
     while True:
         pending = []
@@ -56,7 +59,7 @@ def reconcile(project: str, specs: list[tuple[str, str]], timeout: int, interval
                 pending.append(f"{name}={status or 'unknown'}")
         if not pending:
             print("All declared GCP VMs are RUNNING.")
-            return
+            return started
         if time.monotonic() >= deadline:
             raise SystemExit(f"GCP VMs did not become RUNNING within {timeout}s: {', '.join(pending)}")
         print(f"Waiting for GCP VM runtime readiness: {', '.join(pending)}")
@@ -73,7 +76,13 @@ def main() -> None:
     if args.timeout < 1 or args.interval < 1:
         raise SystemExit("timeout and interval must be positive")
     document = json.loads(args.manifest.read_text(encoding="utf-8"))
-    reconcile(args.project, instance_specs(document), args.timeout, args.interval)
+    started = reconcile(args.project, instance_specs(document), args.timeout, args.interval)
+    # A Spot VM that was stopped when Terraform refreshed has no ephemeral
+    # public IP in state; tell the workflow to refresh before the inventory.
+    output = os.environ.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(f"started={'true' if started else 'false'}\n")
 
 
 if __name__ == "__main__":
