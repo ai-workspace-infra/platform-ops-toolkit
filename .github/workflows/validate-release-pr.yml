@@ -159,6 +159,7 @@ jobs:
 
     - name: Verify Daily child-run waits, PROD dispatch and Shared readiness
       run: |
+        python3 .github/scripts/tests/hybrid_child_wait_test.py
         bash .github/scripts/tests/daily_snapshot_run_wait_test.sh
         bash .github/scripts/tests/prod_same_digest_promotion_test.sh
         bash .github/scripts/tests/daily_snapshot_prod_manifest_test.sh

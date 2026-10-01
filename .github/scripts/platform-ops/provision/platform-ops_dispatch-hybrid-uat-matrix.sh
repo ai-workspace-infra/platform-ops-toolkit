@@ -33,7 +33,8 @@ VAULT_ADDR="${VAULT_ADDR:-https://vault.svc.plus}"
 XCONNECT_GATEWAY_REF="${XCONNECT_GATEWAY_REF:-tw-xconnect.svc.plus}"
 XCONNECT_MIGRATION="${XCONNECT_MIGRATION:-false}"
 DRY_RUN="${DRY_RUN:-false}"
-WAIT_INTERVAL_SECONDS="${WAIT_INTERVAL_SECONDS:-15}"
+WAIT_INTERVAL_SECONDS="${WAIT_INTERVAL_SECONDS:-30}"
+CHILD_WAIT_TIMEOUT_SECONDS="${CHILD_WAIT_TIMEOUT_SECONDS:-10800}"
 REGISTRY_FILE="${REGISTRY_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/config/iac_provider_registry.json}"
 
 [[ "${VAULT_ENV_PATH}" == uat ]] || { echo "::error::The eight-resource matrix is UAT-only; got ${VAULT_ENV_PATH}" >&2; exit 1; }
@@ -90,23 +91,30 @@ validate_matrix_provider() {
 }
 
 wait_for_run() {
-  local workflow="$1" started="$2" label="$3" run_id="" conclusion=""
-  for _ in $(seq 1 45); do
-    run_id="$(gh run list --repo "${GH_REPO}" --workflow "${workflow}" --event workflow_dispatch --limit 50 --json databaseId,createdAt,headBranch --jq "[.[] | select(.headBranch == \"${CHILD_REF}\" and .createdAt >= \"${started}\")] | sort_by(.createdAt) | last | .databaseId // empty")"
+  local workflow="$1" started="$2" label="$3" run_id="" candidates="" runs=""
+  for _ in $(seq 1 10); do
+    if runs="$(gh run list --repo "${GH_REPO}" --workflow "${workflow}" --event workflow_dispatch --limit 50 --json databaseId,createdAt,headBranch)"; then
+      candidates="$(jq -ce --arg ref "${CHILD_REF}" --arg started "${started}" \
+        '[.[] | select(.headBranch == $ref and .createdAt >= $started)]' <<<"${runs}")" || return 1
+      if [[ "$(jq 'length' <<<"${candidates}")" -gt 1 ]]; then
+        echo "::error::Multiple ${workflow} runs match ${label}; refusing to accept another dispatch as this lane's evidence." >&2
+        return 1
+      fi
+      run_id="$(jq -r '.[0].databaseId // empty' <<<"${candidates}")"
+    else
+      echo "::warning::Could not discover ${workflow} run for ${label}; retrying observation without dispatching again." >&2
+    fi
     [[ -n "${run_id}" ]] && break
-    sleep 2
+    sleep "${WAIT_INTERVAL_SECONDS}"
   done
   [[ -n "${run_id}" ]] || { echo "::error::Could not locate ${workflow} run for ${label}" >&2; return 1; }
   echo "${label}: dispatched ${workflow} run ${run_id}"
-  if ! gh run watch "${run_id}" --repo "${GH_REPO}" --interval "${WAIT_INTERVAL_SECONDS}" --exit-status --compact; then
+  if ! RUN_REPOSITORY="${GH_REPO}" RUN_POLL_INTERVAL_SECONDS="${WAIT_INTERVAL_SECONDS}" \
+    bash "$(dirname "${BASH_SOURCE[0]}")/../../snapshots/wait-for-workflow-run.sh" \
+      "${run_id}" "${label}" "${CHILD_WAIT_TIMEOUT_SECONDS}"; then
     echo "::error::${label}: child ${workflow} run ${run_id} failed; refusing to continue the Hybrid matrix." >&2
     return 1
   fi
-  conclusion="$(gh run view "${run_id}" --repo "${GH_REPO}" --json status,conclusion --jq 'select(.status == "completed") | .conclusion')"
-  [[ "${conclusion}" == success ]] || {
-    echo "::error::${label}: child ${workflow} run ${run_id} did not finish successfully (conclusion=${conclusion:-unknown})." >&2
-    return 1
-  }
   echo "${label}: ${workflow} run ${run_id} succeeded"
   CHILD_RUN_ID="${run_id}"
 }
