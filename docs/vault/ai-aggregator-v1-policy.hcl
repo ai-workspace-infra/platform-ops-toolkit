@@ -15,6 +15,10 @@ path "kv/data/<env>/ai-aggregator/gateway/caddy" {
   capabilities = ["read"]
 }
 
+path "kv/data/<env>/ai-aggregator/gateway/apisix" {
+  capabilities = ["read"]
+}
+
 path "kv/data/<env>/ai-aggregator/gateway/new-api" {
   capabilities = ["read"]
 }
