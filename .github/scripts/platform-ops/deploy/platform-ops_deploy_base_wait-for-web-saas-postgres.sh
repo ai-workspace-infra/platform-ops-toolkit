@@ -2,6 +2,7 @@
 set -euo pipefail
 
 . "$(dirname "${BASH_SOURCE[0]}")/../provision/common_require_env.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../provision/common_cmdb_ssh_login.sh"
 require_env MATRIX_HOST
 
 timeout_seconds="${WEB_SAAS_POSTGRES_READY_TIMEOUT_SECONDS:-300}"
@@ -22,6 +23,7 @@ host_ip="$(jq -r --arg host "${MATRIX_HOST}" '.[$host].ip // empty' "${cmdb_file
   echo "::error::No IP address for ${MATRIX_HOST} in ${cmdb_file}" >&2
   exit 2
 }
+cmdb_ssh_login "${cmdb_file}" "${MATRIX_HOST}"
 
 # setup-deployment-runner writes the deploy key to a non-default filename,
 # so ssh never picks it up implicitly. Without an explicit -i every connection
@@ -34,7 +36,7 @@ ssh_opts=(
 )
 
 postgres_state() {
-  ssh "${ssh_opts[@]}" "root@${host_ip}" '
+  ssh "${ssh_opts[@]}" "${ssh_user}@${host_ip}" "${sudo_prefix}bash -s" <<<'
     set -eu
     if ! docker inspect web-saas-postgresql >/dev/null 2>&1; then
       printf "missing\\n"
@@ -50,7 +52,7 @@ print_diagnostics() {
   echo "::group::Doco-CD and Web SaaS diagnostics for ${MATRIX_HOST}"
   # These are intentionally read-only. Redact common access-token shapes before
   # forwarding remote container logs into GitHub Actions.
-  ssh "${ssh_opts[@]}" "root@${host_ip}" '
+  ssh "${ssh_opts[@]}" "${ssh_user}@${host_ip}" "${sudo_prefix}bash -s" <<<'
     set +e
     echo "--- web-saas-postgresql state ---"
     docker inspect -f "status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} started={{.State.StartedAt}} exit_code={{.State.ExitCode}} error={{.State.Error}}" web-saas-postgresql 2>&1 || true
@@ -74,8 +76,8 @@ print_diagnostics() {
 # this script. Inside the loop an auth failure is indistinguishable from
 # "container not created yet", which burns the full timeout and then reports a
 # misleading readiness error instead of the real cause.
-if ! ssh_probe="$(ssh "${ssh_opts[@]}" "root@${host_ip}" true 2>&1)"; then
-  echo "::error::Cannot open an authenticated SSH session to root@${host_ip} (${MATRIX_HOST}): ${ssh_probe}" >&2
+if ! ssh_probe="$(ssh "${ssh_opts[@]}" "${ssh_user}@${host_ip}" "${sudo_prefix}true" 2>&1)"; then
+  echo "::error::Cannot open an authenticated SSH session to ${ssh_user}@${host_ip} (${MATRIX_HOST}): ${ssh_probe}" >&2
   exit 1
 fi
 

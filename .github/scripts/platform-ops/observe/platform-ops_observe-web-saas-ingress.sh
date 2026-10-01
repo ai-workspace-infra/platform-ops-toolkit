@@ -6,6 +6,7 @@ set -euo pipefail
 # a failed public HTTPS probe and never replaces that gate.
 
 . "$(dirname "${BASH_SOURCE[0]}")/../provision/common_require_env.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../provision/common_cmdb_ssh_login.sh"
 require_env MATRIX_HOST
 
 cmdb_file="${CMDB_FILE:-cmdb/cmdb.json}"
@@ -19,6 +20,10 @@ if [[ -z "${host_ip}" || "${host_ip}" == "null" ]]; then
   echo "::warning::No CMDB IP address for ${MATRIX_HOST}; skipping Web SaaS ingress diagnostics." >&2
   exit 0
 fi
+if ! cmdb_ssh_login "${cmdb_file}" "${MATRIX_HOST}"; then
+  echo "::warning::Skipping Web SaaS ingress diagnostics." >&2
+  exit 0
+fi
 
 ssh_opts=(
   -i ~/.ssh/id_deploy
@@ -29,7 +34,7 @@ ssh_opts=(
 
 echo "::group::Web SaaS ingress diagnostics for ${MATRIX_HOST} (${host_ip})"
 set +e
-ssh "${ssh_opts[@]}" "root@${host_ip}" 'bash -s' <<'REMOTE' 2>&1 | sed -E \
+ssh "${ssh_opts[@]}" "${ssh_user}@${host_ip}" "${sudo_prefix}bash -s" <<'REMOTE' 2>&1 | sed -E \
   -e 's/gh[pousr]_[A-Za-z0-9_]+/***REDACTED_GITHUB_TOKEN***/g' \
   -e 's/hvs\.[A-Za-z0-9]+/***REDACTED_VAULT_TOKEN***/g' \
   -e 's/xox[baprs]-[A-Za-z0-9-]+/***REDACTED_SLACK_TOKEN***/g'
