@@ -21,7 +21,27 @@ prod_wait_timeout_seconds="${PROD_RUN_WAIT_TIMEOUT_SECONDS:-10800}"
   exit 2
 }
 
+# PROD promotes the images a successful UAT Hybrid run accepted; it never
+# rebuilds from moving source (plan §7, GAP-16, TC-10). Without that verified
+# manifest there is nothing to promote.
+manifest_file="${PROMOTION_MANIFEST_FILE:-}"
+[[ -n "${manifest_file}" && -s "${manifest_file}" ]] || {
+  echo "::error::PROD dispatch requires the verified UAT promotion manifest; refusing to rebuild PROD from source." >&2
+  exit 2
+}
+
 export GH_TOKEN="${gh_token}"
+
+manifest_check="$(mktemp -d)"
+uat_run_id="$(jq -r '.uat_run_id // empty' "${manifest_file}")"
+[[ "${uat_run_id}" =~ ^[1-9][0-9]*$ ]] || {
+  echo "::error::The promotion manifest does not name its UAT Hybrid run." >&2
+  exit 2
+}
+gh api "repos/${repo}/actions/runs/${uat_run_id}" > "${manifest_check}/uat-run.json"
+promotion_manifest="$(python3 "$(dirname "${BASH_SOURCE[0]}")/verify-promotion-manifest.py" \
+  --manifest "${manifest_file}" --snapshot-tag "${UAT_SNAPSHOT_TAG:-}" --release-tag "${release_tag}" \
+  --uat-run-json "${manifest_check}/uat-run.json")"
 
 # GitHub may accept a workflow_dispatch request while a just-created tag is
 # still propagating. Refuse to dispatch unless the tag exists and the created
@@ -110,7 +130,8 @@ serverless_url="$(dispatch_and_assert_ref serverless-orchestrator.yml \
   -f "operation=${serverless_op}" -f target_domains=web-saas -f vault_env_path=prod \
   -f "tag_ref=${release_tag}" -f deploy_cloudflare=true -f deploy_cloud_run=true \
   -f dns_mode=none -f supabase_target_existing_strategy=reject \
-  -f supabase_target_confirm_replace=false -f skip_stripe_catalog="${skip_stripe_catalog}" | tail -n 1)"
+  -f supabase_target_confirm_replace=false -f skip_stripe_catalog="${skip_stripe_catalog}" \
+  -f "promotion_manifest=${promotion_manifest}" | tail -n 1)"
 echo "Dispatched production serverless deployment: ${serverless_url}"
 wait_for_prod_run "${serverless_url}" "PROD Serverless"
 

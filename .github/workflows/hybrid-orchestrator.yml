@@ -201,7 +201,16 @@ jobs:
           VAULT_ADDR: ${{ inputs.vault_addr }}
           XCONNECT_GATEWAY_REF: ${{ inputs.xconnect_gateway_ref }}
           XCONNECT_MIGRATION: ${{ inputs.xconnect_migration }}
+          UAT_ARTIFACT_DIR: ${{ runner.temp }}/uat-artifacts
         run: ./.github/scripts/platform-ops/provision/platform-ops_dispatch-hybrid-uat-matrix.sh
+      # The UAT verdict and the exact images it accepted travel together; a
+      # PROD promotion consumes only this manifest (plan §7, GAP-16).
+      - name: Upload the UAT artifact manifest
+        uses: actions/upload-artifact@v7
+        with:
+          name: uat-artifact-manifest
+          path: ${{ runner.temp }}/uat-artifacts/uat-artifact-manifest.json
+          if-no-files-found: ignore
 
   # This remains a visible concurrency boundary for the existing public-state
   # contract. The Serverless child owns the actual Pages/Workers deployment.

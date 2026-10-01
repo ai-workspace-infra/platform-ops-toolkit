@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+UAT_ARTIFACT_DIR="${UAT_ARTIFACT_DIR:-${RUNNER_TEMP:-/tmp}/uat-artifacts}"
 
 # Hybrid is the only UAT multi-cloud entry point. It dispatches one child per
 # matrix row and waits before moving to the next row. The provider, account,
@@ -107,6 +108,7 @@ wait_for_run() {
     return 1
   }
   echo "${label}: ${workflow} run ${run_id} succeeded"
+  CHILD_RUN_ID="${run_id}"
 }
 
 dispatch_and_wait() {
@@ -142,6 +144,33 @@ dispatch_serverless() {
   # Selfhost backend.
   payload="$(jq -n --arg ref "${CHILD_REF}" --arg operation "${child_operation}" --arg tag "${DEPLOY_TAG}" --arg target_domains "${target_domains}" '{ref:$ref,inputs:{operation:$operation,target_domains:$target_domains,cloud_provider:"gcp-cloud",vault_env_path:"uat",tag_ref:$tag,deploy_cloudflare:"true",deploy_cloud_run:"true",skip_stripe_catalog:"true",dns_mode:"none",runner_type:"ubuntu-latest"}}')"
   dispatch_and_wait serverless-orchestrator.yml "${payload}" "web-saas serverless"
+  if [[ "${child_operation}" == deploy && "${DRY_RUN}" != true ]]; then
+    collect_uat_artifact_manifest "${CHILD_RUN_ID}"
+  fi
+}
+
+# The exact image digests a successful UAT deploy built and verified are the
+# only artifacts a PROD promotion may deploy (plan §7, GAP-16). Re-publish the
+# Serverless child's manifest under this Hybrid run, which is the UAT verdict
+# Daily and PROD check.
+collect_uat_artifact_manifest() {
+  local run_id="$1" download target candidate
+  download="$(mktemp -d)"
+  if ! gh run download "${run_id}" --repo "${GH_REPO}" --name serverless-artifact-manifest --dir "${download}"; then
+    echo "::error::Serverless run ${run_id} published no serverless-artifact-manifest; UAT has no promotable artifact evidence." >&2
+    return 1
+  fi
+  mkdir -p "${UAT_ARTIFACT_DIR}"
+  target="${UAT_ARTIFACT_DIR}/uat-artifact-manifest.json"
+  candidate="${download}/candidate.json"
+  jq --arg run "${GITHUB_RUN_ID:?GITHUB_RUN_ID is required}" '. + {uat_run_id: $run}' \
+    "${download}/serverless-artifact-manifest.json" > "${candidate}"
+  if [[ -f "${target}" ]] && ! cmp -s "${candidate}" "${target}"; then
+    echo "::error::Two Serverless lanes reported different UAT artifact manifests; refusing ambiguous promotion evidence." >&2
+    return 1
+  fi
+  mv "${candidate}" "${target}"
+  echo "UAT artifact manifest recorded from Serverless run ${run_id}."
 }
 
 # The Existing UAT One workflow is a migration-only path. It reads the
