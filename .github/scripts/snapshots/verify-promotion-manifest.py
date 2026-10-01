@@ -94,6 +94,7 @@ def main() -> int:
     parser.add_argument("--snapshot-tag", default="", help="accepted UAT snapshot tag")
     parser.add_argument("--uat-run-id", default="", help="accepted UAT Hybrid run id")
     parser.add_argument("--uat-run-json", type=Path, help="GitHub API record of the UAT Hybrid run")
+    parser.add_argument("--accepted-manifest", type=Path, help="manifest downloaded from that UAT run's artifact")
     parser.add_argument("--release-tag", default="", help="PROD release tag the manifest is promoted to")
     args = parser.parse_args()
     try:
@@ -108,6 +109,14 @@ def main() -> int:
         result = normalize(manifest, args.snapshot_tag, args.uat_run_id or None)
         if args.uat_run_json:
             check_uat_run(json.loads(args.uat_run_json.read_text(encoding="utf-8")), result["uat_run_id"])
+        if args.accepted_manifest:
+            try:
+                accepted = json.loads(args.accepted_manifest.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as error:
+                raise Refused(f"cannot read the UAT run artifact: {error}") from error
+            require(isinstance(accepted, dict), "UAT run artifact must be a JSON object")
+            proof = normalize(accepted, result["snapshot_tag"], result["uat_run_id"])
+            require(result == proof, "promotion manifest differs from the successful UAT run artifact")
     except Refused as error:
         print(f"::error::Refusing PROD promotion: {error}.", file=sys.stderr)
         return 1

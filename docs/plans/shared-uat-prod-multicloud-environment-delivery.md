@@ -524,3 +524,22 @@ Daily 仍只检查 Shared Vault → Observability → IAM，不负责 Gateway �
 - GCP OS Login 已有部署代码支持，但其共享 deploy key 当前默认 TTL 6h；尚未满足每 job
   独立临时 key、TTL ≤20m、任务后撤销及 runner `/32` 临时入口的完整目标。不能据此宣布
   SSH 权限收敛已完成。PROD Hybrid 与完整业务制品 digest 清单仍须继续实现。
+
+### 13.2 PROD 制品证明不得由调用方自证
+
+仅核对传入 manifest 的格式以及 `uat_run_id` 对应的 Hybrid run 成功，不能证明 manifest
+中的 digest 确实被该 run 验收。调用方可以填写另一个格式合法的 digest、源码 SHA 或
+Artifact Registry project，再引用同一个成功 run。
+
+Daily 的 PROD dispatch 和 PROD Serverless 的独立 preflight 必须共同执行只读证明门禁：
+
+1. 从 GitHub API 获取指定 UAT Hybrid run，要求 `completed/success`。
+2. 从同一个仓库、同一个 run 下载 `uat-artifact-manifest`。
+3. 规范化下载的 `uat-artifact-manifest.json` 与请求清单，逐项比较 snapshot、run、所有
+   service、image、digest、source repository 和 source SHA。
+4. 清单缺失、过期、下载失败或任何字段不同，均在派发/读取部署凭据之前失败。
+
+`verify-accepted-promotion-manifest.sh` 为两个入口的共享门禁；
+`prod_same_digest_promotion_test.sh` 覆盖格式合法的 digest、source SHA、外部 project 替换、
+缺失 artifact，以及绕过 Daily 的直接 Serverless 请求。模拟测试通过不代表 PROD 已发布；
+PROD Hybrid、Selfhost 制品证明、独立 DNS 审批及真实端到端验收仍未完成。

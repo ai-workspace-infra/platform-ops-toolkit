@@ -82,6 +82,17 @@ case "$1 $2" in
     fi ;;
   "workflow run") echo "https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/9001" ;;
   "run view") echo '{"headBranch":"v2026.10.01-r1","headSha":"tag-sha"}' ;;
+  "run download")
+    [[ "${FAKE_ARTIFACT_MODE:-present}" == present ]] || exit 1
+    destination=''
+    while (($#)); do
+      if [[ "$1" == --dir ]]; then destination="$2"; break; fi
+      shift
+    done
+    [[ -n "${destination}" ]] || exit 1
+    mkdir -p "${destination}"
+    cp "${FAKE_ACCEPTED_ARTIFACT}" "${destination}/uat-artifact-manifest.json"
+    ;;
 esac
 FAKE
 chmod +x "${work}/bin/gh"
@@ -90,6 +101,7 @@ dispatch() {
   local log="$1"; shift
   : > "${log}"
   env PATH="${work}/bin:${PATH}" GH_LOG="${log}" GH_TOKEN=test RUN_STATUS_TOKEN=test \
+    FAKE_ACCEPTED_ARTIFACT="${work}/good.json" \
     RELEASE_TAG=v2026.10.01-r1 UAT_SNAPSHOT_TAG=daily-build-2026.10.01-r1 PROD_RUN_WAIT_TIMEOUT_SECONDS=5 \
     RUN_POLL_INTERVAL_SECONDS=1 "$@" bash "${prod_dispatcher}" > "${log}.out" 2>&1
 }
@@ -112,9 +124,30 @@ serverless_call="$(grep '^workflow run serverless-orchestrator.yml' "${work}/ok.
 grep -Fq -- "-f promotion_manifest=${normalized}" <<<"${serverless_call}" \
   || fail "PROD Serverless must receive the verified UAT manifest"
 
+# A real successful UAT run is not evidence for arbitrary hand-written
+# digests/source metadata: compare with that run's own immutable artifact.
+for field in digest source_sha image; do
+  case "${field}" in
+    digest) jq --arg d "${digest_b}" '.images[0].digest = $d' "${work}/good.json" > "${work}/tampered.json" ;;
+    source_sha) jq '.images[0].source_sha = "dddddddddddddddddddddddddddddddddddddddd"' "${work}/good.json" > "${work}/tampered.json" ;;
+    image) jq '.images[0].image = "asia-east1-docker.pkg.dev/foreign-project/serverless/accounts"' "${work}/good.json" > "${work}/tampered.json" ;;
+  esac
+  # Demonstrate that the former shape + successful-run gate alone accepts
+  # this substitution, so the artifact comparison is a distinct regression.
+  python3 "${verifier}" --manifest "${work}/tampered.json" --uat-run-json "${work}/run-ok.json" \
+    --release-tag v2026.10.01-r1 >/dev/null || fail "tampering fixture must pass the old shape-only gate"
+  dispatch "${work}/tampered-${field}.log" PROMOTION_MANIFEST_FILE="${work}/tampered.json" FAKE_UAT_RUN="${work}/run-ok.json" \
+    && fail "a successful run must not authorize a substituted ${field}"
+  ! grep -q 'workflow run' "${work}/tampered-${field}.log" || fail "a substituted ${field} must stop before dispatch"
+done
+dispatch "${work}/expired.log" PROMOTION_MANIFEST_FILE="${work}/good.json" FAKE_UAT_RUN="${work}/run-ok.json" FAKE_ARTIFACT_MODE=missing \
+  && fail "a missing/expired UAT artifact must prevent promotion"
+! grep -q 'workflow run' "${work}/expired.log" || fail "nothing may dispatch with missing UAT artifact proof"
+
 # --- PROD Serverless preflight --------------------------------------------------
 preflight_run() {
   env PATH="${work}/bin:${PATH}" GH_LOG="${work}/preflight.log" GH_TOKEN=test \
+    FAKE_ACCEPTED_ARTIFACT="${work}/good.json" \
     GITHUB_REPOSITORY=ai-workspace-infra/platform-ops-toolkit RELEASE_TAG=v2026.10.01-r1 "$@" \
     bash "${preflight}" >/dev/null 2>&1
 }
@@ -124,6 +157,10 @@ preflight_run VAULT_ENV_PATH=prod DEPLOYS_CLOUD_RUN=true PROMOTION_MANIFEST="$(c
   && fail "a hand-made PROD dispatch must re-check the UAT verdict"
 preflight_run VAULT_ENV_PATH=prod DEPLOYS_CLOUD_RUN=true PROMOTION_MANIFEST="$(cat "${work}/good.json")" FAKE_UAT_RUN="${work}/run-ok.json" \
   || fail "PROD Cloud Run with a verified manifest must pass preflight"
+preflight_run VAULT_ENV_PATH=prod DEPLOYS_CLOUD_RUN=true PROMOTION_MANIFEST="$(cat "${work}/tampered.json")" FAKE_UAT_RUN="${work}/run-ok.json" \
+  && fail "direct Serverless dispatch must reject substituted artifact provenance"
+preflight_run VAULT_ENV_PATH=prod DEPLOYS_CLOUD_RUN=true PROMOTION_MANIFEST="$(cat "${work}/good.json")" FAKE_UAT_RUN="${work}/run-ok.json" FAKE_ARTIFACT_MODE=missing \
+  && fail "direct Serverless dispatch must require the UAT run artifact"
 preflight_run VAULT_ENV_PATH=uat DEPLOYS_CLOUD_RUN=true PROMOTION_MANIFEST="$(cat "${work}/good.json")" \
   && fail "UAT must refuse a promotion manifest"
 preflight_run VAULT_ENV_PATH=uat DEPLOYS_CLOUD_RUN=true PROMOTION_MANIFEST= || fail "UAT builds normally without a manifest"
