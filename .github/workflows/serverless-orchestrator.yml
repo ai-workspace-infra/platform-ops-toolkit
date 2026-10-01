@@ -3,6 +3,8 @@ name: Serverless Orchestrator
 permissions:
   id-token: write
   contents: read
+  # Read the UAT Hybrid run a PROD promotion manifest names.
+  actions: read
 
 on:
   workflow_dispatch:
@@ -154,6 +156,11 @@ on:
         required: false
         default: 'ubuntu-latest'
         type: string
+      promotion_manifest:
+        description: '仅 PROD：Daily 校验过的 UAT 制品清单（JSON）。PROD Cloud Run 按 digest 晋级，不从源码重建'
+        required: false
+        default: ''
+        type: string
 jobs:
   preflight:
     name: Validate / Dispatch inputs
@@ -219,6 +226,17 @@ jobs:
           ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
           ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}
           PROBE_ACCOUNTS_SCHEMA: ${{ inputs.probe_accounts_schema || false }}
+
+      # PROD Cloud Run promotes the digests a successful UAT Hybrid run
+      # accepted and never rebuilds from source (plan §7, GAP-16, TC-10).
+      - name: Validate the PROD promotion manifest
+        run: ./.github/scripts/serverless/validate_promotion_manifest.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
+          DEPLOYS_CLOUD_RUN: ${{ inputs.deploy_cloud_run == true && contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) }}
+          PROMOTION_MANIFEST: ${{ inputs.promotion_manifest }}
+          RELEASE_TAG: ${{ inputs.tag_ref }}
 
   supabase:
     name: Supabase / xworktech
@@ -573,7 +591,11 @@ jobs:
       - name: Authenticate Docker to target Artifact Registry
         run: gcloud auth configure-docker "${{ steps.gitops_gcp.outputs.region }}-docker.pkg.dev" --quiet
 
+      # UAT builds the image from the immutable source tag. PROD never does:
+      # it copies the digest UAT accepted (next step).
       - name: Build and publish target Cloud Run image
+        id: build
+        if: ${{ inputs.vault_env_path != 'prod' }}
         uses: docker/build-push-action@v6
         with:
           context: service-source
@@ -581,6 +603,16 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ steps.gitops_gcp.outputs.region }}-docker.pkg.dev/${{ steps.gitops_gcp.outputs.project_id }}/serverless/${{ matrix.service }}:${{ inputs.tag_ref }}
+
+      - name: Promote the UAT-accepted image by digest
+        id: promoted
+        if: ${{ inputs.vault_env_path == 'prod' }}
+        run: ./.github/scripts/serverless/promote_image_by_digest.sh
+        env:
+          PROMOTION_MANIFEST: ${{ inputs.promotion_manifest }}
+          SERVICE: ${{ matrix.service }}
+          TARGET_IMAGE: ${{ steps.gitops_gcp.outputs.region }}-docker.pkg.dev/${{ steps.gitops_gcp.outputs.project_id }}/serverless/${{ matrix.service }}
+          IMAGE_TAG: ${{ inputs.tag_ref }}
 
       - name: Wait for service image in Artifact Registry
         run: ./.github/scripts/serverless/wait_for_artifact_image.sh
@@ -617,6 +649,73 @@ jobs:
           CLOUD_RUN_SERVICE: ${{ matrix.service }}
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
           GITOPS_OAUTH_GITHUB_CONFIG: ${{ github.workspace }}/gitops/services/accounts/${{ inputs.vault_env_path || 'uat' }}/oauth/github.json
+
+      # A tag is not evidence: the serving revision must run the digest UAT
+      # built, or in PROD the digest UAT accepted.
+      - name: Verify the serving revision runs the expected digest
+        run: ./.github/scripts/serverless/verify_cloud_run_image_digest.sh
+        env:
+          GCP_PROJECT_ID: ${{ steps.gitops_gcp.outputs.project_id }}
+          GCP_REGION: ${{ steps.gitops_gcp.outputs.region }}
+          CLOUD_RUN_SERVICE_NAME: ${{ inputs.vault_env_path || 'uat' }}-${{ matrix.service }}
+          EXPECTED_DIGEST: ${{ inputs.vault_env_path == 'prod' && steps.promoted.outputs.digest || steps.build.outputs.digest }}
+
+      - name: Record the UAT image digest
+        if: ${{ inputs.vault_env_path != 'prod' }}
+        run: ./.github/scripts/serverless/record_image_digest.sh
+        env:
+          SERVICE: ${{ matrix.service }}
+          IMAGE: ${{ steps.gitops_gcp.outputs.region }}-docker.pkg.dev/${{ steps.gitops_gcp.outputs.project_id }}/serverless/${{ matrix.service }}
+          IMAGE_TAG: ${{ inputs.tag_ref }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          SOURCE_DIR: service-source
+          OUTPUT_DIR: ${{ runner.temp }}/image-manifest
+
+      - name: Upload the UAT image digest record
+        if: ${{ inputs.vault_env_path != 'prod' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: serverless-image-${{ matrix.service }}
+          path: ${{ runner.temp }}/image-manifest/${{ matrix.service }}.json
+          if-no-files-found: error
+
+  # The UAT artifact manifest: the exact images this run built and verified,
+  # which is all a PROD promotion may deploy.
+  artifact_manifest:
+    name: Artifacts / UAT image manifest
+    needs: [cloud_run]
+    if: ${{ always() && needs.cloud_run.result == 'success' && inputs.vault_env_path != 'prod' && inputs.cloud_run_service == '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the per-service digest records
+        uses: actions/download-artifact@v8
+        with:
+          pattern: serverless-image-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/image-manifest
+
+      - name: Assemble the UAT artifact manifest
+        env:
+          SNAPSHOT_TAG: ${{ inputs.tag_ref }}
+          RECORD_DIR: ${{ runner.temp }}/image-manifest
+          OUTPUT: ${{ runner.temp }}/serverless-artifact-manifest.json
+        run: |
+          set -euo pipefail
+          jq -s --arg tag "${SNAPSHOT_TAG}" \
+            '{schema: 1, environment: "uat", snapshot_tag: $tag, images: (sort_by(.service))}' \
+            "${RECORD_DIR}"/*.json > "${OUTPUT}"
+          jq -e '[.images[].service] | sort == ["accounts", "billing-service", "content-service"]' "${OUTPUT}" >/dev/null || {
+            echo "::error::The UAT artifact manifest must cover accounts, billing-service and content-service." >&2
+            exit 1
+          }
+          jq . "${OUTPUT}"
+
+      - name: Upload the UAT artifact manifest
+        uses: actions/upload-artifact@v7
+        with:
+          name: serverless-artifact-manifest
+          path: ${{ runner.temp }}/serverless-artifact-manifest.json
+          if-no-files-found: error
 
   backend_gate:
     name: Gate / backend rollout

@@ -106,3 +106,24 @@ echo "Dispatched UAT Hybrid Orchestrator for ${snapshot_tag}: ${hybrid_run_url}"
 RUN_REPOSITORY="${target_repo}" RUN_POLL_INTERVAL_SECONDS="${wait_interval_seconds}" \
   bash "$(dirname "${BASH_SOURCE[0]}")/wait-for-workflow-run.sh" \
   "${hybrid_run_url}" "UAT Hybrid" "${selfhost_wait_timeout_seconds}"
+
+# Keep the images this successful UAT accepted, verified against the Hybrid
+# run's own verdict. PROD may promote nothing else (plan §7, GAP-16, TC-10).
+promotion_manifest_file="${UAT_PROMOTION_MANIFEST_FILE:-}"
+if [[ -n "${promotion_manifest_file}" ]]; then
+  hybrid_run_id="${hybrid_run_url##*/}"
+  [[ "${hybrid_run_id}" =~ ^[1-9][0-9]*$ ]] || {
+    echo "::error::Cannot resolve the UAT Hybrid run id from ${hybrid_run_url}." >&2
+    exit 1
+  }
+  manifest_work="$(mktemp -d)"
+  gh run download "${hybrid_run_id}" --repo "${target_repo}" --name uat-artifact-manifest --dir "${manifest_work}" || {
+    echo "::error::UAT Hybrid run ${hybrid_run_id} has no uat-artifact-manifest; nothing can be promoted." >&2
+    exit 1
+  }
+  gh api "repos/${target_repo}/actions/runs/${hybrid_run_id}" > "${manifest_work}/uat-run.json"
+  python3 "$(dirname "${BASH_SOURCE[0]}")/verify-promotion-manifest.py" \
+    --manifest "${manifest_work}/uat-artifact-manifest.json" --snapshot-tag "${snapshot_tag}" \
+    --uat-run-id "${hybrid_run_id}" --uat-run-json "${manifest_work}/uat-run.json" > "${promotion_manifest_file}"
+  echo "UAT artifact manifest verified for ${snapshot_tag} (Hybrid run ${hybrid_run_id})."
+fi

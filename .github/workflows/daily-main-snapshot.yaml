@@ -397,6 +397,17 @@ jobs:
           ACCOUNTS_SCHEMA_EXPECTED_VERSION: ${{ inputs.accounts_schema_expected_version }}
           ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
           ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}
+          UAT_PROMOTION_MANIFEST_FILE: ${{ runner.temp }}/uat-promotion-manifest.json
+
+      # The images this successful UAT accepted, verified against the Hybrid
+      # run's verdict. promote-prod forwards only this manifest to PROD.
+      - name: Upload the verified UAT promotion manifest
+        if: ${{ steps.dispatch_uat_hybrid.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: uat-promotion-manifest
+          path: ${{ runner.temp }}/uat-promotion-manifest.json
+          if-no-files-found: error
 
       - name: Load GitHub App private key for production dispatch
         if: ${{ (inputs.deploy_env || 'uat') == 'prod' && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' }}
@@ -533,9 +544,17 @@ jobs:
           GH_TOKEN_INFRA: ${{ steps.promote_infra_token.outputs.token }}
           GH_TOKEN_SERVICES: ${{ steps.promote_services_token.outputs.token }}
 
+      - name: Download the verified UAT promotion manifest
+        uses: actions/download-artifact@v8
+        with:
+          name: uat-promotion-manifest
+          path: ${{ runner.temp }}/uat-promotion
+
       - name: Dispatch promoted PROD serverless and selfhost deployment
         run: ./.github/scripts/snapshots/dispatch-prod-combined.sh
         env:
+          PROMOTION_MANIFEST_FILE: ${{ runner.temp }}/uat-promotion/uat-promotion-manifest.json
+          UAT_SNAPSHOT_TAG: ${{ needs.snapshot-summary.outputs.uat_snapshot_tag }}
           GH_TOKEN: ${{ steps.promote_infra_token.outputs.token }}
           # Child run status is read with the job token, which outlives the
           # 60-minute GitHub App token used to dispatch (wait-for-workflow-run.sh).
