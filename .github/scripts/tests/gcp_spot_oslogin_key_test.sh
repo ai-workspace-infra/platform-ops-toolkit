@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# Behaviour of the OS Login deploy-key registration for GCP Spot VMs.
+set -euo pipefail
+
+root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+script="${root_dir}/.github/scripts/platform-ops/provision/platform-ops_provision_register-gcp-oslogin-key.sh"
+workflow="${root_dir}/.github/workflows/selfhost-orchestrator.yml"
+work="$(mktemp -d)"
+trap 'rm -rf "${work}"' EXIT
+
+fail() { echo "FAIL: $*" >&2; exit 1; }
+
+mkdir -p "${work}/bin"
+cat > "${work}/bin/gcloud" <<'FAKE'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${FAKE_GCLOUD_LOG}"
+for arg in "$@"; do
+  case "${arg}" in
+    --key-file=*) cp "${arg#--key-file=}" "${FAKE_GCLOUD_LOG}.key" ;;
+  esac
+done
+if [[ "$*" == *"describe-profile"* ]]; then
+  printf '{"posixAccounts":[{"operatingSystemType":"LINUX","username":"%s"}]}\n' "${FAKE_OSLOGIN_USER}"
+fi
+FAKE
+chmod +x "${work}/bin/gcloud"
+
+run_case() {
+  local name="$1" manifest="$2"
+  shift 2
+  : > "${work}/${name}.env"
+  : > "${work}/${name}.gcloud"
+  rm -rf "${work}/tmp" && mkdir "${work}/tmp"
+  env PATH="${work}/bin:${PATH}" TMPDIR="${work}/tmp" \
+    RESOURCES_MANIFEST="${work}/${name}.json" GCP_PROJECT_ID=open-platform-uat \
+    GITHUB_ENV="${work}/${name}.env" FAKE_GCLOUD_LOG="${work}/${name}.gcloud" \
+    SSH_PUBLIC_DEPLOY_KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKey deploy' \
+    FAKE_OSLOGIN_USER=sa_123456789012345678901 "$@" \
+    bash -c 'printf "%s" "$1" > "${RESOURCES_MANIFEST}"; exec "$2"' _ "${manifest}" "${script}" \
+    > "${work}/${name}.out" 2>&1
+}
+
+oslogin='{"spot_vms":[{"name":"ai-workspace-uat","enable_oslogin":true},{"name":"legacy","public_ip":true}]}'
+
+# A namespace without OS Login VMs keeps the metadata key and calls nothing.
+run_case none '{"spot_vms":[{"name":"legacy"}],"vault_nodes":[{"name":"v","enable_oslogin":true}]}' \
+  || fail "a namespace without OS Login Spot VMs must succeed"
+[[ ! -s "${work}/none.gcloud" ]] || fail "no gcloud call is expected without OS Login Spot VMs"
+[[ ! -s "${work}/none.env" ]] || fail "no username is exported without OS Login Spot VMs"
+
+# OS Login VMs: register with an expiry, refresh it, export the user.
+run_case on "${oslogin}" || { cat "${work}/on.out" >&2; fail "OS Login registration must succeed"; }
+grep -q '^compute os-login ssh-keys add --project=open-platform-uat --key-file=[^ ]* --ttl=6h$' "${work}/on.gcloud" \
+  || fail "the key must be added with the default 6h TTL"
+grep -q '^compute os-login ssh-keys update --project=open-platform-uat --key-file=[^ ]* --ttl=6h$' "${work}/on.gcloud" \
+  || fail "the expiry of an already registered key must be refreshed"
+[[ "$(sed -n 2p "${work}/on.gcloud")" == *"ssh-keys update"* ]] || fail "update must follow add"
+grep -Fxq 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKey deploy' "${work}/on.gcloud.key" \
+  || fail "the Vault deploy public key must be registered"
+grep -Fxq 'GCP_OSLOGIN_USERNAME=sa_123456789012345678901' "${work}/on.env" || fail "the OS Login user must reach GITHUB_ENV"
+! grep -q 'sa_123456789012345678901' "${work}/on.out" || fail "the OS Login user must not be printed"
+! grep -q 'AAAAC3NzaC1lZDI1NTE5AAAAITestKey' "${work}/on.out" || fail "the key must not be printed"
+[[ -z "$(ls -A "${work}/tmp")" ]] || fail "the temporary key file must be removed"
+
+# Refusals.
+run_case ttl "${oslogin}" OSLOGIN_KEY_TTL=forever && fail "an invalid TTL must be refused"
+[[ ! -s "${work}/ttl.gcloud" ]] || fail "an invalid TTL must be refused before calling gcloud"
+run_case user "${oslogin}" FAKE_OSLOGIN_USER='root;id' && fail "an invalid OS Login user must be refused"
+[[ ! -s "${work}/user.env" ]] || fail "an invalid OS Login user must not be exported"
+run_case nokey "${oslogin}" SSH_PUBLIC_DEPLOY_KEY= && fail "a missing deploy key must be refused"
+
+# Workflow wiring: after the VMs are running, before the inventory.
+python3 - "${workflow}" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+running = text.index("- name: Ensure declared GCP VMs are running")
+register = text.index("- name: Register the deploy key for OS Login Spot VMs")
+inventory = text.index("- name: generate.py inventory")
+assert running < register < inventory, "OS Login registration must sit between VM start and inventory"
+step = text[register:inventory]
+for needle in (
+    "steps.route.outputs.cloud_provider == 'gcp-cloud'",
+    "steps.route.outputs.terraform_action == 'apply'",
+    "GCP_PROJECT_ID: ${{ steps.gcp_oidc.outputs.project_id }}",
+    "/resources_manifest.json",
+    "platform-ops_provision_register-gcp-oslogin-key.sh",
+):
+    assert needle in step, needle
+PY
+
+echo "GCP Spot OS Login deploy-key tests passed."

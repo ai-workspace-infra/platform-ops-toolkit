@@ -734,6 +734,21 @@ jobs:
           --manifest "${{ steps.route.outputs.env_dir }}/resources_manifest.json" \
           --project "${GCP_PROJECT_ID}"
 
+    # Spot VMs that declare enable_oslogin accept only OS Login SSH. Put the
+    # Vault deploy key into the deploy principal's OS Login profile (with an
+    # expiry) and hand its POSIX user to the inventory renderer.
+    - name: Register the deploy key for OS Login Spot VMs
+      if: >-
+        ${{ steps.route.outputs.run_infrastructure == 'true' &&
+        steps.route.outputs.terraform_action == 'apply' &&
+        steps.route.outputs.cloud_provider == 'gcp-cloud' }}
+      env:
+        GCP_PROJECT_ID: ${{ steps.gcp_oidc.outputs.project_id }}
+        RESOURCES_MANIFEST: ${{ steps.route.outputs.env_dir }}/resources_manifest.json
+        # SSH_PUBLIC_DEPLOY_KEY from GITHUB_ENV
+      run: |-
+        ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_register-gcp-oslogin-key.sh
+
     - name: generate.py inventory
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.terraform_action == 'apply'
       working-directory: ${{ steps.route.outputs.vps_root }}
