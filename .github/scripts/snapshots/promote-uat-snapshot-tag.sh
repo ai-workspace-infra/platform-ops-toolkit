@@ -20,6 +20,8 @@ control_plane_sha="${CONTROL_PLANE_SHA:?CONTROL_PLANE_SHA must be set}"
 promotion_organization="${PROMOTION_ORGANIZATION:-ai-workspace-services}"
 output_file="${GITHUB_OUTPUT:-/dev/stdout}"
 
+. "$(dirname "${BASH_SOURCE[0]}")/read-ref-sha.sh"
+
 [[ "${uat_tag}" =~ ^(uat-)?daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?$ ]] || {
   echo "::error::UAT_TAG must be an immutable daily-build tag: ${uat_tag}" >&2
   exit 2
@@ -60,9 +62,11 @@ gh_repo() {
   GH_TOKEN="$(token_for_org "${repository%%/*}")" gh api "$@"
 }
 
+# A missing tag prints nothing; see read-ref-sha.sh for why `|| true` is not
+# enough.
 tag_sha() {
   local repository="$1" tag="$2"
-  gh_repo "${repository}" "repos/${repository}/git/ref/tags/${tag}" --jq '.object.sha' 2>/dev/null || true
+  read_ref_sha gh_repo "${repository}" "repos/${repository}/git/ref/tags/${tag}" --jq '.object.sha'
 }
 
 create_tag() {

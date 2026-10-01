@@ -2,6 +2,7 @@
 set -euo pipefail
 
 . "$(dirname "${BASH_SOURCE[0]}")/../platform-ops/provision/common_require_env.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/read-ref-sha.sh"
 require_env DEPLOY_ENV
 
 workspace="${GITHUB_WORKSPACE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
@@ -73,7 +74,7 @@ gh_for_repo() {
 resolve_commit() {
   local repo="$1" ref="$2" attempt sha
   for attempt in 1 2 3; do
-    sha="$(gh_for_repo "${repo}" "repos/${repo}/commits/${ref}" --jq .sha 2>/dev/null || true)"
+    sha="$(read_ref_sha gh_for_repo "${repo}" "repos/${repo}/commits/${ref}" --jq .sha)"
     if [[ -n "${sha}" ]]; then
       printf '%s' "${sha}"
       return 0
@@ -116,7 +117,7 @@ for repo in "${eligible_repos[@]}"; do
     echo "::error::Cannot resolve ${snapshot_ref} in ${repo}; refusing to choose a release tag." >&2
     exit 1
   }
-  existing_sha="$(gh_for_repo "${repo}" "repos/${repo}/git/ref/tags/${tag}" --jq '.object.sha // empty' 2>/dev/null || true)"
+  existing_sha="$(read_ref_sha gh_for_repo "${repo}" "repos/${repo}/git/ref/tags/${tag}" --jq '.object.sha')"
   if [[ -n "${existing_sha}" && "${existing_sha}" != "${expected_sha}" ]]; then
     tag_conflict=true
   fi

@@ -76,12 +76,18 @@ cat > "${work}/bin/gh" <<'FAKE'
 printf '%s\n' "$*" >> "${GH_LOG}"
 case "$1 $2" in
   "api "*)
-    if [[ "$2" == */git/ref/tags/* ]]; then echo tag-sha
+    if [[ "$2" == */git/ref/tags/* ]]; then
+      # gh prints a 404 body to stdout, not a SHA, when the tag is missing.
+      if [[ "${FAKE_TAG_MODE:-present}" == missing ]]; then
+        echo '{"message":"Not Found","documentation_url":"https://docs.github.com/rest/git/refs#get-a-reference","status":"404"}'
+        exit 1
+      fi
+      echo "${FAKE_TAG_SHA}"
     elif [[ "$*" == *"--jq"* ]]; then printf 'completed\tsuccess\n'
     else cat "${FAKE_UAT_RUN}"
     fi ;;
   "workflow run") echo "https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/9001" ;;
-  "run view") echo '{"headBranch":"v2026.10.01-r1","headSha":"tag-sha"}' ;;
+  "run view") printf '{"headBranch":"v2026.10.01-r1","headSha":"%s"}\n' "${FAKE_TAG_SHA}" ;;
   "run download")
     [[ "${FAKE_ARTIFACT_MODE:-present}" == present ]] || exit 1
     destination=''
@@ -101,7 +107,7 @@ dispatch() {
   local log="$1"; shift
   : > "${log}"
   env PATH="${work}/bin:${PATH}" GH_LOG="${log}" GH_TOKEN=test RUN_STATUS_TOKEN=test \
-    FAKE_ACCEPTED_ARTIFACT="${work}/good.json" \
+    FAKE_ACCEPTED_ARTIFACT="${work}/good.json" FAKE_TAG_SHA="$(printf 'f%.0s' {1..40})" \
     RELEASE_TAG=v2026.10.01-r1 UAT_SNAPSHOT_TAG=daily-build-2026.10.01-r1 PROD_RUN_WAIT_TIMEOUT_SECONDS=5 \
     RUN_POLL_INTERVAL_SECONDS=1 "$@" bash "${prod_dispatcher}" > "${log}.out" 2>&1
 }
@@ -121,6 +127,17 @@ dispatch "${work}/pending.log" PROMOTION_MANIFEST_FILE="${work}/good.json" FAKE_
 dispatch "${work}/ok.log" PROMOTION_MANIFEST_FILE="${work}/good.json" FAKE_UAT_RUN="${work}/run-ok.json" \
   || { cat "${work}/ok.log.out" >&2; fail "PROD dispatch for a successful UAT manifest must proceed"; }
 serverless_call="$(grep '^workflow run serverless-orchestrator.yml' "${work}/ok.log")"
+
+# A missing release tag must stop PROD: gh's 404 body is not a tag SHA.
+mkdir -p "${work}/nosleep"
+printf '#!/usr/bin/env bash\nexit 0\n' > "${work}/nosleep/sleep"
+chmod +x "${work}/nosleep/sleep"
+dispatch "${work}/notag.log" PATH="${work}/nosleep:${work}/bin:${PATH}" FAKE_TAG_MODE=missing \
+  PROMOTION_MANIFEST_FILE="${work}/good.json" FAKE_UAT_RUN="${work}/run-ok.json" \
+  && fail "PROD dispatch must refuse a release tag that does not exist"
+grep -Fq 'is not visible through the GitHub refs API' "${work}/notag.log.out" \
+  || fail "a missing release tag must be reported as not visible"
+! grep -q '^workflow run' "${work}/notag.log" || fail "nothing may be dispatched without the release tag"
 grep -Fq -- "-f promotion_manifest=${normalized}" <<<"${serverless_call}" \
   || fail "PROD Serverless must receive the verified UAT manifest"
 

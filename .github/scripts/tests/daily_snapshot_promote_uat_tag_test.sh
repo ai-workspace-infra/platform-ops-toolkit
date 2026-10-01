@@ -45,7 +45,11 @@ fi
 repository="${endpoint#repos/}"; repository="${repository%%/git/ref/tags/*}"
 tag="${endpoint##*/git/ref/tags/}"
 file="${TAGS_DIR}/${repository//\//__}@${tag}"
-[[ -e "${file}" ]] || exit 1
+if [[ ! -e "${file}" ]]; then
+  # Real gh prints the 404 body to stdout, without applying --jq.
+  echo '{"message":"Not Found","documentation_url":"https://docs.github.com/rest/git/refs#get-a-reference","status":"404"}'
+  exit 1
+fi
 cat "${file}"
 EOF
 chmod +x "${workdir}/gh"

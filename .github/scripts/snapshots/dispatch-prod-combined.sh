@@ -31,6 +31,7 @@ manifest_file="${PROMOTION_MANIFEST_FILE:-}"
 }
 
 export GH_TOKEN="${gh_token}"
+. "$(dirname "${BASH_SOURCE[0]}")/read-ref-sha.sh"
 
 promotion_manifest="$(RUN_REPOSITORY="${repo}" \
   bash "$(dirname "${BASH_SOURCE[0]}")/verify-accepted-promotion-manifest.sh" \
@@ -43,7 +44,7 @@ promotion_manifest="$(RUN_REPOSITORY="${repo}" \
 tag_ref_path="repos/${repo}/git/ref/tags/${release_tag}"
 tag_sha=""
 for attempt in {1..15}; do
-  tag_sha="$(gh api "${tag_ref_path}" --jq '.object.sha' 2>/dev/null || true)"
+  tag_sha="$(read_ref_sha gh api "${tag_ref_path}" --jq '.object.sha')"
   [[ -n "${tag_sha}" ]] && break
   sleep 2
 done
