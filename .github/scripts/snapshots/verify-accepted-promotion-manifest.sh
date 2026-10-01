@@ -6,6 +6,7 @@ release_tag="${2:?release tag is required}"
 snapshot_tag="${3:-}"
 : "${GH_TOKEN:?GH_TOKEN is required}"
 : "${RUN_REPOSITORY:?RUN_REPOSITORY is required}"
+artifact_token="${ARTIFACT_GH_TOKEN:-${GH_TOKEN}}"
 scripts="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
@@ -18,7 +19,7 @@ gh api "repos/${RUN_REPOSITORY}/actions/runs/${run_id}" > "${work}/run.json"
 python3 "${scripts}/verify-promotion-manifest.py" --manifest "${manifest_file}" \
   --release-tag "${release_tag}" --snapshot-tag "${snapshot_tag}" \
   --uat-run-json "${work}/run.json" >/dev/null
-if ! gh run download "${run_id}" --repo "${RUN_REPOSITORY}" \
+if ! GH_TOKEN="${artifact_token}" gh run download "${run_id}" --repo "${RUN_REPOSITORY}" \
     --name uat-artifact-manifest --dir "${work}/accepted"; then
   echo '::error::Cannot retrieve the successful UAT run artifact; refusing promotion.' >&2
   exit 1
