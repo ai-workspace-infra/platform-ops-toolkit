@@ -30,6 +30,19 @@ key_file="$(mktemp)"
 trap 'rm -f "${key_file}"' EXIT
 printf '%s\n' "${SSH_PUBLIC_DEPLOY_KEY}" > "${key_file}"
 
+# OS Login acts on the active gcloud account's profile. The Selfhost job
+# authenticates gcloud only through the WIF credential-file override, which
+# leaves no active account ("Request for user [None]"), so register the
+# credential the way setup-gcloud does. Output is discarded: it names the
+# deploy principal.
+if [[ -z "$(gcloud config get-value account 2>/dev/null)" ]]; then
+  : "${GOOGLE_GHA_CREDS_PATH:?GOOGLE_GHA_CREDS_PATH is required to activate the WIF credential}"
+  gcloud --quiet auth login --cred-file="${GOOGLE_GHA_CREDS_PATH}" >/dev/null 2>&1 || {
+    echo "::error::Could not activate the GCP WIF credential for OS Login." >&2
+    exit 1
+  }
+fi
+
 gcloud compute os-login ssh-keys add --project="${GCP_PROJECT_ID}" --key-file="${key_file}" --ttl="${ttl}" >/dev/null
 # `add` keeps the expiry of a key that is already registered, so refresh it;
 # otherwise a key left by an earlier run could expire during this one.
