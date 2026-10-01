@@ -171,6 +171,27 @@ revision_run() {
 revision_run FAKE_SERVING_DIGEST="${digest_a}" || fail "a revision serving the UAT digest must verify"
 revision_run FAKE_SERVING_DIGEST="${digest_b}" && fail "a revision serving another digest must be refused"
 
+# Buildx pushes an image index; Cloud Run serves its linux/amd64 child.
+digest_child="sha256:$(printf 'd%.0s' {1..64})"
+digest_attest="sha256:$(printf 'e%.0s' {1..64})"
+cat > "${work}/bin/docker" <<FAKE
+#!/usr/bin/env bash
+[[ "\$*" == "buildx imagetools inspect --raw asia-east1-docker.pkg.dev/open-platform-prod/serverless/accounts@${digest_a}" ]] || exit 1
+cat "\${FAKE_INDEX}"
+FAKE
+chmod +x "${work}/bin/docker"
+jq -n --arg c "${digest_child}" --arg a "${digest_attest}" '{mediaType:"application/vnd.oci.image.index.v1+json",manifests:[
+  {digest:$c, platform:{os:"linux", architecture:"amd64"}},
+  {digest:$a, platform:{os:"unknown", architecture:"unknown"}}]}' > "${work}/index.json"
+index_run() { revision_run IMAGE=asia-east1-docker.pkg.dev/open-platform-prod/serverless/accounts FAKE_INDEX="${work}/index.json" "$@"; }
+index_run FAKE_SERVING_DIGEST="${digest_child}" || fail "the linux/amd64 image of the accepted index must verify"
+index_run FAKE_SERVING_DIGEST="${digest_a}" || fail "the accepted index digest itself must verify"
+index_run FAKE_SERVING_DIGEST="${digest_attest}" && fail "the attestation manifest is not a servable image"
+index_run FAKE_SERVING_DIGEST="${digest_b}" && fail "an unrelated digest must still be refused"
+jq '.manifests += [{digest:"sha256:'"$(printf 'f%.0s' {1..64})"'", platform:{os:"linux", architecture:"amd64"}}]' "${work}/index.json" > "${work}/ambiguous.json"
+revision_run IMAGE=asia-east1-docker.pkg.dev/open-platform-prod/serverless/accounts FAKE_INDEX="${work}/ambiguous.json" \
+  FAKE_SERVING_DIGEST="${digest_child}" && fail "an index with several linux/amd64 images is ambiguous"
+
 # --- workflow wiring --------------------------------------------------------------
 python3 - "${repo_root}/.github/workflows" <<'PY'
 import sys
@@ -198,6 +219,7 @@ order = [names.index(n) for n in (
     "Verify the serving revision runs the expected digest", "Record the UAT image digest",
     "Upload the UAT image digest record")]
 assert order == sorted(order), "build/promote → wait → deploy → verify digest → record"
+assert by_name["Verify the serving revision runs the expected digest"]["env"]["IMAGE"].endswith("/serverless/${{ matrix.service }}")
 for name in ("Record the UAT image digest", "Upload the UAT image digest record"):
     assert by_name[name].get("if") == "${{ inputs.vault_env_path != 'prod' }}"
 manifest_job = serverless["jobs"]["artifact_manifest"]
