@@ -35,8 +35,7 @@ run_id="$(jq -r '.uat_run_id // empty' "${work}/manifest.json" 2>/dev/null || tr
 }
 # Re-read the UAT verdict here as well: a PROD dispatch with a hand-made
 # manifest must not bypass the Daily gate.
-gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" > "${work}/uat-run.json"
-python3 "$(dirname "${BASH_SOURCE[0]}")/../snapshots/verify-promotion-manifest.py" \
-  --manifest "${work}/manifest.json" --release-tag "${RELEASE_TAG}" \
-  --uat-run-json "${work}/uat-run.json" >/dev/null
+RUN_REPOSITORY="${GITHUB_REPOSITORY}" \
+  bash "$(dirname "${BASH_SOURCE[0]}")/../snapshots/verify-accepted-promotion-manifest.sh" \
+  "${work}/manifest.json" "${RELEASE_TAG}" >/dev/null
 echo "PROD promotion manifest verified against successful UAT Hybrid run ${run_id}."

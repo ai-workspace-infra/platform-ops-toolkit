@@ -32,16 +32,9 @@ manifest_file="${PROMOTION_MANIFEST_FILE:-}"
 
 export GH_TOKEN="${gh_token}"
 
-manifest_check="$(mktemp -d)"
-uat_run_id="$(jq -r '.uat_run_id // empty' "${manifest_file}")"
-[[ "${uat_run_id}" =~ ^[1-9][0-9]*$ ]] || {
-  echo "::error::The promotion manifest does not name its UAT Hybrid run." >&2
-  exit 2
-}
-gh api "repos/${repo}/actions/runs/${uat_run_id}" > "${manifest_check}/uat-run.json"
-promotion_manifest="$(python3 "$(dirname "${BASH_SOURCE[0]}")/verify-promotion-manifest.py" \
-  --manifest "${manifest_file}" --snapshot-tag "${UAT_SNAPSHOT_TAG:-}" --release-tag "${release_tag}" \
-  --uat-run-json "${manifest_check}/uat-run.json")"
+promotion_manifest="$(RUN_REPOSITORY="${repo}" \
+  bash "$(dirname "${BASH_SOURCE[0]}")/verify-accepted-promotion-manifest.sh" \
+  "${manifest_file}" "${release_tag}" "${UAT_SNAPSHOT_TAG:-}")"
 
 # GitHub may accept a workflow_dispatch request while a just-created tag is
 # still propagating. Refuse to dispatch unless the tag exists and the created
