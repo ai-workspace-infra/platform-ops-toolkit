@@ -27,7 +27,7 @@ adopt_accounts_baseline="${ADOPT_ACCOUNTS_BASELINE:-false}"
 accounts_source_backend="${ACCOUNTS_SOURCE_BACKEND:-supabase}"
 serverless_operation="${SERVERLESS_OPERATION:-}"
 wait_timeout_seconds="${UAT_SERVERLESS_WAIT_TIMEOUT_SECONDS:-3600}"
-wait_interval_seconds="${UAT_SERVERLESS_WAIT_INTERVAL_SECONDS:-20}"
+wait_interval_seconds="${UAT_SERVERLESS_WAIT_INTERVAL_SECONDS:-30}"
 selfhost_wait_timeout_seconds="${UAT_SELFHOST_WAIT_TIMEOUT_SECONDS:-3600}"
 
 [[ "${snapshot_tag}" =~ ^(uat-)?daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?$ ]] || {

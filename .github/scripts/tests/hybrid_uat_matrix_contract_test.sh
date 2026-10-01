@@ -243,9 +243,10 @@ verify_job = doc["jobs"]["verify"]
 assert "needs.resource_orchestration.result == 'success'" in verify_job["if"]
 assert "needs.edge_gateway.result == 'success'" in verify_job["if"]
 dispatcher_text = open(sys.argv[2], encoding="utf-8").read()
-assert 'gh run watch "${run_id}"' in dispatcher_text
-assert "--exit-status" in dispatcher_text
-assert 'gh run view "${run_id}"' in dispatcher_text
+assert 'wait-for-workflow-run.sh' in dispatcher_text
+assert 'RUN_REPOSITORY="${GH_REPO}"' in dispatcher_text
+assert 'Multiple ${workflow} runs match' in dispatcher_text
+assert 'gh run watch' not in dispatcher_text
 selfhost = yaml.safe_load(open(".github/workflows/selfhost-orchestrator.yml", encoding="utf-8"))
 steps = selfhost["jobs"]["provision"]["steps"]
 adopt = next(step for step in steps if step.get("name") == "Adopt existing UAT external IP policy into open-platform state")

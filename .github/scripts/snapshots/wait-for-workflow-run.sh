@@ -16,7 +16,7 @@ run_ref="${1:?run URL or ID is required}"
 label="${2:?run label is required}"
 timeout_seconds="${3:?wait timeout in seconds is required}"
 repository="${RUN_REPOSITORY:?RUN_REPOSITORY must be set}"
-interval_seconds="${RUN_POLL_INTERVAL_SECONDS:-20}"
+interval_seconds="${RUN_POLL_INTERVAL_SECONDS:-30}"
 max_read_failures="${RUN_MAX_READ_FAILURES:-10}"
 status_token="${RUN_STATUS_TOKEN:-${GH_TOKEN:-}}"
 

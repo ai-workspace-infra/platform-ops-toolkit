@@ -508,3 +508,19 @@ Daily 仍只检查 Shared Vault → Observability → IAM，不负责 Gateway �
 | PROD 同制品晋级 | Serverless 同 digest 晋级契约已实现（见 GAP-16）：PROD 只接受 Daily 校验过、指向成功 UAT Hybrid run 的制品清单，按 digest 复制并核对服务中的 revision；`dispatch-prod-combined.sh` 仍直接扇出 Serverless、AWS 和 Akamai Selfhost | 未执行 PROD（需用户批准）。仍缺 PROD GitOps matrix、PROD Hybrid（GAP-06/07）、Selfhost 制品 digest 清单与独立 DNS 切换工作流；跨项目 AR 只读授权需审批。不能把 tag 一致误报成镜像一致。 |
 
 本地 Daily 门禁、生产 manifest、Shared readiness 和 UAT matrix 契约测试通过，只证明对应代码路径；在上述线上失败和 PROD 差距未消除前，不标记 UAT 或 PROD 发布验收完成。
+
+### 13.1 2026-10-01 后续运行检查点
+
+- [Hybrid #36809717159](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/36809717159)
+  明确失败在 JP 子流程 [Selfhost #36812610735](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/36812610735)：
+  CMDB 为实例 `i-0289f628cb875beaf` 指定 `ansible_user=root`，SSH readiness 等待 600 秒后失败。
+  GitOps [PR #366](https://github.com/ai-workspace-infra/gitops/pull/366) 随后将 JP Debian 声明改为
+  `admin`；不得把这个 SSH 超时归因于 GCP OS Login 或只延长超时。
+- [Hybrid #36813778329](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/36813778329)
+  为后续真实验证运行，检查时仍在执行；不重复派发，不预报成功。
+- Hybrid 子流程等待改用 Daily 共用的有界状态等待器，默认每 30 秒观察一次；瞬时 API
+  读取失败只重试观察，不取消、不重派发。匹配到多个候选 run 时拒绝选择“最新”作为验收
+  证据。`hybrid_child_wait_test.py` 用模拟 API 验证恢复、真实失败停止和歧义拒绝。
+- GCP OS Login 已有部署代码支持，但其共享 deploy key 当前默认 TTL 6h；尚未满足每 job
+  独立临时 key、TTL ≤20m、任务后撤销及 runner `/32` 临时入口的完整目标。不能据此宣布
+  SSH 权限收敛已完成。PROD Hybrid 与完整业务制品 digest 清单仍须继续实现。
