@@ -80,7 +80,8 @@ run_case active "${oslogin}" FAKE_ACTIVE_ACCOUNT=deploy@example.iam.gserviceacco
 grep -Fxq 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKey deploy' "${work}/on.gcloud.key" \
   || fail "the Vault deploy public key must be registered"
 grep -Fxq 'GCP_OSLOGIN_USERNAME=sa_123456789012345678901' "${work}/on.env" || fail "the OS Login user must reach GITHUB_ENV"
-! grep -q 'sa_123456789012345678901' "${work}/on.out" || fail "the OS Login user must not be printed"
+grep -Fxq '::add-mask::sa_123456789012345678901' "${work}/on.out" || fail "the OS Login user must be masked"
+[[ "$(grep -c 'sa_123456789012345678901' "${work}/on.out")" == 1 ]] || fail "the OS Login user must be printed only as a mask"
 ! grep -q 'AAAAC3NzaC1lZDI1NTE5AAAAITestKey' "${work}/on.out" || fail "the key must not be printed"
 [[ -z "$(ls -A "${work}/tmp")" ]] || fail "the temporary key file must be removed"
 
@@ -91,14 +92,42 @@ run_case user "${oslogin}" FAKE_OSLOGIN_USER='root;id' && fail "an invalid OS Lo
 [[ ! -s "${work}/user.env" ]] || fail "an invalid OS Login user must not be exported"
 run_case nokey "${oslogin}" SSH_PUBLIC_DEPLOY_KEY= && fail "a missing deploy key must be refused"
 
+# Starting a stopped VM reports started=true so the workflow refreshes outputs.
+mkdir -p "${work}/rt"
+cat > "${work}/rt/gcloud" <<'FAKE'
+#!/usr/bin/env bash
+state="${FAKE_RT_STATE}"
+if [[ "$*" == *"instances describe"* ]]; then
+  if [[ -f "${state}" ]]; then echo RUNNING; else echo "${FAKE_RT_INITIAL}"; fi
+elif [[ "$*" == *"instances start"* ]]; then
+  touch "${state}"
+fi
+FAKE
+chmod +x "${work}/rt/gcloud"
+printf '%s' '{"spot_vms":[{"name":"web-saas-uat","zone":"asia-east1-a"}]}' > "${work}/rt/manifest.json"
+runtime="${root_dir}/.github/scripts/platform-ops/provision/platform-ops_provision_ensure-gcp-vm-running.py"
+for initial in TERMINATED RUNNING; do
+  rm -f "${work}/rt/state" "${work}/rt/out"
+  PATH="${work}/rt:${PATH}" FAKE_RT_STATE="${work}/rt/state" FAKE_RT_INITIAL="${initial}" GITHUB_OUTPUT="${work}/rt/out" \
+    python3 "${runtime}" --manifest "${work}/rt/manifest.json" --project p --interval 1 --timeout 5 >/dev/null
+  expected=false; [[ "${initial}" == TERMINATED ]] && expected=true
+  grep -Fxq "started=${expected}" "${work}/rt/out" || fail "a ${initial} VM must report started=${expected}"
+done
+
 # Workflow wiring: after the VMs are running, before the inventory.
 python3 - "${workflow}" <<'PY'
 import sys
 text = open(sys.argv[1], encoding="utf-8").read()
 running = text.index("- name: Ensure declared GCP VMs are running")
+refresh = text.index("- name: Refresh Terraform outputs after starting VMs")
 register = text.index("- name: Register the deploy key for OS Login Spot VMs")
 inventory = text.index("- name: generate.py inventory")
-assert running < register < inventory, "OS Login registration must sit between VM start and inventory"
+assert running < refresh < register < inventory, "VM start, output refresh, OS Login, then inventory"
+assert "id: gcp_runtime" in text[running:refresh]
+refresh_step = text[refresh:register]
+assert "steps.gcp_runtime.outputs.started == 'true'" in refresh_step
+assert "run: terraform apply -refresh-only -input=false -auto-approve -no-color" in refresh_step
+assert "working-directory: ${{ steps.route.outputs.env_dir }}" in refresh_step
 step = text[register:inventory]
 for needle in (
     "steps.route.outputs.cloud_provider == 'gcp-cloud'",

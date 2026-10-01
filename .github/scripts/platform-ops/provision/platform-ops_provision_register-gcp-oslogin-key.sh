@@ -57,5 +57,8 @@ username="$(jq -er '[.posixAccounts[]? | select(.operatingSystemType == "LINUX")
   echo "::error::The deploy principal's OS Login username is not a valid Linux user name." >&2
   exit 1
 }
+# GITHUB_ENV values are echoed in every later step's env block; mask the
+# user, which carries the deploy principal's unique ID.
+echo "::add-mask::${username}"
 printf 'GCP_OSLOGIN_USERNAME=%s\n' "${username}" >> "${GITHUB_ENV}"
 echo "Registered the deploy key with OS Login for ${count} Spot VM(s); it expires after ${ttl}."

@@ -723,6 +723,7 @@ jobs:
     # target, so wake only the VMs declared by this state before rendering the
     # CMDB.  This is apply-only and never creates, replaces, or destroys VMs.
     - name: Ensure declared GCP VMs are running
+      id: gcp_runtime
       if: >-
         ${{ steps.route.outputs.run_infrastructure == 'true' &&
         steps.route.outputs.terraform_action == 'apply' &&
@@ -733,6 +734,19 @@ jobs:
         python3 "${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_ensure-gcp-vm-running.py" \
           --manifest "${{ steps.route.outputs.env_dir }}/resources_manifest.json" \
           --project "${GCP_PROJECT_ID}"
+
+    # A Spot VM started above was stopped when Terraform refreshed, so its new
+    # ephemeral public IP is missing from state and the inventory would reject
+    # it. Refresh-only updates state and outputs to match the running VMs; it
+    # cannot create, change, or destroy any resource.
+    - name: Refresh Terraform outputs after starting VMs
+      if: >-
+        ${{ steps.route.outputs.run_infrastructure == 'true' &&
+        steps.route.outputs.terraform_action == 'apply' &&
+        steps.route.outputs.cloud_provider == 'gcp-cloud' &&
+        steps.gcp_runtime.outputs.started == 'true' }}
+      working-directory: ${{ steps.route.outputs.env_dir }}
+      run: terraform apply -refresh-only -input=false -auto-approve -no-color
 
     # Spot VMs that declare enable_oslogin accept only OS Login SSH. Put the
     # Vault deploy key into the deploy principal's OS Login profile (with an
