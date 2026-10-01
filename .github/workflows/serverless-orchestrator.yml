@@ -658,6 +658,7 @@ jobs:
           GCP_PROJECT_ID: ${{ steps.gitops_gcp.outputs.project_id }}
           GCP_REGION: ${{ steps.gitops_gcp.outputs.region }}
           CLOUD_RUN_SERVICE_NAME: ${{ inputs.vault_env_path || 'uat' }}-${{ matrix.service }}
+          IMAGE: ${{ steps.gitops_gcp.outputs.region }}-docker.pkg.dev/${{ steps.gitops_gcp.outputs.project_id }}/serverless/${{ matrix.service }}
           EXPECTED_DIGEST: ${{ inputs.vault_env_path == 'prod' && steps.promoted.outputs.digest || steps.build.outputs.digest }}
 
       - name: Record the UAT image digest
