@@ -61,7 +61,12 @@ if [[ -z "${matrix_ip}" ]]; then
   echo "::warning::No CMDB IP found for ${MATRIX_HOST}; skipping certificate backup." >&2
   exit 0
 fi
-host="root@${matrix_ip}"
+. "$(dirname "${BASH_SOURCE[0]}")/../provision/common_cmdb_ssh_login.sh"
+if ! cmdb_ssh_login "${cmdb_file}" "${MATRIX_HOST}"; then
+  echo "::warning::Skipping certificate backup." >&2
+  exit 0
+fi
+host="${ssh_user}@${matrix_ip}"
 
 # 一次 ssh 里做完三件事: 打包、取最早到期时间、取覆盖的域名。分三次 ssh 会
 # 在两次调用之间出现证书被续期的窗口, 存下来的到期时间就跟内容对不上了。
@@ -71,7 +76,7 @@ host="root@${matrix_ip}"
 #
 # 最早到期: 一份 caddy_data 里可能有多张证书, 复用的安全上界由最早到期的那张
 # 决定 —— 按最晚的算会让一张已经过期的证书被当成"还能用"。
-remote_out="$(ssh "${ssh_opts[@]}" "${host}" '
+remote_out="$(ssh "${ssh_opts[@]}" "${host}" "${sudo_prefix}bash -s" <<<'
   set -euo pipefail
   vol="web-saas_caddy_data"
   docker volume inspect "${vol}" >/dev/null 2>&1 || { echo "NO_VOLUME"; exit 0; }

@@ -42,11 +42,13 @@ matrix_ip="$(jq -r --arg host "${MATRIX_HOST}" '.[$host].ip // empty' "${cmdb_fi
 sni_host="${SNI_HOST:-${MATRIX_HOST}}"
 
 ssh_opts=(-i ~/.ssh/id_deploy -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=20)
-host="root@${matrix_ip}"
+. "$(dirname "${BASH_SOURCE[0]}")/../provision/common_cmdb_ssh_login.sh"
+cmdb_ssh_login "${cmdb_file}" "${MATRIX_HOST}"
+host="${ssh_user}@${matrix_ip}"
 caddyfile="/etc/xcontrol/web-saas/Caddyfile"
 
 result="$(ssh "${ssh_opts[@]}" "${host}" \
-  "DOMAIN_TLS_DIR=$(printf '%q' "${DOMAIN_TLS_DIR}") CADDYFILE=$(printf '%q' "${caddyfile}") SNI_HOST=$(printf '%q' "${sni_host}") bash -s" <<'REMOTE'
+  "${sudo_prefix}env DOMAIN_TLS_DIR=$(printf '%q' "${DOMAIN_TLS_DIR}") CADDYFILE=$(printf '%q' "${caddyfile}") SNI_HOST=$(printf '%q' "${sni_host}") bash -s" <<'REMOTE'
 set -euo pipefail
 fullchain="${DOMAIN_TLS_DIR}/current/fullchain.pem"
 key="${DOMAIN_TLS_DIR}/current/key.pem"

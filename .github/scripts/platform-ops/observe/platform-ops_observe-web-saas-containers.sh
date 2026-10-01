@@ -8,6 +8,7 @@ set -euo pipefail
 # public ingress, TLS, redirects, and endpoint responses.
 
 . "$(dirname "${BASH_SOURCE[0]}")/../provision/common_require_env.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../provision/common_cmdb_ssh_login.sh"
 require_env MATRIX_HOST
 
 timeout_seconds="${WEB_SAAS_CONTAINER_READY_TIMEOUT_SECONDS:-120}"
@@ -28,6 +29,7 @@ host_ip="$(jq -r --arg host "${MATRIX_HOST}" '.[$host].ip // empty' "${cmdb_file
   echo "::error::No IP address for ${MATRIX_HOST} in ${cmdb_file}" >&2
   exit 2
 }
+cmdb_ssh_login "${cmdb_file}" "${MATRIX_HOST}"
 
 # These are the long-running web-saas services in gitops/compose/web-saas.
 # console-assets deliberately does not appear here: it is a one-shot init
@@ -54,7 +56,7 @@ container_states() {
   local container_args=""
   printf -v container_args ' %q' "${required_containers[@]}"
 
-  ssh "${ssh_opts[@]}" "root@${host_ip}" "bash -s --${container_args}" <<'REMOTE'
+  ssh "${ssh_opts[@]}" "${ssh_user}@${host_ip}" "${sudo_prefix}bash -s --${container_args}" <<'REMOTE'
     set -eu
     for container in "$@"; do
       if ! docker inspect "$container" >/dev/null 2>&1; then
@@ -93,7 +95,7 @@ all_required_containers_running() {
 # refused. Require Docker to publish both declared ingress ports before this
 # internal readiness gate succeeds.
 caddy_ingress_bindings() {
-  ssh "${ssh_opts[@]}" "root@${host_ip}" 'bash -s' <<'REMOTE'
+  ssh "${ssh_opts[@]}" "${ssh_user}@${host_ip}" "${sudo_prefix}bash -s" <<'REMOTE'
     set -eu
     for port in 80/tcp 443/tcp; do
       case "$port" in
@@ -122,7 +124,7 @@ caddy_ingress_is_published() {
 
 print_diagnostics() {
   echo "::group::Doco-CD and Web SaaS container diagnostics for ${MATRIX_HOST}"
-  ssh "${ssh_opts[@]}" "root@${host_ip}" '
+  ssh "${ssh_opts[@]}" "${ssh_user}@${host_ip}" "${sudo_prefix}bash -s" <<<'
     set +e
     echo "--- web-saas container state ---"
     docker ps -a --filter "name=web-saas-" --format "table {{.Names}}\\t{{.Status}}\\t{{.Image}}" 2>&1 || true
@@ -141,8 +143,8 @@ print_diagnostics() {
   echo "::endgroup::"
 }
 
-if ! ssh_probe="$(ssh "${ssh_opts[@]}" "root@${host_ip}" true 2>&1)"; then
-  echo "::error::Cannot open an authenticated SSH session to root@${host_ip} (${MATRIX_HOST}): ${ssh_probe}" >&2
+if ! ssh_probe="$(ssh "${ssh_opts[@]}" "${ssh_user}@${host_ip}" "${sudo_prefix}true" 2>&1)"; then
+  echo "::error::Cannot open an authenticated SSH session to ${ssh_user}@${host_ip} (${MATRIX_HOST}): ${ssh_probe}" >&2
   exit 1
 fi
 

@@ -16,10 +16,15 @@ EOF
 cat >"${workdir}/ssh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$*" >>"${SSH_LOG}"
+# Remote scripts arrive on stdin (`bash -s`), so match on arguments plus stdin.
+request="$*"
+if [[ "$*" == *"bash -s"* ]]; then
+  request+=$'\n'"$(cat)"
+fi
+printf '%s\n' "${request}" >>"${SSH_LOG}"
 if [[ "${SSH_MODE}" == "healthy" ]]; then
   printf 'running healthy\n'
-elif [[ "$*" == *"Doco-CD recent logs"* ]]; then
+elif [[ "${request}" == *"Doco-CD recent logs"* ]]; then
   printf 'simulated Doco-CD diagnostic output\n'
 else
   printf 'missing\n'

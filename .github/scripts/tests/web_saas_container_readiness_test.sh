@@ -17,16 +17,21 @@ EOF
 cat >"${workdir}/ssh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$*" >>"${SSH_LOG}"
+# Remote scripts arrive on stdin (`bash -s`), so match on arguments plus stdin.
+request="$*"
+if [[ "$*" == *"bash -s"* ]]; then
+  request+=$'\n'"$(cat)"
+fi
+printf '%s\n' "${request}" >>"${SSH_LOG}"
 
-if [[ "$*" == *" true" ]]; then
+if [[ "${request}" == *" true" ]]; then
   exit 0
 fi
-if [[ "${SSH_MODE}" == "missing" && "$*" == *"Doco-CD recent logs"* ]]; then
+if [[ "${SSH_MODE}" == "missing" && "${request}" == *"Doco-CD recent logs"* ]]; then
   printf 'simulated Doco-CD diagnostic output\n'
   exit 0
 fi
-if [[ "$*" == *"web-saas-postgresql"* && "${SSH_MODE}" == "healthy" ]]; then
+if [[ "${request}" == *"web-saas-postgresql"* && "${SSH_MODE}" == "healthy" ]]; then
   cat <<'STATES'
 web-saas-postgresql|running|healthy
 web-saas-stunnel-server|running|healthy
@@ -37,7 +42,7 @@ web-saas-billing|running|none
 web-saas-console|running|none
 web-saas-caddy|running|none
 STATES
-elif [[ "$*" == *"bash -s"* && "${SSH_MODE}" == "healthy" ]]; then
+elif [[ "${request}" == *"bash -s"* && "${SSH_MODE}" == "healthy" ]]; then
   cat <<'PORTS'
 80/tcp|0.0.0.0:80
 443/tcp|0.0.0.0:443
