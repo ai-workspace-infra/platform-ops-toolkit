@@ -594,6 +594,8 @@ jobs:
 
     - name: Resolve active Vultr Golden Image snapshots
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'vultr-vps'
+      env:
+        TERRAFORM_ACTION: ${{ steps.route.outputs.terraform_action }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_resolve-golden-image-snapshots.sh
 
     - name: generate.py render

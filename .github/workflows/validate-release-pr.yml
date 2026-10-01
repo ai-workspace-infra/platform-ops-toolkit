@@ -187,6 +187,9 @@ jobs:
     - name: Verify Agent Proxy deployment variable contract
       run: bash .github/scripts/tests/platform_ops_agent_proxy_contract_test.sh
 
+    - name: Verify Vultr image lookup fallback is plan-only
+      run: bash .github/scripts/tests/vultr_snapshot_lookup_fallback_test.sh
+
     - name: Verify regional Agent Proxy domain contract
       run: bash .github/scripts/tests/prod_agent_proxy_regional_domain_contract_test.sh
 

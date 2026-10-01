@@ -15,10 +15,18 @@ api_headers=(
   --header "Content-Type: application/json"
 )
 
-snapshots_json="$(curl --silent --show-error --fail --compressed \
+if ! snapshots_json="$(curl --silent --show-error --fail --compressed \
   --retry 3 --retry-delay 2 \
   "${api_headers[@]}" \
-  'https://api.vultr.com/v2/snapshots?per_page=100')"
+  'https://api.vultr.com/v2/snapshots?per_page=100')"; then
+  if [[ "${TERRAFORM_ACTION:-apply}" != "plan" ]]; then
+    echo "::error::Vultr Golden Image lookup failed; refusing to apply without resolving the requested image." >&2
+    exit 1
+  fi
+
+  echo "::warning::Vultr Golden Image lookup failed during plan; using the declared OS fallback for this read-only plan." >&2
+  snapshots_json='{"snapshots":[]}'
+fi
 
 resolve_snapshot() {
   local variable_name="$1"
