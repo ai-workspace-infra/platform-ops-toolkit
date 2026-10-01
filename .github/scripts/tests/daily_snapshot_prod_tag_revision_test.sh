@@ -10,32 +10,37 @@ cat >"${workdir}/gh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Answer like `gh api`: apply --jq to a success body; on 404 print GitHub's
+# error body to stdout (without --jq) and exit 1.
+filter=''
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  [[ "${args[i]}" == --jq ]] && filter="${args[i + 1]}"
+done
+old_sha="$(printf 'a%.0s' {1..40})"
+new_sha="$(printf 'b%.0s' {1..40})"
+found() { if [[ -n "${filter}" ]]; then jq -r "${filter}" <<<"$1"; else printf '%s\n' "$1"; fi; }
+missing() {
+  printf '%s\n' '{"message":"Not Found","documentation_url":"https://docs.github.com/rest/git/refs#get-a-reference","status":"404"}'
+  exit 1
+}
+tag_at_old() { found "{\"object\":{\"type\":\"commit\",\"sha\":\"${old_sha}\"}}"; }
+
 case "$*" in
   *"/commits/"*)
-    printf 'new-sha\n'
+    found "{\"sha\":\"${new_sha}\"}"
     ;;
   *"/git/ref/tags/v2026.09.01-r1"*)
-    printf '%s\n' '{"object":{"sha":"old-sha"}}'
+    tag_at_old
     ;;
-  *"/git/ref/tags/v2026.09.01-r2"*)
-    if [[ "${EXPECT_R4:-false}" == true ]]; then
-      printf '%s\n' '{"object":{"sha":"old-sha"}}'
-    else
-      exit 1
-    fi
-    ;;
-  *"/git/ref/tags/v2026.09.01-r3"*)
-    if [[ "${EXPECT_R4:-false}" == true ]]; then
-      printf '%s\n' '{"object":{"sha":"old-sha"}}'
-    else
-      exit 1
-    fi
+  *"/git/ref/tags/v2026.09.01-r2"*|*"/git/ref/tags/v2026.09.01-r3"*)
+    if [[ "${EXPECT_R4:-false}" == true ]]; then tag_at_old; else missing; fi
     ;;
   *"/git/ref/tags/v2026.09.01-r4"*)
-    exit 1
+    missing
     ;;
   *"/git/ref/tags/v2026.09.01"*)
-    printf '%s\n' '{"object":{"sha":"old-sha"}}'
+    tag_at_old
     ;;
   *)
     echo "unexpected gh call: $*" >&2
