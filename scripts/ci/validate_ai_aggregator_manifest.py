@@ -41,6 +41,7 @@ def main() -> None:
     env = meta.get("environment")
     spec = data.get("spec", {})
     entrypoint = spec.get("entrypoint", {})
+    expected_env_prefix = f"vault://kv/{env}/ai-aggregator/"
 
     forbidden_fragments = (
         "/accounts/",
@@ -58,24 +59,46 @@ def main() -> None:
 
     if entrypoint.get("component") != "caddy":
         fail("Caddy must be the public entrypoint")
+
+    gateway = spec.get("gateway", {})
+    if gateway.get("adapter") != "apisix":
+        fail("AI Aggregator v1 must select the APISIX adapter")
+    if gateway.get("mode") != "standalone" or gateway.get("runtime_config_backend") != "gitops-file":
+        fail("APISIX must use standalone GitOps-file configuration")
+    if gateway.get("etcd"):
+        fail("APISIX v1 must not use etcd")
+    if "kong" in spec:
+        fail("legacy Kong configuration must not be present in the APISIX v1 manifest")
+    apisix = spec.get("apisix", {})
+    if apisix.get("bind_address") != "127.0.0.1" or apisix.get("proxy_port") != 9080:
+        fail("APISIX must bind to 127.0.0.1:9080")
+    if not isinstance(apisix.get("runtime_secret_refs"), dict) or not apisix["runtime_secret_refs"]:
+        fail("APISIX must declare runtime Vault secret references")
+    client_key_ref = str(apisix["runtime_secret_refs"].get("AI_GATEWAY_CLIENT_KEY", ""))
+    if client_key_ref != f"{expected_env_prefix}gateway/apisix#bootstrap_client_key":
+        fail("APISIX client key must be referenced from gateway/apisix in Vault")
     
     # Environment to domain binding check:
     domain = entrypoint.get("domain", "")
+    if "direct_api_domain" in entrypoint or "direct_api_domain" in spec.get("litellm", {}):
+        fail("v1 uses one hostname; route LiteLLM with the APISIX /litellm path prefix")
     if env == "uat":
-        if domain != "ai.onwalk.net":
-            fail(f"UAT environment must bind to *.onwalk.net (got: {domain})")
-        if entrypoint.get("direct_api_domain") != "direct.ai.onwalk.net":
-            fail("UAT direct_api_domain must be direct.ai.onwalk.net")
+        if domain != "ai-internal.onwalk.net":
+            fail(f"UAT environment must bind to ai-internal.onwalk.net (got: {domain})")
     elif env == "prod":
         if domain != "ai.svc.plus":
             fail(f"PROD environment must bind to ai.svc.plus (got: {domain})")
-        if entrypoint.get("direct_api_domain") != "direct.ai.svc.plus":
-            fail("PROD direct_api_domain must be direct.ai.svc.plus")
 
-    expected_env_prefix = f"vault://kv/{env}/ai-aggregator/"
+    routes = gateway.get("routes", {})
+    if routes.get("new_api", {}).get("path") != "/":
+        fail("APISIX must route the single-host default path to New API")
+    litellm_route = routes.get("litellm", {})
+    if litellm_route.get("path_prefix") != "/litellm" or not litellm_route.get("strip_path"):
+        fail("APISIX must route /litellm/* to LiteLLM and strip only the /litellm prefix")
+
     allowed_vault_ref = re.compile(
         rf"^{re.escape(expected_env_prefix)}"
-        r"(?:database/(?:new-api|litellm)|gateway/(?:caddy|kong|new-api|litellm)|"
+        r"(?:database/(?:new-api|litellm)|gateway/(?:caddy|apisix|new-api|litellm)|"
         r"litellm/providers/(?:openai|anthropic|xai))#"
     )
     for value in iter_strings(data):
@@ -137,6 +160,15 @@ def main() -> None:
     if new_api.get("jwt_audience") != "ai-aggregator-cpa":
         fail("New API JWT audience must be ai-aggregator-cpa")
 
+    public_models = new_api.get("public_models", [])
+    if (
+        not isinstance(public_models, list)
+        or not public_models
+        or len(public_models) != len(set(public_models))
+        or any(not isinstance(model, str) or not model.strip() for model in public_models)
+    ):
+        fail("new_api.public_models must be a unique non-empty list")
+
     litellm = spec.get("litellm", {})
     if litellm.get("bind_address") not in {"127.0.0.1", "::1"}:
         fail("LiteLLM must bind to loopback")
@@ -177,7 +209,10 @@ def main() -> None:
     if client_profiles["claude-code"].get("chain") != "new-api-cpa":
         fail("Claude Code must use the New API -> CPA chain")
     if client_profiles["android-studio"].get("chain") != "litellm-direct":
-        fail("Android Studio must use the OpenAI-compatible LiteLLM direct chain")
+        fail("Android Studio must use the OpenAI-compatible LiteLLM chain")
+    expected_litellm_url = f"https://{domain}/litellm/v1"
+    if client_profiles["android-studio"].get("base_url") != expected_litellm_url:
+        fail(f"Android Studio must use the shared hostname LiteLLM path: {expected_litellm_url}")
 
     # Testing environment constraints for UAT: AWS Spot t4g 1h rule
     test_env = spec.get("testing_environment")
@@ -238,6 +273,33 @@ def main() -> None:
             fail(f"CPA instance {instance.get('id')} must use a CMDB private endpoint")
         if "@" not in str(instance.get("account_email", "")):
             fail(f"CPA instance {instance.get('id')} must declare account_email metadata")
+        channel = instance.get("new_api_channel", {})
+        channel_models = channel.get("public_models", [])
+        if (
+            not isinstance(channel_models, list)
+            or not channel_models
+            or len(channel_models) != len(set(channel_models))
+            or not set(channel_models).issubset(set(public_models))
+        ):
+            fail(f"CPA channel {instance.get('id')} must publish a unique subset of new_api.public_models")
+        provider = instance.get("provider")
+        provider_prefixes = {
+            "openai": ("gpt-", "codex-"),
+            "anthropic": ("claude-",),
+            "google": ("gemini-",),
+        }
+        if provider not in provider_prefixes:
+            fail(f"CPA channel {instance.get('id')} uses an unsupported provider for the public model contract")
+        if any(not model.startswith(provider_prefixes[provider]) for model in channel_models):
+            fail(f"CPA channel {instance.get('id')} publishes a model outside its provider family")
+
+    published_by_channels = {
+        model
+        for instance in instances
+        for model in instance.get("new_api_channel", {}).get("public_models", [])
+    }
+    if published_by_channels != set(public_models):
+        fail("new_api.public_models must equal the union of CPA channel public_models")
 
     if env == "uat":
         for node in node_records:
