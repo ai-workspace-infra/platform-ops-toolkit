@@ -560,6 +560,10 @@ jobs:
           PROMOTION_MANIFEST_FILE: ${{ runner.temp }}/uat-promotion/uat-promotion-manifest.json
           UAT_SNAPSHOT_TAG: ${{ needs.snapshot-summary.outputs.uat_snapshot_tag }}
           GH_TOKEN: ${{ steps.promote_infra_token.outputs.token }}
+          # Keep cross-repository dispatch authorization separate from the
+          # current-run token used to download and verify the accepted UAT
+          # artifact manifest.
+          ARTIFACT_GH_TOKEN: ${{ github.token }}
           # Child run status is read with the job token, which outlives the
           # 60-minute GitHub App token used to dispatch (wait-for-workflow-run.sh).
           RUN_STATUS_TOKEN: ${{ github.token }}
