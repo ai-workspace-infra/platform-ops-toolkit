@@ -271,6 +271,10 @@ jobs:
         if: ${{ success() && matrix.organization == 'ai-workspace-xstream' }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          # The installation token dispatches the child workflow. Artifact
+          # download uses the current-run token because GitHub's artifact API
+          # may reject an installation token even when dispatch succeeds.
+          ARTIFACT_GH_TOKEN: ${{ github.token }}
           # xconnect-app is the release orchestrator and is not part of the
           # component snapshot tag set. Check out the requested source ref
           # there, while keeping the immutable component snapshot as the

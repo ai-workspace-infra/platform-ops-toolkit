@@ -6,6 +6,7 @@ set -euo pipefail
 # start the Agent Proxy until the serverless Accounts controller is healthy.
 
 gh_token="${GH_TOKEN:?GH_TOKEN must be set}"
+artifact_token="${ARTIFACT_GH_TOKEN:-${gh_token}}"
 snapshot_tag="${SNAPSHOT_TAG:?SNAPSHOT_TAG must be set}"
 target_repo="${TARGET_REPOSITORY:-ai-workspace-infra/platform-ops-toolkit}"
 serverless_workflow="${SERVERLESS_WORKFLOW:-serverless-orchestrator.yml}"
@@ -117,7 +118,7 @@ if [[ -n "${promotion_manifest_file}" ]]; then
     exit 1
   }
   manifest_work="$(mktemp -d)"
-  gh run download "${hybrid_run_id}" --repo "${target_repo}" --name uat-artifact-manifest --dir "${manifest_work}" || {
+  GH_TOKEN="${artifact_token}" gh run download "${hybrid_run_id}" --repo "${target_repo}" --name uat-artifact-manifest --dir "${manifest_work}" || {
     echo "::error::UAT Hybrid run ${hybrid_run_id} has no uat-artifact-manifest; nothing can be promoted." >&2
     exit 1
   }
