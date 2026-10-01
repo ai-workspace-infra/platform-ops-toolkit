@@ -210,6 +210,11 @@ jobs:
     - name: Verify GCP OIDC bootstrap and shared Vault IaC contract
       run: bash .github/scripts/tests/gcp_oidc_bootstrap_contract_test.sh
 
+    - name: Verify GCP Spot VM runtime and OS Login access
+      run: |
+        bash .github/scripts/tests/platform_ops_gcp_runtime_reconcile_contract_test.sh
+        bash .github/scripts/tests/gcp_spot_oslogin_key_test.sh
+
     - name: Verify Vault node deployment contracts and stage gates
       run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 
