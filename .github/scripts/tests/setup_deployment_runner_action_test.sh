@@ -85,7 +85,7 @@ cat >"${workdir}/bin/python3" <<'EOF'
 printf '%s\n' "$*" >>"${PYTHON_LOG}"
 case "$*" in
   '-m pip install --help') printf '%s\n' '--break-system-packages' ;;
-  '-m pip install --quiet --break-system-packages ansible hvac') ;;
+  '-m pip install --quiet --disable-pip-version-check --retries 5 --timeout 60 --break-system-packages ansible hvac') ;;
   '-c import hvac') ;;
   *) exit 1 ;;
 esac
@@ -104,6 +104,6 @@ ACTION_INSTALL_ANSIBLE=true \
 ACTION_ASSERT_ANSIBLE_TARGET=false \
 ACTION_ANSIBLE_INVENTORY="${workdir}/inventory.ini" \
 bash "${script}"
-grep -Fxq -- '-m pip install --quiet --break-system-packages ansible hvac' "${workdir}/python.log"
+grep -Fxq -- '-m pip install --quiet --disable-pip-version-check --retries 5 --timeout 60 --break-system-packages ansible hvac' "${workdir}/python.log"
 
 echo "setup_deployment_runner_action_test: PASS"

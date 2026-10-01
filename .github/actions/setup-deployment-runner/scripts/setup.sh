@@ -144,11 +144,25 @@ install_ansible() {
     return
   fi
 
-  local pip_args=(--quiet)
+  local pip_args=(
+    --quiet
+    --disable-pip-version-check
+    --retries "${PIP_INSTALL_RETRIES:-5}"
+    --timeout "${PIP_INSTALL_TIMEOUT_SECONDS:-60}"
+  )
   if python3 -m pip install --help 2>&1 | grep -q -- '--break-system-packages'; then
     pip_args+=(--break-system-packages)
   fi
-  python3 -m pip install "${pip_args[@]}" ansible hvac
+  local attempt=1 max_attempts="${PIP_INSTALL_ATTEMPTS:-3}"
+  until python3 -m pip install "${pip_args[@]}" ansible hvac; do
+    if ((attempt >= max_attempts)); then
+      echo "::error::Unable to install Ansible/hvac after ${attempt} attempts." >&2
+      return 1
+    fi
+    echo "::warning::Ansible/hvac installation attempt ${attempt} failed; retrying." >&2
+    attempt=$((attempt + 1))
+    sleep 5
+  done
   python3 -c 'import hvac'
 }
 
