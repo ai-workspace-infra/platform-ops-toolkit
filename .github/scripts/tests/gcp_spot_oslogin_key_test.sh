@@ -19,6 +19,16 @@ for arg in "$@"; do
     --key-file=*) cp "${arg#--key-file=}" "${FAKE_GCLOUD_LOG}.key" ;;
   esac
 done
+if [[ "$*" == "config get-value account" ]]; then
+  [[ -f "${FAKE_GCLOUD_LOG}.account" ]] && cat "${FAKE_GCLOUD_LOG}.account"
+  printf '%s\n' "${FAKE_ACTIVE_ACCOUNT:-}"
+  exit 0
+fi
+if [[ "$*" == "--quiet auth login --cred-file="* ]]; then
+  echo "Authenticated with external account credentials for: [deploy@example.iam.gserviceaccount.com]" >&2
+  echo deploy@example.iam.gserviceaccount.com > "${FAKE_GCLOUD_LOG}.account"
+  exit 0
+fi
 if [[ "$*" == *"describe-profile"* ]]; then
   printf '{"posixAccounts":[{"operatingSystemType":"LINUX","username":"%s"}]}\n' "${FAKE_OSLOGIN_USER}"
 fi
@@ -34,6 +44,7 @@ run_case() {
   env PATH="${work}/bin:${PATH}" TMPDIR="${work}/tmp" \
     RESOURCES_MANIFEST="${work}/${name}.json" GCP_PROJECT_ID=open-platform-uat \
     GITHUB_ENV="${work}/${name}.env" FAKE_GCLOUD_LOG="${work}/${name}.gcloud" \
+    GOOGLE_GHA_CREDS_PATH="${work}/gha-creds.json" \
     SSH_PUBLIC_DEPLOY_KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKey deploy' \
     FAKE_OSLOGIN_USER=sa_123456789012345678901 "$@" \
     bash -c 'printf "%s" "$1" > "${RESOURCES_MANIFEST}"; exec "$2"' _ "${manifest}" "${script}" \
@@ -54,7 +65,18 @@ grep -q '^compute os-login ssh-keys add --project=open-platform-uat --key-file=[
   || fail "the key must be added with the default 6h TTL"
 grep -q '^compute os-login ssh-keys update --project=open-platform-uat --key-file=[^ ]* --ttl=6h$' "${work}/on.gcloud" \
   || fail "the expiry of an already registered key must be refreshed"
-[[ "$(sed -n 2p "${work}/on.gcloud")" == *"ssh-keys update"* ]] || fail "update must follow add"
+[[ "$(grep -n 'ssh-keys' "${work}/on.gcloud" | cut -d: -f2- | sed -n 2p)" == *"ssh-keys update"* ]] || fail "update must follow add"
+# Without an active account (WIF credential-file override), activate the credential first.
+grep -Fxq -- "--quiet auth login --cred-file=${work}/gha-creds.json" "${work}/on.gcloud" \
+  || fail "the WIF credential must be activated when no gcloud account is active"
+[[ "$(grep -n 'auth login' "${work}/on.gcloud" | cut -d: -f1)" -lt "$(grep -n 'ssh-keys add' "${work}/on.gcloud" | cut -d: -f1)" ]] \
+  || fail "the credential must be activated before the key is added"
+! grep -q 'deploy@example' "${work}/on.out" || fail "the deploy principal must not be printed"
+
+# An already active account is used as is.
+run_case active "${oslogin}" FAKE_ACTIVE_ACCOUNT=deploy@example.iam.gserviceaccount.com \
+  || fail "registration with an active account must succeed"
+! grep -q 'auth login' "${work}/active.gcloud" || fail "an active gcloud account must not be replaced"
 grep -Fxq 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKey deploy' "${work}/on.gcloud.key" \
   || fail "the Vault deploy public key must be registered"
 grep -Fxq 'GCP_OSLOGIN_USERNAME=sa_123456789012345678901' "${work}/on.env" || fail "the OS Login user must reach GITHUB_ENV"
