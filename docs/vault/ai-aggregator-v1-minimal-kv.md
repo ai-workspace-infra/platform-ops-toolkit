@@ -9,6 +9,7 @@ server at `https://vault.svc.plus`.
 kv/<env>/ai-aggregator/database/new-api
 kv/<env>/ai-aggregator/database/litellm
 kv/<env>/ai-aggregator/gateway/caddy
+kv/<env>/ai-aggregator/gateway/apisix
 kv/<env>/ai-aggregator/gateway/new-api
 kv/<env>/ai-aggregator/gateway/litellm
 kv/<env>/ai-aggregator/litellm/providers/openai
@@ -38,8 +39,6 @@ New automation must not create or read:
 kv/<env>/ai-aggregator/accounts/*
 kv/<env>/ai-aggregator/instances/*
 kv/<env>/ai-aggregator/clients/*
-kv/<env>/ai-aggregator/cpa/*
-kv/<env>/ai-aggregator/database/backup
 ```
 
 CPA OAuth bundles stay in the corresponding node's encrypted local auth

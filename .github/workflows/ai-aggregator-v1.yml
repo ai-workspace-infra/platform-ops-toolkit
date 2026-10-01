@@ -169,6 +169,7 @@ jobs:
         working-directory: playbooks
         run: >-
           ansible-playbook --syntax-check -i localhost, deploy-ai-aggregator-v1.yml
+          ansible-playbook --syntax-check -i localhost, deploy_ai_aggregator.yaml
           -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/${{ inputs.environment }}/selfhost/ai-aggregator.yaml
       - name: Require an enabled declaration before remote staging
         if: ${{ inputs.operation == 'stage' || inputs.operation == 'activate' }}

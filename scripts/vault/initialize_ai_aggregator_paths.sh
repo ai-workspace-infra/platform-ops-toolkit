@@ -121,14 +121,10 @@ for env_name in "${environments[@]}"; do
     "${api_base}/litellm/providers/xai"
     "${api_base}/database/new-api"
     "${api_base}/database/litellm"
-    "${api_base}/database/backup"
     "${api_base}/gateway/caddy"
+    "${api_base}/gateway/apisix"
     "${api_base}/gateway/new-api"
     "${api_base}/gateway/litellm"
-    "${api_base}/cpa/cpa-codex-01"
-    "${api_base}/cpa/cpa-codex-02"
-    "${api_base}/cpa/cpa-claude-01"
-    "${api_base}/cpa/cpa-grok-01"
   )
 
   for api_path in "${paths[@]}"; do

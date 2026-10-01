@@ -2,8 +2,8 @@
 
 ## Runtime boundaries
 
-- `ai.onwalk.net` / `ai.svc.plus`: Caddy -> New API -> CPA account instances.
-- `direct.ai.onwalk.net` / `direct.ai.svc.plus`: Caddy -> LiteLLM -> official OpenAI, Anthropic, or xAI APIs.
+- `ai-internal.onwalk.net` (UAT) / `ai.svc.plus` (Prod): Caddy -> Kong -> New API -> CPA account instances.
+- One AI hostname per environment: `/` and `/v1/*` route through Kong to New API -> CPA; `/litellm/v1/*` routes through Kong to LiteLLM -> official OpenAI, Anthropic, or xAI APIs.
 - These are parallel aggregation chains under one Caddy security boundary; LiteLLM is not placed in front of CPA, and the two chains are not chained together.
 - New API, LiteLLM, and CPA are never directly internet-facing.
 - v1 excludes Bedrock, Vertex AI, and Azure AI Foundry.
