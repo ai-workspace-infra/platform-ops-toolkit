@@ -1,0 +1,29 @@
+name: UAT Regional Entry Acceptance
+on:
+  workflow_dispatch:
+    inputs:
+      entry_point:
+        description: Agent-reported regional UAT hostname to verify before opening
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: uat-region-acceptance-${{ inputs.entry_point }}
+  cancel-in-progress: false
+jobs:
+  public-listener:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify public DNS and trusted TLS on both transports
+        env:
+          ENTRY_POINT: ${{ inputs.entry_point }}
+        run: python3 scripts/ci/verify_uat_regional_entry.py --entry "$ENTRY_POINT" --report uat-region-acceptance.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: uat-region-acceptance
+          path: uat-region-acceptance.json
+          retention-days: 14

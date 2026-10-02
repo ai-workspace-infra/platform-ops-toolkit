@@ -52,7 +52,7 @@ cat >"${test_dir}/routing.json" <<'EOF'
       "console_aliases": ["console-serverless-uat.example.com"],
       "accounts_host": "accounts-serverless-uat.onwalk.net",
       "accounts_aliases": ["accounts-cloudflare-uat.onwalk.net"],
-      "billing_host": "billing-serverless-uat.onwalk.net",
+      "billing_host": "billing-uat.onwalk.net",
       "billing_origin_host": "billing-origin-serverless-uat.onwalk.net",
       "cloud_run": {
         "billing_service": "https://uat-billing-service-1004637461064.asia-northeast1.run.app"
@@ -110,7 +110,7 @@ elif [[ "${url}" == *'/rulesets?per_page=50' && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[{"id":"ruleset-1","kind":"zone","phase":"http_request_origin"}]}'
 elif [[ "${url}" == *'/rulesets/ruleset-1'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":{"id":"ruleset-1","rules":[{"ref":"existing_rule","action":"route","expression":"(http.host eq \\\"existing.example.com\\\")"}]}}'
-elif [[ "${url}" == *'/dns_records?name=billing-serverless-uat.onwalk.net'* && "${method}" == 'GET' ]]; then
+elif [[ "${url}" == *'/dns_records?name=billing-uat.onwalk.net'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[{"id":"billing-cname","content":"uat-billing-service-1004637461064.asia-northeast1.run.app"}]}'
 elif [[ "${url}" == *'/dns_records?name=billing-origin-serverless-uat.onwalk.net'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[{"id":"billing-origin-cname","content":"uat-billing-service-1004637461064.asia-northeast1.run.app"}]}'
@@ -153,7 +153,7 @@ worker_puts="$(grep -Fc $'PUT\thttps://cloudflare.invalid/client/v4/accounts/acc
 test "${worker_puts}" -eq 8
 worker_bodies="$(cut -f3 "${test_dir}/curl.log" | jq -s '[.[] | select(type == "object" and .hostname != null)]')"
 if ! jq -e '
-  ((map(select(.hostname == "billing-serverless-uat.onwalk.net" and .service == "edge-gateway-core-uat")) | length) == 1)
+  ((map(select(.hostname == "billing-uat.onwalk.net" and .service == "edge-gateway-core-uat")) | length) == 1)
   and ((map(select(.hostname == "console-uat.onwalk.net" and .service == "frontend-router-uat")) | length) == 1)
   and ((map(select(.hostname == "console-serverless-uat.example.com" and .service == "frontend-router-uat" and .zone_name == "example.com")) | length) == 1)
   and ((map(select(.hostname == "accounts-uat.onwalk.net")) | length) == 0)

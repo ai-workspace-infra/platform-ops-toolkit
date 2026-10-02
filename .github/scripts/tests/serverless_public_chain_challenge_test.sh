@@ -81,7 +81,7 @@ cat >"${test_dir}/routing.json" <<'EOF'
       "accounts_aliases": ["accounts-cloudflare-prod.onwalk.net"],
       "frontend_router": {"website": {"hosts": ["xworktech.com", "www.xworktech.com"], "platform_origin": "https://svc.plus"}},
       "accounts_host": "accounts-serverless-prod.svc.plus",
-      "billing_host": "billing-serverless-prod.svc.plus"
+      "billing_host": "billing.svc.plus"
     }
   }
 }
@@ -105,7 +105,7 @@ cat >"${test_dir}/runner-routing.json" <<'EOF'
       "accounts_aliases": ["accounts-cloudflare-prod.onwalk.net"],
       "frontend_router": {"website": {"hosts": [], "platform_origin": "https://svc.plus"}},
       "accounts_host": "accounts-serverless-prod.svc.plus",
-      "billing_host": "billing-serverless-prod.svc.plus"
+      "billing_host": "billing.svc.plus"
     }
   }
 }

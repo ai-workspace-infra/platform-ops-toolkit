@@ -30,7 +30,7 @@ cat >"${test_dir}/routing.json" <<'EOF'
     "serverless": {
       "console_host": "console-serverless-uat.onwalk.net",
       "accounts_host": "accounts-serverless-uat.onwalk.net",
-      "billing_host": "billing-serverless-uat.onwalk.net",
+      "billing_host": "billing-uat.onwalk.net",
       "billing_origin_host": "billing-origin-serverless-uat.onwalk.net",
       "cloud_run": {
         "billing_service": "https://uat-billing-service-1004637461064.asia-northeast1.run.app"
@@ -80,7 +80,7 @@ elif [[ "${url}" == *'/rulesets?per_page=50' && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[{"id":"ruleset-1","kind":"zone","phase":"http_request_origin"}]}'
 elif [[ "${url}" == *'/rulesets/ruleset-1'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":{"id":"ruleset-1","rules":[]}}'
-elif [[ "${url}" == *'/dns_records?name=billing-serverless-uat.onwalk.net'* && "${method}" == 'GET' ]]; then
+elif [[ "${url}" == *'/dns_records?name=billing-uat.onwalk.net'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[]}'
 elif [[ "${url}" == *'/dns_records?name=billing-origin-serverless-uat.onwalk.net'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[]}'

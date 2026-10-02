@@ -570,7 +570,7 @@ if [ "${uat_dns_update}" = "true" ]; then
       # The combined UAT path deploys Web SaaS serverlessly and provisions
       # only the Agent Proxy VPS. Its DNS stage publishes the agent-proxy A
       # record without requiring a selfhost web_saas host.
-      if [[ "${INPUT_AGENT_CONTROLLER_URL:-}" != https://accounts-serverless-uat.onwalk.net ]]; then
+      if [[ "${INPUT_AGENT_CONTROLLER_URL:-$(environment_default "${deployment_env}" accounts_public_origin)}" != "$(environment_default "${deployment_env}" accounts_public_origin)" ]]; then
         echo "::error::uat-records with target_domains=agent-proxy requires the serverless Accounts controller URL." >&2
         exit 1
       fi
@@ -641,30 +641,26 @@ case "${include_external_agent_proxy}" in
     ;;
 esac
 
-# Agent Proxy normally registers against the Web SaaS Accounts service on the
-# same Selfhost host. The combined UAT path overrides this with the already
-# deployed Serverless Accounts endpoint, while keeping the default safe for
-# standalone Selfhost runs.
+# Public service contracts are explicit environment configuration. Machine
+# origins are resolved separately from GitOps; never infer Billing from an
+# Accounts hostname prefix.
 agent_controller_url="${INPUT_AGENT_CONTROLLER_URL:-}"
-if [[ -z "${agent_controller_url}" ]]; then
-  agent_controller_url="https://accounts-selfhost-${deployment_env}.${target_domain_base}"
+if [[ "${deployment_env}" == "uat" || "${deployment_env}" == "prod" ]]; then
+  accounts_public_origin="$(environment_default "${deployment_env}" accounts_public_origin)"
+  billing_service_base_url="$(environment_default "${deployment_env}" billing_public_origin)"
+  agent_controller_url="${agent_controller_url:-${accounts_public_origin}}"
+  if [[ "${agent_controller_url}" != "${accounts_public_origin}" &&
+        "${agent_controller_url}" != "https://accounts-selfhost-${deployment_env}.${target_domain_base}" &&
+        "${agent_controller_url}" != "https://accounts-serverless-${deployment_env}.${target_domain_base}" ]]; then
+    echo "::error::Agent controller does not belong to the selected environment service contract." >&2
+    exit 1
+  fi
+else
+  agent_controller_url="${agent_controller_url:-https://accounts-selfhost-${deployment_env}.${target_domain_base}}"
+  billing_service_base_url="https://billing-selfhost-${deployment_env}.${target_domain_base}"
 fi
 if [[ ! "${agent_controller_url}" =~ ^https://[^/]+$ ]]; then
   echo "::error::agent_controller_url must be an HTTPS origin without a path." >&2
-  exit 1
-fi
-
-# Billing follows the same runtime shape as the Accounts controller used by
-# Agent Proxy. The combined UAT flow passes the serverless Accounts origin;
-# standalone selfhost runs use the default selfhost origin. Keep this derived
-# so callers never pin a serverless/selfhost Billing hostname themselves.
-if [[ "${agent_controller_url}" == https://accounts-serverless-* ]]; then
-  billing_service_base_url="https://billing-serverless-${deployment_env}.${target_domain_base}"
-else
-  billing_service_base_url="https://billing-selfhost-${deployment_env}.${target_domain_base}"
-fi
-if [[ ! "${billing_service_base_url}" =~ ^https://[^/]+$ ]]; then
-  echo "::error::derived billing_service_base_url must be an HTTPS origin without a path." >&2
   exit 1
 fi
 

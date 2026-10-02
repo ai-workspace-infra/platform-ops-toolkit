@@ -21,7 +21,7 @@ class SelfhostAgentMachineOriginContractTest(unittest.TestCase):
                     workflow,
                 )
             ),
-            5,
+            6,
         )
         self.assertIn(
             "ACCOUNTS_BASE_URL: ${{ needs.provision.outputs.agent_accounts_base_url }}",
@@ -37,7 +37,7 @@ class SelfhostAgentMachineOriginContractTest(unittest.TestCase):
                     workflow,
                 )
             ),
-            2,
+            1,
         )
 
 
