@@ -22,9 +22,9 @@ cp "$module_dir/.terraform.lock.hcl" "$test_dir/"
 cp -R "$module_dir/tests" "$test_dir/tests"
 terraform -chdir="$test_dir" fmt -check -recursive
 if [[ -n "${IAM_TEST_PLUGIN_DIR:-}" ]]; then
-  terraform -chdir="$test_dir" init -backend=false -input=false -lockfile=readonly -plugin-dir="$IAM_TEST_PLUGIN_DIR"
+  terraform -chdir="$test_dir" init -backend=false -input=false -plugin-dir="$IAM_TEST_PLUGIN_DIR"
 else
-  terraform -chdir="$test_dir" init -backend=false -input=false -lockfile=readonly
+  terraform -chdir="$test_dir" init -backend=false -input=false
 fi
 terraform -chdir="$test_dir" validate
 terraform -chdir="$test_dir" test

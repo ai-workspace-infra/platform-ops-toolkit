@@ -8,14 +8,14 @@ import unittest
 
 import test_identity_bootstrap as bootstrap
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--gitops-root', type=Path, required=True)
-args = parser.parse_args()
+GITOPS_ROOT = None
 
 
 class CrossRepositoryTest(unittest.TestCase):
     def test_manifest_identity_refs_are_readable_by_bootstrap(self):
-        manifests = sorted((args.gitops_root / 'resources').glob('**/iam/identity-integrations.yaml'))
+        if GITOPS_ROOT is None:
+            self.skipTest('explicit --gitops-root required; run the aggregate IAM suite')
+        manifests = sorted((GITOPS_ROOT / 'resources').glob('**/iam/identity-integrations.yaml'))
         self.assertTrue(manifests, 'no identity manifests found')
         for manifest in manifests:
             proc = subprocess.run(['ruby', '-ryaml', '-rjson', '-e',
@@ -57,4 +57,8 @@ class CrossRepositoryTest(unittest.TestCase):
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--gitops-root', type=Path, required=True)
+    args = parser.parse_args()
+    GITOPS_ROOT = args.gitops_root
     unittest.main(argv=['cross-repo'], verbosity=2)
