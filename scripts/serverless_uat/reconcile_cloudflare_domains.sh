@@ -438,6 +438,7 @@ while IFS= read -r accounts_alias; do
   remove_worker_domain_dns_records "${accounts_alias}"
   reconcile_worker_domain "${accounts_alias}" "${core_worker}"
 done < <(jq -r '.spec.serverless.accounts_aliases[]? // empty' "${CONFIG_FILE}")
+remove_worker_domain_dns_records "${billing_host}"
 remove_declared_cname "${billing_host}" "${billing_upstream#https://}"
 reconcile_worker_domain "${billing_host}" "${core_worker}"
 # Remove the DNS-only alias left by the retired Enterprise-only Origin Rule
