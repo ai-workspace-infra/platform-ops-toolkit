@@ -16,11 +16,11 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: "plan validates; provision creates ephemeral nodes; stage injects Gateway secrets; activate starts services"
+        description: "plan validates; apply/provision creates ephemeral nodes; stage injects Gateway secrets; activate starts services"
         required: true
         default: plan
         type: choice
-        options: [plan, provision, stage, activate]
+        options: [plan, apply, provision, stage, activate]
       environment:
         description: "Target environment (uat: ai.onwalk.net, prod: ai.svc.plus)"
         required: true
@@ -203,7 +203,7 @@ jobs:
       ${{ needs.resolve-provider.outputs.provider == 'aws' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AI_AGGREGATOR_UAT_ENABLED == 'true') ||
       (github.event_name == 'workflow_dispatch' && inputs.environment == 'uat' &&
-      contains(fromJSON('["provision","stage","activate"]'), inputs.operation))) }}
+      contains(fromJSON('["apply","provision","stage","activate"]'), inputs.operation))) }}
     runs-on: ubuntu-latest
     # Do not attach the GitHub Environment here. Its OIDC subject becomes
     # `repo:...:environment:uat`, while the least-privilege AWS role is
@@ -262,7 +262,7 @@ jobs:
           role-to-assume: ${{ vars.AWS_IAC_ROLE_ARN }}
           aws-region: ap-northeast-1
       - name: Login to Vault with GitHub OIDC
-        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate')) }}
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'apply' || inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate')) }}
         id: vault_login
         uses: hashicorp/vault-action@v4
         with:
@@ -340,7 +340,7 @@ jobs:
       ${{ needs.resolve-provider.outputs.provider == 'gcp' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AI_AGGREGATOR_UAT_ENABLED == 'true') ||
       (github.event_name == 'workflow_dispatch' && inputs.environment == 'uat' &&
-      contains(fromJSON('["provision","stage","activate"]'), inputs.operation))) }}
+      contains(fromJSON('["apply","provision","stage","activate"]'), inputs.operation))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -402,8 +402,18 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
               output.write(f'resources={resources}\nworkdir={workdir}\n')
           PY
+      - name: Require the GCP Vault OIDC role variable
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'apply' || inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate')) }}
+        env:
+          VAULT_GCP_JWT_ROLE: ${{ vars.VAULT_GCP_JWT_ROLE }}
+        run: |
+          set -euo pipefail
+          if [ -z "$VAULT_GCP_JWT_ROLE" ]; then
+            echo 'Missing repository/environment variable VAULT_GCP_JWT_ROLE; configure the Vault JWT role before running GCP UAT.' >&2
+            exit 1
+          fi
       - name: Login to Vault with GitHub OIDC
-        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate')) }}
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'apply' || inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate')) }}
         id: vault_login
         uses: hashicorp/vault-action@v4
         with:
@@ -423,7 +433,7 @@ jobs:
             --resources "${{ steps.contract.outputs.resources }}" \
             --workdir "${{ steps.contract.outputs.workdir }}"
       - name: Provision GCP UAT Spot instance
-        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate')) }}
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'apply' || inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate')) }}
         env:
           VAULT_ADDR: https://vault.svc.plus
           VAULT_TOKEN: ${{ steps.vault_login.outputs.token }}
@@ -461,7 +471,14 @@ jobs:
         run: ./scripts/verify_ai_aggregator_endpoints.sh
       - name: Destroy GCP UAT Spot resources
         if: ${{ always() && steps.contract.outputs.workdir != '' && (github.event_name != 'workflow_dispatch' || inputs.destroy) }}
-        run: terraform -chdir="${{ steps.contract.outputs.workdir }}" destroy -auto-approve
+        run: |
+          set -euo pipefail
+          workdir="${{ steps.contract.outputs.workdir }}"
+          if [ -d "$workdir" ]; then
+            terraform -chdir="$workdir" destroy -auto-approve
+          else
+            echo "Terraform workdir was not created; no GCP resource cleanup is required."
+          fi
 
   uat-vps-auto-deploy:
     needs: [validate, resolve-provider]
@@ -469,7 +486,7 @@ jobs:
       ${{ needs.resolve-provider.outputs.provider == 'vps' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AI_AGGREGATOR_UAT_ENABLED == 'true') ||
       (github.event_name == 'workflow_dispatch' && inputs.environment == 'uat' &&
-      contains(fromJSON('["provision","stage","activate"]'), inputs.operation))) }}
+      contains(fromJSON('["apply","provision","stage","activate"]'), inputs.operation))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -582,7 +599,7 @@ jobs:
     if: >-
       ${{ needs.resolve-provider.outputs.provider == 'akamai-cloud' &&
       github.event_name == 'workflow_dispatch' && inputs.environment == 'uat' &&
-      contains(fromJSON('["provision","stage","activate"]'), inputs.operation) }}
+      contains(fromJSON('["apply","provision","stage","activate"]'), inputs.operation) }}
     runs-on: ubuntu-latest
     environment: uat
     timeout-minutes: 75
