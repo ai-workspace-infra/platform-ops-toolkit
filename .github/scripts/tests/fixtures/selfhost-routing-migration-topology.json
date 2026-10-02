@@ -18,14 +18,27 @@
             "accounts-uat.onwalk.net": "accounts-selfhost-uat.onwalk.net"
           }
         },
-        "load-balancer": {"strategy": "dns-only"},
-        "weight": {"selfhost": 100, "serverless": 0}
+        "load-balancer": {
+          "strategy": "dns-only"
+        },
+        "weight": {
+          "selfhost": 100,
+          "serverless": 0
+        }
       },
       "services": {
-        "console": {"selfhost": "vps-full-stack"},
-        "accounts": {"selfhost": "vps-full-stack"},
-        "content": {"selfhost": "vps-full-stack"},
-        "billing": {"selfhost": "vps-full-stack"}
+        "console": {
+          "selfhost": "vps-full-stack"
+        },
+        "accounts": {
+          "selfhost": "vps-full-stack"
+        },
+        "content": {
+          "selfhost": "vps-full-stack"
+        },
+        "billing": {
+          "selfhost": "vps-full-stack"
+        }
       },
       "data": {
         "primary": "selfhost",
@@ -43,20 +56,44 @@
       }
     },
     "domains": {
-      "console-uat.onwalk.net": {"selfhost": "console-selfhost-uat.onwalk.net"},
-      "accounts-uat.onwalk.net": {"selfhost": "accounts-selfhost-uat.onwalk.net"}
+      "console-uat.onwalk.net": {
+        "selfhost": "console-selfhost-uat.onwalk.net"
+      },
+      "accounts-uat.onwalk.net": {
+        "selfhost": "accounts-selfhost-uat.onwalk.net"
+      }
     },
     "public_endpoints": {
-      "console": {"host": "console-selfhost-uat.onwalk.net", "access": "public"},
-      "accounts": {"host": "accounts-selfhost-uat.onwalk.net", "access": "authenticated"},
-      "billing": {"host": "billing-selfhost-uat.onwalk.net", "access": "authenticated"},
-      "postgresql": {"host": "postgresql-selfhost-uat.onwalk.net", "access": "authenticated"},
-      "agent-proxy": {"host": "agent-proxy-selfhost-uat.onwalk.net", "access": "public_uuid"}
+      "console": {
+        "host": "console-selfhost-uat.onwalk.net",
+        "access": "public"
+      },
+      "accounts": {
+        "host": "accounts-uat.onwalk.net",
+        "access": "authenticated"
+      },
+      "billing": {
+        "host": "billing-uat.onwalk.net",
+        "access": "authenticated"
+      },
+      "postgresql": {
+        "host": "postgresql-selfhost-uat.onwalk.net",
+        "access": "authenticated"
+      },
+      "agent-proxy": {
+        "host": "agent-proxy-selfhost-uat.onwalk.net",
+        "access": "public_uuid"
+      }
     },
     "vps": {
       "stack": "full-stack",
       "database": "self-managed-postgresql",
-      "services": ["console", "accounts", "content", "billing"]
+      "services": [
+        "console",
+        "accounts",
+        "content",
+        "billing"
+      ]
     }
   }
 }
