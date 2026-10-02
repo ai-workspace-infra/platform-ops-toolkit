@@ -478,6 +478,7 @@ jobs:
           TARGET_DOMAIN_BASE: onwalk.net
           TF_VAR_deploy_service_account: ${{ steps.gcp_auth.outputs.service_account }}
           TF_VAR_workload_identity_provider: ${{ steps.gcp_auth.outputs.provider }}
+          TF_VAR_ssh_public_key: ${{ vars.AI_AGGREGATOR_SSH_PUBLIC_KEY }}
         run: |
           rm -f "${{ steps.contract.outputs.workdir }}/backend.tf"
           terraform -chdir="${{ steps.contract.outputs.workdir }}" init -backend=false -input=false
