@@ -439,6 +439,7 @@ jobs:
           AI_AGGREGATOR_SSH_PUBLIC_KEY: ${{ vars.AI_AGGREGATOR_SSH_PUBLIC_KEY }}
           TARGET_DOMAIN_BASE: onwalk.net
         run: |
+          rm -f "${{ steps.contract.outputs.workdir }}/backend.tf"
           terraform -chdir="${{ steps.contract.outputs.workdir }}" init -backend=false -input=false
           terraform -chdir="${{ steps.contract.outputs.workdir }}" validate
           terraform -chdir="${{ steps.contract.outputs.workdir }}" apply -auto-approve
@@ -472,6 +473,8 @@ jobs:
           set -euo pipefail
           workdir="${{ steps.contract.outputs.workdir }}"
           if [ -d "$workdir" ]; then
+            rm -f "$workdir/backend.tf"
+            terraform -chdir="$workdir" init -backend=false -input=false
             terraform -chdir="$workdir" destroy -auto-approve
           else
             echo "Terraform workdir was not created; no GCP resource cleanup is required."
