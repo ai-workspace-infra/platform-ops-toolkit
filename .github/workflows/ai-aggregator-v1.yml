@@ -460,7 +460,7 @@ jobs:
           vault_role: ${{ vars.VAULT_GCP_JWT_ROLE }}
           load_state_contract: false
       - name: Install Google Cloud CLI for private-node access
-        if: ${{ github.event_name == 'workflow_dispatch' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
+        if: ${{ github.event_name == 'workflow_dispatch' && (inputs.operation == 'apply' || inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate') }}
         uses: google-github-actions/setup-gcloud@v2
       - name: Render GCP UAT resources
         env:
@@ -527,9 +527,29 @@ jobs:
             "projects/$GCP_PROJECT_ID/regions/$region/routers/$router_name/$nat_name"
           import_if_absent google_compute_firewall.spot_ssh \
             "projects/$GCP_PROJECT_ID/global/firewalls/${network_name}-spot-ssh"
+          spot_metadata="$(python3 - "$resources" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+          import yaml
+
+          source = re.sub(r"\{\{.*?\}\}", "placeholder", Path(sys.argv[1]).read_text())
+          data = yaml.safe_load(source)
+          for vm in data.get('spot_vms', []):
+              name = str(vm['name'])
+              zone = str(vm['zone'])
+              tf_id = re.sub(r'[^0-9a-zA-Z_]', '_', name)
+              print(f'{name}\t{zone}\tmodule.spot_{tf_id}.google_compute_instance.this')
+          PY
+          )"
+          while IFS=$'\t' read -r spot_name spot_zone spot_address; do
+            [[ -n "$spot_name" ]] || continue
+            import_if_absent "$spot_address" \
+              "projects/$GCP_PROJECT_ID/zones/$spot_zone/instances/$spot_name"
+          done <<< "$spot_metadata"
           terraform -chdir="$workdir" validate
           terraform -chdir="$workdir" apply -input=false -auto-approve
-          if [[ "${{ inputs.operation }}" == stage || "${{ inputs.operation }}" == activate ]]; then
+          if [[ "${{ inputs.operation }}" == apply || "${{ inputs.operation }}" == provision || "${{ inputs.operation }}" == stage || "${{ inputs.operation }}" == activate ]]; then
             key_path="${RUNNER_TEMP}/ai-aggregator-gcp-ssh"
             ssh-keygen -t ed25519 -N '' -C "ai-aggregator-${GITHUB_RUN_ID}" -f "$key_path" >/dev/null
             chmod 600 "$key_path"
@@ -566,7 +586,7 @@ jobs:
             -e ai_desktop_remote_enabled=false \
             -e ai_desktop_manage_user=false
       - name: Revoke temporary GCP OS Login key
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && (inputs.operation == 'apply' || inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate') }}
         env:
           GCP_PROJECT_ID: ${{ steps.gcp_auth.outputs.project_id }}
         run: |
