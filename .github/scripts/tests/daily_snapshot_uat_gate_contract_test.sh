@@ -81,14 +81,15 @@ policy = (root / "scripts/vault/policies" / f"{prod_role}.hcl").read_text()
 if '"kv/data/CICD/github-app/daily-snapshot"' not in policy or any(x in policy for x in ['*', '"update"', '"create"']):
     raise SystemExit("release role must only read the exact GitHub App credential")
 
-# The production approval must be requested only after UAT succeeded: the UAT
-# job itself may be gated by `production` only for the direct PROD path.
-if "promote_prod_after_uat" in summary.get("environment", ""):
+# The production approval must be requested only after UAT succeeded; the UAT
+# job itself never waits for it.
+if "environment" in summary:
     raise SystemExit("UAT job must not wait for production approval before deploying UAT")
 if promote.get("environment") != "production":
     raise SystemExit("promotion must run in the production Environment")
-if "snapshot-summary" not in promote.get("needs", []):
-    raise SystemExit("promotion must depend on the UAT job")
+for needed in ("snapshot-summary", "resolve-accepted-uat"):
+    if needed not in promote.get("needs", []):
+        raise SystemExit(f"promotion must depend on {needed}")
 
 condition = promote["if"]
 for required in (
@@ -98,25 +99,32 @@ for required in (
     "needs.snapshot.result == 'success'",
     "needs.snapshot-summary.result == 'success'",
     "needs.snapshot-summary.outputs.uat_hybrid_outcome == 'success'",
+    "needs.resolve-accepted-uat.result == 'success'",
 ):
     if required not in condition:
         raise SystemExit(f"promotion is missing gate: {required}")
 
 # Evaluate the original promotion expression across success, failure, skipped,
-# cancelled, scheduled, direct-PROD and partial-snapshot scenarios.
+# cancelled, scheduled, PROD-from-accepted-UAT and partial-snapshot scenarios.
+# The last state is resolve-accepted-uat, which runs only for deploy_env=prod.
 cases = [
-    ('verified UAT', 'uat', True, '', 'success', 'success', 'success', False, True),
-    ('scheduled', '', False, '', 'success', 'success', 'success', False, False),
-    ('not requested', 'uat', False, '', 'success', 'success', 'success', False, False),
-    ('direct PROD', 'prod', True, '', 'success', 'success', 'success', False, False),
-    ('partial snapshot', 'uat', True, 'portal', 'success', 'success', 'success', False, False),
-    ('build failed', 'uat', True, '', 'failure', 'success', 'success', False, False),
-    ('summary failed', 'uat', True, '', 'success', 'failure', 'success', False, False),
-    ('Hybrid skipped', 'uat', True, '', 'success', 'success', 'skipped', False, False),
-    ('Hybrid failed', 'uat', True, '', 'success', 'success', 'failure', False, False),
-    ('cancelled', 'uat', True, '', 'success', 'success', 'success', True, False),
+    ('verified UAT', 'uat', True, '', 'success', 'success', 'success', False, True, 'skipped'),
+    ('scheduled', '', False, '', 'success', 'success', 'success', False, False, 'skipped'),
+    ('not requested', 'uat', False, '', 'success', 'success', 'success', False, False, 'skipped'),
+    ('partial snapshot', 'uat', True, 'portal', 'success', 'success', 'success', False, False, 'skipped'),
+    ('build failed', 'uat', True, '', 'failure', 'success', 'success', False, False, 'skipped'),
+    ('summary failed', 'uat', True, '', 'success', 'failure', 'success', False, False, 'skipped'),
+    ('Hybrid skipped', 'uat', True, '', 'success', 'success', 'skipped', False, False, 'skipped'),
+    ('Hybrid failed', 'uat', True, '', 'success', 'success', 'failure', False, False, 'skipped'),
+    ('cancelled', 'uat', True, '', 'success', 'success', 'success', True, False, 'skipped'),
+    ('PROD from accepted UAT run', 'prod', False, '', 'skipped', 'skipped', '', False, True, 'success'),
+    ('PROD, UAT run not accepted', 'prod', False, '', 'skipped', 'skipped', '', False, False, 'failure'),
+    ('PROD, gate skipped', 'prod', True, '', 'success', 'success', 'success', False, False, 'skipped'),
+    ('PROD, partial', 'prod', False, 'portal', 'skipped', 'skipped', '', False, False, 'success'),
+    ('PROD, cancelled', 'prod', False, '', 'skipped', 'skipped', '', True, False, 'success'),
+    ('UAT with a stray accepted gate', 'uat', False, '', 'success', 'success', 'success', False, False, 'success'),
 ]
-for name, env, requested, repos, build, result, hybrid, cancelled, expected in cases:
+for name, env, requested, repos, build, result, hybrid, cancelled, expected, accepted in cases:
     expression = condition.removeprefix('${{').removesuffix('}}').strip()
     replacements = {
         '!cancelled()': repr(not cancelled),
@@ -126,6 +134,7 @@ for name, env, requested, repos, build, result, hybrid, cancelled, expected in c
         'needs.snapshot.result': repr(build),
         'needs.snapshot-summary.result': repr(result),
         'needs.snapshot-summary.outputs.uat_hybrid_outcome': repr(hybrid),
+        'needs.resolve-accepted-uat.result': repr(accepted),
     }
     for atom, value in replacements.items():
         expression = expression.replace(atom, value)
@@ -161,8 +170,10 @@ for step in steps:
     if "vault-action" in step.get("uses", "") and step["with"]["role"] != prod_role:
         raise SystemExit(f"promotion must use {prod_role}, got {step['with']['role']}")
 promote_step = steps[index_of("Promote verified UAT tag")]
-if promote_step["env"]["UAT_TAG"] != "${{ needs.snapshot-summary.outputs.uat_snapshot_tag }}":
-    raise SystemExit("promotion must use the UAT tag that was deployed")
+accepted_tag = ("${{ (inputs.deploy_env || 'uat') == 'prod' && needs.resolve-accepted-uat.outputs.uat_snapshot_tag"
+                " || needs.snapshot-summary.outputs.uat_snapshot_tag }}")
+if promote_step["env"]["UAT_TAG"] != accepted_tag:
+    raise SystemExit("promotion must use the UAT tag that was deployed and accepted")
 dispatch_prod = steps[index_of("Dispatch promoted PROD")]
 if dispatch_prod["run"] != "./.github/scripts/snapshots/dispatch-prod-combined.sh":
     raise SystemExit("PROD promotion must use the PROD dispatcher")

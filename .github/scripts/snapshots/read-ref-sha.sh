@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Read the commit SHA a GitHub ref lookup returns, the way
-# ensure-prod-control-plane-tag.sh does.
+# Read the commit SHA a GitHub ref lookup returns.
 #
 # Usage (from a script that defines the gh wrapper it passes):
 #   . "$(dirname "${BASH_SOURCE[0]}")/read-ref-sha.sh"
