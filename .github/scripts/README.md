@@ -31,3 +31,32 @@ against the workspace, and some pipelines pin `iac_modules` to a fixed SHA.
 
 A workflow that pins `infra_ref` / `playbooks_ref` to a tag older than the
 `scripts/pipeline/` directories will not find these scripts; pin to a ref that has them.
+
+## Cross-repository delivery contract
+
+The four repositories form one delivery boundary and are changed in dependency order:
+
+1. [`iac_modules`](https://github.com/ai-workspace-infra/iac_modules) — Terraform and
+   provision-phase scripts under `scripts/pipeline/`.
+2. [`playbooks`](https://github.com/ai-workspace-infra/playbooks) — Ansible-phase scripts
+   under `scripts/pipeline/`.
+3. [`gitops`](https://github.com/ai-workspace-infra/gitops) — YAML/Markdown desired-state
+   data only; it must not contain deployment scripts.
+4. `platform-ops-toolkit` — orchestration, dispatch, wait, snapshot, serverless,
+   API-based DNS, SSH observation, and GitOps readers.
+
+For a cross-repository change, merge the `iac_modules` and `playbooks` additions first,
+then update the toolkit call sites. The toolkit PR description records the dependency PRs
+and merge order. GitOps declarations are consumed by ref; they are not copied into any
+workflow or script.
+
+New scripts use short-hyphen names, have a test under the owning directory's `tests/`,
+and are mode `100755` when called directly. Do not add one-line forwarding wrappers or
+compatibility shims. Composite actions remain in `.github/actions/`; sourced helpers remain
+in the owning repository's `lib/`. The three code repositories keep byte-identical
+`require-env.sh` copies so a pinned checkout never reaches into another repository.
+
+Branch changes are PR-only and use the repository's existing `feature/`, `bugfix/`,
+`hotfix/`, or equivalent prefix. After merge, delete the head branch; long-lived branches
+are limited to `main` and `release/*` (with `stable/*` retained where the repository
+already uses it). See the branch-policy skill in each repository for release-specific rules.
