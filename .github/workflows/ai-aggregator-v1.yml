@@ -27,6 +27,12 @@ on:
         default: uat
         type: choice
         options: [uat, prod]
+      deployment_profile:
+        description: "GitOps topology profile; single-node is the default cloud all-in-one path"
+        required: true
+        default: single-node
+        type: choice
+        options: [single-node, distributed]
       gitops_ref:
         description: "Immutable GitOps ref"
         required: true
@@ -56,7 +62,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: ai-aggregator-v1-${{ inputs.environment || 'uat' }}-${{ inputs.target || github.head_ref || 'validation' }}
+  group: ai-aggregator-v1-${{ inputs.environment || 'uat' }}-${{ inputs.deployment_profile || 'distributed' }}-${{ inputs.target || github.head_ref || 'validation' }}
   cancel-in-progress: false
 
 jobs:
@@ -77,15 +83,14 @@ jobs:
           path: gitops
       - name: Validate GitOps declarations (UAT & PROD)
         run: |
-          if [ -f gitops/topology/uat/selfhost/ai-aggregator.yaml ]; then
-            python3 scripts/ci/validate_ai_aggregator_manifest.py gitops/topology/uat/selfhost/ai-aggregator.yaml
-          fi
-          if [ -f gitops/topology/prod/selfhost/ai-aggregator.yaml ]; then
-            python3 scripts/ci/validate_ai_aggregator_manifest.py gitops/topology/prod/selfhost/ai-aggregator.yaml
-          fi
+          find gitops/topology/uat/selfhost gitops/topology/prod/selfhost \
+            -maxdepth 1 -type f -name 'ai-aggregator*.yaml' -print0 |
+            while IFS= read -r -d '' manifest; do
+              python3 scripts/ci/validate_ai_aggregator_manifest.py "$manifest"
+            done
       - name: Reject deprecated AI Aggregator Vault references
         run: |
-          if rg -n --glob 'ai-aggregator.yaml' \
+          if rg -n --glob 'ai-aggregator*.yaml' \
             'vault://kv/(uat|prod)/ai-aggregator/(accounts|instances|clients|cpa)/|vault://kv/(uat|prod)/ai-aggregator/database/postgresql|#(api_client_token|oauth_bundle|channel_token)' \
             gitops/topology; then
             echo 'deprecated AI Aggregator Vault reference detected' >&2
@@ -99,6 +104,8 @@ jobs:
     outputs:
       provider: ${{ steps.provider.outputs.provider }}
       environment: ${{ steps.provider.outputs.environment }}
+      profile: ${{ steps.provider.outputs.profile }}
+      manifest_path: ${{ steps.provider.outputs.manifest_path }}
       akamai_matrix: ${{ steps.provider.outputs.akamai_matrix }}
     steps:
       - uses: actions/checkout@v4
@@ -111,6 +118,7 @@ jobs:
         env:
           REQUESTED_PROVIDER: ${{ inputs.provider || 'manifest' }}
           TARGET_ENVIRONMENT: ${{ inputs.environment || 'uat' }}
+          DEPLOYMENT_PROFILE: ${{ inputs.deployment_profile || 'distributed' }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -120,7 +128,19 @@ jobs:
           import yaml
 
           environment = os.environ['TARGET_ENVIRONMENT']
-          manifest_path = Path('gitops') / 'topology' / environment / 'selfhost' / 'ai-aggregator.yaml'
+          profile = os.environ['DEPLOYMENT_PROFILE']
+          manifests = {
+              ('uat', 'distributed'): Path('gitops/topology/uat/selfhost/ai-aggregator.yaml'),
+              ('uat', 'single-node'): Path('gitops/topology/uat/selfhost/ai-aggregator-gcp-single.yaml'),
+              ('prod', 'distributed'): Path('gitops/topology/prod/selfhost/ai-aggregator.yaml'),
+              ('prod', 'single-node'): Path('gitops/topology/prod/selfhost/ai-aggregator-single-node.yaml'),
+          }
+          try:
+              manifest_path = manifests[(environment, profile)]
+          except KeyError as error:
+              raise SystemExit(f'unsupported environment/profile: {environment}/{profile}') from error
+          if not manifest_path.is_file():
+              raise SystemExit(f'missing selected GitOps manifest: {manifest_path}')
           data = yaml.safe_load(manifest_path.read_text())
           selected = data['spec']['infrastructure']['provider']
           adapter = 'vps' if selected in {'vps', 'vultr-vps'} else selected
@@ -139,7 +159,8 @@ jobs:
           if adapter == 'akamai-cloud' and not akamai_matrix['include']:
               raise SystemExit('Akamai provider requires resource_contract.manifests')
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
-              output.write(f'provider={adapter}\nenvironment={environment}\n')
+              output.write(f'provider={adapter}\nenvironment={environment}\nprofile={profile}\n')
+              output.write(f'manifest_path={manifest_path}\n')
               output.write('akamai_matrix<<AI_AGGREGATOR_MATRIX\n')
               output.write(json.dumps(akamai_matrix, separators=(',', ':')) + '\n')
               output.write('AI_AGGREGATOR_MATRIX\n')
@@ -167,14 +188,14 @@ jobs:
         run: pip install --quiet ansible-core
       - name: Check deployment syntax
         working-directory: playbooks
-        run: >-
-          ansible-playbook --syntax-check -i localhost, deploy-ai-aggregator-v1.yml
+        run: |
+          ansible-playbook --syntax-check -i localhost, deploy-ai-aggregator-v1.yml \
+            -e ai_aggregator_manifest_file=${{ github.workspace }}/${{ needs.resolve-provider.outputs.manifest_path }}
           ansible-playbook --syntax-check -i localhost, deploy_ai_aggregator.yaml
-          -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/${{ inputs.environment }}/selfhost/ai-aggregator.yaml
       - name: Require an enabled declaration before remote staging
         if: ${{ inputs.operation == 'stage' || inputs.operation == 'activate' }}
         run: >-
-          grep -q '^  enabled: true$' gitops/topology/${{ inputs.environment }}/selfhost/ai-aggregator.yaml
+          grep -q '^  enabled: true$' ${{ needs.resolve-provider.outputs.manifest_path }}
 
   uat-auto-deploy:
     needs: [validate, resolve-provider]
@@ -216,7 +237,7 @@ jobs:
       - name: Resolve the UAT resource contract from GitOps
         id: contract
         env:
-          GITOPS_MANIFEST: ${{ github.workspace }}/gitops/topology/uat/selfhost/ai-aggregator.yaml
+          GITOPS_MANIFEST: ${{ github.workspace }}/${{ needs.resolve-provider.outputs.manifest_path }}
         run: |
           python3 - <<'PY'
           import os
@@ -305,7 +326,7 @@ jobs:
           ansible-playbook -i ../iac_modules/terraform-hcl-standard/aws-cloud/envs/ai-aggregator-uat/inventory.ini \
             deploy-ai-aggregator-v1.yml \
             -e ai_aggregator_operation=${{ inputs.operation == 'activate' && 'activate' || 'stage' }} \
-            -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/uat/selfhost/ai-aggregator.yaml
+            -e ai_aggregator_manifest_file=${{ github.workspace }}/${{ needs.resolve-provider.outputs.manifest_path }}
       - name: Verify UAT endpoints
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'activate' }}
         run: ./scripts/verify_ai_aggregator_endpoints.sh
@@ -353,7 +374,7 @@ jobs:
       - name: Resolve the GCP UAT resource contract from GitOps
         id: contract
         env:
-          GITOPS_MANIFEST: ${{ github.workspace }}/gitops/topology/uat/selfhost/ai-aggregator.yaml
+          GITOPS_MANIFEST: ${{ github.workspace }}/${{ needs.resolve-provider.outputs.manifest_path }}
         run: |
           python3 - <<'PY'
           import os
@@ -364,9 +385,18 @@ jobs:
           infrastructure = manifest['spec']['infrastructure']
           if infrastructure['provider'] != 'gcp':
               raise SystemExit('GCP adapter selected but GitOps provider is not gcp')
-          root = Path(os.environ['GITHUB_WORKSPACE']) / 'iac_modules'
-          resources = root / infrastructure['resource_contract']['path']
-          workdir = root / infrastructure['resource_contract']['workdir']
+          workspace = Path(os.environ['GITHUB_WORKSPACE'])
+          contract = infrastructure['resource_contract']
+          roots = {
+              'ai-workspace-infra/iac_modules': workspace / 'iac_modules',
+              'ai-workspace-infra/gitops': workspace / 'gitops',
+          }
+          resource_root = roots.get(contract.get('repository'))
+          workdir_root = roots.get(contract.get('workdir_repository', 'ai-workspace-infra/iac_modules'))
+          if resource_root is None or workdir_root is None:
+              raise SystemExit('GCP resource_contract repository/workdir_repository is unsupported')
+          resources = resource_root / contract['path']
+          workdir = workdir_root / contract['workdir']
           if not resources.is_file():
               raise SystemExit(f'missing declared resource contract: {resources}')
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
@@ -382,6 +412,16 @@ jobs:
           role: ${{ vars.VAULT_GCP_JWT_ROLE }}
           jwtGithubAudience: vault
           exportToken: true
+      - name: Render GCP UAT resources
+        env:
+          GITOPS_ROOT: ${{ github.workspace }}/gitops
+          AI_AGGREGATOR_SSH_CIDR: ${{ vars.AI_AGGREGATOR_SSH_CIDR }}
+          AI_AGGREGATOR_SOURCE_CIDR: ${{ vars.AI_AGGREGATOR_SOURCE_CIDR }}
+          AI_AGGREGATOR_SSH_PUBLIC_KEY: ${{ vars.AI_AGGREGATOR_SSH_PUBLIC_KEY }}
+        run: |
+          python3 iac_modules/terraform-hcl-standard/gcp-cloud/scripts/generate.py render \
+            --resources "${{ steps.contract.outputs.resources }}" \
+            --workdir "${{ steps.contract.outputs.workdir }}"
       - name: Provision GCP UAT Spot instance
         if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate')) }}
         env:
@@ -395,6 +435,9 @@ jobs:
           terraform -chdir="${{ steps.contract.outputs.workdir }}" init -backend=false -input=false
           terraform -chdir="${{ steps.contract.outputs.workdir }}" validate
           terraform -chdir="${{ steps.contract.outputs.workdir }}" apply -auto-approve
+          python3 iac_modules/terraform-hcl-standard/gcp-cloud/scripts/generate.py inventory \
+            --resources "${{ steps.contract.outputs.resources }}" \
+            --workdir "${{ steps.contract.outputs.workdir }}"
       - name: Deploy GCP UAT services
         if: ${{ github.event_name == 'workflow_dispatch' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
         working-directory: playbooks
@@ -402,27 +445,19 @@ jobs:
           VAULT_ADDR: https://vault.svc.plus
         run: |
           set -euo pipefail
-          ansible-playbook -i ../iac_modules/terraform-hcl-standard/gcp-cloud/envs/ai-aggregator-uat/inventory.ini             deploy-ai-aggregator-v1.yml             -e ai_aggregator_operation=stage             -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/uat/selfhost/ai-aggregator.yaml
-          desktop_vars="$RUNNER_TEMP/ai-desktop-vars.json"
-          trap 'rm -f "$desktop_vars"' EXIT
-          jq -n '{ai_desktop_password_by_host: {}}' > "$desktop_vars"
-          while IFS= read -r cpa_id; do
-            [ -n "$cpa_id" ] || continue
-            password="$(curl --fail --silent --show-error               -H "X-Vault-Token: $VAULT_TOKEN"               "$VAULT_ADDR/v1/kv/data/uat/ai-aggregator/cpa/$cpa_id" |               jq -er '.data.data.desktop_password')"
-            jq --arg id "$cpa_id" --arg password "$password"               '.ai_desktop_password_by_host[$id] = $password' "$desktop_vars" > "$desktop_vars.next"
-            mv "$desktop_vars.next" "$desktop_vars"
-          done < <(python3 - <<'PY'
-          import yaml
-          data = yaml.safe_load(open('../gitops/topology/uat/selfhost/ai-aggregator.yaml'))
-          for entry in data['spec']['cpa_instances']:
-              print(entry['node'])
-          PY
-          )
-          ansible-playbook -i ../iac_modules/terraform-hcl-standard/gcp-cloud/envs/ai-aggregator-uat/inventory.ini             deploy_ai_desktop.yml             -e ai_desktop_remote_enabled=true             -e ai_desktop_manage_user=true             -e @"$desktop_vars"
+          ansible-playbook -i "${{ steps.contract.outputs.workdir }}/inventory.ini" \
+            deploy-ai-aggregator-v1.yml \
+            -e ai_aggregator_operation=${{ inputs.operation == 'activate' && 'activate' || 'stage' }} \
+            -e ai_aggregator_manifest_file=${{ github.workspace }}/${{ needs.resolve-provider.outputs.manifest_path }}
+          ansible-playbook -i "${{ steps.contract.outputs.workdir }}/inventory.ini" \
+            deploy_ai_desktop.yml \
+            -e ai_desktop_cpa_codeagent=true \
+            -e ai_desktop_remote_enabled=false \
+            -e ai_desktop_manage_user=false
       - name: Verify UAT endpoints
         if: ${{ github.event_name == 'workflow_dispatch' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
         env:
-          AI_AGGREGATOR_MANIFEST: gitops/topology/uat/selfhost/ai-aggregator.yaml
+          AI_AGGREGATOR_MANIFEST: ${{ needs.resolve-provider.outputs.manifest_path }}
         run: ./scripts/verify_ai_aggregator_endpoints.sh
       - name: Destroy GCP UAT Spot resources
         if: ${{ always() && steps.contract.outputs.workdir != '' && (github.event_name != 'workflow_dispatch' || inputs.destroy) }}
@@ -467,7 +502,7 @@ jobs:
       - name: Resolve the VPS UAT resource contract from GitOps
         id: contract
         env:
-          GITOPS_MANIFEST: ${{ github.workspace }}/gitops/topology/uat/selfhost/ai-aggregator.yaml
+          GITOPS_MANIFEST: ${{ github.workspace }}/${{ needs.resolve-provider.outputs.manifest_path }}
         run: |
           python3 - <<'PY'
           import os
@@ -527,11 +562,14 @@ jobs:
         env:
           VAULT_ADDR: https://vault.svc.plus
         run: |
-          ansible-playbook -i "${{ steps.contract.outputs.workdir }}/inventory.ini"             deploy-ai-aggregator-v1.yml             -e ai_aggregator_operation=stage             -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/uat/selfhost/ai-aggregator.yaml
+          ansible-playbook -i "${{ steps.contract.outputs.workdir }}/inventory.ini" \
+            deploy-ai-aggregator-v1.yml \
+            -e ai_aggregator_operation=${{ inputs.operation == 'activate' && 'activate' || 'stage' }} \
+            -e ai_aggregator_manifest_file=${{ github.workspace }}/${{ needs.resolve-provider.outputs.manifest_path }}
       - name: Verify selected VPS endpoints
         if: ${{ github.event_name == 'workflow_dispatch' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
         env:
-          AI_AGGREGATOR_MANIFEST: gitops/topology/uat/selfhost/ai-aggregator.yaml
+          AI_AGGREGATOR_MANIFEST: ${{ needs.resolve-provider.outputs.manifest_path }}
         run: ./scripts/verify_ai_aggregator_endpoints.sh
       - name: Destroy VPS UAT resources
         if: ${{ always() && steps.contract.outputs.workdir != '' && (github.event_name != 'workflow_dispatch' || inputs.destroy) }}
@@ -680,7 +718,7 @@ jobs:
         run: |
           ansible-playbook -i "$TF_ROOT/inventory.ini" deploy-ai-aggregator-v1.yml \
             -e ai_aggregator_operation=${{ inputs.operation }} \
-            -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/uat/selfhost/ai-aggregator.yaml
+            -e ai_aggregator_manifest_file=${{ github.workspace }}/${{ needs.resolve-provider.outputs.manifest_path }}
       - name: Destroy Akamai UAT resource
         if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.destroy) }}
         run: terraform -chdir="$TF_ROOT" destroy -input=false -auto-approve
@@ -713,7 +751,7 @@ jobs:
       - name: Resolve declared Prod target hosts
         id: target_hosts
         env:
-          GITOPS_MANIFEST: ${{ github.workspace }}/gitops/topology/prod/selfhost/ai-aggregator.yaml
+          GITOPS_MANIFEST: ${{ github.workspace }}/${{ needs.resolve-provider.outputs.manifest_path }}
         run: |
           python3 - <<'PY'
           import os
@@ -739,9 +777,12 @@ jobs:
         env:
           VAULT_ADDR: https://vault.svc.plus
         run: |
-          ansible-playbook -i inventory.ini --limit "${{ steps.target_hosts.outputs.hosts }}" deploy-ai-aggregator-v1.yml             -e ai_aggregator_operation=${{ inputs.operation }}             -e ai_aggregator_manifest_file=${{ github.workspace }}/gitops/topology/prod/selfhost/ai-aggregator.yaml
+          ansible-playbook -i inventory.ini --limit "${{ steps.target_hosts.outputs.hosts }}" \
+            deploy-ai-aggregator-v1.yml \
+            -e ai_aggregator_operation=${{ inputs.operation }} \
+            -e ai_aggregator_manifest_file=${{ github.workspace }}/${{ needs.resolve-provider.outputs.manifest_path }}
       - name: Verify Prod endpoints
         if: ${{ inputs.operation == 'activate' }}
         env:
-          AI_AGGREGATOR_MANIFEST: ${{ github.workspace }}/gitops/topology/prod/selfhost/ai-aggregator.yaml
+          AI_AGGREGATOR_MANIFEST: ${{ github.workspace }}/${{ needs.resolve-provider.outputs.manifest_path }}
         run: ./scripts/verify_ai_aggregator_endpoints.sh

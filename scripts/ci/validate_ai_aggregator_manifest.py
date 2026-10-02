@@ -29,6 +29,16 @@ def iter_strings(value):
         yield value
 
 
+def node_roles(node):
+    """Return the normalized role set while keeping legacy role compatible."""
+    roles = node.get("roles")
+    if roles is None:
+        roles = [node.get("role")]
+    if not isinstance(roles, list) or any(not isinstance(role, str) for role in roles):
+        fail(f"node {node.get('id')} roles must be a list of strings")
+    return set(roles)
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("usage: validate_ai_aggregator_manifest.py <manifest>")
@@ -83,8 +93,8 @@ def main() -> None:
     if "direct_api_domain" in entrypoint or "direct_api_domain" in spec.get("litellm", {}):
         fail("v1 uses one hostname; route LiteLLM with the APISIX /litellm path prefix")
     if env == "uat":
-        if domain != "ai-internal.onwalk.net":
-            fail(f"UAT environment must bind to ai-internal.onwalk.net (got: {domain})")
+        if domain != "ai.onwalk.net":
+            fail(f"UAT environment must bind to ai.onwalk.net (got: {domain})")
     elif env == "prod":
         if domain != "ai.svc.plus":
             fail(f"PROD environment must bind to ai.svc.plus (got: {domain})")
@@ -236,15 +246,23 @@ def main() -> None:
     nodes = set(node_ids)
     if new_api.get("node") not in nodes:
         fail("New API node is not declared")
+    gateway_nodes = {node["id"] for node in node_records if "gateway" in node_roles(node)}
+    if new_api.get("node") not in gateway_nodes:
+        fail("New API node must declare the gateway role")
     if any(not node.get("resource_ref") for node in node_records):
         fail("every infrastructure node must declare a resource_ref")
 
     instances = spec.get("cpa_instances", [])
     ids = [entry.get("id") for entry in instances]
     ports = [entry.get("port") for entry in instances]
-    declared_cpa_nodes = {node["id"] for node in node_records if node.get("role") == "cpa"}
-    if not ids or set(ids) != declared_cpa_nodes or len(ids) != len(set(ids)) or len(ports) != len(set(ports)):
-        fail("CPA instance IDs and ports must be unique and non-empty")
+    declared_cpa_nodes = {node["id"] for node in node_records if "cpa" in node_roles(node)}
+    distributed_cpa_shape = set(ids) == declared_cpa_nodes
+    single_node_cpa_shape = len(declared_cpa_nodes) == 1 and all(
+        instance.get("node") in declared_cpa_nodes for instance in instances
+    )
+    if len(instances) != 4 or not ids or not (distributed_cpa_shape or single_node_cpa_shape) \
+        or len(ids) != len(set(ids)) or len(ports) != len(set(ports)):
+        fail("AI Aggregator v1 requires exactly four unique CPA instance IDs and ports")
     for instance in instances:
         if instance.get("node") not in nodes:
             fail(f"CPA instance {instance.get('id')} refers to an unknown node")
