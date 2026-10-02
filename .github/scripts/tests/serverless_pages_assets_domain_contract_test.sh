@@ -21,7 +21,7 @@ cat >"${test_dir}/routing.json" <<'EOF'
     "serverless": {
       "console_host": "console-serverless-prod.svc.plus",
       "accounts_host": "accounts-serverless-prod.svc.plus",
-      "billing_host": "billing-serverless-prod.svc.plus",
+      "billing_host": "billing.svc.plus",
       "cloud_run": {"billing_service": "https://billing-service-uc.a.run.app"},
       "frontend_router": {"worker_name": "frontend-router-prod"},
       "edge_gateway": {"boundaries": [{"id": "core", "worker_name": "edge-gateway-core-prod"}]}

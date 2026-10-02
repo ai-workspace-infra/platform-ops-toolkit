@@ -83,7 +83,7 @@ dispatch_and_wait() {
   # child workflow resolves its machine API origin from the GitOps Cloud Run
   # declaration. Keep an explicit dispatch override authoritative.
   if [[ -z "${child_agent_controller_url}" && "${namespace}" == agent-proxy-* ]]; then
-    child_agent_controller_url="https://accounts-serverless-uat.onwalk.net"
+    child_agent_controller_url="https://accounts-uat.onwalk.net"
     echo "${namespace}: using the GitOps UAT Serverless Accounts controller"
   fi
 

@@ -226,6 +226,8 @@ document["metadata"]["environment"] = "prod"
 document["spec"]["public_endpoints"]["agent-proxy"]["host"] = "agent-proxy-selfhost-prod-jp.svc.plus"
 for endpoint in document["spec"]["public_endpoints"].values():
     endpoint["host"] = endpoint["host"].replace("-uat.onwalk.net", "-prod.svc.plus")
+for service in ["accounts", "billing"]:
+    document["spec"]["public_endpoints"][service]["host"] = f"{service}.svc.plus"
 document["spec"]["runtime"]["routing"]["dns"]["canonical_records"] = {
     "console.svc.plus": "console-selfhost-prod.svc.plus",
     "accounts.svc.plus": "accounts-selfhost-prod.svc.plus",

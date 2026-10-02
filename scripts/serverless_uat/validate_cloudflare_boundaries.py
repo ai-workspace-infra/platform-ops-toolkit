@@ -115,6 +115,10 @@ def main() -> int:
         endpoint = public_endpoints[service]
         endpoint_mode = hybrid_endpoint_modes[service] if mode == "hybrid" else mode
         expected_host = f"{service}-{endpoint_mode}-{environment}.{mode_suffix}"
+        if service == "agent-proxy" and mode == "hybrid" and environment == "prod":
+            expected_host = f"agent-proxy-selfhost-prod-jp.{mode_suffix}"
+        if service in {"accounts", "billing"}:
+            expected_host = f"{service}.svc.plus" if environment == "prod" else f"{service}-{environment}.onwalk.net"
         if endpoint.get("host") != expected_host:
             raise SystemExit(f"public_endpoints.{service}.host must be {expected_host!r}")
         if endpoint.get("access") != access:
@@ -197,8 +201,9 @@ def main() -> int:
         raise SystemExit("Serverless console host must match the canonical domain serverless target")
     if hosts["accounts"] != domains[canonical_accounts]["serverless"]:
         raise SystemExit("Serverless accounts host must match the canonical domain serverless target")
-    if serverless.get("billing_host") != f"billing-serverless-{environment}.{mode_suffix}":
-        raise SystemExit("Serverless billing host must use the billing-serverless-<environment> naming contract")
+    expected_billing = "billing.svc.plus" if environment == "prod" else f"billing-{environment}.onwalk.net"
+    if serverless.get("billing_host") != expected_billing:
+        raise SystemExit("Serverless billing_host must use the canonical environment Billing contract")
     billing_origin_host = serverless.get("billing_origin_host", "")
     expected_billing_origin = f"billing-origin-serverless-{environment}.{mode_suffix}"
     if billing_origin_host and billing_origin_host != expected_billing_origin:

@@ -5,10 +5,14 @@
   },
   "uat": {
     "cloud_provider": "akamai-cloud",
-    "account": "manbuzhe2026"
+    "account": "manbuzhe2026",
+    "accounts_public_origin": "https://accounts-uat.onwalk.net",
+    "billing_public_origin": "https://billing-uat.onwalk.net"
   },
   "prod": {
     "cloud_provider": "aws-cloud",
-    "account": "primary"
+    "account": "primary",
+    "accounts_public_origin": "https://accounts.svc.plus",
+    "billing_public_origin": "https://billing.svc.plus"
   }
 }

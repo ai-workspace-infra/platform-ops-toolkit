@@ -392,6 +392,7 @@ jobs:
       env:
         AGENT_CONTROLLER_URL: ${{ steps.route.outputs.agent_controller_url }}
         BILLING_SERVICE_BASE_URL: ${{ steps.route.outputs.billing_service_base_url }}
+        DEPLOYMENT_ENV: ${{ steps.route.outputs.deployment_env }}
         GITOPS_SERVERLESS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ steps.route.outputs.deployment_env }}/serverless/runtime-topology.yaml
 
     - name: Render GitOps selfhost routing declaration

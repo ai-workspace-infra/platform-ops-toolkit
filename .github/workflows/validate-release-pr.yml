@@ -114,7 +114,9 @@ jobs:
         repository: ai-workspace-infra/playbooks
         ref: main
         path: pipeline-contract/playbooks
-        sparse-checkout: scripts/pipeline
+        sparse-checkout: |
+          scripts/pipeline
+          .github/scripts
 
     - name: Verify every script a workflow calls exists
       run: >-
