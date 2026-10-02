@@ -476,11 +476,13 @@ jobs:
           AI_AGGREGATOR_SOURCE_CIDR: ${{ vars.AI_AGGREGATOR_SOURCE_CIDR }}
           AI_AGGREGATOR_SSH_PUBLIC_KEY: ${{ vars.AI_AGGREGATOR_SSH_PUBLIC_KEY }}
           TARGET_DOMAIN_BASE: onwalk.net
+          TF_VAR_deploy_service_account: ${{ steps.gcp_auth.outputs.service_account }}
+          TF_VAR_workload_identity_provider: ${{ steps.gcp_auth.outputs.provider }}
         run: |
           rm -f "${{ steps.contract.outputs.workdir }}/backend.tf"
           terraform -chdir="${{ steps.contract.outputs.workdir }}" init -backend=false -input=false
           terraform -chdir="${{ steps.contract.outputs.workdir }}" validate
-          terraform -chdir="${{ steps.contract.outputs.workdir }}" apply -auto-approve
+          terraform -chdir="${{ steps.contract.outputs.workdir }}" apply -input=false -auto-approve
           python3 iac_modules/terraform-hcl-standard/gcp-cloud/scripts/generate.py inventory \
             --resources "${{ steps.contract.outputs.resources }}" \
             --workdir "${{ steps.contract.outputs.workdir }}"
@@ -513,7 +515,7 @@ jobs:
           if [ -d "$workdir" ]; then
             rm -f "$workdir/backend.tf"
             terraform -chdir="$workdir" init -backend=false -input=false
-            terraform -chdir="$workdir" destroy -auto-approve
+            terraform -chdir="$workdir" destroy -input=false -auto-approve
           else
             echo "Terraform workdir was not created; no GCP resource cleanup is required."
           fi
