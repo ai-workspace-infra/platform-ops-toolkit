@@ -167,10 +167,8 @@ jobs:
     - name: Verify complete-snapshot combined UAT gate
       run: bash .github/scripts/tests/daily_snapshot_uat_gate_contract_test.sh
 
-    - name: Verify complete immutable UAT to PROD tag promotion
-      run: |
-        bash .github/scripts/tests/daily_snapshot_promote_uat_tag_test.sh
-        bash .github/scripts/tests/snapshot_tag_lookup_test.sh
+    - name: Verify immutable snapshot tag routing
+      run: bash .github/scripts/tests/snapshot_tag_lookup_test.sh
 
     - name: Verify independent Shared ZITADEL delivery contract
       run: python3 -m unittest scripts.tests.test_zitadel_server_contract
@@ -185,13 +183,10 @@ jobs:
     - name: Verify serverless then Agent Proxy dispatch ordering
       run: bash .github/scripts/tests/daily_snapshot_combined_dispatch_test.sh
 
-    - name: Verify Daily child-run waits, PROD dispatch and Shared readiness
+    - name: Verify Daily child-run waits and Shared readiness
       run: |
         python3 .github/scripts/tests/hybrid_child_wait_test.py
         bash .github/scripts/tests/daily_snapshot_run_wait_test.sh
-        bash .github/scripts/tests/prod_same_digest_promotion_test.sh
-        bash .github/scripts/tests/prod_accepted_uat_promotion_test.sh
-        bash .github/scripts/tests/daily_snapshot_prod_manifest_test.sh
         bash .github/scripts/tests/shared_readiness_probe_test.sh
 
     - name: Verify opt-in UAT Accounts schema migration is fail-closed

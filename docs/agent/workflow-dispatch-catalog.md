@@ -34,7 +34,7 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
 |---|---|---|
 | `snapshot_tag` | string | 留空 → `daily-build-$(date -u +%Y.%m.%d)` |
 | `snapshot_source_ref` | string | 留空使用 `main`；也可指定明确的 source ref |
-| `deploy_env` | choice：sit / uat / prod | 默认 `uat`；选择 `prod` 也不能绕过 PROD 来源白名单 |
+| `deploy_env` | choice：sit / uat | 默认 `uat`；PROD 不从 Daily Snapshot 入口派发 |
 | `repositories` | string，逗号分隔 | 留空 → 当前 `.github/daily-snapshot-builds.json` 的完整构建清单；指定部分仓库只构建，不触发组合部署 |
 | `enable_migration` | boolean | 默认 `false`；仅显式开启才做 PROD→UAT 数据合并 |
 | `adopt_accounts_baseline` | boolean | 仅 UAT 一次性采纳既有 Accounts 结构，不能与数据迁移或普通增量迁移同开 |
