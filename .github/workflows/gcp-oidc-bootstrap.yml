@@ -46,7 +46,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/gitops
-          ref: c863205
+          # Pin the declaration to the merged GitOps revision so bootstrap is
+          # reproducible and does not depend on a deleted short-lived branch.
+          ref: 2f1d764a98129630cc4afa0fe4985a99ba74ce06
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
