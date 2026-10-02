@@ -72,6 +72,7 @@ required_fields_for() {
 }
 
 required_fields="$(required_fields_for)"
+[[ -n "$required_fields" ]] || { echo "unsupported integration/purpose combination" >&2; exit 2; }
 validate_required_fields() {
   local json_file="$1" field
   local IFS=,

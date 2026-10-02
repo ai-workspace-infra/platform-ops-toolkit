@@ -53,6 +53,9 @@ For the detailed JWT auth, Role/Policy, workflow claim, KV isolation, and troubl
 
 For the minimum GCP bootstrap auth fields and environment-scoped KV paths, see [GCP OIDC Bootstrap Vault KV](docs/howto/gcp-oidc-bootstrap-vault-kv.md).
 
+For the six-provider IAM offline test suite and UAT login/permission acceptance steps,
+see [IAM integration testing](docs/howto/iam-integration-testing.md).
+
 For the post-merge verification matrix covering state keys, Vault isolation, Akamai/Linode,
 S3 lockfile concurrency, and existing providers, see [Unified IaC State Validation](docs/howto/unified-iac-state-validation.md).
 

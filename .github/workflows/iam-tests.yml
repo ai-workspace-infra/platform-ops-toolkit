@@ -1,0 +1,16 @@
+name: IAM bootstrap behavior
+on:
+  pull_request:
+    paths: ['scripts/cloud/bootstrap/**', 'scripts/tests/*identity*', 'scripts/tests/run_iam_tests.sh', '.github/workflows/iam-tests.yml']
+  push:
+    branches: [main]
+    paths: ['scripts/cloud/bootstrap/**', 'scripts/tests/*identity*', 'scripts/tests/run_iam_tests.sh', '.github/workflows/iam-tests.yml']
+permissions:
+  contents: read
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/tests/test_identity_bootstrap.py
+      - run: bash scripts/tests/identity_bootstrap_contract_test.sh
