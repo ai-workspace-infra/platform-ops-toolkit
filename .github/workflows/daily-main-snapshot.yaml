@@ -7,23 +7,22 @@ on:
   workflow_dispatch:
     inputs:
       snapshot_tag:
-        description: "要发布的 tag：SIT/UAT 填 daily-build-* 或 uat-daily-build-*；Prod 可留空，填写时必须等于由已验收 UAT tag 推出的 v*。"
+        description: "要发布的 tag：SIT/UAT 填 daily-build-* 或 uat-daily-build-*；PROD 使用受保护的 v* / release/v* 发布流程。"
         required: false
         type: string
       snapshot_source_ref:
-        description: "引用的 tag/ref：SIT/UAT 留空才使用 main；Prod 可留空，填写时必须等于 uat_daily_run_id 验收的 daily-build-* tag。"
+        description: "引用的 tag/ref：SIT/UAT 留空才使用 main；PROD 使用受保护的 v* / release/v* 发布流程。"
         required: false
         default: ''
         type: string
       deploy_env:
-        description: "目标环境：sit、uat，或 prod（仅晋级 uat_daily_run_id 已验收的 UAT 制品，不从源码重建）。"
+        description: "目标环境：sit 或 uat；PROD 由受保护的 v* / release/v* 发布流程负责。"
         required: true
         default: uat
         type: choice
         options:
           - sit
           - uat
-          - prod
       repositories:
         description: "可选：精确仓库列表，逗号分隔，例如 ai-workspace-services/accounts"
         required: false
@@ -95,17 +94,6 @@ on:
         required: false
         default: '20'
         type: string
-      promote_prod_after_uat:
-        description: "仅 UAT：UAT Hybrid 成功并通过 production approval 后，将 UAT tag 晋级为 v* 并发布 PROD 混合部署"
-        required: false
-        default: false
-        type: boolean
-      uat_daily_run_id:
-        description: "仅 Prod：UAT Hybrid 已成功的 Daily run ID；只晋级该 run 验收的同一 digest，需 production approval"
-        required: false
-        default: ''
-        type: string
-
 permissions:
   contents: write
   actions: write
@@ -118,9 +106,6 @@ concurrency:
 jobs:
   resolve-snapshot-tag:
     name: Resolve immutable snapshot tag
-    # PROD promotes an accepted UAT run (resolve-accepted-uat); it never tags
-    # or builds from source, so the snapshot jobs do not run for it.
-    if: ${{ (inputs.deploy_env || 'uat') != 'prod' }}
     runs-on: ubuntu-latest
     outputs:
       snapshot_tag: ${{ steps.resolve.outputs.snapshot_tag }}
@@ -234,7 +219,6 @@ jobs:
         with:
           url: https://vault.svc.plus
           method: jwt
-          # PROD skips this job; its v* tags are created only by promote-prod.
           role: ${{ format('github-actions-platform-ops-toolkit-{0}', inputs.deploy_env || 'uat') }}
           jwtGithubAudience: vault
           secrets: |
@@ -309,13 +293,6 @@ jobs:
     name: Summarize daily snapshot status
     needs: [resolve-snapshot-tag, snapshot]
     if: ${{ always() && needs.resolve-snapshot-tag.result == 'success' && needs.snapshot.result != 'skipped' }}
-    # UAT-to-PROD promotion is a separate job (promote-prod) so the production
-    # approval is requested after the UAT Hybrid deployment has succeeded, not
-    # before it starts.
-    outputs:
-      uat_snapshot_tag: ${{ steps.resolve_snapshot_tag.outputs.snapshot_tag }}
-      # `skipped` must never be mistaken for a verified UAT deployment.
-      uat_hybrid_outcome: ${{ steps.dispatch_uat_hybrid.outcome }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -393,18 +370,6 @@ jobs:
           ACCOUNTS_SCHEMA_EXPECTED_VERSION: ${{ inputs.accounts_schema_expected_version }}
           ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
           ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}
-          UAT_PROMOTION_MANIFEST_FILE: ${{ runner.temp }}/uat-promotion-manifest.json
-
-      # The images this successful UAT accepted, verified against the Hybrid
-      # run's verdict. promote-prod forwards only this manifest to PROD.
-      - name: Upload the verified UAT promotion manifest
-        if: ${{ steps.dispatch_uat_hybrid.outcome == 'success' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: uat-promotion-manifest
-          path: ${{ runner.temp }}/uat-promotion-manifest.json
-          if-no-files-found: error
-
       - name: Publish unified snapshot matrix summary
         # Also on failure: the per-repository matrix is the evidence needed to
         # diagnose a failed readiness gate or UAT dispatch.
@@ -422,145 +387,3 @@ jobs:
           name: daily-snapshot-summary-${{ inputs.deploy_env || 'uat' }}
           path: ${{ runner.temp }}/daily-snapshot-summary.json
           if-no-files-found: warn
-
-  resolve-accepted-uat:
-    name: Verify the accepted UAT run for PROD promotion
-    # deploy_env=prod promotes what an earlier Daily run accepted in UAT, so a
-    # failed promotion can be retried on current main without another UAT.
-    # Read-only and before the production approval: no credentials, tags or
-    # deployments.
-    if: ${{ (inputs.deploy_env || 'uat') == 'prod' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      actions: read
-    outputs:
-      uat_snapshot_tag: ${{ steps.accepted.outputs.uat_snapshot_tag }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Verify the accepted UAT Daily run and its promotion manifest
-        id: accepted
-        run: ./.github/scripts/snapshots/resolve-accepted-uat-promotion.sh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_REPOSITORY: ${{ github.repository }}
-          UAT_DAILY_RUN_ID: ${{ inputs.uat_daily_run_id }}
-          SNAPSHOT_SOURCE_REF: ${{ inputs.snapshot_source_ref }}
-          SNAPSHOT_TAG: ${{ inputs.snapshot_tag }}
-          SNAPSHOT_REPOS: ${{ inputs.repositories }}
-          ENABLE_MIGRATION: ${{ inputs.enable_migration || false }}
-          APPLY_ACCOUNTS_SCHEMA_MIGRATION: ${{ inputs.apply_accounts_schema_migration || false }}
-          ADOPT_ACCOUNTS_BASELINE: ${{ inputs.adopt_accounts_baseline || false }}
-          XCONNECT_ONE_RELEASE_TAG: ${{ inputs.xconnect_one_release_tag }}
-          XCONNECT_GATEWAY_RELEASE_TAG: ${{ inputs.xconnect_gateway_release_tag }}
-          MANIFEST_OUTPUT: ${{ runner.temp }}/uat-promotion-manifest.json
-
-      # promote-prod reads the manifest from this run in both paths.
-      - name: Upload the verified UAT promotion manifest
-        uses: actions/upload-artifact@v7
-        with:
-          name: uat-promotion-manifest
-          path: ${{ runner.temp }}/uat-promotion-manifest.json
-          if-no-files-found: error
-
-  promote-prod:
-    name: Promote verified UAT snapshot to PROD
-    needs: [snapshot, snapshot-summary, resolve-accepted-uat]
-    # Requested only after a UAT Hybrid deployment succeeded: either in this
-    # run (uat + promote_prod_after_uat) or in the earlier Daily run that
-    # resolve-accepted-uat verified (prod). A skipped or failed UAT dispatch
-    # never reaches the production approval. Scheduled runs never promote.
-    if: ${{ !cancelled() && (inputs.repositories || '') == '' && (((inputs.deploy_env || 'uat') == 'uat' && inputs.promote_prod_after_uat && needs.snapshot.result == 'success' && needs.snapshot-summary.result == 'success' && needs.snapshot-summary.outputs.uat_hybrid_outcome == 'success') || ((inputs.deploy_env || 'uat') == 'prod' && needs.resolve-accepted-uat.result == 'success')) }}
-    environment: production
-    # Two entry points can now reach PROD; never run two promotions at once.
-    concurrency:
-      group: daily-main-snapshot-promote-prod
-      cancel-in-progress: false
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      # The approval can arrive long after the UAT run; do not deploy to PROD
-      # on a stale readiness result.
-      - name: Re-check Shared platform readiness before PROD (read-only)
-        run: ./.github/scripts/snapshots/check-shared-readiness.sh
-        env:
-          SHARED_VAULT_ENDPOINT: ${{ inputs.shared_vault_endpoint || 'https://vault.svc.plus' }}
-          SHARED_OBSERVABILITY_ENDPOINT: ${{ inputs.shared_observability_endpoint || 'https://observability.svc.plus' }}
-          SHARED_IAM_ENDPOINT: ${{ inputs.shared_iam_endpoint || 'https://iam.svc.plus' }}
-          SHARED_IAM_ISSUER: ${{ inputs.shared_iam_issuer || 'https://iam.svc.plus' }}
-          SHARED_READINESS_TIMEOUT_SECONDS: ${{ inputs.shared_readiness_timeout_seconds || '20' }}
-
-      - name: Load GitHub App private key for UAT-to-PROD promotion
-        id: promote_vault
-        uses: hashicorp/vault-action@v4
-        with:
-          url: https://vault.svc.plus
-          method: jwt
-          role: github-actions-platform-ops-toolkit-prod-release
-          jwtGithubAudience: vault
-          secrets: |
-            kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
-
-      - name: Create GitHub App token for UAT-to-PROD promotion (infra)
-        id: promote_infra_token
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: Iv23liNwStpQIiXajhpb
-          private-key: ${{ steps.promote_vault.outputs.APP_PRIVATE_KEY }}
-          owner: ai-workspace-infra
-          permission-contents: write
-          permission-actions: write
-
-      - name: Create GitHub App token for UAT-to-PROD promotion (services)
-        id: promote_services_token
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: Iv23liNwStpQIiXajhpb
-          private-key: ${{ steps.promote_vault.outputs.APP_PRIVATE_KEY }}
-          owner: ai-workspace-services
-          repositories: |
-            accounts
-            billing-service
-            content-service
-            portal
-            edge-gateway
-            frontend-router
-            postgresql.svc.plus
-          permission-contents: write
-
-      - name: Promote verified UAT tag to PROD release tag
-        id: promote_release
-        run: ./.github/scripts/snapshots/promote-uat-snapshot-tag.sh
-        env:
-          UAT_TAG: ${{ (inputs.deploy_env || 'uat') == 'prod' && needs.resolve-accepted-uat.outputs.uat_snapshot_tag || needs.snapshot-summary.outputs.uat_snapshot_tag }}
-          BUILD_CONFIG: ${{ github.workspace }}/.github/daily-snapshot-builds.json
-          CONTROL_PLANE_SHA: ${{ github.sha }}
-          GH_TOKEN_INFRA: ${{ steps.promote_infra_token.outputs.token }}
-          GH_TOKEN_SERVICES: ${{ steps.promote_services_token.outputs.token }}
-
-      - name: Download the verified UAT promotion manifest
-        uses: actions/download-artifact@v8
-        with:
-          name: uat-promotion-manifest
-          path: ${{ runner.temp }}/uat-promotion
-
-      - name: Dispatch promoted PROD serverless and selfhost deployment
-        run: ./.github/scripts/snapshots/dispatch-prod-combined.sh
-        env:
-          PROMOTION_MANIFEST_FILE: ${{ runner.temp }}/uat-promotion/uat-promotion-manifest.json
-          UAT_SNAPSHOT_TAG: ${{ (inputs.deploy_env || 'uat') == 'prod' && needs.resolve-accepted-uat.outputs.uat_snapshot_tag || needs.snapshot-summary.outputs.uat_snapshot_tag }}
-          GH_TOKEN: ${{ steps.promote_infra_token.outputs.token }}
-          # Keep cross-repository dispatch authorization separate from the
-          # current-run token used to download and verify the accepted UAT
-          # artifact manifest.
-          ARTIFACT_GH_TOKEN: ${{ github.token }}
-          # Child run status is read with the job token, which outlives the
-          # 60-minute GitHub App token used to dispatch (wait-for-workflow-run.sh).
-          RUN_STATUS_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.promote_release.outputs.release_tag }}
-          SKIP_STRIPE_CATALOG: ${{ inputs.skip_stripe_catalog || false }}
-          ENABLE_MIGRATION: false

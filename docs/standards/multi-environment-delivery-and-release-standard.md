@@ -13,7 +13,7 @@ When triggered, `selfhost-orchestrator.yml` automatically routes selfhost infras
 | `refs/heads/main` or `refs/heads/release/*` except `refs/heads/release/v*` | `uat` | `uat/web-saas-uat.yaml` | `uat/vultr-vps/platform-ops-toolkit/web-saas.tfstate` |
 | `refs/heads/release/v*` push | `prod` | `prod/web-saas-prod.yaml` | `prod/vultr-vps/platform-ops-toolkit/web-saas.tfstate` |
 | `refs/tags/v*` push | `prod` | `prod/web-saas-prod.yaml` | `prod/vultr-vps/platform-ops-toolkit/web-saas.tfstate` |
-| `workflow_dispatch` | User selected; Daily Main Snapshot may author a `v*` release from `main` only when its source is a verified immutable tag | `[env]/web-saas-[env].yaml` | Environment specific |
+| `workflow_dispatch` | User selected; PROD still requires a protected `v*` / `release/v*` source ref | `[env]/web-saas-[env].yaml` | Environment specific |
 
 State keys MUST follow `<env>/<cloud>/<project>/<resource-set>.tfstate`.
 The Terraform workspace uses the same dimensions as `<env>-<cloud>-<project>-<resource-set>`.
@@ -36,24 +36,15 @@ selector; an existing tag is never moved or overwritten.
 | `sit-*` tag | SIT snapshot | Low-frequency test snapshot; used only when SIT validation is explicitly requested |
 
 The shared tagging script must receive the intended tag explicitly. Stable
-release publication and daily snapshot publication differ by the tag value and
-the selected environment, not by a second tag-creation implementation. A
-Daily Main Snapshot has one deliberately narrow production path, the
-approval-gated `promote-prod` job: it re-tags the commits of a UAT tag whose UAT Hybrid
-run succeeded as the matching `v*` release tag and promotes the image digests
-that run accepted. It is reached either from the same UAT run
-(`promote_prod_after_uat`) or with `deploy_env=prod` and the `uat_daily_run_id`
-of an earlier accepted Daily run; PROD is never tagged or built from source.
-`main` is only the control-plane ref for that action; it is never the
-production artifact source. This path uses the dedicated
-`github-actions-platform-ops-toolkit-prod-release` Vault role, pinned to this
-workflow and `refs/heads/main`; it does not widen the general production role.
+release publication and daily snapshot publication are separate routes: Daily
+creates only `daily-build-*` / `uat-daily-build-*` snapshots for SIT/UAT, while
+PROD is entered only from a protected `v*` tag or `release/v*` branch. Daily
+does not create release tags, dispatch PROD, or request production approval.
 
 Production deployment is fail-closed to exactly two artifact refs:
-`refs/tags/v*` and `refs/heads/release/v*`. Apart from the dedicated release
-authoring path above, `main`, other `release/*` branches, and all daily
-snapshot tags are not production sources. The selected verified source tag and
-the resulting release tag must be recorded in deployment evidence.
+`refs/tags/v*` and `refs/heads/release/v*`. `main`, other `release/*` branches,
+and all daily snapshot tags are not production sources. The selected verified
+source tag must be recorded in deployment evidence.
 
 ### 1.2 PROD public DNS cutover boundary
 

@@ -4,10 +4,10 @@
 
 `Daily Main Snapshot` 仅使用 GitHub App 认证。workflow 通过 GitHub OIDC 登录 Vault，读取 App 私钥并按目标组织生成 installation token。
 
-PROD 只晋级 UAT Hybrid 已验收的同一批镜像 digest，从不由源码重建：要么在同一次
-UAT run 中勾选 `promote_prod_after_uat`，要么用 `deploy_env=prod` 加 `uat_daily_run_id`
-晋级一次较早的、已验收的 Daily run（见下文）。详见
-[多环境交付与发布规范](standards/multi-environment-delivery-and-release-standard.md)。
+Daily 只负责 SIT/UAT 快照构建、Shared 只读就绪检查和 UAT Hybrid 发布，不负责
+PROD 晋级，也不请求 production approval。PROD 只能由受保护的 `v*` tag 或
+`release/v*` 分支发布流程触发；这条边界由各发布 workflow 的 ref 路由和 Vault role
+共同约束。详见[多环境交付与发布规范](standards/multi-environment-delivery-and-release-standard.md)。
 
 ## 前置配置
 
@@ -29,12 +29,12 @@ GitHub App `daily-snapshot-tag`（App ID `4405545`）需要安装到四个目标
 
 - `Contents: Read and write`
 - `Actions: Read and write`
-- `Workflows: Read and write`（生产 `v*` tag 会触发目标仓库 CI）
+- `Workflows: Read and write`（快照 tag 会触发目标仓库 CI）
 
-生产快照在写入第一个 tag 前会使用 installation token 预检全部目标仓库。
-如果预检通过但创建 `refs/tags/v*` 仍返回 403，应检查目标组织中该 App 对仓库的
-实际安装范围，以及组织级 tag ruleset 是否允许 `daily-snapshot-tag` 绕过；不要通过
-手工删除或移动已有 tag 来重试，因为快照 tag 是不可变的。
+快照在写入第一个 tag 前会使用 installation token 预检全部目标仓库。
+如果预检返回 403，应检查目标组织中该 App 对仓库的实际安装范围；不要通过手工
+删除或移动已有 tag 来重试，因为快照 tag 是不可变的。PROD 的 `v*` tag 不由 Daily
+创建。
 
 ## 执行步骤
 
@@ -48,7 +48,7 @@ workflow 会从各仓库当时的 `main` SHA 创建不可变的
 `daily-build-YYYY.MM.DD` tag，并继续执行目标仓库的构建触发流程。
 构建等待会同时按 tag 名和 SHA 匹配，避免误用同名历史运行。
 
-汇总 Job 会把本次运行的环境（`sit`、`uat` 或 `prod`）写入每条矩阵记录，
+汇总 Job 会把本次运行的环境（`sit` 或 `uat`）写入每条矩阵记录，
 并上传 `daily-snapshot-summary-<environment>` artifact。环境总览或其他只读同步器
 应读取该 artifact 的 `daily-snapshot-summary.json`，按 `environment`、组织和仓库
 展示状态；不要把 UAT 和 PROD 的同名 tag 或构建结果合并成一条资源记录。
@@ -67,43 +67,7 @@ observed state。只有声明而没有观察记录的资源必须显示为 `decl
 
 Hybrid 没有对应输入，因此 **`enable_migration`、`apply_accounts_schema_migration`、`adopt_accounts_baseline`、`xconnect_one_release_tag`、`xconnect_gateway_release_tag` 在 UAT 下会在派发前直接失败**，而不是被静默忽略后仍显示成功。需要这些操作时，直接执行 `serverless-orchestrator.yml`（例如 `deploy+migrate`）或对应的 XConnect 工作流。Hybrid 固定以 `skip_stripe_catalog=true` 派发子流水线，Daily 的该开关对 UAT Hybrid 不生效。
 
-部分仓库筛选、SIT 或 PROD 快照不会自动触发 UAT；这避免不完整制品集进入 UAT。
-
-### UAT 成功后晋级 PROD（可选）
-
-跨仓 tag 写入不是原子事务：全量预检失败时不会写入；写入途中 API 失败时立即停止，
-不派发 PROD。保留已创建的不可变 tag，重跑时校验这些 tag 并补齐缺失项，不移动或删除 tag。
-
-部署本次代码前，由授权管理员更新 `github-actions-platform-ops-toolkit-prod-release`
-的托管 role/policy（`scripts/create_vault_service_repo_roles.sh --apply --role
-github-actions-platform-ops-toolkit-prod-release`）。该 role 精确绑定 Daily 的 protected
-main，只读取 GitHub App 专用 KV，不再继承可写业务秘密的通用 PROD policy。
-提交代码不会自动修改 Vault。晋级 Environment 的审批人员仍需在 GitHub 设置中配置。
-
-仅在 `deploy_env=uat`、未筛选仓库且勾选 `promote_prod_after_uat` 时，才会出现独立的 `promote-prod` job（定时任务不会晋级）：
-
-1. 只有 UAT Hybrid 步骤的结果为 `success`（`skipped` 不算）后，才请求 `production` Environment 审批——审批人看到的是已完成的 UAT 结果；
-2. 审批通过后再次只读检查 Shared 就绪（审批可能晚于 UAT 数小时）；
-3. 使用 `github-actions-platform-ops-toolkit-prod-release` 角色，把 UAT 部署过的同一个快照 tag 重新标记为 `v*`。规范组织 `ai-workspace-services` 的**全部**清单仓库（含 `portal`、`frontend-router`）与控制面仓库都会打 tag：全部 UAT tag 与已有 release tag 校验通过后才创建，已存在且指向别处的 tag 永不移动；
-4. dispatch `dispatch-prod-combined.sh`（当前直接派发 Serverless 与 AWS / Akamai Selfhost，尚未经过 PROD Hybrid）。
-
-### 晋级已验收的历史 UAT run（`deploy_env=prod`）
-
-`promote-prod` 失败后重跑该 job 会沿用原 run 的提交，合并后的修复不会生效；完整重跑
-UAT 又约需 1 小时。此时从 `main` 启动 workflow，`deploy_env=prod`，`uat_daily_run_id`
-填写 UAT 已成功的那次 Daily run ID（run 整体可因 `promote-prod` 失败而为 failure）：
-
-1. `resolve-accepted-uat` 在审批前、不读取任何凭据地只读验证：该 run 是本仓 `main` 上
-   已结束的 Daily（schedule 或 workflow_dispatch）；最新 attempt 中 `Summarize daily
-   snapshot status` 的 `Dispatch UAT Hybrid Orchestrator` 与 `Upload the verified UAT
-   promotion manifest` 均为 `success`；从该 run 下载 `uat-promotion-manifest`（不由调用方
-   提供），并对照 UAT Hybrid run 自身的 `uat-artifact-manifest` 与成功结论复核。
-2. 通过后进入同一个 `promote-prod` job（`production` 审批、Shared 复检、同一 Vault 角色），
-   release tag 由 UAT tag 推出（`daily-build-2026.10.01-r7` → `v2026.10.01-r7`）。
-3. 不打 daily tag、不构建、不触发 XConnect release；`snapshot_source_ref` 与
-   `snapshot_tag` 可留空，填写时必须分别等于已验收的 UAT tag 与推出的 `v*` tag。
-   `repositories`、迁移、schema、基线与 XConnect tag 等 UAT 专用输入一律拒绝。
-4. 两个入口共用 job 级 concurrency，不会并行执行两次 PROD 晋级。
+部分仓库筛选或 SIT 快照不会自动触发 UAT；这避免不完整制品集进入 UAT。
 
 UAT 的后续 Agent Proxy 部署由 `selfhost-orchestrator.yml` 路由到 Akamai Cloud
 JP/US/SG，并把 Ulighthost existing TW 作为独立 non-IaC leg。PROD 则拆成两条
@@ -120,12 +84,11 @@ SIT 验证。Daily Snapshot 不能把 `v*` 作为 `snapshot_tag`；否则服务 
 路由组合约定：
 
 - `main + uat`：常规交付默认路径。
-- `main + prod`：晋级 `uat_daily_run_id` 已验收的 UAT 制品，不从源码打 tag 或构建。
 - `main + sit`：低频手动验证，基本不参与日常调度。
 - `daily-build-*`：每日自动构建入口。
 - `uat-daily-build-*`：允许的 UAT 构建、重试与验证入口。
 - `release/*`（不含 `release/v*`）：UAT 路径，不得进入 PROD。
-- `vYYYY.MM.DD[-rN]`：PROD 稳定发布 tag，只由 `promote-prod` 从已验收的 `daily-build-*` / `uat-daily-build-*` tag 推出并创建在相同提交上；已存在且指向别处时拒绝，不移动、覆盖或删除。
+- `vYYYY.MM.DD[-rN]`：PROD 稳定发布 tag，由受保护的正式发布流程创建；已存在且指向别处时拒绝，不移动、覆盖或删除。
 
 `main` 只能作为 workflow 的控制面入口，不能作为 PROD 制品来源；PROD 制品是 UAT
 验收清单中的镜像 digest。不要手工预建 `v*` tag。
