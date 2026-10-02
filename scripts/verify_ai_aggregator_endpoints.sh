@@ -8,13 +8,6 @@ data = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
 print(data["spec"]["entrypoint"]["domain"])
 PY
 )"
-direct_domain="$(python3 - "$manifest" <<'PY'
-import sys, yaml
-data = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
-print(data["spec"]["entrypoint"]["direct_api_domain"])
-PY
-)"
-
 request_status() {
   local url="$1"
   shift
@@ -25,7 +18,7 @@ request_status() {
 # putting a client token in the repository or in CI arguments. The optional
 # token is supplied by the protected runner environment for a real smoke test.
 main_status="$(request_status "https://${domain}/v1/models")"
-direct_status="$(request_status "https://${direct_domain}/v1/models")"
+direct_status="$(request_status "https://${domain}/litellm/v1/models")"
 [[ "$main_status" == 401 || "$main_status" == 403 ]] || {
   echo "New API accepted an unauthenticated request: ${main_status}" >&2; exit 1;
 }
@@ -41,4 +34,4 @@ if [[ -n "${AI_AGGREGATOR_CLIENT_TOKEN:-}" ]]; then
   [[ "$direct_auth_status" =~ ^2[0-9][0-9]$ ]] || { echo "LiteLLM token smoke test failed: ${direct_auth_status}" >&2; exit 1; }
 fi
 
-echo "gateway authentication checks passed for ${domain} and ${direct_domain}"
+echo "gateway authentication checks passed for ${domain} (/v1 and /litellm/v1)"
