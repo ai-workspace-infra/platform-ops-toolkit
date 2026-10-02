@@ -521,7 +521,9 @@ jobs:
           import_if_absent 'module.network.google_compute_address.nat[0]' \
             "projects/$GCP_PROJECT_ID/regions/$region/addresses/$nat_ip_name"
           import_if_absent 'module.network.google_compute_router_nat.this[0]' \
-            "projects/$GCP_PROJECT_ID/regions/$region/routers/$router_name/nats/$nat_name"
+            "projects/$GCP_PROJECT_ID/regions/$region/routers/$router_name/$nat_name"
+          import_if_absent google_compute_firewall.spot_ssh \
+            "projects/$GCP_PROJECT_ID/global/firewalls/${network_name}-spot-ssh"
           terraform -chdir="$workdir" validate
           terraform -chdir="$workdir" apply -input=false -auto-approve
           python3 iac_modules/terraform-hcl-standard/gcp-cloud/scripts/generate.py inventory \
