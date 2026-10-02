@@ -3,6 +3,9 @@ name: AI Aggregator v1
 on:
   push:
     branches: [main]
+    # Ref policy: main and uat-* may auto-run the UAT provider job;
+    # prod-* and v* are release refs and require an explicit prod dispatch.
+    tags: [uat-*, prod-*, v*]
     paths:
       - '.github/workflows/ai-aggregator-v1.yml'
       - 'scripts/ci/**'
@@ -107,6 +110,8 @@ jobs:
       profile: ${{ steps.provider.outputs.profile }}
       manifest_path: ${{ steps.provider.outputs.manifest_path }}
       akamai_matrix: ${{ steps.provider.outputs.akamai_matrix }}
+      deployment_environment: ${{ steps.provider.outputs.deployment_environment }}
+      ref_scope: ${{ steps.provider.outputs.ref_scope }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -117,8 +122,10 @@ jobs:
         id: provider
         env:
           REQUESTED_PROVIDER: ${{ inputs.provider || 'manifest' }}
-          TARGET_ENVIRONMENT: ${{ inputs.environment || 'uat' }}
+          REQUESTED_ENVIRONMENT: ${{ inputs.environment || '' }}
           DEPLOYMENT_PROFILE: ${{ inputs.deployment_profile || 'distributed' }}
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -127,7 +134,31 @@ jobs:
           from pathlib import Path
           import yaml
 
-          environment = os.environ['TARGET_ENVIRONMENT']
+          requested_environment = os.environ['REQUESTED_ENVIRONMENT']
+          event_name = os.environ['EVENT_NAME']
+          workflow_ref = os.environ['WORKFLOW_REF']
+          if event_name == 'workflow_dispatch':
+              environment = requested_environment
+              ref_scope = 'manual'
+          elif event_name == 'push' and workflow_ref == 'refs/heads/main':
+              environment = 'uat'
+              ref_scope = 'uat-main'
+          elif event_name == 'push' and workflow_ref.startswith('refs/tags/uat-'):
+              environment = 'uat'
+              ref_scope = 'uat-tag'
+          elif event_name == 'push' and (
+              workflow_ref.startswith('refs/tags/prod-')
+              or workflow_ref.startswith('refs/tags/v')
+          ):
+              environment = 'prod'
+              ref_scope = 'prod-tag'
+          else:
+              raise SystemExit(
+                  'unsupported deployment ref; use workflow_dispatch, main, '
+                  'uat-* tag, prod-* tag, or v* tag'
+              )
+          if environment not in {'uat', 'prod'}:
+              raise SystemExit(f'unsupported deployment environment: {environment}')
           profile = os.environ['DEPLOYMENT_PROFILE']
           manifests = {
               ('uat', 'distributed'): Path('gitops/topology/uat/selfhost/ai-aggregator.yaml'),
@@ -159,12 +190,17 @@ jobs:
           if adapter == 'akamai-cloud' and not akamai_matrix['include']:
               raise SystemExit('Akamai provider requires resource_contract.manifests')
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
-              output.write(f'provider={adapter}\nenvironment={environment}\nprofile={profile}\n')
+              output.write(
+                  f'provider={adapter}\nenvironment={environment}\n'
+                  f'profile={profile}\n'
+                  f'deployment_environment={environment}\n'
+                  f'ref_scope={ref_scope}\n'
+              )
               output.write(f'manifest_path={manifest_path}\n')
               output.write('akamai_matrix<<AI_AGGREGATOR_MATRIX\n')
               output.write(json.dumps(akamai_matrix, separators=(',', ':')) + '\n')
               output.write('AI_AGGREGATOR_MATRIX\n')
-          print(f'provider={adapter} environment={environment}')
+          print(f'provider={adapter} environment={environment} ref_scope={ref_scope}')
   plan:
     needs: [validate, resolve-provider]
     if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -201,8 +237,9 @@ jobs:
     needs: [validate, resolve-provider]
     if: >-
       ${{ needs.resolve-provider.outputs.provider == 'aws' &&
-      ((github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AI_AGGREGATOR_UAT_ENABLED == 'true') ||
-      (github.event_name == 'workflow_dispatch' && inputs.environment == 'uat' &&
+      needs.resolve-provider.outputs.deployment_environment == 'uat' &&
+      ((github.event_name == 'push' && vars.AI_AGGREGATOR_UAT_ENABLED == 'true') ||
+      (github.event_name == 'workflow_dispatch' &&
       contains(fromJSON('["apply","provision","stage","activate"]'), inputs.operation))) }}
     runs-on: ubuntu-latest
     # Do not attach the GitHub Environment here. Its OIDC subject becomes
@@ -338,8 +375,9 @@ jobs:
     needs: [validate, resolve-provider]
     if: >-
       ${{ needs.resolve-provider.outputs.provider == 'gcp' &&
-      ((github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AI_AGGREGATOR_UAT_ENABLED == 'true') ||
-      (github.event_name == 'workflow_dispatch' && inputs.environment == 'uat' &&
+      needs.resolve-provider.outputs.deployment_environment == 'uat' &&
+      ((github.event_name == 'push' && vars.AI_AGGREGATOR_UAT_ENABLED == 'true') ||
+      (github.event_name == 'workflow_dispatch' &&
       contains(fromJSON('["apply","provision","stage","activate"]'), inputs.operation))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
@@ -484,8 +522,9 @@ jobs:
     needs: [validate, resolve-provider]
     if: >-
       ${{ needs.resolve-provider.outputs.provider == 'vps' &&
-      ((github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AI_AGGREGATOR_UAT_ENABLED == 'true') ||
-      (github.event_name == 'workflow_dispatch' && inputs.environment == 'uat' &&
+      needs.resolve-provider.outputs.deployment_environment == 'uat' &&
+      ((github.event_name == 'push' && vars.AI_AGGREGATOR_UAT_ENABLED == 'true') ||
+      (github.event_name == 'workflow_dispatch' &&
       contains(fromJSON('["apply","provision","stage","activate"]'), inputs.operation))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
@@ -598,7 +637,8 @@ jobs:
     needs: [validate, resolve-provider]
     if: >-
       ${{ needs.resolve-provider.outputs.provider == 'akamai-cloud' &&
-      github.event_name == 'workflow_dispatch' && inputs.environment == 'uat' &&
+      needs.resolve-provider.outputs.deployment_environment == 'uat' &&
+      github.event_name == 'workflow_dispatch' &&
       contains(fromJSON('["apply","provision","stage","activate"]'), inputs.operation) }}
     runs-on: ubuntu-latest
     environment: uat
@@ -743,7 +783,8 @@ jobs:
   prod-deploy:
     needs: [validate, resolve-provider]
     if: >-
-      ${{ github.event_name == 'workflow_dispatch' && inputs.environment == 'prod' &&
+      ${{ github.event_name == 'workflow_dispatch' &&
+      needs.resolve-provider.outputs.deployment_environment == 'prod' &&
       (inputs.operation == 'stage' || inputs.operation == 'activate') }}
     runs-on: ubuntu-latest
     environment: production
