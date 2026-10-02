@@ -1,6 +1,6 @@
-# AI Workspace UAT：GCP Spot 独立实例
+# AI Workspace UAT：Existing Selfhost 默认路径
 
-UAT Hybrid 的 `ai-workspace` 由 GitOps `topology/uat/hybrid/resource-matrix.json` 路由到 GCP Terraform。实例规格、区域、项目、网络、SSH 来源 CIDR、网络标签和 Ansible 分组来自 `resources/svc.plus/uat/gcp/ai-workspace.yaml`，不是 Toolkit 工作流中的固定常量。旧私网主机 `10.79.0.7` 不参与本次部署，也不导入新 state。
+UAT Hybrid 的 `ai-workspace` 默认由 GitOps `topology/uat/hybrid/resource-matrix.json` 路由到 Existing Selfhost。日常 UAT/PROD 发布不主动创建 AI Workspace 云主机，也不把现有主机导入新 Terraform state；现有 provider 资源声明保留，仅供显式、单独审批的 IaC 创建流程使用。
 
 ## 创建前门禁
 
@@ -11,6 +11,8 @@ UAT Hybrid 的 `ai-workspace` 由 GitOps `topology/uat/hybrid/resource-matrix.js
 
 ## 验证
 
-在 `main` 上以 `target_domains=ai-workspace`、`cloud_provider=gcp-cloud`、`cloud_account=xworktech`、`vault_env_path=uat`、`target_domain_base=onwalk.net` 运行 Selfhost Orchestrator 的 `operation=plan`。确认计划只涉及独立 Spot VM、其网络及入站 SSH 规则，且不会修改或删除其他 namespace。
+日常发布使用 `target_domains=all`，由 Hybrid 消费 existing-selfhost 声明；AI Workspace 只执行已有主机上的 Playbook、监控和健康检查。
 
-审批计划后用相同参数运行 `operation=infra`；确认 CMDB 中该 VM 的公网地址和 `ai_workspace` 分组，再运行 `operation=deploy` 执行 Playbook 与监控探针。Spot 可能被 GCP 抢占并停止；不要将本地盘作为 QMD 等唯一持久数据来源。所有 destroy 均需单独审批，不能因 Spot 类型而默认触发。
+如果确实需要创建新的 Spot VM，必须在 GCP UAT workload sequence 中显式设置 `provision_ai_workspace=true`，再单独执行 plan、审批和 apply。
+
+不得因为 GitOps 中仍保留 provider 资源声明就自动创建或 destroy VM；任何显式创建仍需确认 CMDB、生命周期和回滚范围。

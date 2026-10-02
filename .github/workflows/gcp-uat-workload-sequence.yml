@@ -24,6 +24,11 @@ on:
         type: string
         required: true
         default: 7d379d08c30fa89856b999f12b1fb5167773bdcb
+      provision_ai_workspace:
+        description: Explicitly create the AI Workspace VM; default false because UAT/PROD use an existing host.
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -58,6 +63,7 @@ jobs:
   ai-workspace:
     name: ai-workspace
     needs: web-saas
+    if: ${{ inputs.provision_ai_workspace == true }}
     uses: ./.github/workflows/gcp-iac-pipeline.yml
     with:
       deploy_action: ${{ inputs.deploy_action }}
@@ -70,7 +76,8 @@ jobs:
 
   agent-proxy-jp:
     name: agent-proxy-jp
-    needs: ai-workspace
+    needs: [web-saas, ai-workspace]
+    if: ${{ always() && needs.web-saas.result == 'success' && (inputs.provision_ai_workspace == false || needs.ai-workspace.result == 'success') }}
     uses: ./.github/workflows/gcp-iac-pipeline.yml
     with:
       deploy_action: ${{ inputs.deploy_action }}
