@@ -1,0 +1,56 @@
+name: Repository Conventions
+
+on:
+  pull_request:
+    paths:
+      - ".github/scripts/**"
+      - ".github/workflows/repository-conventions.yml"
+      - "scripts/ci/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/scripts/**"
+      - ".github/workflows/repository-conventions.yml"
+      - "scripts/ci/**"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify cross-repository ownership contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v4
+
+      - name: Checkout iac_modules main
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: main
+          path: contract/iac_modules
+
+      - name: Checkout playbooks main
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: main
+          path: contract/playbooks
+
+      - name: Checkout gitops main
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: main
+          path: contract/gitops
+
+      - name: Verify repository conventions
+        run: >-
+          python3 scripts/ci/repository-conventions-verify.py
+          --iac-root contract/iac_modules
+          --playbooks-root contract/playbooks
+          --gitops-root contract/gitops
+
+      - name: Verify convention checker failure cases
+        run: bash scripts/ci/tests/repository-conventions-verify-test.sh
