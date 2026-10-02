@@ -54,6 +54,35 @@ case "$purpose" in workforce|workload|application) ;; *) echo "--purpose must be
 command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
 command -v vault >/dev/null 2>&1 || { echo "vault CLI is required" >&2; exit 1; }
 
+required_fields_for() {
+  case "${integration}:${purpose}" in
+    gcp:workforce) echo "issuer,client_id,audience,workforce_pool_provider" ;;
+    gcp:workload) echo "issuer,audience,workload_identity_provider,service_account" ;;
+    aws:workforce) echo "issuer,entity_id,acs_url,saml_metadata_sha256" ;;
+    aws:workload) echo "issuer,audience,oidc_provider_arn,role_arn,subject" ;;
+    linode:workforce) echo "entity_id,acs_url,saml_metadata_sha256" ;;
+    linode:workload) echo "api_credential_ref" ;;
+    vultr:workforce) echo "issuer,client_id,redirect_uri" ;;
+    vultr:workload) echo "api_credential_ref" ;;
+    ucloud-global:workforce) echo "entity_id,acs_url,company_id,nameid_attribute" ;;
+    ucloud-global:workload) echo "api_credential_ref" ;;
+    grafana:application) echo "issuer,client_id,redirect_uri,role_claim" ;;
+    *) echo "" ;;
+  esac
+}
+
+required_fields="$(required_fields_for)"
+validate_required_fields() {
+  local json_file="$1" field
+  local IFS=,
+  for field in $required_fields; do
+    jq -e --arg field "$field" '.[$field] | type == "string" and length > 0' "$json_file" >/dev/null || {
+      echo "missing required identity field: ${field}" >&2
+      return 1
+    }
+  done
+}
+
 if [[ "$action" == apply ]]; then
   [[ -n "$payload_file" && -f "$payload_file" ]] || { echo "--payload-file is required for --apply" >&2; exit 2; }
   payload_mode="$(stat -c '%a' "$payload_file" 2>/dev/null || true)"
@@ -66,6 +95,7 @@ if [[ "$action" == apply ]]; then
     echo "payload file must contain a JSON object" >&2
     exit 2
   }
+  validate_required_fields "$payload_file" || exit 2
 fi
 
 secret_path="iam/${environment}/${integration}/${account}/${purpose}"
@@ -78,7 +108,8 @@ vault token lookup >/dev/null 2>&1 || {
 current_json=""
 current_version=0
 read_error_file="$(mktemp "${TMPDIR:-/tmp}/identity-kv-read.XXXXXX")"
-trap 'rm -f "$read_error_file"' EXIT
+current_fields_file=""
+trap 'rm -f "$read_error_file" "$current_fields_file"' EXIT
 if current_json="$(vault kv get -mount="$vault_mount" -format=json "$secret_path" 2>"$read_error_file")"; then
   current_version="$(jq -er '.data.metadata.version | numbers' <<<"$current_json")"
 else
@@ -95,6 +126,16 @@ else
 fi
 
 if [[ "$action" == check ]]; then
+  current_fields_file="$(mktemp "${TMPDIR:-/tmp}/identity-kv-current.XXXXXX")"
+  chmod 600 "$current_fields_file"
+  jq '.data.data' <<<"$current_json" >"$current_fields_file"
+  validate_required_fields "$current_fields_file" || {
+    rm -f "$current_fields_file"
+    echo "kv/${secret_path}: required fields are missing" >&2
+    exit 1
+  }
+  rm -f "$current_fields_file"
+  current_fields_file=""
   jq -e '.data.data | type == "object" and length > 0' <<<"$current_json" >/dev/null || {
     echo "kv/${secret_path}: empty record" >&2
     exit 1
@@ -106,7 +147,7 @@ fi
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/identity-kv.XXXXXX")"
 chmod 700 "$tmp_dir"
 rm -f "$read_error_file"
-trap 'rm -rf "$tmp_dir"' EXIT
+trap 'rm -rf "$tmp_dir"; rm -f "$read_error_file" "$current_fields_file"' EXIT
 merged_file="$tmp_dir/merged.json"
 jq -s '.[0] + .[1]' \
   <(jq '.data.data' <<<"$current_json") \
