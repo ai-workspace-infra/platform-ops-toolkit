@@ -249,7 +249,7 @@ Daily 控制面可以从 `main` 创建 release，但 PROD 子工作流必须在�
 | GAP-13 | 已修正：UAT→PROD 晋级只给 3 个 `production_promotion` 仓库建 `v*` tag，但 PROD Serverless 以 `v*` checkout `portal` / `frontend-router` | `promote-uat-snapshot-tag.sh` 覆盖规范组织全部清单仓库，先全量校验再创建；由 `daily_snapshot_promote_uat_tag_test.sh` 覆盖 |
 | GAP-14 | 已修正：`production` 审批挂在整个汇总 job，先于 UAT 部署 | 晋级拆为独立 `promote-prod` job，须 UAT Hybrid 步骤 `success`（`skipped` 不算）后才审批，并在派发前重新做只读 Shared readiness |
 | GAP-15 | 已修正：Hybrid 无法承载 `enable_migration`、schema 迁移、基线采纳、XConnect release 覆盖，Daily 校验后静默丢弃 | UAT 派发前明确失败；转发能力需扩展 Hybrid → 子流水线的输入并经真实 UAT 演练验证，尚未实现 |
-| GAP-16 | 契约已实现、PROD 未执行：UAT Serverless 记录每个 Cloud Run 镜像 digest 与源码 commit（`serverless-artifact-manifest`），经 Hybrid（`uat-artifact-manifest`）与 Daily（`uat-promotion-manifest`）校验后转交 PROD；PROD 不再从 `v*` 源码构建，按 digest 复制并核对正在服务的 revision digest；UAT failure/pending、digest 不符、main→prod 均拒绝（`prod_same_digest_promotion_test.sh`） | 首次真实 PROD 晋级前需审批：PROD 部署 SA 读取 UAT `serverless` Artifact Registry 的跨项目只读权限；Daily `deploy_env=prod` 直发路径因无 UAT 清单而被拒绝（符合 TC-10）。Selfhost/Agent Proxy 仍按 tag 部署，PROD Hybrid（GAP-06/07）未完成 |
+| GAP-16 | 契约已实现、PROD 未执行：UAT Serverless 记录每个 Cloud Run 镜像 digest 与源码 commit（`serverless-artifact-manifest`），经 Hybrid（`uat-artifact-manifest`）与 Daily（`uat-promotion-manifest`）校验后转交 PROD；PROD 不再从 `v*` 源码构建，按 digest 复制并核对正在服务的 revision digest；UAT failure/pending、digest 不符、main→prod 均拒绝（`prod_same_digest_promotion_test.sh`） | 首次真实 PROD 晋级前需审批：PROD 部署 SA 读取 UAT `serverless` Artifact Registry 的跨项目只读权限；Daily `deploy_env=prod` 不再打 tag 或从源码构建，只能经 `uat_daily_run_id` 晋级已验收的 UAT run（见 §13.3）。Selfhost/Agent Proxy 仍按 tag 部署，PROD Hybrid（GAP-06/07）未完成 |
 | GAP-17 | 已修正控制面：Daily PROD dispatch 使用 `dns_mode=none`，不再隐式接管 canonical DNS | 单独 DNS 切换工作流、审批和真实回滚演练仍需独立验收；此项不代表 PROD Hybrid 或同 digest 晋级完成 |
 
 ## 9. 小步实施计划与合并顺序
@@ -543,3 +543,25 @@ Daily 的 PROD dispatch 和 PROD Serverless 的独立 preflight 必须共同执�
 `prod_same_digest_promotion_test.sh` 覆盖格式合法的 digest、source SHA、外部 project 替换、
 缺失 artifact，以及绕过 Daily 的直接 Serverless 请求。模拟测试通过不代表 PROD 已发布；
 PROD Hybrid、Selfhost 制品证明、独立 DNS 审批及真实端到端验收仍未完成。
+
+### 13.3 2026-10-02 晋级入口与 UAT AMI 漂移
+
+- 定时 [Daily #36923755060](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/36923755060)
+  在 UAT Hybrid 的 AWS JP 子流程 [Selfhost #36924648401](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/36924648401)
+  失败：Debian “most recent” AMI 查询从 `ami-09ddc97002eeb7efb` 变为 `ami-01c15b64fa74185e3`，
+  plan 要替换 `i-0289f628cb875beaf`（2 add / 2 destroy），UAT apply 守卫正确拒绝。
+  [gitops#369](https://github.com/ai-workspace-infra/gitops/pull/369) 将该主机固定到当前运行镜像，并要求 UAT
+  Hybrid 路由的每台 AWS Terraform 主机都固定 `ami_id`；否则每个新上游镜像都会阻断 UAT 及其后的晋级。
+- 重跑失败的 `promote-prod` job 使用原 run 的提交，修复无法生效；完整重跑 UAT 约需 1 小时。
+  Daily `deploy_env=prod` 改为“晋级已验收的 UAT run”：必须填写 `uat_daily_run_id`，`resolve-accepted-uat`
+  在 production 审批前、无任何凭据地只读验证——该 run 是本仓 `main` 上已结束的 Daily；最新 attempt 中
+  UAT job 的 `Dispatch UAT Hybrid Orchestrator` 与 `Upload the verified UAT promotion manifest` 均 success
+  （run 整体可因 `promote-prod` 失败而为 failure）；`uat-promotion-manifest` 从该 run 下载，不由调用方提供，
+  并由 `verify-accepted-promotion-manifest.sh` 对照 UAT Hybrid run 自身 artifact 复核。UAT 专用输入
+  （`repositories`、迁移、schema、基线、XConnect tag）在 PROD 一律拒绝，不静默丢弃。
+- 旧的 PROD 直发步骤（从源码在四个组织打 `v*` tag、构建、触发 XConnect release 后才因缺清单被拒）
+  已删除；`v*` tag 只由 `promote-prod` 创建。两个入口共用 `promote-prod`（production 审批、Shared
+  readiness 复检、同一 Vault 角色），并以 job 级 concurrency 防止两次 PROD 晋级并行。
+- 证据：`prod_accepted_uat_promotion_test.sh`（接受/拒绝用例及对解析脚本的变异测试）与
+  `daily_snapshot_uat_gate_contract_test.sh` 真值表。仍未执行 PROD：跨项目 AR 只读授权、PROD AWS
+  登录用户、PROD Hybrid（GAP-06/07）与 DNS 切换仍需单独审批。

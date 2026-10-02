@@ -38,11 +38,14 @@ selector; an existing tag is never moved or overwritten.
 The shared tagging script must receive the intended tag explicitly. Stable
 release publication and daily snapshot publication differ by the tag value and
 the selected environment, not by a second tag-creation implementation. A
-Daily Main Snapshot has one deliberately narrow production path: a manual run
-from protected `main` may take a verified immutable `v*`, `daily-build-*`, or
-`uat-daily-build-*` `snapshot_source_ref` and create a new immutable `v*`
-release tag. `main` is only the control-plane ref for that action; it is never
-the production artifact source. This path uses the dedicated
+Daily Main Snapshot has one deliberately narrow production path, the
+approval-gated `promote-prod` job: it re-tags the commits of a UAT tag whose UAT Hybrid
+run succeeded as the matching `v*` release tag and promotes the image digests
+that run accepted. It is reached either from the same UAT run
+(`promote_prod_after_uat`) or with `deploy_env=prod` and the `uat_daily_run_id`
+of an earlier accepted Daily run; PROD is never tagged or built from source.
+`main` is only the control-plane ref for that action; it is never the
+production artifact source. This path uses the dedicated
 `github-actions-platform-ops-toolkit-prod-release` Vault role, pinned to this
 workflow and `refs/heads/main`; it does not widen the general production role.
 

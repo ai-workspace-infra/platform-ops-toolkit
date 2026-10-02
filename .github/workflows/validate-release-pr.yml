@@ -164,6 +164,7 @@ jobs:
         python3 .github/scripts/tests/hybrid_child_wait_test.py
         bash .github/scripts/tests/daily_snapshot_run_wait_test.sh
         bash .github/scripts/tests/prod_same_digest_promotion_test.sh
+        bash .github/scripts/tests/prod_accepted_uat_promotion_test.sh
         bash .github/scripts/tests/daily_snapshot_prod_manifest_test.sh
         bash .github/scripts/tests/shared_readiness_probe_test.sh
 
