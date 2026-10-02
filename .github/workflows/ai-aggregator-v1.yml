@@ -479,11 +479,51 @@ jobs:
           TF_VAR_deploy_service_account: ${{ steps.gcp_auth.outputs.service_account }}
           TF_VAR_workload_identity_provider: ${{ steps.gcp_auth.outputs.provider }}
           TF_VAR_ssh_public_key: ${{ vars.AI_AGGREGATOR_SSH_PUBLIC_KEY }}
+          GCP_PROJECT_ID: ${{ steps.gcp_auth.outputs.project_id }}
         run: |
+          set -euo pipefail
+          workdir="${{ steps.contract.outputs.workdir }}"
+          resources="${{ steps.contract.outputs.resources }}"
           rm -f "${{ steps.contract.outputs.workdir }}/backend.tf"
-          terraform -chdir="${{ steps.contract.outputs.workdir }}" init -backend=false -input=false
-          terraform -chdir="${{ steps.contract.outputs.workdir }}" validate
-          terraform -chdir="${{ steps.contract.outputs.workdir }}" apply -input=false -auto-approve
+          terraform -chdir="$workdir" init -backend=false -input=false
+          network_metadata="$(python3 - "$resources" <<'PY'
+          import sys
+          from pathlib import Path
+          import yaml
+
+          data = yaml.safe_load(Path(sys.argv[1]).read_text())
+          global_config = data['global']
+          print('\t'.join([
+              global_config['network_name'],
+              global_config['region'],
+              f"{global_config['network_name']}-subnet",
+              f"{global_config['network_name']}-router",
+              f"{global_config['network_name']}-nat-ip",
+              f"{global_config['network_name']}-nat",
+          ]))
+          PY
+          )"
+          IFS=$'\t' read -r network_name region subnet_name router_name nat_ip_name nat_name <<< "$network_metadata"
+          import_if_absent() {
+            local address="$1"
+            local resource_id="$2"
+            if ! terraform -chdir="$workdir" state list | grep -Fxq "$address"; then
+              terraform -chdir="$workdir" import -input=false "$address" "$resource_id" || \
+                echo "Declared GCP resource is not pre-existing: $address"
+            fi
+          }
+          import_if_absent module.network.google_compute_network.this \
+            "projects/$GCP_PROJECT_ID/global/networks/$network_name"
+          import_if_absent module.network.google_compute_subnetwork.this \
+            "projects/$GCP_PROJECT_ID/regions/$region/subnetworks/$subnet_name"
+          import_if_absent 'module.network.google_compute_router.this[0]' \
+            "projects/$GCP_PROJECT_ID/regions/$region/routers/$router_name"
+          import_if_absent 'module.network.google_compute_address.nat[0]' \
+            "projects/$GCP_PROJECT_ID/regions/$region/addresses/$nat_ip_name"
+          import_if_absent 'module.network.google_compute_router_nat.this[0]' \
+            "projects/$GCP_PROJECT_ID/regions/$region/routers/$router_name/nats/$nat_name"
+          terraform -chdir="$workdir" validate
+          terraform -chdir="$workdir" apply -input=false -auto-approve
           python3 iac_modules/terraform-hcl-standard/gcp-cloud/scripts/generate.py inventory \
             --resources "${{ steps.contract.outputs.resources }}" \
             --workdir "${{ steps.contract.outputs.workdir }}"
