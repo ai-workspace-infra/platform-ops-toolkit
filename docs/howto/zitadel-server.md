@@ -46,9 +46,9 @@ KV v2 路径，不创建 VM、不执行 Terraform/Ansible、不改 DNS，也不�
 ```bash
 export VAULT_ADDR='https://vault.svc.plus'
 # 使用授权管理员会话：VAULT_TOKEN 或本机 vault login
-bash scripts/iam/bootstrap_zitadel_kv.sh --check
-bash scripts/iam/bootstrap_zitadel_kv.sh --apply --generate-missing
-bash scripts/iam/bootstrap_zitadel_kv.sh --check
+bash scripts/cloud/bootstrap/iam/bootstrap_zitadel_kv.sh --check
+bash scripts/cloud/bootstrap/iam/bootstrap_zitadel_kv.sh --apply --generate-missing
+bash scripts/cloud/bootstrap/iam/bootstrap_zitadel_kv.sh --check
 ```
 
 `--generate-missing` 只为缺失字段生成独立随机值，并保留已有字段；如需显式

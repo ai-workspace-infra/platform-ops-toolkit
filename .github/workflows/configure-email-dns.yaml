@@ -77,7 +77,7 @@ jobs:
             kv/data/${{ inputs.vault_env_path }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN
 
       - name: Install Ansible
-        run: ./.github/scripts/serverless/install_email_dns_deps.sh
+        run: ./playbooks/scripts/pipeline/install-email-dns-deps.sh
 
       - name: Reconcile DNS
         env:

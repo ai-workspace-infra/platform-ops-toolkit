@@ -5,8 +5,8 @@ set -euo pipefail
 # pre-DNS readiness condition; this script prints the facts needed to explain
 # a failed public HTTPS probe and never replaces that gate.
 
-. "$(dirname "${BASH_SOURCE[0]}")/../provision/common_require_env.sh"
-. "$(dirname "${BASH_SOURCE[0]}")/../provision/common_cmdb_ssh_login.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../../lib/require-env.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../../lib/cmdb-ssh-login.sh"
 require_env MATRIX_HOST
 
 cmdb_file="${CMDB_FILE:-cmdb/cmdb.json}"

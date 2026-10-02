@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-. "$(dirname "${BASH_SOURCE[0]}")/../platform-ops/provision/common_require_env.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/require-env.sh"
 . "$(dirname "${BASH_SOURCE[0]}")/read-ref-sha.sh"
 require_env DEPLOY_ENV
 

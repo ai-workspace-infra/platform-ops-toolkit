@@ -142,11 +142,11 @@ jobs:
         run: ./.github/scripts/tests/hybrid_uat_matrix_contract_test.sh
       - name: Validate hybrid routing contract
         run: |
-          ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+          ./.github/scripts/gitops/prepare_gitops_routing_config.sh
           python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
           GITOPS_ROUTING_YAML="${GITHUB_WORKSPACE}/gitops/topology/uat/serverless/runtime-topology.yaml" \
             GITOPS_ROUTING_OUTPUT="${RUNNER_TEMP}/serverless-routing.json" \
-            ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+            ./.github/scripts/gitops/prepare_gitops_routing_config.sh
           SERVERLESS_CONFIG="${RUNNER_TEMP}/serverless-routing.json" \
             python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
         env:
@@ -248,11 +248,11 @@ jobs:
             topology/uat/serverless/runtime-topology.yaml
       - name: Verify hybrid routing
         run: |
-          ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+          ./.github/scripts/gitops/prepare_gitops_routing_config.sh
           python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
           GITOPS_ROUTING_YAML="${GITHUB_WORKSPACE}/gitops/topology/uat/serverless/runtime-topology.yaml" \
             GITOPS_ROUTING_OUTPUT="${RUNNER_TEMP}/serverless-routing.json" \
-            ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+            ./.github/scripts/gitops/prepare_gitops_routing_config.sh
           SERVERLESS_CONFIG="${RUNNER_TEMP}/serverless-routing.json" \
             python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
           ./.github/scripts/serverless/verify_hybrid_contract.sh

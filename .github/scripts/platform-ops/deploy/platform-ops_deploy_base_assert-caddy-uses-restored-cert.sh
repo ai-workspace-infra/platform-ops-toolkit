@@ -42,7 +42,7 @@ matrix_ip="$(jq -r --arg host "${MATRIX_HOST}" '.[$host].ip // empty' "${cmdb_fi
 sni_host="${SNI_HOST:-${MATRIX_HOST}}"
 
 ssh_opts=(-i ~/.ssh/id_deploy -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=20)
-. "$(dirname "${BASH_SOURCE[0]}")/../provision/common_cmdb_ssh_login.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../../lib/cmdb-ssh-login.sh"
 cmdb_ssh_login "${cmdb_file}" "${MATRIX_HOST}"
 host="${ssh_user}@${matrix_ip}"
 caddyfile="/etc/xcontrol/web-saas/Caddyfile"

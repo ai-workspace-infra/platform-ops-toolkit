@@ -2,7 +2,7 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-resolver="${script_dir}/../serverless/resolve_gitops_migration_target.sh"
+resolver="${script_dir}/../gitops/resolve_gitops_migration_target.sh"
 workdir="$(mktemp -d)"
 trap 'rm -rf "${workdir}"' EXIT
 

@@ -191,7 +191,7 @@ jobs:
             src/config/runtime-service-config.${{ inputs.vault_env_path || 'uat' }}.yaml
 
       - name: Render GitOps serverless runtime topology
-        run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+        run: ./.github/scripts/gitops/prepare_gitops_routing_config.sh
         env:
           GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
@@ -509,14 +509,14 @@ jobs:
 
       - name: Read GitOps GCP target
         id: gitops_gcp
-        run: ruby ./.github/scripts/serverless/read_gcp_gitops_target.rb
+        run: ruby ./.github/scripts/gitops/read_gcp_gitops_target.rb
         env:
           GCP_GITOPS_MANIFEST: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
 
       # accounts rejects any browser Origin that is not on its CORS allowlist,
       # so the deploy has to pass this environment's console host through.
       - name: Render GitOps runtime topology YAML
-        run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+        run: ./.github/scripts/gitops/prepare_gitops_routing_config.sh
         env:
           GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
@@ -559,7 +559,7 @@ jobs:
           path: service-source
 
       - name: Verify Vault GCP target matches GitOps project declaration
-        run: ruby ./.github/scripts/serverless/validate_gcp_gitops_contract.rb
+        run: ruby ./.github/scripts/gitops/validate_gcp_gitops_contract.rb
         env:
           GCP_GITOPS_MANIFEST: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
           GCP_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}
@@ -781,7 +781,7 @@ jobs:
             topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
 
       - name: Render GitOps runtime topology YAML
-        run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+        run: ./.github/scripts/gitops/prepare_gitops_routing_config.sh
         env:
           GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
@@ -865,7 +865,7 @@ jobs:
             topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
 
       - name: Render GitOps runtime topology YAML
-        run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+        run: ./.github/scripts/gitops/prepare_gitops_routing_config.sh
         env:
           GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
@@ -956,7 +956,7 @@ jobs:
             topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
 
       - name: Render GitOps runtime topology YAML
-        run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+        run: ./.github/scripts/gitops/prepare_gitops_routing_config.sh
         env:
           GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
@@ -1034,7 +1034,7 @@ jobs:
             topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
 
       - name: Render GitOps runtime topology YAML
-        run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+        run: ./.github/scripts/gitops/prepare_gitops_routing_config.sh
         env:
           GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
@@ -1126,7 +1126,7 @@ jobs:
             topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
 
       - name: Render GitOps runtime topology YAML
-        run: ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+        run: ./.github/scripts/gitops/prepare_gitops_routing_config.sh
         env:
           GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
@@ -1258,7 +1258,7 @@ jobs:
 
       - name: Resolve Accounts catalog endpoint
         run: |
-          ./.github/scripts/serverless/prepare_gitops_routing_config.sh
+          ./.github/scripts/gitops/prepare_gitops_routing_config.sh
           accounts_host="$(jq -er '.spec.serverless.accounts_host' "${RUNNER_TEMP}/edge-routing.json")"
           accounts_run_url="$(jq -er '.spec.serverless.cloud_run.accounts' "${RUNNER_TEMP}/edge-routing.json")"
           domain_base="${accounts_host#*.}"
@@ -1326,7 +1326,7 @@ jobs:
 
       - name: Read GitOps GCP target
         id: gitops_gcp
-        run: ruby ./.github/scripts/serverless/read_gcp_gitops_target.rb
+        run: ruby ./.github/scripts/gitops/read_gcp_gitops_target.rb
         env:
           GCP_GITOPS_MANIFEST: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
 
@@ -1344,7 +1344,7 @@ jobs:
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL
 
       - name: Verify Vault GCP target matches GitOps project declaration
-        run: ruby ./.github/scripts/serverless/validate_gcp_gitops_contract.rb
+        run: ruby ./.github/scripts/gitops/validate_gcp_gitops_contract.rb
         env:
           GCP_GITOPS_MANIFEST: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
           GCP_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}

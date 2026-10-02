@@ -14,8 +14,8 @@
 - `scripts/cloud/bootstrap/Akamai-Cloud/bootstrap_akamai_cloud_kv.sh`：只写入 Akamai provider token。
 - `scripts/cloud/bootstrap/Akamai-Cloud/bootstrap_akamai_oidc_roles.sh`：创建环境/账户绑定的 Vault JWT role 和 read-only policy。
 
-`scripts/cloud/bootstrap/Akamai-Cloud/` 是实现源；旧的 `scripts/vault/bootstrap_akamai_*.sh`
-仅为兼容入口，不应复制修改底层逻辑。
+`scripts/cloud/bootstrap/Akamai-Cloud/` 是唯一入口；旧的 `scripts/vault/bootstrap_akamai_*.sh`
+兼容包装器已移除。
 
 ## 路径契约
 

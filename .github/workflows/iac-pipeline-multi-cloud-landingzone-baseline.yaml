@@ -213,7 +213,7 @@ jobs:
       id: tfplan
       if: env.DEPLOY_ACTION == 'plan'
       working-directory: ${{ env.TF_WORKDIR }}
-      run: .github/scripts/platform-ops/provision/iac-pipeline-multi-cloud-landingzone-baseline_landingzone_terraform-plan-landingzone.sh
+      run: make plan "CONFIG_DIR=../../../../../${CONFIG_DIR}" > plan_output.txt
 
     - name: Upload LandingZone Plan Artifact
       uses: actions/upload-artifact@v7
@@ -231,8 +231,10 @@ jobs:
 
     - name: Run Validation Checks
       if: env.DEPLOY_ACTION == 'apply'
-      run: |-
-        .github/scripts/platform-ops/provision/iac-pipeline-multi-cloud-landingzone-baseline_landingzone_run-validation-checks.sh
+      run: |
+        echo "⚙️ Running LandingZone baseline validation..."
+        chmod +x iac_modules/scripts/validation/validate-landingzone.sh
+        iac_modules/scripts/validation/validate-landingzone.sh "${TF_WORKDIR}"
 
     - name: Load SMTP notification credentials from Vault
       id: smtp
@@ -252,8 +254,10 @@ jobs:
       env:
         SMTP_PASSWORD: ${{ steps.smtp.outputs.SMTP_PASSWORD }}
         SMTP_USERNAME: ${{ steps.smtp.outputs.SMTP_USERNAME }}
-      run: |-
-        .github/scripts/platform-ops/provision/iac-pipeline-multi-cloud-landingzone-baseline_landingzone_notify.sh
+      run: |
+        echo "📣 Sending LandingZone rollout notification..."
+        chmod +x iac_modules/scripts/notifications/notify-landingzone.sh
+        iac_modules/scripts/notifications/notify-landingzone.sh
 
   gcp-platform:
     name: "Deploy GCP platform"

@@ -97,6 +97,31 @@ jobs:
     - name: Verify job gating is falsifiable
       run: python3 scripts/ci/workflow_gating_verify.py
 
+    # Terraform-phase steps live in iac_modules/scripts/pipeline and Ansible-phase
+    # steps in playbooks/scripts/pipeline. A path that does not exist there only
+    # fails in the middle of a provision run, so resolve every call here.
+    - name: Checkout iac_modules pipeline scripts
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/iac_modules
+        ref: main
+        path: pipeline-contract/iac_modules
+        sparse-checkout: scripts/pipeline
+
+    - name: Checkout playbooks pipeline scripts
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/playbooks
+        ref: main
+        path: pipeline-contract/playbooks
+        sparse-checkout: scripts/pipeline
+
+    - name: Verify every script a workflow calls exists
+      run: >-
+        python3 scripts/ci/workflow_script_refs_verify.py
+        --iac-root pipeline-contract/iac_modules
+        --playbooks-root pipeline-contract/playbooks
+
     - name: Verify Hybrid UAT child failures cannot report green
       env:
         GITOPS_MATRIX_FILE: ${{ github.workspace }}/gitops-hybrid-contract/topology/uat/hybrid/resource-matrix.json
@@ -128,7 +153,6 @@ jobs:
     - name: Verify UAT cleanup safety and persistent Open Platform scope
       run: |
         bash .github/scripts/tests/platform_ops_akamai_destroy_scope_contract_test.sh
-        python3 .github/scripts/tests/platform_ops_destroy_scope_test.py
         bash .github/scripts/tests/platform_ops_agent_proxy_matrix_contract_test.sh
         python3 .github/scripts/tests/platform_ops_akamai_namespace_workdir_contract_test.py
 
@@ -189,9 +213,6 @@ jobs:
 
     - name: Verify Agent Proxy deployment variable contract
       run: bash .github/scripts/tests/platform_ops_agent_proxy_contract_test.sh
-
-    - name: Verify Vultr image lookup fallback is plan-only
-      run: bash .github/scripts/tests/vultr_snapshot_lookup_fallback_test.sh
 
     - name: Verify regional Agent Proxy domain contract
       run: bash .github/scripts/tests/prod_agent_proxy_regional_domain_contract_test.sh

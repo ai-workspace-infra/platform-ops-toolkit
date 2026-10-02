@@ -54,9 +54,18 @@ INTERPRETERS = {"bash", "sh", "zsh", "source", ".", "exec",
                 "python", "python3", "env", "sudo"}
 
 
+SIBLING_CHECKOUT = re.compile(r"(?:^|/)(?:iac_modules|playbooks)/")
+
+
 def script_ref(token):
     """Repo-relative path if the token names a script in this repo, else None."""
     token = token.strip("\"'")
+    # A script under a sibling checkout (iac_modules/, playbooks/) is tracked in
+    # that repository, so its mode cannot be read from this index. Those calls
+    # are covered by workflow_script_refs_verify.py and by the exec-bit check in
+    # each sibling repository's own pipeline-scripts workflow.
+    if SIBLING_CHECKOUT.search(token):
+        return None
     for marker in (".github/scripts/", "scripts/"):
         i = token.find(marker)
         if i != -1:

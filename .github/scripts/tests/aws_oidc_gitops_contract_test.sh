@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 workflow="${repo_root}/.github/workflows/selfhost-orchestrator.yml"
-resolver="${repo_root}/.github/scripts/platform-ops/provision/resolve_gitops_aws_oidc_config.sh"
+resolver="${repo_root}/.github/scripts/gitops/resolve_gitops_aws_oidc_config.sh"
 
 test -x "${resolver}" || {
   echo "AWS OIDC GitOps resolver must be executable" >&2
