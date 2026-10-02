@@ -412,16 +412,15 @@ jobs:
             echo 'Missing repository/environment variable VAULT_GCP_JWT_ROLE; configure the Vault JWT role before running GCP UAT.' >&2
             exit 1
           fi
-      - name: Login to Vault with GitHub OIDC
+      - name: Configure GCP credentials through Vault JWT and Google WIF
         if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'apply' || inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate')) }}
-        id: vault_login
-        uses: hashicorp/vault-action@v4
+        id: gcp_auth
+        uses: ./.github/actions/configure-gcp-oidc
         with:
-          url: https://vault.svc.plus
-          method: jwt
-          role: ${{ vars.VAULT_GCP_JWT_ROLE }}
-          jwtGithubAudience: vault
-          exportToken: true
+          environment: uat
+          account_id: xworktech
+          vault_role: ${{ vars.VAULT_GCP_JWT_ROLE }}
+          load_state_contract: false
       - name: Render GCP UAT resources
         env:
           GITOPS_ROOT: ${{ github.workspace }}/gitops
@@ -435,8 +434,6 @@ jobs:
       - name: Provision GCP UAT Spot instance
         if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'apply' || inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate')) }}
         env:
-          VAULT_ADDR: https://vault.svc.plus
-          VAULT_TOKEN: ${{ steps.vault_login.outputs.token }}
           AI_AGGREGATOR_SSH_CIDR: ${{ vars.AI_AGGREGATOR_SSH_CIDR }}
           AI_AGGREGATOR_SOURCE_CIDR: ${{ vars.AI_AGGREGATOR_SOURCE_CIDR }}
           AI_AGGREGATOR_SSH_PUBLIC_KEY: ${{ vars.AI_AGGREGATOR_SSH_PUBLIC_KEY }}
