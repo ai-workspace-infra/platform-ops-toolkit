@@ -95,7 +95,10 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 printf '%s\t%s\t%s\n' "${method}" "${url}" "${body}" >>"${MOCK_CURL_LOG}"
-if [[ "${method}" == 'DELETE' && "${url}" == *'/dns_records/billing-origin-cname' ]]; then
+if [[ "${method}" == 'DELETE' && "${url}" == *'/dns_records/billing-cname' ]]; then
+  touch "${MOCK_CURL_LOG}.billing-removed"
+  printf '%s' '{"success":true,"result":{}}'
+elif [[ "${method}" == 'DELETE' && "${url}" == *'/dns_records/billing-origin-cname' ]]; then
   printf '%s' '{"success":false,"result":null,"errors":[{"code":1043,"message":"Unable to edit this record as this has been configured as read only."}]}'
   exit 22
 elif [[ "${url}" == *'/zones?name='* ]]; then
@@ -111,7 +114,11 @@ elif [[ "${url}" == *'/rulesets?per_page=50' && "${method}" == 'GET' ]]; then
 elif [[ "${url}" == *'/rulesets/ruleset-1'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":{"id":"ruleset-1","rules":[{"ref":"existing_rule","action":"route","expression":"(http.host eq \\\"existing.example.com\\\")"}]}}'
 elif [[ "${url}" == *'/dns_records?name=billing-uat.onwalk.net'* && "${method}" == 'GET' ]]; then
-  printf '%s' '{"success":true,"result":[{"id":"billing-cname","content":"uat-billing-service-1004637461064.asia-northeast1.run.app"}]}'
+  if [[ -f "${MOCK_CURL_LOG}.billing-removed" ]]; then
+    printf '%s' '{"success":true,"result":[]}'
+  else
+    printf '%s' '{"success":true,"result":[{"id":"billing-cname","type":"A","content":"198.51.100.10"}]}'
+  fi
 elif [[ "${url}" == *'/dns_records?name=billing-origin-serverless-uat.onwalk.net'* && "${method}" == 'GET' ]]; then
   printf '%s' '{"success":true,"result":[{"id":"billing-origin-cname","content":"uat-billing-service-1004637461064.asia-northeast1.run.app"}]}'
 elif [[ "${url}" == *'/dns_records?name=console-uat.onwalk.net'* && "${method}" == 'GET' ]]; then
