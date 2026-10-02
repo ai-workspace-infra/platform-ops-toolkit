@@ -437,8 +437,16 @@ jobs:
           workdir = workdir_root / contract['workdir']
           if not resources.is_file():
               raise SystemExit(f'missing declared resource contract: {resources}')
+          entrypoint = manifest['spec'].get('entrypoint', {})
+          gateway_domain = entrypoint.get('domain', '')
+          if gateway_domain and any(char.isspace() for char in gateway_domain):
+              raise SystemExit('entrypoint.domain must not contain whitespace')
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
-              output.write(f'resources={resources}\nworkdir={workdir}\n')
+              output.write(
+                  f'resources={resources}\n'
+                  f'workdir={workdir}\n'
+                  f'gateway_domain={gateway_domain}\n'
+              )
           PY
       - name: Require the GCP Vault OIDC role variable
         if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'apply' || inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate')) }}
@@ -585,6 +593,38 @@ jobs:
             -e ai_desktop_cpa_codeagent=true \
             -e ai_desktop_remote_enabled=false \
             -e ai_desktop_manage_user=false
+      - name: Load AI Aggregator observability credentials from Vault
+        if: ${{ github.event_name == 'workflow_dispatch' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
+        id: observability
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: ${{ vars.VAULT_GCP_JWT_ROLE }}
+          jwtGithubAudience: vault
+          exportToken: false
+          secrets: |
+            kv/data/CICD/observability user | VECTOR_AUTH_USER ;
+            kv/data/CICD/observability password | VECTOR_AUTH_PASSWORD
+      - name: Deploy GCP UAT AI Aggregator observability
+        if: ${{ github.event_name == 'workflow_dispatch' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
+        working-directory: playbooks
+        env:
+          VAULT_ADDR: https://vault.svc.plus
+          DEPLOY_ENV: uat
+          VECTOR_AUTH_USER: ${{ steps.observability.outputs.VECTOR_AUTH_USER }}
+          VECTOR_AUTH_PASSWORD: ${{ steps.observability.outputs.VECTOR_AUTH_PASSWORD }}
+          VECTOR_AI_AGGREGATOR_ENABLED: 'true'
+          VECTOR_AI_AGGREGATOR_PUBLIC_TARGET: https://${{ steps.contract.outputs.gateway_domain }}
+        run: |
+          set -euo pipefail
+          ansible-playbook -i "${{ steps.contract.outputs.workdir }}/inventory.ini" \
+            deploy_observability_agent.yml \
+            --limit ai_aggregator_gateway \
+            -e observability_agent_hosts=ai_aggregator_gateway \
+            -e cloud_provider=gcp \
+            -e vector_observability_endpoint=https://observability.svc.plus \
+            -e observability_service_domain="${{ steps.contract.outputs.gateway_domain }}"
       - name: Revoke temporary GCP OS Login key
         if: ${{ always() && github.event_name == 'workflow_dispatch' && (inputs.operation == 'apply' || inputs.operation == 'provision' || inputs.operation == 'stage' || inputs.operation == 'activate') }}
         env:
