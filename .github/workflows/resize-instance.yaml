@@ -191,7 +191,7 @@ jobs:
           LABEL: ${{ steps.preflight.outputs.label }}
           SNAPSHOT_ID: ${{ steps.backup.outputs.snapshot_id }}
           VULTR_API_KEY: ${{ steps.vault.outputs.VULTR_API_KEY }}
-        run: ${{ github.workspace }}/.github/scripts/resize/resize-instance_apply-terraform.sh
+        run: ${{ github.workspace }}/infra/iac_modules/scripts/pipeline/resize-instance-apply-terraform.sh
 
       - name: Health check replacement
         if: steps.preflight.outputs.direction == 'downgrade'

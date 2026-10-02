@@ -24,27 +24,23 @@ for relative in "${canonical_scripts[@]}"; do
   bash -n "${path}" || { echo "canonical bootstrap script has invalid shell syntax: ${relative}" >&2; exit 1; }
 done
 
-compatibility_wrappers=(
-  scripts/gcp/bootstrap_gcp_auth_kv.sh
-  scripts/gcp/bootstrap_shared_iac_state_kv.sh
-  scripts/gcp/gcp_account_migration.sh
-  scripts/iam/bootstrap_zitadel_kv.sh
-  scripts/ucloud/bootstrap_ucloud_auth_kv.sh
+# The compatibility wrappers that used to forward here are removed: one entry
+# point per helper. A wrapper coming back would be a second place to keep in sync.
+retired_paths=(
+  scripts/gcp
+  scripts/iam
+  scripts/ucloud
   scripts/vault/bootstrap_akamai_cloud_kv.sh
   scripts/vault/bootstrap_akamai_oidc_roles.sh
-  .github/scripts/aws/adopt_github_oidc_terraform_state.sh
-  .github/scripts/aws/reconcile_github_oidc_trust.sh
-  .github/scripts/gcp/resolve_github_oidc_config.sh
+  .github/scripts/aws
+  .github/scripts/gcp
 )
 
-for relative in "${compatibility_wrappers[@]}"; do
-  path="${repo_root}/${relative}"
-  test -x "${path}" || { echo "compatibility wrapper is not executable: ${relative}" >&2; exit 1; }
-  bash -n "${path}"
-  grep -Fq 'scripts/cloud/bootstrap/' "${path}" || {
-    echo "compatibility wrapper does not delegate to canonical tree: ${relative}" >&2
+for relative in "${retired_paths[@]}"; do
+  if [[ -e "${repo_root}/${relative}" ]]; then
+    echo "retired bootstrap path must not exist: ${relative} (use scripts/cloud/bootstrap/)" >&2
     exit 1
-  }
+  fi
 done
 
 aws_bootstrap="${repo_root}/scripts/cloud/bootstrap/aws/bootstrap_aws_auth_kv.sh"

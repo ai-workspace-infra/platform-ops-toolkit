@@ -6,8 +6,8 @@ runs:
   steps:
     - name: Install gitleaks
       shell: bash
-      run: ${{ github.action_path }}/scripts/validate-release-pr_sec-qa-gate_install-gitleaks.sh
+      run: ${{ github.action_path }}/scripts/install-gitleaks.sh
 
     - name: Run gitleaks detect
       shell: bash
-      run: ${{ github.action_path }}/scripts/validate-release-pr_sec-qa-gate_run-gitleaks-detect.sh
+      run: ${{ github.action_path }}/scripts/run-gitleaks-detect.sh

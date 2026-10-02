@@ -28,7 +28,7 @@ jobs:
           sparse-checkout: |
             resources/svc.plus/prod/aws
       - id: aws_oidc
-        run: .github/scripts/platform-ops/provision/resolve_gitops_aws_oidc_config.sh
+        run: .github/scripts/gitops/resolve_gitops_aws_oidc_config.sh
         env:
           GITOPS_AWS_OIDC_CONFIG: gitops/resources/svc.plus/prod/aws/github-actions-oidc.json
           EXPECTED_DEPLOYMENT_ENV: prod

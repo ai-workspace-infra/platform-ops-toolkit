@@ -61,7 +61,7 @@ if [[ -z "${matrix_ip}" ]]; then
   echo "::warning::No CMDB IP found for ${MATRIX_HOST}; skipping certificate backup." >&2
   exit 0
 fi
-. "$(dirname "${BASH_SOURCE[0]}")/../provision/common_cmdb_ssh_login.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../../lib/cmdb-ssh-login.sh"
 if ! cmdb_ssh_login "${cmdb_file}" "${MATRIX_HOST}"; then
   echo "::warning::Skipping certificate backup." >&2
   exit 0

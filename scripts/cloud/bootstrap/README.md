@@ -18,12 +18,13 @@ All Terraform backends consume the shared `TF_STATE_*` contract from
 be conflated. The scripts default to read-only checks where practical. Any
 write, apply, revoke, or state-adoption operation must be explicitly selected.
 
-## Compatibility paths
+## Retired paths
 
-The former paths under `scripts/gcp/`, `scripts/ucloud/`, `scripts/vault/`, and
-`.github/scripts/{aws,gcp}/` are thin wrappers. They remain temporarily so
-existing workflows and operator runbooks do not break, but new code should
-call the canonical paths under this directory.
+The wrappers that used to forward here from `scripts/gcp/`, `scripts/iam/`,
+`scripts/ucloud/`, `scripts/vault/bootstrap_akamai_*.sh` and
+`.github/scripts/{aws,gcp}/` are removed. Call the canonical paths under this
+directory; `scripts/tests/cloud_bootstrap_layout_contract_test.sh` fails if a
+wrapper comes back.
 
 ## Safety rules
 

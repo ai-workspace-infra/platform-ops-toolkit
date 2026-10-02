@@ -2,7 +2,7 @@
 # 共享的必需环境变量守卫。
 #
 # 用法:
-#   . "$(dirname "${BASH_SOURCE[0]}")/common_require_env.sh"
+#   . "$(dirname "${BASH_SOURCE[0]}")/lib/require-env.sh"
 #   require_env MATRIX_HOST POSTGRES_ROOT_PASSWORD
 #
 # 为什么需要这个: 这些变量绝大多数用于「选择部署目标」或「提供凭据」。

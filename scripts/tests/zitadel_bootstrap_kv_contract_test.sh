@@ -3,12 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 canonical="${repo_root}/scripts/cloud/bootstrap/iam/bootstrap_zitadel_kv.sh"
-wrapper="${repo_root}/scripts/iam/bootstrap_zitadel_kv.sh"
 
-for file in "${canonical}" "${wrapper}"; do
-  test -x "${file}" || { echo "ZITADEL bootstrap helper is not executable: ${file}" >&2; exit 1; }
-  bash -n "${file}"
-done
+test -x "${canonical}" || { echo "ZITADEL bootstrap helper is not executable: ${canonical}" >&2; exit 1; }
+bash -n "${canonical}"
 
 grep -Fq 'shared/iam' "${canonical}"
 grep -Fq 'shared/databases' "${canonical}"
@@ -33,5 +30,9 @@ if grep -Eq 'echo .*ZITADEL_(MASTERKEY|ADMIN_PASSWORD|PG_PASSWORD)|echo .*POSTGR
   exit 1
 fi
 
-grep -Fq 'scripts/cloud/bootstrap/iam/bootstrap_zitadel_kv.sh' "${wrapper}"
+# The former scripts/iam/ wrapper is gone; a second entry point must not come back.
+if [[ -e "${repo_root}/scripts/iam/bootstrap_zitadel_kv.sh" ]]; then
+  echo "scripts/iam/bootstrap_zitadel_kv.sh must not exist: call the canonical path" >&2
+  exit 1
+fi
 echo "zitadel_bootstrap_kv_contract_test: PASS"

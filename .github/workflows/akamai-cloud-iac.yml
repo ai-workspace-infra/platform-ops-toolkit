@@ -256,7 +256,7 @@ jobs:
           HOSTS_MANIFEST: ${{ env.TF_ROOT }}/hosts_manifest.json
           OPEN_PLATFORM_ACCEPTANCE_FILE: ${{ github.workspace }}/config/open-platform-uat-cleanup-acceptance.json
         working-directory: ${{ env.TF_ROOT }}
-        run: bash "${GITHUB_WORKSPACE}/.github/scripts/platform-ops/provision/platform-ops_provision_assert-destroy-scope.sh"
+        run: bash "${GITHUB_WORKSPACE}/iac_modules/scripts/pipeline/assert-destroy-scope.sh"
 
       - name: Terraform apply or destroy
         if: ${{ inputs.deploy_action == 'apply' || inputs.deploy_action == 'destroy' }}

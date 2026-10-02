@@ -60,7 +60,7 @@ scripts/cloud/bootstrap/aws/bootstrap_aws_auth_kv.sh --check
 ```
 
 写入完成并确认 bootstrap workflow 稳定后，应立即撤销或等待这些 AWS 凭据过期。旧的
-`.github/scripts/aws/` 路径仅保留兼容包装器。
+`.github/scripts/aws/` 兼容包装器已移除，请直接调用 `scripts/cloud/bootstrap/aws/`。
 
 本次已创建两个生产 KV v2 路径：
 

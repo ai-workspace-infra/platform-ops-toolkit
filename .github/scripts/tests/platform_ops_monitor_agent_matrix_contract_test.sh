@@ -22,7 +22,7 @@ grep -Fq 'Validate central observability endpoint for non-IaC node' <<<"${non_ia
 
 monitor_block="$(sed -n '/^  deploy_monitor_agent:/,/^  trigger_data_migration:/p' "${workflow}")"
 grep -Fq 'Validate central observability endpoint' <<<"${monitor_block}"
-grep -Fq 'platform-ops_deploy_monitor_agent.sh' <<<"${monitor_block}"
+grep -Fq 'playbooks/scripts/pipeline/deploy-monitor-agent.sh' <<<"${monitor_block}"
 grep -Fq "OBSERVABILITY_ENDPOINT: \${{ github.event.inputs.observability_endpoint || 'https://observability.svc.plus' }}" <<<"${monitor_block}"
 
 echo "platform_ops_monitor_agent_matrix_contract_test: PASS"

@@ -401,7 +401,7 @@ jobs:
         steps.route.outputs.terraform_action != 'destroy' &&
         contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'),
         steps.route.outputs.target_domains) }}
-      run: ${{ github.workspace }}/.github/scripts/serverless/prepare_gitops_routing_config.sh
+      run: ${{ github.workspace }}/.github/scripts/gitops/prepare_gitops_routing_config.sh
       env:
         GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ steps.route.outputs.deployment_env }}/selfhost/runtime-topology.yaml
         GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/selfhost-edge-routing.json
@@ -413,7 +413,7 @@ jobs:
         steps.route.outputs.terraform_action != 'destroy' &&
         contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'),
         steps.route.outputs.target_domains) }}
-      run: python3 ${{ github.workspace }}/.github/scripts/platform-ops/routing/validate_selfhost_contract.py
+      run: python3 ${{ github.workspace }}/.github/scripts/gitops/validate_selfhost_contract.py
       env:
         GITOPS_ROUTING_CONFIG: ${{ runner.temp }}/selfhost-edge-routing.json
         EXPECTED_ENV: ${{ steps.route.outputs.deployment_env }}
@@ -427,7 +427,7 @@ jobs:
         steps.route.outputs.terraform_action != 'destroy' &&
         contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'),
         steps.route.outputs.target_domains) }}
-      run: ${{ github.workspace }}/.github/scripts/serverless/resolve_gitops_migration_target.sh
+      run: ${{ github.workspace }}/.github/scripts/gitops/resolve_gitops_migration_target.sh
       env:
         GITOPS_ROUTING_CONFIG: ${{ runner.temp }}/selfhost-edge-routing.json
         MIGRATION_SERVICE: console
@@ -484,7 +484,7 @@ jobs:
     - name: Resolve AWS OIDC deployment configuration from GitOps
       id: aws_oidc
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'aws-cloud'
-      run: ${{ github.workspace }}/.github/scripts/platform-ops/provision/resolve_gitops_aws_oidc_config.sh
+      run: ${{ github.workspace }}/.github/scripts/gitops/resolve_gitops_aws_oidc_config.sh
       env:
         GITOPS_AWS_OIDC_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/github-actions-oidc.json
         EXPECTED_DEPLOYMENT_ENV: ${{ steps.route.outputs.deployment_env }}
@@ -579,7 +579,7 @@ jobs:
 
     - name: Install render deps
       if: steps.route.outputs.run_infrastructure == 'true'
-      run: ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_install-render-deps.sh
+      run: ${{ github.workspace }}/infra/iac_modules/scripts/pipeline/install-render-deps.sh
 
     - name: Map Instance Plan
       if: steps.route.outputs.run_infrastructure == 'true'
@@ -590,13 +590,13 @@ jobs:
         INPUT_AGENT_PROXY_PLAN:          ${{ env.INPUT_AGENT_PROXY_PLAN }}
         INPUT_CLOUD_PROVIDER:          ${{ steps.route.outputs.cloud_provider }}
       run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_map-instance-plan.sh
+        ${{ github.workspace }}/infra/iac_modules/scripts/pipeline/map-instance-plan.sh
 
     - name: Resolve active Vultr Golden Image snapshots
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'vultr-vps'
       env:
         TERRAFORM_ACTION: ${{ steps.route.outputs.terraform_action }}
-      run: ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_resolve-golden-image-snapshots.sh
+      run: ${{ github.workspace }}/infra/iac_modules/scripts/pipeline/resolve-golden-image-snapshots.sh
 
     - name: generate.py render
       if: steps.route.outputs.run_infrastructure == 'true'
@@ -629,7 +629,7 @@ jobs:
         ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY: ${{ steps.route.outputs.state_key }}
         # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / TF_STATE_* from GITHUB_ENV
       run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_terraform-init.sh
+        ${{ github.workspace }}/infra/iac_modules/scripts/pipeline/terraform-init.sh
 
     - name: Adopt existing UAT external IP policy into open-platform state
       if: >-
@@ -684,7 +684,7 @@ jobs:
         GITOPS_MANIFEST: ${{ steps.route.outputs.resource_files_full }}
         TERRAFORM_DIR: ${{ steps.route.outputs.env_dir }}
       run: >-
-        python3 .github/scripts/platform-ops/provision/adopt_uat_open_platform_vm.py
+        python3 infra/iac_modules/scripts/pipeline/adopt_uat_open_platform_vm.py
         --manifest "${GITOPS_MANIFEST}"
         --terraform-dir "${TERRAFORM_DIR}"
 
@@ -699,7 +699,7 @@ jobs:
         ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE: ${{ steps.route.outputs.terraform_workspace }}
         # AWS_* / VULTR_API_KEY from GITHUB_ENV
       run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_reconcile-terraform-state.sh
+        ${{ github.workspace }}/infra/iac_modules/scripts/pipeline/reconcile-terraform-state.sh
 
     - name: Validate selected Terraform provider configuration
       if: steps.route.outputs.run_infrastructure == 'true'
@@ -718,7 +718,7 @@ jobs:
         ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY:           ${{ steps.route.outputs.state_key }}
         # AWS_* / TF_VAR_vultr_api_key / VULTR_API_KEY from GITHUB_ENV
       run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_terraform-apply-destroy.sh
+        ${{ github.workspace }}/infra/iac_modules/scripts/pipeline/terraform-apply-destroy.sh
 
     # Terraform considers a stopped Spot VM reconciled because the resource
     # still exists in the provider.  The application jobs need a live SSH
@@ -733,7 +733,7 @@ jobs:
       env:
         GCP_PROJECT_ID: ${{ steps.gcp_oidc.outputs.project_id }}
       run: |
-        python3 "${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_ensure-gcp-vm-running.py" \
+        python3 "${{ github.workspace }}/infra/iac_modules/scripts/pipeline/ensure-gcp-vm-running.py" \
           --manifest "${{ steps.route.outputs.env_dir }}/resources_manifest.json" \
           --project "${GCP_PROJECT_ID}"
 
@@ -763,7 +763,7 @@ jobs:
         RESOURCES_MANIFEST: ${{ steps.route.outputs.env_dir }}/resources_manifest.json
         # SSH_PUBLIC_DEPLOY_KEY from GITHUB_ENV
       run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_register-gcp-oslogin-key.sh
+        ${{ github.workspace }}/infra/iac_modules/scripts/pipeline/register-gcp-oslogin-key.sh
 
     - name: generate.py inventory
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.terraform_action == 'apply'
@@ -780,7 +780,7 @@ jobs:
       working-directory: ${{ steps.route.outputs.env_dir }}
       env:
         CMDB_FILE: cmdb.json
-      run: ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_verify-aws-boot-health.sh
+      run: ${{ github.workspace }}/infra/iac_modules/scripts/pipeline/verify-aws-boot-health.sh
 
     # 备份计划由这里落实, 不由 vultr_instance 声明 —— provider 在创建实例后
     # 立刻设置计划会撞上 Vultr 的 404 Invalid instance-id, 让实例以半成品状态
@@ -793,7 +793,7 @@ jobs:
         HOSTS_MANIFEST: hosts_manifest.json
         CMDB_FILE: cmdb.json
       run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_reconcile-backup-schedules.sh
+        ${{ github.workspace }}/infra/iac_modules/scripts/pipeline/reconcile-backup-schedules.sh
 
     - name: Build deploy matrix
       id: matrix
@@ -1280,7 +1280,7 @@ jobs:
         # 没给就退回逐域名 HTTP-01。HTTP-01 要求 A 记录已经指向本机, 而交付顺序
         # 是"先部署新主机、最后才切 DNS" —— 切换之前签不出证书。
         CLOUDFLARE_DNS_API_TOKEN:          ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
-      run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_base_bootstrap-node.sh
+      run: ${{ github.workspace }}/playbooks/scripts/pipeline/bootstrap-node.sh
 
   # ---------------------------------------------------------------------------
   # 步骤 2.5: 自动推进 GitOps 版本
@@ -1636,7 +1636,7 @@ jobs:
 
     - name: Render GitOps selfhost routing declaration
       if: ${{ needs.provision.outputs.deployment_env == 'uat' && needs.provision.outputs.dns_mode == 'uat-records' }}
-      run: ${{ github.workspace }}/.github/scripts/serverless/prepare_gitops_routing_config.sh
+      run: ${{ github.workspace }}/.github/scripts/gitops/prepare_gitops_routing_config.sh
       env:
         GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/uat/selfhost/runtime-topology.yaml
         GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/selfhost-edge-routing.json
@@ -1683,7 +1683,7 @@ jobs:
       env:
         CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
       run: |-
-        ${{ github.workspace }}/.github/scripts/platform-ops/dns/platform-ops_switch_dns_switch-cloudflare-dns-records.sh
+        ${{ github.workspace }}/playbooks/scripts/pipeline/switch-cloudflare-dns-records.sh
 
     - name: Reconcile production XConnect regional entrypoints
       if: >-
@@ -1725,7 +1725,7 @@ jobs:
       if: >-
         ${{ contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
         needs.provision.outputs.target_domains) }}
-      run: ${{ github.workspace }}/.github/scripts/platform-ops/dns/platform-ops_switch_dns_remove-temporary-agent-controller-host.sh
+      run: ${{ github.workspace }}/playbooks/scripts/pipeline/remove-temporary-agent-controller-host.sh
 
   bootstrap_stripe_catalog:
     name: "[4] Stripe catalog"
@@ -2595,7 +2595,7 @@ jobs:
         VECTOR_BILLING_INGEST_URL: ${{ format('{0}/v1/ingest/snapshots', needs.provision.outputs.billing_service_base_url) }}
         VECTOR_SNAPSHOT_URL: ${{ contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && 'http://127.0.0.1:8686' || '' }}
         OBSERVABILITY_ENDPOINT: ${{ github.event.inputs.observability_endpoint || 'https://observability.svc.plus' }}
-      run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_monitor_agent.sh
+      run: ${{ github.workspace }}/playbooks/scripts/pipeline/deploy-monitor-agent.sh
 
     - name: Verify Xray to Billing ingest chain
       if: ${{ contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) }}
@@ -2604,7 +2604,7 @@ jobs:
         MATRIX_HOST: ${{ matrix.host }}
         ANSIBLE_INVENTORY: ../cmdb/inventory.ini
         VECTOR_BILLING_INGEST_URL: ${{ format('{0}/v1/ingest/snapshots', needs.provision.outputs.billing_service_base_url) }}
-      run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_verify-xray-billing-chain.sh
+      run: ${{ github.workspace }}/playbooks/scripts/pipeline/verify-xray-billing-chain.sh
 
   trigger_data_migration:
     name: "[3] Data Migration"

@@ -187,7 +187,7 @@ if [[ -n "${role_filter}" ]]; then
   echo "=== Skipping dynamic Akamai roles in targeted role mode ==="
 elif [[ -n "${AKAMAI_ACCOUNT_UAT:-}" || -n "${AKAMAI_ACCOUNT_PROD:-}" ]]; then
   echo "=== Provisioning dynamic Akamai Cloud/Linode OIDC roles ==="
-  akamai_script="${SCRIPT_DIR}/vault/bootstrap_akamai_oidc_roles.sh"
+  akamai_script="${SCRIPT_DIR}/cloud/bootstrap/Akamai-Cloud/bootstrap_akamai_oidc_roles.sh"
   if [[ "$mode" == check ]]; then
     bash "${akamai_script}" --check --env "${akamai_env}"
   else

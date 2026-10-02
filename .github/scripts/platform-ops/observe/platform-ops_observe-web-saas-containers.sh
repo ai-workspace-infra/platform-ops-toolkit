@@ -7,8 +7,8 @@ set -euo pipefail
 # Doco-CD managed containers over SSH, while the calling job separately checks
 # public ingress, TLS, redirects, and endpoint responses.
 
-. "$(dirname "${BASH_SOURCE[0]}")/../provision/common_require_env.sh"
-. "$(dirname "${BASH_SOURCE[0]}")/../provision/common_cmdb_ssh_login.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../../lib/require-env.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../../lib/cmdb-ssh-login.sh"
 require_env MATRIX_HOST
 
 timeout_seconds="${WEB_SAAS_CONTAINER_READY_TIMEOUT_SECONDS:-120}"

@@ -12,7 +12,7 @@ scripts=(
   .github/scripts/platform-ops/observe/platform-ops_observe-web-saas-containers.sh
 )
 for script in "${scripts[@]}"; do
-  grep -Fq 'common_cmdb_ssh_login.sh' "${repo_root}/${script}" || { echo "${script} must resolve the CMDB SSH user" >&2; exit 1; }
+  grep -Fq 'lib/cmdb-ssh-login.sh' "${repo_root}/${script}" || { echo "${script} must resolve the CMDB SSH user" >&2; exit 1; }
   if grep -Fq 'root@' "${repo_root}/${script}"; then
     echo "${script} must not hard-code a root login" >&2
     exit 1
