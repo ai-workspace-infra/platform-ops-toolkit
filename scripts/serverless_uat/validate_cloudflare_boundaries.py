@@ -115,6 +115,8 @@ def main() -> int:
         endpoint = public_endpoints[service]
         endpoint_mode = hybrid_endpoint_modes[service] if mode == "hybrid" else mode
         expected_host = f"{service}-{endpoint_mode}-{environment}.{mode_suffix}"
+        if service == "agent-proxy" and mode == "hybrid" and environment == "prod":
+            expected_host = f"agent-proxy-selfhost-prod-jp.{mode_suffix}"
         if service in {"accounts", "billing"}:
             expected_host = f"{service}.svc.plus" if environment == "prod" else f"{service}-{environment}.onwalk.net"
         if endpoint.get("host") != expected_host:

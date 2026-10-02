@@ -83,6 +83,8 @@ def main() -> int:
             expected_host = f"agent-proxy-selfhost-{expected_environment}-jp.{expected_environment_zone}"
         else:
             expected_host = f"{service}-selfhost-{expected_environment}.{expected_environment_zone}"
+        if service in {"accounts", "billing"} and expected_environment in {"uat", "prod"}:
+            expected_host = f"{service}{"" if expected_environment == "prod" else "-" + expected_environment}.{expected_environment_zone}"
         if endpoint.get("host") != expected_host:
             fail(f"public_endpoints.{service}.host must be {expected_host}")
         if endpoint.get("access") != access:
