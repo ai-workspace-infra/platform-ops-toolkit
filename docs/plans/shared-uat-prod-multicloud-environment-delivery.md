@@ -73,7 +73,7 @@ terraform/shared/open-platform-shared-510113/gcp-cloud/open-platform-shared/open
 | 顺序 | Namespace | 管理模式 | Provider | 规格 / 生命周期 |
 | --- | --- | --- | --- | --- |
 | 1 | `web-saas` | 持久主机 + Serverless | GCP | 独立业务主机；允许 stop/start，禁止 destroy；规格显式声明 |
-| 2 | `ai-workspace` | Terraform | GCP Spot | 4C，最长运行 3600 秒；内存待最新 GitOps 确认，前版为 8G |
+| 2 | `ai-workspace` | Existing Selfhost | GCP/private | 默认复用 GitOps 声明的现有主机；不创建 Terraform VM；如需新建必须显式开启独立 IaC 流程 |
 | 3 | `agent-proxy-jp` | Terraform | AWS Spot | 2C2G，租约最长 3600 秒 |
 | 4 | `agent-proxy-us` | Terraform | GCP Spot | 2C2G，最长运行 3600 秒 |
 | 5 | `agent-proxy-sg` | Terraform | GCP Spot | 2C2G，最长运行 3600 秒 |
@@ -85,7 +85,7 @@ UAT TW/PH 是否继续参加 `all`，应在新 GitOps matrix 中显式决定；�
 | 顺序 | Namespace | 管理模式 | Provider | 规格 / 生命周期 |
 | --- | --- | --- | --- | --- |
 | 1 | `web-saas` | 持久主机 + Serverless | GCP | 独立业务主机；允许 stop/start，禁止 destroy |
-| 2 | `ai-workspace` | Terraform | GCP Spot | 4C8G，最长运行 3600 秒；不再默认复用私网旧节点 |
+| 2 | `ai-workspace` | Existing Selfhost | GCP/private | 默认复用 GitOps 声明的现有主机；不创建 Terraform VM；如需新建必须显式开启独立 IaC 流程 |
 | 3 | `agent-proxy-jp` | Terraform | AWS | 2C2G，持久，禁止 destroy |
 | 4 | `agent-proxy-us` | Terraform | GCP | 2C2G，持久，禁止 destroy |
 | 5 | `agent-proxy-sg` | Terraform | Akamai Cloud | 2C2G，持久，禁止 destroy |
