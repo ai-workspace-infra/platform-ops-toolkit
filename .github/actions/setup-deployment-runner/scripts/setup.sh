@@ -78,17 +78,42 @@ wait_for_ssh() {
   # guest networking and sshd have converged, so allow one bounded 20-minute
   # window for that first boot rather than failing a valid UAT rollout at 10m.
   local timeout_secs="${HOST_SSH_WAIT_TIMEOUT:-1200}"
+  # A rejected key means sshd is up and the network path works; only the
+  # credential is wrong, so waiting out the full boot window cannot help.
+  # Keep a short grace for OS Login key propagation, then fail with the cause.
+  local auth_grace_secs="${HOST_SSH_AUTH_FAILURE_GRACE:-300}"
   local deadline=$((SECONDS + timeout_secs))
+  local err_file last_err='' err='' auth_failed_since=''
+  err_file="$(mktemp)"
   echo "Waiting for SSH to become ready on ${ACTION_MATRIX_HOST} (${target_user}@${target_ip}:${target_port})..."
   while ((SECONDS < deadline)); do
-    if ssh_with_timeout 12 "${ssh_options[@]}" "${target_user}@${target_ip}" true 2>/dev/null; then
+    if ssh_with_timeout 12 "${ssh_options[@]}" "${target_user}@${target_ip}" true 2>"${err_file}"; then
+      rm -f "${err_file}"
       echo "SSH is ready on ${ACTION_MATRIX_HOST} (${target_ip}:${target_port})."
       return
+    fi
+    # The probe is bounded by timeout(1), which exits silently on expiry.
+    err="$(grep -v '^Warning: Permanently added' "${err_file}" | tail -n 1 || true)"
+    [[ -n "${err}" ]] || err='no response before the SSH probe timeout (banner or key exchange stalled)'
+    if [[ "${err}" != "${last_err}" ]]; then
+      echo "waiting: ${err}"
+      last_err="${err}"
+    fi
+    if [[ "${err}" == *'Permission denied'* || "${err}" == *'Too many authentication failures'* ]]; then
+      auth_failed_since="${auth_failed_since:-${SECONDS}}"
+      if ((SECONDS - auth_failed_since >= auth_grace_secs)); then
+        rm -f "${err_file}"
+        echo "::error::SSH on ${ACTION_MATRIX_HOST} (${target_ip}:${target_port}) is reachable but kept rejecting the deploy key for ${auth_grace_secs}s: ${err}" >&2
+        exit 1
+      fi
+    else
+      auth_failed_since=''
     fi
     sleep 3
   done
 
-  echo "::error::Timed out waiting for SSH on ${ACTION_MATRIX_HOST} (${target_ip}:${target_port}) after ${timeout_secs}s" >&2
+  rm -f "${err_file}"
+  echo "::error::Timed out waiting for SSH on ${ACTION_MATRIX_HOST} (${target_ip}:${target_port}) after ${timeout_secs}s; last error: ${last_err:-none}" >&2
   exit 1
 }
 

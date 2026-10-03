@@ -80,6 +80,46 @@ bash "${script}"
 grep -Fq -- '-p 2222' "${workdir}/ssh.log"
 grep -Fq 'admin@198.51.100.22 true' "${workdir}/ssh.log"
 
+# A rejected key fails after the auth grace instead of the full boot window,
+# and the SSH error that caused it reaches the job log.
+cat >"${workdir}/bin/ssh" <<'EOF'
+#!/usr/bin/env bash
+echo "Warning: Permanently added '198.51.100.22' (ED25519) to the list of known hosts." >&2
+echo "${SSH_FAKE_ERROR}" >&2
+exit 255
+EOF
+chmod +x "${workdir}/bin/ssh"
+
+run_failing_wait() {
+  local rc=0
+  PATH="${workdir}/bin:${PATH}" \
+  SSH_FAKE_ERROR="$1" \
+  HOST_SSH_WAIT_TIMEOUT="$2" \
+  HOST_SSH_AUTH_FAILURE_GRACE=0 \
+  HOME="${workdir}/home" \
+  ACTION_SSH_KEY_B64="${key_b64}" \
+  ACTION_MATRIX_HOST=hk-xconnect.onwalk.net \
+  ACTION_CMDB_FILE="${workdir}/cmdb.json" \
+  ACTION_WAIT_FOR_SSH=true \
+  ACTION_WAIT_FOR_PACKAGE_INIT=false \
+  ACTION_INSTALL_ANSIBLE=false \
+  ACTION_ASSERT_ANSIBLE_TARGET=false \
+  ACTION_ANSIBLE_INVENTORY="${workdir}/inventory.ini" \
+  bash "${script}" >"${workdir}/wait.log" 2>&1 || rc=$?
+  test "${rc}" -ne 0
+}
+
+SECONDS=0
+run_failing_wait 'admin@198.51.100.22: Permission denied (publickey).' 600
+((SECONDS < 60))
+grep -Fq 'waiting: admin@198.51.100.22: Permission denied (publickey).' "${workdir}/wait.log"
+grep -Fq 'kept rejecting the deploy key' "${workdir}/wait.log"
+if grep -Fq 'Permanently added' "${workdir}/wait.log"; then exit 1; fi
+
+run_failing_wait 'ssh: connect to host 198.51.100.22 port 2222: Connection timed out' 1
+grep -Fq 'after 1s; last error: ssh: connect to host 198.51.100.22 port 2222: Connection timed out' "${workdir}/wait.log"
+if grep -Fq 'kept rejecting the deploy key' "${workdir}/wait.log"; then exit 1; fi
+
 cat >"${workdir}/bin/python3" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"${PYTHON_LOG}"
