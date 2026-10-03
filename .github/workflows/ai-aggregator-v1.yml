@@ -16,6 +16,7 @@ on:
     paths:
       - '.github/workflows/ai-aggregator-v1.yml'
       - 'scripts/ci/validate_ai_aggregator_manifest.py'
+      - 'scripts/ci/test_ai_aggregator_auth_contract.py'
   workflow_dispatch:
     inputs:
       operation:
@@ -91,6 +92,8 @@ jobs:
             while IFS= read -r -d '' manifest; do
               python3 scripts/ci/validate_ai_aggregator_manifest.py "$manifest"
             done
+      - name: Verify user-token and entry-mode contract
+        run: python3 -m unittest discover -s scripts/ci -p test_ai_aggregator_auth_contract.py
       - name: Reject deprecated AI Aggregator Vault references
         run: |
           if rg -n --glob 'ai-aggregator*.yaml' \
@@ -112,6 +115,7 @@ jobs:
       akamai_matrix: ${{ steps.provider.outputs.akamai_matrix }}
       deployment_environment: ${{ steps.provider.outputs.deployment_environment }}
       ref_scope: ${{ steps.provider.outputs.ref_scope }}
+      deployment_enabled: ${{ steps.provider.outputs.deployment_enabled }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -194,6 +198,7 @@ jobs:
                   f'provider={adapter}\nenvironment={environment}\n'
                   f'profile={profile}\n'
                   f'deployment_environment={environment}\n'
+                  f"deployment_enabled={str(data['spec'].get('enabled', False)).lower()}\n"
                   f'ref_scope={ref_scope}\n'
               )
               output.write(f'manifest_path={manifest_path}\n')
@@ -238,7 +243,8 @@ jobs:
     if: >-
       ${{ needs.resolve-provider.outputs.provider == 'aws' &&
       needs.resolve-provider.outputs.deployment_environment == 'uat' &&
-      ((github.event_name == 'push' && vars.AI_AGGREGATOR_UAT_ENABLED == 'true') ||
+      ((github.event_name == 'push' && vars.AI_AGGREGATOR_UAT_ENABLED == 'true' &&
+      needs.resolve-provider.outputs.deployment_enabled == 'true') ||
       (github.event_name == 'workflow_dispatch' &&
       contains(fromJSON('["apply","provision","stage","activate"]'), inputs.operation))) }}
     runs-on: ubuntu-latest
@@ -376,7 +382,8 @@ jobs:
     if: >-
       ${{ needs.resolve-provider.outputs.provider == 'gcp' &&
       needs.resolve-provider.outputs.deployment_environment == 'uat' &&
-      ((github.event_name == 'push' && vars.AI_AGGREGATOR_UAT_ENABLED == 'true') ||
+      ((github.event_name == 'push' && vars.AI_AGGREGATOR_UAT_ENABLED == 'true' &&
+      needs.resolve-provider.outputs.deployment_enabled == 'true') ||
       (github.event_name == 'workflow_dispatch' &&
       contains(fromJSON('["apply","provision","stage","activate"]'), inputs.operation))) }}
     runs-on: ubuntu-latest
@@ -660,7 +667,8 @@ jobs:
     if: >-
       ${{ needs.resolve-provider.outputs.provider == 'vps' &&
       needs.resolve-provider.outputs.deployment_environment == 'uat' &&
-      ((github.event_name == 'push' && vars.AI_AGGREGATOR_UAT_ENABLED == 'true') ||
+      ((github.event_name == 'push' && vars.AI_AGGREGATOR_UAT_ENABLED == 'true' &&
+      needs.resolve-provider.outputs.deployment_enabled == 'true') ||
       (github.event_name == 'workflow_dispatch' &&
       contains(fromJSON('["apply","provision","stage","activate"]'), inputs.operation))) }}
     runs-on: ubuntu-latest
