@@ -29,7 +29,11 @@ accounts_source_backend="${ACCOUNTS_SOURCE_BACKEND:-supabase}"
 serverless_operation="${SERVERLESS_OPERATION:-}"
 wait_timeout_seconds="${UAT_SERVERLESS_WAIT_TIMEOUT_SECONDS:-3600}"
 wait_interval_seconds="${UAT_SERVERLESS_WAIT_INTERVAL_SECONDS:-30}"
-selfhost_wait_timeout_seconds="${UAT_SELFHOST_WAIT_TIMEOUT_SECONDS:-3600}"
+# The Hybrid child runs the complete ordered UAT matrix. Its normal path is
+# longer than one hour, so the parent must not declare a healthy child failed
+# at the old 60-minute boundary. Keep the legacy override for callers that
+# deliberately use a shorter bounded test budget.
+selfhost_wait_timeout_seconds="${UAT_SELFHOST_WAIT_TIMEOUT_SECONDS:-10800}"
 
 [[ "${snapshot_tag}" =~ ^(uat-)?daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?$ ]] || {
   echo "::error::Refusing to dispatch UAT with a non-immutable snapshot tag: ${snapshot_tag}" >&2

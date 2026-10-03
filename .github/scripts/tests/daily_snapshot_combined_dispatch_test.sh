@@ -6,6 +6,8 @@ dispatcher="${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
 workdir="$(mktemp -d)"
 trap 'rm -rf "${workdir}"' EXIT
 
+grep -Fq 'selfhost_wait_timeout_seconds="${UAT_SELFHOST_WAIT_TIMEOUT_SECONDS:-10800}"' "${dispatcher}"
+
 cat > "${workdir}/gh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
