@@ -71,44 +71,65 @@ def main() -> None:
         fail("Caddy must be the public entrypoint")
 
     gateway = spec.get("gateway", {})
-    if gateway.get("adapter") != "apisix":
-        fail("AI Aggregator v1 must select the APISIX adapter")
-    if gateway.get("mode") != "standalone" or gateway.get("runtime_config_backend") != "gitops-file":
-        fail("APISIX must use standalone GitOps-file configuration")
-    if gateway.get("etcd"):
-        fail("APISIX v1 must not use etcd")
-    if "kong" in spec:
-        fail("legacy Kong configuration must not be present in the APISIX v1 manifest")
-    apisix = spec.get("apisix", {})
-    if apisix.get("bind_address") != "127.0.0.1" or apisix.get("proxy_port") != 9080:
-        fail("APISIX must bind to 127.0.0.1:9080")
-    if not isinstance(apisix.get("runtime_secret_refs"), dict) or not apisix["runtime_secret_refs"]:
-        fail("APISIX must declare runtime Vault secret references")
-    client_key_ref = str(apisix["runtime_secret_refs"].get("AI_GATEWAY_CLIENT_KEY", ""))
-    if client_key_ref != f"{expected_env_prefix}gateway/apisix#bootstrap_client_key":
-        fail("APISIX client key must be referenced from gateway/apisix in Vault")
+    entry_mode = gateway.get("entry_mode", "gateway")
+    adapter = gateway.get("adapter")
+    if entry_mode not in {"gateway", "direct-new-api"}:
+        fail("gateway.entry_mode must be gateway or direct-new-api")
+    if gateway.get("client_token_source") != "new-api":
+        fail("New API must remain the sole source of user/ledger API tokens")
+    if entry_mode == "gateway":
+        if adapter not in {"apisix", "kong"}:
+            fail("gateway.adapter must select apisix or kong when entry_mode is gateway")
+        if adapter == "apisix":
+            if gateway.get("mode") != "standalone" or gateway.get("runtime_config_backend") != "gitops-file":
+                fail("APISIX must use standalone GitOps-file configuration")
+            if gateway.get("etcd"):
+                fail("APISIX standalone v1 must not use etcd")
+            apisix = spec.get("apisix", {})
+            if apisix.get("bind_address") != "127.0.0.1" or apisix.get("proxy_port") != 9080:
+                fail("APISIX must bind to 127.0.0.1:9080")
+            if apisix.get("auth_mode") != "new-api-token-pass-through":
+                fail("APISIX must pass the original New API user token through; bootstrap keys are not user tokens")
+            if apisix.get("runtime_secret_refs", {}) not in ({}, None):
+                fail("APISIX must not inject a bootstrap client key; runtime_secret_refs must be empty")
+        elif adapter == "kong":
+            kong = spec.get("kong", {})
+            if gateway.get("mode") != "traditional" or gateway.get("runtime_config_backend") != "postgresql":
+                fail("Kong must use traditional mode with PostgreSQL configuration storage")
+            if gateway.get("etcd"):
+                fail("Kong v1 must not use etcd")
+            if kong.get("bind_address") != "127.0.0.1" or kong.get("proxy_port") != 8000:
+                fail("Kong must bind to 127.0.0.1:8000")
+            if kong.get("database_secret_ref") != f"{expected_env_prefix}gateway/kong#database_dsn":
+                fail("Kong PostgreSQL DSN must use gateway/kong#database_dsn in Vault")
+            if kong.get("auth_mode") != "new-api-token-pass-through":
+                fail("Kong must pass the original New API user token through; it must not replace it with a Consumer key")
+    elif adapter not in {None, "", "none", "apisix", "kong"}:
+        fail("direct-new-api mode has an unsupported dormant adapter")
     
     # Environment to domain binding check:
     domain = entrypoint.get("domain", "")
-    if "direct_api_domain" in entrypoint or "direct_api_domain" in spec.get("litellm", {}):
-        fail("v1 uses one hostname; route LiteLLM with the APISIX /litellm path prefix")
     if env == "uat":
-        if domain != "ai.onwalk.net":
-            fail(f"UAT environment must bind to ai.onwalk.net (got: {domain})")
+        if domain not in {"ai.onwalk.net", "ai-internal.onwalk.net"}:
+            fail(f"UAT environment has an unsupported AI Gateway domain (got: {domain})")
     elif env == "prod":
         if domain != "ai.svc.plus":
             fail(f"PROD environment must bind to ai.svc.plus (got: {domain})")
 
     routes = gateway.get("routes", {})
-    if routes.get("new_api", {}).get("path") != "/":
-        fail("APISIX must route the single-host default path to New API")
-    litellm_route = routes.get("litellm", {})
-    if litellm_route.get("path_prefix") != "/litellm" or not litellm_route.get("strip_path"):
-        fail("APISIX must route /litellm/* to LiteLLM and strip only the /litellm prefix")
+    if entry_mode == "gateway":
+        if routes.get("new_api", {}).get("path") != "/":
+            fail("gateway must route the single-host default path to New API")
+        if routes.get("new_api", {}).get("upstream") != "new-api":
+            fail("gateway must preserve New API as the user ledger upstream")
+    elif routes and routes.get("new_api", {}).get("upstream") != "new-api":
+        fail("direct-new-api mode must route the default path to New API")
+    if routes.get("litellm"):
+        fail("public LiteLLM routes bypass New API accounting; configure LiteLLM as a New API channel")
 
     allowed_vault_ref = re.compile(
         rf"^{re.escape(expected_env_prefix)}"
-        r"(?:database/(?:new-api|litellm)|gateway/(?:caddy|apisix|new-api|litellm)|"
+        r"(?:database/(?:new-api|litellm)|gateway/(?:caddy|kong|new-api|litellm)|"
         r"litellm/providers/(?:openai|anthropic|xai))#"
     )
     for value in iter_strings(data):
@@ -214,15 +235,15 @@ def main() -> None:
             fail(f"client profile {client_id} must use HTTPS")
         if not profile.get("model_alias"):
             fail(f"client profile {client_id} must declare a model alias")
-        if profile.get("token_source") not in {"database", "kong"}:
-            fail(f"client profile {client_id} tokens must be managed by Kong or the service database")
+        if profile.get("token_source") != "new-api":
+            fail(f"client profile {client_id} must use New API user tokens, not gateway/bootstrap credentials")
     if client_profiles["claude-code"].get("chain") != "new-api-cpa":
         fail("Claude Code must use the New API -> CPA chain")
-    if client_profiles["android-studio"].get("chain") != "litellm-direct":
-        fail("Android Studio must use the OpenAI-compatible LiteLLM chain")
-    expected_litellm_url = f"https://{domain}/litellm/v1"
+    if client_profiles["android-studio"].get("chain") != "new-api-litellm":
+        fail("Android Studio must use LiteLLM through a New API channel")
+    expected_litellm_url = f"https://{domain}/v1"
     if client_profiles["android-studio"].get("base_url") != expected_litellm_url:
-        fail(f"Android Studio must use the shared hostname LiteLLM path: {expected_litellm_url}")
+        fail(f"Android Studio must use the New API ledger endpoint: {expected_litellm_url}")
 
     # Testing environment constraints for UAT: AWS Spot t4g 1h rule
     test_env = spec.get("testing_environment")
