@@ -632,6 +632,36 @@ jobs:
       run: |-
         ${{ github.workspace }}/infra/iac_modules/scripts/pipeline/terraform-init.sh
 
+    - name: Reconcile GitOps GCP external-IP allowlist
+      if: >-
+        ${{ steps.route.outputs.run_infrastructure == 'true' &&
+        steps.route.outputs.terraform_action == 'apply' &&
+        steps.route.outputs.deployment_env == 'uat' &&
+        steps.route.outputs.cloud_provider == 'gcp-cloud' }}
+      env:
+        PROJECT_ID: ${{ steps.gcp_oidc.outputs.project_id }}
+        OPEN_PLATFORM_MANIFEST: ${{ github.workspace }}/gitops/resources/onwalk.net/uat/gcp/open-platform.yaml
+      run: |
+        set -euo pipefail
+        [[ -n "${PROJECT_ID:-}" ]] || { echo 'GCP_PROJECT_ID is required for the UAT external-IP policy reconciliation' >&2; exit 1; }
+        [[ -f "${OPEN_PLATFORM_MANIFEST}" ]] || { echo "Missing GitOps policy owner manifest: ${OPEN_PLATFORM_MANIFEST}" >&2; exit 1; }
+        desired_json="$(ruby -ryaml -rjson -e '
+          doc = YAML.safe_load(File.read(ARGV.fetch(0)))
+          abort "manifest project does not match runtime project" unless doc.dig("global", "project_id") == ARGV.fetch(1)
+          values = Array(doc.dig("global", "external_ip_allowed_instances")).map { |item| "projects/#{ARGV.fetch(1)}/zones/#{item.fetch("zone")}/instances/#{item.fetch("name")}" }
+          abort "GitOps external_ip_allowed_instances is empty" if values.empty?
+          puts JSON.generate(values)
+        ' "${OPEN_PLATFORM_MANIFEST}" "${PROJECT_ID}")"
+        current_json="$(gcloud resource-manager org-policies describe \
+          constraints/compute.vmExternalIpAccess --project="${PROJECT_ID}" --format=json 2>/dev/null || printf '{}')"
+        policy_file="${RUNNER_TEMP}/gcp-vm-external-ip-policy.json"
+        jq -n --argjson current "$(jq -c '.listPolicy.allowedValues // .spec.rules[0].values.allowedValues // []' <<<"${current_json}")" \
+          --argjson desired "${desired_json}" \
+          '{constraint:"constraints/compute.vmExternalIpAccess",listPolicy:{allowedValues:(($current + $desired)|unique|sort)}}' \
+          >"${policy_file}"
+        gcloud resource-manager org-policies set-policy "${policy_file}" --project="${PROJECT_ID}" --quiet
+        echo "Reconciled compute.vmExternalIpAccess for ${PROJECT_ID}."
+
     - name: Adopt existing UAT external IP policy into open-platform state
       if: >-
         ${{ steps.route.outputs.run_infrastructure == 'true' &&
