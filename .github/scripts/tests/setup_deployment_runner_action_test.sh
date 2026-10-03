@@ -6,7 +6,7 @@ script="${repo_root}/.github/actions/setup-deployment-runner/scripts/setup.sh"
 workdir="$(mktemp -d)"
 trap 'rm -rf "${workdir}"' EXIT
 
-grep -Fq 'local timeout_secs="${HOST_SSH_WAIT_TIMEOUT:-600}"' "${script}"
+grep -Fq 'local timeout_secs="${HOST_SSH_WAIT_TIMEOUT:-1200}"' "${script}"
 
 mkdir -p "${workdir}/input" "${workdir}/home"
 ssh-keygen -q -t ed25519 -N '' -f "${workdir}/input/id_deploy"

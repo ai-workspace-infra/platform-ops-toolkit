@@ -73,7 +73,11 @@ wait_for_ssh() {
   # Fresh cloud VMs can take several minutes to finish first-boot networking
   # and start sshd. Keep this bounded, but don't fail normal deployments just
   # because cloud-init exceeded the former three-minute window.
-  local timeout_secs="${HOST_SSH_WAIT_TIMEOUT:-600}"
+  # Terraform may stop/start a GCP Spot VM while changing its machine type or
+  # external IP. RUNNING and OS Login key registration can complete before
+  # guest networking and sshd have converged, so allow one bounded 20-minute
+  # window for that first boot rather than failing a valid UAT rollout at 10m.
+  local timeout_secs="${HOST_SSH_WAIT_TIMEOUT:-1200}"
   local deadline=$((SECONDS + timeout_secs))
   echo "Waiting for SSH to become ready on ${ACTION_MATRIX_HOST} (${target_user}@${target_ip}:${target_port})..."
   while ((SECONDS < deadline)); do
