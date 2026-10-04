@@ -67,7 +67,7 @@
 - Role 只验证/落盘 PEM、保护密钥权限与原子 generation；不重启/重载 Caddy，不声称 served TLS 已启用。
 - UAT `37215201217` 与 `37215988175` 均在 Services GitHub App installation token 仓库查找阶段失败，未到 tag validator、resolver/build 或 child deployment。Observed failure 不是 tag 格式错误。
 - main push `37216013410` success，但实际 deployment/acceptance jobs 全 skipped，Role 未执行。独立 HTTP 200/readiness 现状未绑定本批 tag/commit/digest，不作为本批验收。
-- 主线已由 #1276（`ec7bc9b1eea38e6fdb05abb72589426c55f8c118`）将 Services 仓库错名 `postgresql.svc.plus` 修为 `postgresql`；新 UAT run `37217324603` 正在执行。修复/派发不等于 Role-host 验收通过，结果仍待跟踪。
+- 主线已由 #1276（`ec7bc9b1eea38e6fdb05abb72589426c55f8c118`）将 Services 仓库错名 `postgresql.svc.plus` 修为 `postgresql`。新 UAT parent `37217324603` 最终 FAILURE（metadata `2026-10-04T16:48:51Z`）：四组 snapshot/build SUCCESS，但 summary 的 dispatch-and-wait step FAILURE；Hybrid `37217650094` ordered resource lanes FAILURE，routing verification SKIPPED。Selfhost `37217833619` success 仍仅 Prepare/summary、执行 jobs SKIPPED。不据此声称固定 Role 已运行或完整 UAT 通过；具体 lane 根因由主线继续诊断。
 - cleanup 跟踪 [#1275](https://github.com/ai-workspace-infra/platform-ops-toolkit/issues/1275) 仍 OPEN；旧 Toolkit 证书恢复脚本保留。需实际运行固定 Role、记录精确目标/证书权限/幂等与失败边界/runtime vars cleanup 后，才能单独提出删除 PR。管理员 App 权限与 Vault 凭据变更需授权操作人处理。
 
 ---
@@ -191,7 +191,7 @@ Toolkit `ec7bc9b1` 下 `git ls-tree -r --name-only HEAD .github/scripts` 为 **1
    - `docs/agent/2026-10-04-execution-ownership-migration-handoff.md` 已全面重构，明确四个架构边界与后续顺序。
 2. **后续推进路线**：
    - **Step 1**：（已完成）本文档更新已由 #1270 合入，本次仅做事实纠正与经验补充。
-   - **Step 2**：（owner/caller 已完成）P1b #570/#1273 已合并；#1276 已修复 Services repo 错名，run `37217324603` 运行中。真实 Role UAT 与 cleanup 仍未验收，在 #1275 跟进固定 Role 实际执行证据。
+   - **Step 2**：（owner/caller 已完成）P1b #570/#1273 已合并；#1276 已修复 Services repo 错名，但 run `37217324603` 最终 FAILURE。真实 Role UAT 与 cleanup 仍未验收，在 #1275 跟进固定 Role 实际执行证据，旧副本保留。
    - **Step 3**：（owner 已合并）主线 #393 已提供 gateway single-A owner；下一步单独 Toolkit caller 固定 `a0185e61fc2b41ac4dbd40c8037016aaef1b3973`。当前未切 caller、未 UAT、未 cleanup；未覆盖的 DNS legacy 均保留。
    - **Step 4**：按 P2b canonical/SIT、P3 XConnect、P4 SMTP 和横向 GCP access/扫描器任务分批推进。每一批先核对实际执行与全部 caller，不直接复制混合脚本。
 
