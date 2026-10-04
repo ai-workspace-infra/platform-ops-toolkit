@@ -81,7 +81,7 @@ tag_file() { printf '%s/%s@%s' "${tags_dir}" "${1//\//__}" "$2"; }
 seed_uat_tags
 : > "${workdir}/output"
 run_promote >/dev/null
-for repository in accounts billing-service content-service portal edge-gateway frontend-router postgresql.svc.plus; do
+for repository in accounts billing-service content-service portal edge-gateway frontend-router postgresql; do
   file="$(tag_file "ai-workspace-services/${repository}" "${release_tag}")"
   [[ -e "${file}" ]] || { echo "Missing release tag for ${repository}" >&2; exit 1; }
   [[ "$(cat "${file}")" == "$(sha_for "ai-workspace-services/${repository}")" ]] || {
