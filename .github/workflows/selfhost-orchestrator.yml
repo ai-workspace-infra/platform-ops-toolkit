@@ -1725,6 +1725,22 @@ jobs:
         CMDB_FILE: cmdb/cmdb.json
       run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_observe-web-saas-containers.sh
 
+    - name: Checkout immutable Accounts upgrade source
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-services/accounts
+        ref: ${{ needs.provision.outputs.deploy_tag }}
+        path: upgrade-accounts-source
+        sparse-checkout: sql/migrations
+        persist-credentials: false
+
+    - name: Resolve exact schema target from the Accounts artifact source
+      env:
+        DEPLOY_TAG: ${{ needs.provision.outputs.deploy_tag }}
+      run: >-
+        python3 .github/scripts/platform-ops/observe/resolve-accounts-upgrade-target.py
+        --source upgrade-accounts-source --tag "$DEPLOY_TAG" >> "$GITHUB_ENV"
+
     - name: Verify Accounts/Console, running images, schema and data preservation
       env:
         CMDB_FILE: cmdb/cmdb.json
@@ -2148,6 +2164,7 @@ jobs:
         DB_INIT_RESULT: ${{ needs.initialize_web_saas_databases.result }}
         WEB_SAAS_BASELINE_RESULT: ${{ needs.capture_web_saas_baseline.result }}
         WEB_SAAS_ACCEPTANCE_RESULT: ${{ needs.accept_web_saas_upgrade.result }}
+        RUN_APPLICATION_DEPLOY: ${{ needs.provision.outputs.run_application_deploy }}
         AGENT_PROXY_DEPLOY_RESULT: ${{ needs.deploy_agent_proxy.result }}
         AGENT_PROXY_NON_IAC_DEPLOY_RESULT: ${{ needs.deploy_agent_proxy_non_iac.result }}
         DNS_UPDATE_RESULT: ${{ needs.switch_dns.result }}

@@ -34,6 +34,13 @@ else
   render_summary
 fi
 
+if [[ "${DEPLOYMENT_ENV:-}" == uat && "${RUN_APPLICATION_DEPLOY:-false}" == true &&
+      ( "${TARGET_DOMAINS:-}" == all || "${TARGET_DOMAINS:-}" == *web-saas* ) &&
+      "${WEB_SAAS_ACCEPTANCE_RESULT:-}" != success ]]; then
+  echo "::error::BLOCKED: UAT Web SaaS upgrade acceptance was failed, skipped or not executed; deployment success is not business acceptance." >&2
+  exit 1
+fi
+
 if [[ "${DEPLOYMENT_ENV:-}" == "uat" && "${TARGET_DOMAINS:-}" == "all" &&
       "${XCONNECT_ZERO_UAT_RESULT:-}" != "success" ]]; then
   echo "::error::UAT target_domains=all requires a successful XConnect Zero UAT run" >&2

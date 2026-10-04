@@ -28,10 +28,12 @@ write_manifest() {
       {service:"accounts", image:$ia, tag:$tag, digest:$da, source_repository:"ai-workspace-services/accounts", source_sha:$sha},
       {service:"billing-service", image:$ib, tag:$tag, digest:$da, source_repository:"ai-workspace-services/billing-service", source_sha:$sha},
       {service:"content-service", image:$ic, tag:$tag, digest:$da, source_repository:"ai-workspace-services/content-service", source_sha:$sha}]}' > "$1"
+  jq -f "${repo_root}/.github/scripts/tests/fixtures/uat-upgrade-acceptance.jq" "$1" > "$1.proof"
+  mv "$1.proof" "$1"
 }
 write_run() {
   jq -n --arg status "${2:-completed}" --arg conclusion "${3:-success}" --arg path "${4:-.github/workflows/hybrid-orchestrator.yml}" \
-    '{id:4242, path:$path, status:$status, conclusion:(if $conclusion == "" then null else $conclusion end)}' > "$1"
+    '{id:4242, path:$path, head_branch:"main", event:"workflow_dispatch", status:$status, conclusion:(if $conclusion == "" then null else $conclusion end)}' > "$1"
 }
 
 # --- validator --------------------------------------------------------------
@@ -149,6 +151,8 @@ for field in digest source_sha image; do
     source_sha) jq '.images[0].source_sha = "dddddddddddddddddddddddddddddddddddddddd"' "${work}/good.json" > "${work}/tampered.json" ;;
     image) jq '.images[0].image = "asia-east1-docker.pkg.dev/foreign-project/serverless/accounts"' "${work}/good.json" > "${work}/tampered.json" ;;
   esac
+  jq '.upgrade_acceptance.images = (.images | sort_by(.service))' "${work}/tampered.json" > "${work}/tampered-proof.json"
+  mv "${work}/tampered-proof.json" "${work}/tampered.json"
   # Demonstrate that the former shape + successful-run gate alone accepts
   # this substitution, so the artifact comparison is a distinct regression.
   python3 "${verifier}" --manifest "${work}/tampered.json" --uat-run-json "${work}/run-ok.json" \
@@ -288,13 +292,11 @@ assert hsteps[hnames.index("Upload the UAT artifact manifest")]["with"]["name"] 
 
 daily = load("daily-main-snapshot.yaml")
 summary = {s.get("name"): s for s in daily["jobs"]["snapshot-summary"]["steps"]}
-assert summary["Dispatch UAT Hybrid Orchestrator"]["env"]["UAT_PROMOTION_MANIFEST_FILE"]
-upload = summary["Upload the verified UAT promotion manifest"]
-assert upload["if"] == "${{ steps.dispatch_uat_hybrid.outcome == 'success' }}"
-assert upload["with"]["name"] == "uat-promotion-manifest" and upload["with"]["if-no-files-found"] == "error"
-promote_steps = {s.get("name"): s for s in daily["jobs"]["promote-prod"]["steps"]}
-assert promote_steps["Download the verified UAT promotion manifest"]["with"]["name"] == "uat-promotion-manifest"
-assert promote_steps["Dispatch promoted PROD serverless and selfhost deployment"]["env"]["PROMOTION_MANIFEST_FILE"]
+assert "dispatch-uat-combined.sh" in summary["Dispatch UAT Hybrid Orchestrator"]["run"]
+# Daily was restricted to SIT/UAT in #1235. Keep the executable PROD
+# preflight tests above without restoring removed production jobs.
+assert "prod" not in daily[True]["workflow_dispatch"]["inputs"]["deploy_env"]["options"]
+assert "promote-prod" not in daily["jobs"]
 PY
 
 echo "prod_same_digest_promotion_test: PASS"

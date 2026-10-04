@@ -116,7 +116,8 @@ fi
 normalized="$(RUN_REPOSITORY="${repository}" bash "${scripts}/verify-accepted-promotion-manifest.sh" \
   "${manifest}" "${release_tag}" "${uat_tag}")"
 
-install -m 0644 "${manifest}" "${manifest_output}"
+printf '%s\n' "${normalized}" > "${manifest_output}"
+chmod 0644 "${manifest_output}"
 uat_hybrid_run_id="$(jq -r '.uat_run_id' <<<"${normalized}")"
 uat_control_plane_sha="$(jq -r '.head_sha' "${work}/run.json")"
 {
