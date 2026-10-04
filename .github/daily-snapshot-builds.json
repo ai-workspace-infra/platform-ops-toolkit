@@ -57,7 +57,7 @@
       "artifacts": ["image", "binary"]
     },
     {
-      "repository": "ai-workspace-services/postgresql.svc.plus",
+      "repository": "ai-workspace-services/postgresql",
       "workflow": "ci-pipeline.yml",
       "trigger": "push",
       "dispatch_inputs": {

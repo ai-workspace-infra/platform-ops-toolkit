@@ -213,6 +213,9 @@ jobs:
     - name: Verify daily snapshot installation preflight
       run: bash .github/scripts/tests/daily_snapshot_installation_access_test.sh
 
+    - name: Verify Daily Snapshot Services repository inventory
+      run: bash .github/scripts/tests/daily_snapshot_services_repository_contract_test.sh
+
     - name: Verify Agent Proxy deployment variable contract
       run: bash .github/scripts/tests/platform_ops_agent_proxy_contract_test.sh
 
