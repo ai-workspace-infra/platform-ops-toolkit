@@ -78,3 +78,18 @@ Selfhost 基线／验收当前限定每环境一个 `web-saas-<environment>` 主
 完整能力未注册、缺少备份恢复证据、版本/checksum/digest 不一致、dirty 或业务验收失败均停止晋级。
 测试通过、PR 合并、dispatch 成功都不是运行时验收。完整发布证据仍遵循
 [升级验收契约](environment-upgrade.md)；旧文档中的旧入口/硬恢复示例不再适用。
+# 参数化 Selfhost 组件角色
+
+`mode=preflight|backup` 可以显式选择 `config_json.execution_path=selfhost_roles`。
+控制面只派发固定 SHA 的 Playbooks `selfhost-data-lifecycle.yml`；角色、动态
+CMDB inventory、主机操作、加密备份与隔离恢复归属 Playbooks。该组件路径目前
+UAT-only，不支持 schema 初始化、复制数据、迁移、应用发布或 PROD 晋级。
+backup 需要显式 opt-in、来源／baseline／授权非空订阅样本，密钥只在 Vault
+运行时解析。组件成功不是 G1/G2/G3 或完整发布验收。
+
+参见 [状态机角色映射与执行边界](https://github.com/ai-workspace-infra/playbooks/blob/main/docs/data-operations/uat-state-machine-role-map.zh.md)。Accounts 的受控 Selfhost migrator
+尚未实现，migration 角色明确阻断；完整升级／演练适配器不因此自动注册。
+
+`.github/scripts` 清理使用 `scripts/ci/script_ownership_verify.py` 门禁：新增执行
+脚本或修改冻结的旧执行脚本均失败，只允许按职责移出。当前仍有 27 个旧执行
+候选项，登记在 `scripts/ci/legacy-execution-inventory.json`，不能声称已全部迁移。

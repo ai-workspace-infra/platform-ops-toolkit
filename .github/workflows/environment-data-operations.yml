@@ -135,7 +135,7 @@ jobs:
     name: Playbooks / explicit one-time UAT import
     needs: request_gate
     if: ${{ inputs.mode == 'legacy_import' }}
-    uses: ai-workspace-infra/playbooks/.github/workflows/uat-data-import.yaml@f2b2eb4669ce1bf09fe45d93c4721191206030b9
+    uses: ai-workspace-infra/playbooks/.github/workflows/uat-data-import.yaml@c59ed569890468b761996e8cf600812cf4d951ba
     with:
       environment: ${{ inputs.environment }}
       config_json: ${{ needs.request_gate.outputs.config_json }}
@@ -157,7 +157,7 @@ jobs:
   serverless_database:
     needs: request_gate
     if: ${{ contains(fromJSON('["checkpoint","probe","baseline","migrate"]'), inputs.mode) }}
-    uses: ai-workspace-infra/playbooks/.github/workflows/serverless-database-operations.yml@f2b2eb4669ce1bf09fe45d93c4721191206030b9
+    uses: ai-workspace-infra/playbooks/.github/workflows/serverless-database-operations.yml@c59ed569890468b761996e8cf600812cf4d951ba
     with:
       environment: ${{ inputs.environment }}
       operation: ${{ inputs.mode }}
@@ -169,7 +169,7 @@ jobs:
   selfhost_database:
     needs: request_gate
     if: ${{ contains(fromJSON('["selfhost_probe","selfhost_init","selfhost_verify"]'), inputs.mode) }}
-    uses: ai-workspace-infra/playbooks/.github/workflows/selfhost-database-operations.yml@f2b2eb4669ce1bf09fe45d93c4721191206030b9
+    uses: ai-workspace-infra/playbooks/.github/workflows/selfhost-database-operations.yml@c59ed569890468b761996e8cf600812cf4d951ba
     with:
       environment: ${{ inputs.environment }}
       operation: ${{ inputs.mode }}
@@ -178,10 +178,22 @@ jobs:
       accounts_ref: ${{ inputs.accounts_ref }}
       correlation_id: ${{ inputs.correlation_id || github.run_id }}
 
+  selfhost_components:
+    name: Playbooks / UAT data component roles (not release acceptance)
+    needs: request_gate
+    if: ${{ fromJSON(needs.request_gate.outputs.config_json).execution_path == 'selfhost_roles' }}
+    uses: ai-workspace-infra/playbooks/.github/workflows/selfhost-data-lifecycle.yml@c59ed569890468b761996e8cf600812cf4d951ba
+    with:
+      environment: ${{ inputs.environment }}
+      operation: ${{ inputs.mode }}
+      release_tag: ${{ inputs.release_tag }}
+      expected_schema_version: ${{ inputs.expected_schema_version }}
+      config_json: ${{ needs.request_gate.outputs.config_json }}
+
   release_controller:
     name: Validate accepted release and reviewed execution capability
     needs: request_gate
-    if: ${{ contains(fromJSON('["preflight","backup","rehearsal","upgrade","rollback"]'), inputs.mode) }}
+    if: ${{ contains(fromJSON('["preflight","backup","rehearsal","upgrade","rollback"]'), inputs.mode) && fromJSON(needs.request_gate.outputs.config_json).execution_path != 'selfhost_roles' }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -223,22 +235,25 @@ jobs:
 
   verdict:
     name: Selected executor must succeed (dispatch is not acceptance)
-    if: ${{ always() && needs.request_gate.result != '' && needs.legacy_import.result != '' && needs.akamai_preflight.result != '' && needs.serverless_database.result != '' && needs.selfhost_database.result != '' && needs.release_controller.result != '' }}
-    needs: [request_gate, legacy_import, akamai_preflight, serverless_database, selfhost_database, release_controller]
+    if: ${{ always() && needs.request_gate.result != '' && needs.legacy_import.result != '' && needs.akamai_preflight.result != '' && needs.serverless_database.result != '' && needs.selfhost_database.result != '' && needs.selfhost_components.result != '' && needs.release_controller.result != '' }}
+    needs: [request_gate, legacy_import, akamai_preflight, serverless_database, selfhost_database, selfhost_components, release_controller]
     runs-on: ubuntu-latest
     steps:
       - env:
           NEEDS_JSON: ${{ toJSON(needs) }}
           MODE: ${{ inputs.mode }}
+          CONFIG_JSON: ${{ needs.request_gate.outputs.config_json || '{}' }}
         run: |
           python3 - <<'PY'
           import json, os
           needs = json.loads(os.environ["NEEDS_JSON"])
           mode = os.environ["MODE"]
+          config = json.loads(os.environ["CONFIG_JSON"])
           target = ("legacy_import" if mode == "legacy_import" else
                     "akamai_preflight" if mode == "akamai_preflight" else
                     "serverless_database" if mode in {"checkpoint","probe","baseline","migrate"} else
                     "selfhost_database" if mode in {"selfhost_probe","selfhost_init","selfhost_verify"} else
+                    "selfhost_components" if config.get("execution_path") == "selfhost_roles" else
                     "release_controller")
           if any(needs[job]["result"] != "success" for job in ("request_gate", target)):
               raise SystemExit("Selected data operation did not pass; downstream blocked")
