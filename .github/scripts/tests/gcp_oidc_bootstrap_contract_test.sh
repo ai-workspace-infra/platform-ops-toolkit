@@ -108,12 +108,14 @@ done
 
 for required in \
   'spot_vms' \
+  'service_vms' \
   'spot_instance_name' \
   'gcloud compute instances describe' \
   'scheduling.provisioningModel' \
-  'Expected ${INSTANCE_NAME} to be SPOT'; do
+  'Expected ${INSTANCE_NAME} to be ${EXPECTED_MODEL}' \
+  'Persistent instance protection or data disk autoDelete=false is missing'; do
   grep -Fq -- "${required}" "${gcp_iac_workflow}" || {
-    echo "GCP IAC workflow missing Spot verification contract: ${required}" >&2
+    echo "GCP IAC workflow missing instance model or disk protection contract: ${required}" >&2
     exit 1
   }
 done

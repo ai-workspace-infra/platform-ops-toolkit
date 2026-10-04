@@ -1,0 +1,161 @@
+name: Environment Upgrade
+run-name: ${{ inputs.mode }} / ${{ inputs.environment }} / ${{ inputs.release_tag }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment (never inferred from a branch)
+        type: choice
+        options: [uat, prod]
+        default: uat
+        required: true
+      mode:
+        description: Rehearsal changes UAT only; preflight is read-only; upgrade changes the selected environment
+        type: choice
+        options: [preflight, rehearsal, upgrade]
+        default: preflight
+        required: true
+      release_tag:
+        description: Immutable UAT snapshot or annotated PROD v* tag
+        type: string
+        required: true
+      candidate_run_id:
+        description: Completed UAT Hybrid run containing uat-artifact-manifest (not the Daily parent)
+        type: string
+      expected_schema_version:
+        description: Reviewed clean starting schema version
+        type: string
+        required: true
+      target_schema_version:
+        description: Reviewed exact target schema version
+        type: string
+        required: true
+      migration_sha256:
+        description: SHA256 of the reviewed migration package
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: environment-upgrade-${{ inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  DEPLOY_ENV: ${{ inputs.environment }}
+  UPGRADE_MODE: ${{ inputs.mode }}
+  RELEASE_TAG: ${{ inputs.release_tag }}
+  CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+  EXPECTED_SCHEMA_VERSION: ${{ inputs.expected_schema_version }}
+  TARGET_SCHEMA_VERSION: ${{ inputs.target_schema_version }}
+  MIGRATION_SHA256: ${{ inputs.migration_sha256 }}
+
+jobs:
+  candidate:
+    name: Validate immutable release candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Validate inputs, source provenance and UAT evidence
+        run: python3 .github/scripts/environment-upgrade/pipeline.py candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Publish sanitized candidate
+        uses: actions/upload-artifact@v7
+        with:
+          name: environment-upgrade-candidate
+          path: ${{ runner.temp }}/environment-upgrade/public/candidate.json
+          if-no-files-found: error
+          retention-days: 30
+
+  preflight:
+    name: Approval and read-only database preflight
+    needs: candidate
+    environment: ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: environment-upgrade-candidate
+          path: ${{ runner.temp }}/environment-upgrade/public
+      - name: Refuse missing reviewed execution adapters before obtaining credentials
+        run: python3 .github/scripts/environment-upgrade/pipeline.py capabilities
+      # Reviewed adapters obtain OIDC -> Vault credentials through an audited
+      # domain CD implementation and an exact managed Vault workflow allowlist.
+      - name: Verify clean starting version and capture old-user/subscription baseline
+        run: python3 .github/scripts/environment-upgrade/pipeline.py phase preflight
+      - name: Publish sanitized preflight evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: environment-upgrade-preflight
+          path: ${{ runner.temp }}/environment-upgrade/public
+          if-no-files-found: error
+          retention-days: 30
+
+  upgrade:
+    name: Backup → migration → same-digest promotion → verification
+    needs: [candidate, preflight]
+    if: ${{ inputs.mode == 'upgrade' || inputs.mode == 'rehearsal' && inputs.environment == 'uat' }}
+    environment: ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: environment-upgrade-preflight
+          path: ${{ runner.temp }}/environment-upgrade/public
+      - name: Recheck complete adapter availability before any mutation
+        run: python3 .github/scripts/environment-upgrade/pipeline.py capabilities
+      - name: Encrypted backup on environment-local selfhost fallback and isolated restore verification
+        run: python3 .github/scripts/environment-upgrade/pipeline.py phase backup
+      - name: Locked incremental migration and exact version verification
+        run: python3 .github/scripts/environment-upgrade/pipeline.py phase migration
+      - name: Promote accepted digests without rebuilding or bootstrapping shared services
+        run: python3 .github/scripts/environment-upgrade/pipeline.py phase promotion
+      - name: Verify original login, permissions, subscription, quota and financial ledgers
+        run: python3 .github/scripts/environment-upgrade/pipeline.py phase verification
+      - name: UAT rehearsal only — roll back application digests, retain schema
+        if: ${{ inputs.mode == 'rehearsal' && inputs.environment == 'uat' }}
+        run: python3 .github/scripts/environment-upgrade/pipeline.py phase rollback
+      - name: UAT rehearsal only — re-promote the same accepted digests
+        if: ${{ inputs.mode == 'rehearsal' && inputs.environment == 'uat' }}
+        run: python3 .github/scripts/environment-upgrade/pipeline.py phase repromotion
+      - name: UAT rehearsal only — verify again after re-promotion
+        if: ${{ inputs.mode == 'rehearsal' && inputs.environment == 'uat' }}
+        run: python3 .github/scripts/environment-upgrade/pipeline.py phase final_verification
+      - name: Publish only validated, sanitized receipts (never dumps or raw adapter output)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: environment-upgrade-evidence-${{ inputs.environment }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/environment-upgrade/public
+          if-no-files-found: error
+          retention-days: 30
+
+  verdict:
+    name: Explicit requested-mode verdict
+    needs: [candidate, preflight, upgrade]
+    if: ${{ always() && needs.candidate.result != '' && needs.preflight.result != '' && needs.upgrade.result != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      JOB_RESULTS: ${{ toJSON(needs) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Fail missing or skipped requested phases; distinguish rehearsal from deployment
+        run: python3 .github/scripts/environment-upgrade/pipeline.py verdict

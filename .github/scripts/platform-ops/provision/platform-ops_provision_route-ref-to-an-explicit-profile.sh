@@ -77,7 +77,11 @@ provider_account() {
     account="${INPUT_AKAMAI_ACCOUNT:-}"
   fi
   if [[ -z "${account}" ]]; then
-    account="$(environment_default "${deployment_env}" account)"
+    if [[ "${provider}" == "gcp-cloud" ]]; then
+      account="$(environment_default "${deployment_env}" gcp_account 2>/dev/null || environment_default "${deployment_env}" account)"
+    else
+      account="$(environment_default "${deployment_env}" account)"
+    fi
   fi
   printf '%s' "${account}"
 }
@@ -134,7 +138,7 @@ resolve_gitops_resource_files() {
         if [[ "${environment}" == "uat" ]]; then
           printf '%s/resources/onwalk.net/uat/gcp/web-saas.yaml' "${GITHUB_WORKSPACE:-${PWD}}/gitops"
         else
-          printf '%s/resources/svc.plus/uat/gcp/web-saas.yaml' "${GITHUB_WORKSPACE:-${PWD}}/gitops"
+          printf '%s/resources/svc.plus/prod/gcp/web-saas.yaml' "${GITHUB_WORKSPACE:-${PWD}}/gitops"
         fi
         return 0
         ;;
@@ -249,6 +253,13 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     # concrete provider account remains the next path component.
     state_project="${AKAMAI_UAT_PROJECT}"
   fi
+  if [[ "${requested_target_domains}" == "web-saas" && "${cloud_provider}" == "gcp-cloud" ]]; then
+    if [[ -n "${INPUT_STATE_PROJECT:-}" && "${INPUT_STATE_PROJECT}" != "svc.plus" ]]; then
+      echo "::error::GCP web-saas uses the existing svc.plus state namespace; refusing a second state key." >&2
+      exit 1
+    fi
+    state_project="svc.plus"
+  fi
   uat_akamai_region_namespace=false
   akamai_matrix_mode=false
   akamai_matrix_action=none
@@ -316,6 +327,10 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   # UI 使用单一 operation。下游 job 只消费解析后的执行意图，避免在
   # workflow 中重复拼接相互矛盾的开关条件。
   operation="${INPUT_OPERATION:-plan}"
+  if [[ "${requested_target_domains:-${target_domains:-}}" == "web-saas" && "${operation}" == "destroy" ]]; then
+    echo "::error::Persistent web-saas hosts cannot be destroyed by the shared orchestrator." >&2
+    exit 1
+  fi
   deploy_ref="${INPUT_DEPLOY_REF:-${INPUT_DEPLOY_TAG:-}}"
 
   # Destroy is infrastructure-only and must not be blocked by a stale
@@ -481,7 +496,7 @@ else
       refs/heads/main)
         deployment_env=uat; resource_file=uat/selfhost; cloud_provider="$(default_provider_for_environment uat)"
         set_provider_metadata
-        state_project="${STATE_PROJECT}"; [[ "${cloud_provider}" == "akamai-cloud" ]] && state_project="${AKAMAI_UAT_PROJECT}"
+        state_project="${STATE_PROJECT}"; [[ "${cloud_provider}" == "akamai-cloud" || "${cloud_provider}" == "gcp-cloud" ]] && state_project="${AKAMAI_UAT_PROJECT}"
         terraform_workspace="uat-${state_project}-${cloud_provider}-${account}-web-saas"
         resource_files_full="config/resources/uat/web-saas.yaml"
         state_key="terraform/uat/${state_project}/${cloud_provider}/${account}/web-saas/terraform.tfstate"; target_domains=web-saas
@@ -493,9 +508,10 @@ else
       refs/heads/release/v*|refs/tags/v*)
         deployment_env=prod; resource_file=prod/web-saas; cloud_provider="$(default_provider_for_environment prod)"
         set_provider_metadata
-        terraform_workspace="prod-${STATE_PROJECT}-${cloud_provider}-${account}-web-saas"
+        state_project="${STATE_PROJECT}"; [[ "${cloud_provider}" == "gcp-cloud" ]] && state_project="svc.plus"
+        terraform_workspace="prod-${state_project}-${cloud_provider}-${account}-web-saas"
         resource_files_full="config/resources/prod/web-saas.yaml"
-        state_key="terraform/prod/${STATE_PROJECT}/${cloud_provider}/${account}/web-saas/terraform.tfstate"; target_domains=web-saas
+        state_key="terraform/prod/${state_project}/${cloud_provider}/${account}/web-saas/terraform.tfstate"; target_domains=web-saas
         # 与 main/release push 一样只做 plan 校验, 不自动 apply/部署 —— 这才是
         # 文件顶部注释说的设计: "pull_request 和 branch/tag push 都只跑
         # provision 阶段, 只有 workflow_dispatch 能真正 apply/deploy"。这里此前
@@ -516,7 +532,7 @@ else
       refs/heads/release/*)
         deployment_env=uat; resource_file=uat/web-saas; cloud_provider="$(default_provider_for_environment uat)"
         set_provider_metadata
-        state_project="${STATE_PROJECT}"; [[ "${cloud_provider}" == "akamai-cloud" ]] && state_project="${AKAMAI_UAT_PROJECT}"
+        state_project="${STATE_PROJECT}"; [[ "${cloud_provider}" == "akamai-cloud" || "${cloud_provider}" == "gcp-cloud" ]] && state_project="${AKAMAI_UAT_PROJECT}"
         terraform_workspace="uat-${state_project}-${cloud_provider}-${account}-web-saas"
         resource_files_full="config/resources/uat/web-saas.yaml"
         state_key="terraform/uat/${state_project}/${cloud_provider}/${account}/web-saas/terraform.tfstate"; target_domains=web-saas

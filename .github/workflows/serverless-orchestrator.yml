@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: '执行范围：plan 仅校验；init-schema 初始化 Supabase schema；deploy 部署应用；upgrade 升级应用无状态组件（不迁移数据）；migrate 迁移；deploy+migrate 部署+迁移；destroy 销毁（Prod 禁止）'
+        description: '执行范围：plan 校验；init-schema 初始化；deploy/upgrade 部署；migrate 数据迁移；deploy+migrate 部署+迁移；repair-schema 仅修复已审阅 r3 UAT schema（不部署、不切 DNS）；destroy 销毁（Prod 禁止）'
         required: true
         default: 'deploy'
         type: choice
@@ -21,6 +21,7 @@ on:
           - upgrade
           - migrate
           - deploy+migrate
+          - repair-schema
           - destroy
       target_domains:
         description: '选择要执行的业务域 (Business Domain)。serverless 仅部署 web-saas；默认 all 在 serverless 中解析为 web-saas，其它业务域走 cloud_provider 环境副本链路。'
@@ -245,7 +246,7 @@ jobs:
       durable_checkpoint_verified: ${{ steps.checkpoint.outputs.durable_checkpoint_verified }}
     # Deployment paths verify the existing Supabase service before Cloud Run
     # and migration start. Schema initialization is a separate manual workflow.
-    if: ${{ contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) }}
+    if: ${{ contains(fromJSON('["deploy","upgrade","deploy+migrate","repair-schema"]'), inputs.operation) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout platform toolkit
@@ -432,7 +433,7 @@ jobs:
       group: uat-accounts-schema
       cancel-in-progress: false
     needs: [preflight, supabase]
-    if: ${{ always() && needs.preflight.result == 'success' && needs.supabase.result == 'success' && inputs.apply_accounts_schema_migration == true && inputs.vault_env_path == 'uat' && inputs.operation == 'deploy' }}
+    if: ${{ always() && needs.preflight.result == 'success' && needs.supabase.result == 'success' && inputs.apply_accounts_schema_migration == true && inputs.vault_env_path == 'uat' && contains(fromJSON('["deploy","repair-schema"]'), inputs.operation) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout platform toolkit
@@ -450,6 +451,51 @@ jobs:
         with:
           go-version-file: accounts/go.mod
 
+      - name: Verify immutable repair source
+        if: ${{ inputs.operation == 'repair-schema' }}
+        run: test "$(git -C accounts rev-parse HEAD)" = c2c343fe2c91bb31e7f7f9b4fa60512a66e2b4c9
+
+      - name: Checkout GitOps repair target
+        if: ${{ inputs.operation == 'repair-schema' }}
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: main
+          path: gitops
+          sparse-checkout-cone-mode: false
+          sparse-checkout: resources/xworktech.com/uat/gcp/open-platform-uat.yaml
+
+      - name: Read GitOps repair target
+        id: repair_target
+        if: ${{ inputs.operation == 'repair-schema' }}
+        run: ruby ./.github/scripts/gitops/read_gcp_gitops_target.rb
+        env:
+          GCP_GITOPS_MANIFEST: ${{ github.workspace }}/gitops/resources/xworktech.com/uat/gcp/open-platform-uat.yaml
+
+      - name: Load UAT serving identity credentials
+        id: repair_gcp
+        if: ${{ inputs.operation == 'repair-schema' }}
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-uat
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/uat/serverless/gcp GCP_WORKLOAD_IDENTITY_PROVIDER | GCP_WORKLOAD_IDENTITY_PROVIDER ;
+            kv/data/uat/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL ;
+
+      - name: Authenticate for read-only Cloud Run verification
+        if: ${{ inputs.operation == 'repair-schema' }}
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ steps.repair_gcp.outputs.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ steps.repair_gcp.outputs.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Set up SDK for read-only serving verification
+        if: ${{ inputs.operation == 'repair-schema' }}
+        uses: google-github-actions/setup-gcloud@v2
+
       - name: Load UAT Supabase database identity and connection
         id: vault
         uses: hashicorp/vault-action@v4
@@ -462,7 +508,18 @@ jobs:
             kv/data/uat/serverless/supabase DATABASE_SESSION_POOLER_URL | TARGET_DSN ;
             kv/data/uat/serverless/supabase PROJECT_REF | PROJECT_REF ;
 
+      - name: Verify serving identity and capture private repair baseline
+        if: ${{ inputs.operation == 'repair-schema' }}
+        run: python3 .github/scripts/serverless/uat_schema_repair_evidence.py before --state "$RUNNER_TEMP/uat-repair-private.json" --report "$RUNNER_TEMP/uat-schema-repair-report.json"
+        env:
+          VAULT_ENV_PATH: uat
+          TARGET_DSN: ${{ steps.vault.outputs.TARGET_DSN }}
+          PROJECT_REF: ${{ steps.vault.outputs.PROJECT_REF }}
+          GCP_PROJECT_ID: ${{ steps.repair_target.outputs.project_id }}
+          GCP_REGION: ${{ steps.repair_target.outputs.region }}
+
       - name: Apply reviewed UAT Accounts schema migration
+        id: migration_apply
         run: ./.github/scripts/serverless/apply_accounts_incremental_schema.sh
         env:
           VAULT_ENV_PATH: uat
@@ -474,6 +531,26 @@ jobs:
           ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
           ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}
           RELEASE_CHECKPOINT_VERIFIED: ${{ needs.supabase.outputs.durable_checkpoint_verified || 'false' }}
+
+      - name: Verify retained data and serving health after repair
+        if: ${{ inputs.operation == 'repair-schema' }}
+        run: python3 .github/scripts/serverless/uat_schema_repair_evidence.py after --state "$RUNNER_TEMP/uat-repair-private.json" --report "$RUNNER_TEMP/uat-schema-repair-report.json"
+        env:
+          VAULT_ENV_PATH: uat
+          TARGET_DSN: ${{ steps.vault.outputs.TARGET_DSN }}
+          PROJECT_REF: ${{ steps.vault.outputs.PROJECT_REF }}
+          GCP_PROJECT_ID: ${{ steps.repair_target.outputs.project_id }}
+          GCP_REGION: ${{ steps.repair_target.outputs.region }}
+          OFFICIAL_MIGRATOR_REPEAT_VERIFIED: ${{ steps.migration_apply.outputs.official_migrator_repeat_verified }}
+
+      - name: Upload aggregate schema repair evidence only
+        if: ${{ inputs.operation == 'repair-schema' && success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: uat-schema-repair-${{ github.run_id }}
+          path: ${{ runner.temp }}/uat-schema-repair-report.json
+          if-no-files-found: error
+          retention-days: 7
 
   cloud_run:
     name: Cloud Run / ${{ matrix.service }}
@@ -1413,10 +1490,11 @@ jobs:
 
   console_release_metadata:
     name: Record release identity for Operations Console
-    needs: [preflight, cloud_run, cloudflare_ssr, frontend_router, edge_gateway, static_pages, serverless_domains, verify]
+    needs: [preflight, supabase, uat_accounts_schema_migration, cloud_run, cloudflare_ssr, frontend_router, edge_gateway, static_pages, serverless_domains, verify]
     # Observe every terminal outcome; this job uploads metadata only.
     if: >-
       ${{ always() && needs.preflight.result != '' && needs.cloud_run.result != '' &&
+      needs.supabase.result != '' && needs.uat_accounts_schema_migration.result != '' &&
       needs.cloudflare_ssr.result != '' && needs.frontend_router.result != '' &&
       needs.edge_gateway.result != '' && needs.static_pages.result != '' &&
       needs.serverless_domains.result != '' && needs.verify.result != '' }}

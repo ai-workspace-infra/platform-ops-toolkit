@@ -22,10 +22,12 @@ printf '%s\n' '#!/usr/bin/env bash' \
   '    fi' \
   '    printf "%s\t%s\t%s\n" users 2 "${user_rows}"' \
   '    printf "%s\t%s\t%s\n" subscriptions 1 "${TEST_SUBSCRIPTION_ROWS:-[]}" ;;' \
-  '  *) if [[ -e "${TEST_APPLIED_MARKER}" ]]; then printf "2026092301:false\\n"; else printf "2026091401:false\\n"; fi ;;' \
+  '  *) if [[ -e "${TEST_APPLIED_MARKER}" ]]; then printf "2026092301:false\\n"; else printf "%s\\n" "${TEST_CURRENT_VERSION:-2026091401:false}"; fi ;;' \
   'esac' \
   >"${workdir}/bin/psql"
-printf '%s\n' '#!/usr/bin/env bash' '[[ "$*" == *"sslmode=require"* ]] || exit 3' 'touch "${TEST_APPLIED_MARKER}"' >"${workdir}/bin/go"
+printf '%s\n' '#!/usr/bin/env bash' '[[ "$*" == *"sslmode=require"* ]] || exit 3' \
+  'if [[ -e "${TEST_APPLIED_MARKER}" && "${TEST_REPEAT_FAILURE:-false}" == true ]]; then exit 4; fi' \
+  'printf "called\\n" >>"${TEST_APPLIED_MARKER}"' >"${workdir}/bin/go"
 chmod +x "${workdir}/bin/psql" "${workdir}/bin/go"
 
 if command -v sha256sum >/dev/null; then
@@ -59,6 +61,9 @@ sentinel_shape="$(python3 -c 'import sys; print("\n".join(":".join((parts[0], pa
 
 env "${common[@]}" bash "${apply_script}" >/dev/null
 [[ -e "${workdir}/applied" ]] || { echo 'Expected migratectl invocation.' >&2; exit 1; }
+[[ "$(wc -l <"${workdir}/applied" | tr -d ' ')" == 2 ]] || { echo 'Official migrator must run twice.' >&2; exit 1; }
+env "${common[@]}" bash "${apply_script}" >/dev/null
+[[ "$(wc -l <"${workdir}/applied" | tr -d ' ')" == 4 ]] || { echo 'Re-running the apply wrapper must be idempotent.' >&2; exit 1; }
 rm -f "${workdir}/applied"
 env "${common[@]}" TARGET_DSN=postgres://postgres.abcdefghijklmnopqrst:placeholder@aws-0-test.pooler.supabase.com:5432/postgres bash "${apply_script}" >/dev/null
 [[ -e "${workdir}/applied" ]] || { echo 'Expected migration with normalized TLS connection.' >&2; exit 1; }
@@ -82,6 +87,13 @@ reject_without_apply env "${common[@]}" bash "${apply_script}"
 rm -f "${workdir}/accounts/sql/migrations/2026092401_other.up.sql"
 
 reject_without_apply env "${common[@]}" TEST_SCHEMA_PROBE=4:0:4 bash "${apply_script}"
+reject_without_apply env "${common[@]}" TEST_CURRENT_VERSION=2026091401:true bash "${apply_script}"
+reject_without_apply env "${common[@]}" TEST_CURRENT_VERSION=$'2026091401:false\n2026091401:false' bash "${apply_script}"
+rm -f "${workdir}/applied"
+if env "${common[@]}" TEST_REPEAT_FAILURE=true bash "${apply_script}" >/dev/null 2>&1; then
+  echo 'A failed repeated official migration was accepted.' >&2
+  exit 1
+fi
 rm -f "${workdir}/applied"
 if env "${common[@]}" TEST_SENTINEL_CHANGED=true 'TEST_USER_ROWS_CHANGED=[{},{"groups":["changed"]}]' bash "${apply_script}" >/dev/null 2>&1; then
   echo 'Migration did not fail when the post-migration user/subscription sentinel changed.' >&2

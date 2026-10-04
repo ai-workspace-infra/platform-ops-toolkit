@@ -172,6 +172,10 @@ jobs:
             default_manifest="resources/xworktech.com/${GCP_ENVIRONMENT}/gcp/open-platform-${GCP_ENVIRONMENT}.yaml"
           fi
           manifest="${GCP_RESOURCE_MANIFEST_INPUT:-${default_manifest}}"
+          if [[ "${manifest}" == */web-saas.yaml && "${DEPLOY_ACTION}" == destroy ]]; then
+            echo "::error::Persistent web-saas hosts and data disks cannot be destroyed by this workflow" >&2
+            exit 1
+          fi
           [[ "${manifest}" != /* && "${manifest}" != *..* ]] || { echo "::error::manifest path must be relative and cannot contain '..'" >&2; exit 1; }
           [[ "${manifest}" == resources/*/${GCP_ENVIRONMENT}/gcp/*.yaml ]] || {
             echo "::error::manifest must be under resources/<namespace>/${GCP_ENVIRONMENT}/gcp/" >&2
@@ -192,16 +196,22 @@ jobs:
             abort "manifest provider must be gcp" unless metadata.fetch("provider") == "gcp"
             abort "manifest account mismatch" unless spec.fetch("gcp_account_id") == account_id
             project_id = spec.fetch("project_id").to_s
+            state_project = spec.fetch("state_project", project_id).to_s
             organization_id = spec.fetch("organization_id").to_s
             state_workspace = spec.fetch("workspace").to_s
             state_namespace = spec.fetch("state_namespace").to_s
             network_name = spec.fetch("network_name").to_s
             abort "workspace/state_namespace/metadata.name must match" unless state_workspace == state_namespace && state_workspace == metadata.fetch("name")
             state_key = spec.fetch("state").fetch("key").to_s
-            expected_key = "terraform/#{environment}/#{project_id}/gcp-cloud/#{account_id}/#{state_workspace}/terraform.tfstate"
+            expected_key = "terraform/#{environment}/#{state_project}/gcp-cloud/#{account_id}/#{state_workspace}/terraform.tfstate"
             abort "manifest state key mismatch" unless state_key == expected_key
             resources = spec.fetch("resources", {})
-            spot = Array(resources["spot_vms"]).first
+            spot = Array(resources["service_vms"]).first || Array(resources["spot_vms"]).first
+            if metadata.fetch("name") == "web-saas"
+              abort "persistent web-saas declaration required" unless spec.fetch("resource").fetch("lifecycle") == "persistent"
+              abort "web-saas requires STANDARD and deletion protection" unless spot&.fetch("provisioning_model", nil) == "STANDARD" && spot.fetch("deletion_protection", false) == true
+              abort "web-saas requires an independent /data disk" unless spot.fetch("data_disk", {}).fetch("mount_path", nil) == "/data"
+            end
           else
             global = doc.fetch("global")
             abort "manifest environment mismatch" unless global.fetch("environment") == environment
@@ -210,7 +220,7 @@ jobs:
             state_workspace = manifest == "resources/xworktech.com/#{environment}/gcp/open-platform-#{environment}.yaml" ? "platform" : File.basename(manifest, ".yaml")
             state_key = "terraform/#{environment}/#{project_id}/gcp-cloud/#{account_id}/#{state_workspace}/terraform.tfstate"
             network_name = global.fetch("network_name", "").to_s
-            spot = Array(doc["spot_vms"]).first
+            spot = Array(doc["service_vms"]).first || Array(doc["spot_vms"]).first
           end
           abort "invalid GCP project_id" unless project_id.match?(/\A[a-z][a-z0-9-]{4,28}[a-z0-9]\z/)
           abort "unexpected GCP organization_id" unless organization_id == "744119519286"
@@ -221,8 +231,10 @@ jobs:
             io.puts "state_workspace=#{state_workspace}"
             io.puts "state_key=#{state_key}"
             io.puts "network_name=#{network_name}"
-            io.puts "spot_instance_name=#{spot&.fetch("name", "")}" 
-            io.puts "spot_instance_zone=#{spot&.fetch("zone", "")}" 
+            io.puts "spot_instance_name=#{spot&.fetch("name", "")}"
+            io.puts "spot_instance_zone=#{spot&.fetch("zone", "")}"
+            io.puts "expected_provisioning_model=#{spot&.fetch("provisioning_model", "SPOT")}"
+            io.puts "expected_data_disk_device=#{spot&.fetch("data_disk", {})&.fetch("device_name", "")}"
           end
           RUBY
 
@@ -470,7 +482,7 @@ jobs:
             exit 0
           fi
           terraform -chdir="envs/${DEPLOY_ENV}" plan -input=false -no-color -var-file="${RUNTIME_VARS}" -out="${PLAN_FILE}"
-          if [[ "${DEPLOY_ENV}" == shared || "${DEPLOY_ENV}" == prod ]]; then
+          if [[ "${DEPLOY_ENV}" == shared || "${DEPLOY_ENV}" == prod || "${{ steps.config.outputs.expected_data_disk_device }}" != "" ]]; then
             # Read the JSON from the real binary: the setup-terraform wrapper
             # may add its own lines to stdout.
             tf_bin=terraform
@@ -507,22 +519,31 @@ jobs:
           test "$(gcloud projects describe "${PROJECT_ID}" --format='value(projectId)')" = "${PROJECT_ID}"
           echo "GCP OIDC runtime identity can access ${PROJECT_ID}"
 
-      - name: Verify Spot instance provisioning model
+      - name: Verify instance model and protected /data disk
         if: ${{ env.DEPLOY_ACTION == 'apply' && steps.config.outputs.spot_instance_name != '' }}
         env:
           PROJECT_ID: ${{ steps.config.outputs.project_id }}
           INSTANCE_NAME: ${{ steps.config.outputs.spot_instance_name }}
           INSTANCE_ZONE: ${{ steps.config.outputs.spot_instance_zone }}
+          EXPECTED_MODEL: ${{ steps.config.outputs.expected_provisioning_model }}
+          DATA_DISK_DEVICE: ${{ steps.config.outputs.expected_data_disk_device }}
         run: |
           set -euo pipefail
           model="$(gcloud compute instances describe "${INSTANCE_NAME}" \
             --project="${PROJECT_ID}" --zone="${INSTANCE_ZONE}" \
             --format='value(scheduling.provisioningModel)')"
-          test "${model}" = "SPOT" || {
-            echo "Expected ${INSTANCE_NAME} to be SPOT, got ${model}" >&2
+          test "${model}" = "${EXPECTED_MODEL}" || {
+            echo "Expected ${INSTANCE_NAME} to be ${EXPECTED_MODEL}, got ${model}" >&2
             exit 1
           }
-          echo "Spot instance verified: ${INSTANCE_NAME} (${INSTANCE_ZONE})"
+          if [[ -n "${DATA_DISK_DEVICE}" ]]; then
+            instance_json="$(gcloud compute instances describe "${INSTANCE_NAME}" --project="${PROJECT_ID}" --zone="${INSTANCE_ZONE}" --format=json)"
+            jq -e --arg device "${DATA_DISK_DEVICE}" '.deletionProtection == true and ([.disks[] | select(.deviceName == $device and .autoDelete == false)] | length) == 1' <<<"${instance_json}" >/dev/null || {
+              echo "::error::Persistent instance protection or data disk autoDelete=false is missing" >&2
+              exit 1
+            }
+          fi
+          echo "Instance verified: ${INSTANCE_NAME} (${INSTANCE_ZONE})"
 
       - name: Verify declared Vault VM instances are running
         if: ${{ env.DEPLOY_ACTION == 'apply' }}

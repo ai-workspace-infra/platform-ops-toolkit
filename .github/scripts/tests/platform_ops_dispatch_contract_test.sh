@@ -44,7 +44,7 @@ assert_in_output() {
   fi
 }
 
-deploy_output="$(run_route env INPUT_OPERATION=deploy INPUT_DNS_MODE=none)"
+deploy_output="$(run_route env INPUT_CLOUD_PROVIDER=akamai-cloud INPUT_OPERATION=deploy INPUT_DNS_MODE=none)"
 assert_contains "${deploy_output}" "run_infrastructure=true"
 assert_contains "${deploy_output}" "run_application_deploy=true"
 assert_contains "${deploy_output}" "terraform_action=apply"
@@ -62,6 +62,17 @@ assert_contains "${gcp_open_platform_output}" "resource_files_full=${repo_root}/
 
 gcp_web_saas_output="$(run_route env INPUT_TARGET_DOMAINS=web-saas INPUT_CLOUD_PROVIDER=gcp-cloud INPUT_CLOUD_ACCOUNT=xworktech INPUT_OPERATION=plan INPUT_DNS_MODE=none)"
 assert_contains "${gcp_web_saas_output}" "resource_files_full=${repo_root}/gitops/resources/onwalk.net/uat/gcp/web-saas.yaml"
+default_web_saas_output="$(run_route env INPUT_TARGET_DOMAINS=web-saas INPUT_OPERATION=plan INPUT_DNS_MODE=none)"
+assert_contains "${default_web_saas_output}" "cloud_provider=gcp-cloud"
+assert_contains "${default_web_saas_output}" "account=xworktech"
+assert_contains "${default_web_saas_output}" "state_key=terraform/uat/svc.plus/gcp-cloud/xworktech/web-saas/terraform.tfstate"
+prod_web_saas_output="$(run_route env GITHUB_REF=refs/tags/v2026.10.04-r1 INPUT_VAULT_ENV_PATH=prod INPUT_DEPLOY_TAG=v2026.10.04-r1 INPUT_TARGET_DOMAINS=web-saas INPUT_OPERATION=plan INPUT_DNS_MODE=none)"
+assert_contains "${prod_web_saas_output}" "resource_files_full=${repo_root}/gitops/resources/svc.plus/prod/gcp/web-saas.yaml"
+assert_contains "${prod_web_saas_output}" "state_key=terraform/prod/svc.plus/gcp-cloud/xworktech/web-saas/terraform.tfstate"
+if run_route env INPUT_TARGET_DOMAINS=web-saas INPUT_OPERATION=destroy INPUT_DNS_MODE=none >/dev/null 2>&1; then
+  echo "persistent web-saas unexpectedly accepted destroy" >&2
+  exit 1
+fi
 
 if run_route env INPUT_TARGET_DOMAINS=all INPUT_CLOUD_PROVIDER=akamai-cloud INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=plan INPUT_DNS_MODE=none >/dev/null 2>&1; then
   echo "legacy direct Akamai target_domains=all unexpectedly bypassed Hybrid Orchestrator" >&2
@@ -81,7 +92,7 @@ for namespace in web-saas open-platform agent-proxy-jp agent-proxy-us agent-prox
   if [[ "${namespace}" == agent-proxy-* ]]; then
     expected_domain=agent-proxy
   fi
-  routed="$(run_route env INPUT_TARGET_DOMAINS="${selected_domain}" INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=plan INPUT_DNS_MODE=none)"
+  routed="$(run_route env INPUT_TARGET_DOMAINS="${selected_domain}" INPUT_CLOUD_PROVIDER=akamai-cloud INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=plan INPUT_DNS_MODE=none)"
   state_key="terraform/uat/svc.plus/akamai-cloud/manbuzhe2026/${namespace}/terraform.tfstate"
   assert_contains "${routed}" "target_domains=${expected_domain}"
   assert_contains "${routed}" "terraform_namespace=${namespace}"
@@ -99,7 +110,7 @@ if [[ "${unique_state_key_count}" -ne 5 || "${#namespace_state_keys[@]}" -ne 5 ]
 fi
 
 for aggregate in agent-proxy 'web-saas + agent-proxy'; do
-  if run_route env INPUT_TARGET_DOMAINS="${aggregate}" INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=plan INPUT_DNS_MODE=none >/dev/null 2>&1; then
+  if run_route env INPUT_TARGET_DOMAINS="${aggregate}" INPUT_CLOUD_PROVIDER=akamai-cloud INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=plan INPUT_DNS_MODE=none >/dev/null 2>&1; then
     echo "UAT Akamai aggregate target '${aggregate}' unexpectedly entered Terraform routing" >&2
     exit 1
   fi
@@ -136,7 +147,7 @@ if "github.event.inputs.target_domains" not in group:
     raise SystemExit("selfhost concurrency group must distinguish aggregate parent and namespace child runs")
 PY
 
-if run_route env INPUT_TARGET_DOMAINS=open-platform INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=destroy INPUT_DNS_MODE=none >/dev/null 2>&1; then
+if run_route env INPUT_TARGET_DOMAINS=open-platform INPUT_CLOUD_PROVIDER=akamai-cloud INPUT_CLOUD_ACCOUNT=manbuzhe2026 INPUT_OPERATION=destroy INPUT_DNS_MODE=none >/dev/null 2>&1; then
   echo "permanent UAT open-platform namespace unexpectedly accepted destroy" >&2
   exit 1
 fi
@@ -184,7 +195,7 @@ assert_contains "${deploy_migrate_output}" "run_application_deploy=true"
 assert_contains "${deploy_migrate_output}" "terraform_action=apply"
 assert_contains "${deploy_migrate_output}" "toolkit_action=deploy+migrate"
 
-destroy_output="$(run_route env INPUT_OPERATION=destroy INPUT_DNS_MODE=uat-records)"
+destroy_output="$(run_route env INPUT_TARGET_DOMAINS=agent-proxy-us INPUT_CLOUD_PROVIDER=gcp-cloud INPUT_OPERATION=destroy INPUT_DNS_MODE=uat-records)"
 assert_contains "${destroy_output}" "run_infrastructure=true"
 assert_contains "${destroy_output}" "run_application_deploy=false"
 assert_contains "${destroy_output}" "terraform_action=destroy"
@@ -197,7 +208,7 @@ if run_route env GITHUB_REF=refs/heads/release/v2026.08 INPUT_VAULT_ENV_PATH=pro
   echo "production destroy unexpectedly entered the deployment route" >&2
   exit 1
 fi
-grep -Fq "Production infrastructure is deletion-protected" "${prod_destroy_error}"
+grep -Eq "Production infrastructure is deletion-protected|Persistent web-saas hosts cannot be destroyed" "${prod_destroy_error}"
 rm -f "${prod_destroy_error}"
 
 contract_fixture="${repo_root}/.github/scripts/tests/fixtures/selfhost-routing-migration-topology.json"
