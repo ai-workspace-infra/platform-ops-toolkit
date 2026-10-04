@@ -705,6 +705,32 @@ jobs:
             -e observability_server_hosts=observability_hosts \
             -e observability_mcp_enabled=false
 
+      - name: Checkout pinned Playbooks Observability operations
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: 49b37d3a7d35610282f5986367c3853158660457
+          path: observability-operations
+          persist-credentials: false
+
+      - name: Verify local Grafana through the Observability Role
+        id: local_health
+        working-directory: observability-operations
+        env:
+          ACCESS_DIR: ${{ steps.access.outputs.access_dir }}
+          NODE_NAME: ${{ steps.target.outputs.node_name }}
+          OWNER_SHA: 49b37d3a7d35610282f5986367c3853158660457
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${OWNER_SHA}"
+          ansible-playbook -i "${ACCESS_DIR}/inventory.ini" observability_operations.yml \
+            -e observability_operations_environment=uat \
+            -e observability_operation=verify_local_grafana \
+            -e "observability_local_health_host=${NODE_NAME}"
+          printf '### Local Grafana owner evidence\n\n- Operation: `verify_local_grafana`\n- Node: `%s`\n- Playbooks SHA: `%s`\n- Toolkit SHA: `%s`\n- Scope: local Grafana health only; not complete UAT acceptance\n' \
+            "${NODE_NAME}" "${OWNER_SHA}" "${GITHUB_SHA}" >> "${GITHUB_STEP_SUMMARY}"
+
+      # Retain the legacy check until the owner route passes CI and rehearsal.
       - name: Verify local Observability service health
         env:
           ACCESS_DIR: ${{ steps.access.outputs.access_dir }}
