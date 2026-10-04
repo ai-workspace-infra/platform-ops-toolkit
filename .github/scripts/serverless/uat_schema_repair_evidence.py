@@ -112,8 +112,10 @@ def capture(key):
     rows = {}
     for name in names:
         quoted = '"' + name.replace('"', '""') + '"'
-        value = query(f"SELECT json_build_object('count',count(*),'rows',coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb)) FROM public.{quoted} t")
-        private = json.dumps(value["rows"], sort_keys=True, separators=(",", ":")).encode()
+        value = query(f"SELECT json_build_object('count',count(*),'rows',coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb)::text) FROM public.{quoted} t")
+        # Hash PostgreSQL's canonical bytes, never round-trip money/JSON numeric
+        # values through Python floats or confuse numeric and string types.
+        private = value["rows"].encode()
         rows[name] = {"count": value["count"], "hmac": hmac.new(key, private, hashlib.sha256).hexdigest()}
     migration = query("SELECT coalesce(json_agg(json_build_object('version',version,'dirty',dirty)),'[]') FROM public.schema_migrations")
     if len(migration) != 1 or migration[0]["dirty"] is not False:
