@@ -303,6 +303,19 @@ jobs:
           ref: ${{ inputs.playbooks_ref }}
           path: playbooks
           persist-credentials: false
+      # Service health checks for both stages; pinned to the reviewed merge of
+      # ai-workspace-infra/playbooks#568, independent of playbooks_ref.
+      - name: Checkout reviewed Playbooks ZITADEL operations
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ada1ce1eea8a5c9b26f9049eafc0f9bdd1ffa685
+          path: playbooks-operations
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            zitadel_operations.yml
+            roles/docker/zitadel_server_operations
       - name: Checkout reviewed IaC VM runtime executor
         if: ${{ inputs.service_stage == 'deploy' }}
         uses: actions/checkout@v4

@@ -4,22 +4,21 @@ set -euo pipefail
 : "${DOMAIN:?DOMAIN is required}"
 : "${SERVICE_STAGE:?SERVICE_STAGE is required}"
 
-# Every check returns explicitly: `set -e` does not apply inside a function
-# called as a condition (`if ! verify`), which would otherwise report success.
-verify() {
-  local body
-  body="$(curl --fail --silent --show-error --retry 6 --retry-all-errors --retry-delay 5 \
-    --connect-timeout 5 --max-time 20 "https://${DOMAIN}/.well-known/openid-configuration")" || return 1
-  jq -e --arg issuer "https://${DOMAIN}" \
-    '.issuer == $issuer and (.jwks_uri | startswith($issuer + "/"))' <<<"${body}" >/dev/null || {
-    echo "::error::OIDC discovery for ${DOMAIN} does not name issuer https://${DOMAIN}" >&2
-    return 1
-  }
-  echo "ZITADEL OIDC discovery verified for ${DOMAIN}"
+# ZITADEL service health and failure evidence are owned by the Playbooks
+# operations role (ai-workspace-infra/playbooks#568), checked out at a reviewed
+# SHA. This workflow chooses the domain and target and judges the result.
+operations_dir="${GITHUB_WORKSPACE:-${PWD}}/playbooks-operations"
+[[ -f "${operations_dir}/zitadel_operations.yml" ]] || { echo 'Reviewed ZITADEL operations entry is missing' >&2; exit 1; }
+run_operation() { # <inventory> <target> <operation> [ansible-playbook args...]
+  (
+    cd "${operations_dir}" && ansible-playbook -i "$1" zitadel_operations.yml \
+      -e "zitadel_operation=$3" -e "zitadel_operations_target=$2" -e "zitadel_operations_domain=${DOMAIN}" "${@:4}"
+  )
 }
 
 if [[ "${SERVICE_STAGE}" == verify ]]; then
-  verify
+  python3 -m pip install --disable-pip-version-check --quiet ansible-core
+  run_operation localhost, localhost verify_public -c local
   exit 0
 fi
 [[ "${SERVICE_STAGE}" == deploy ]] || { echo 'Unsupported service stage' >&2; exit 2; }
@@ -118,21 +117,11 @@ export OPEN_PLATFORM_DEPLOY_ONLY=false
   ansible-playbook -i "${access_dir}/inventory.json" deploy_iam_domain.yml \
     --limit "${NODE_NAME}" -e "@${access_dir}/extra.json"
 )
-if ! verify; then
-  echo "::error::https://${DOMAIN} OIDC discovery failed after the deploy; collecting read-only host evidence." >&2
-  # Read-only evidence: no restart, reload or configuration change.
-  diagnostics="$(cat <<EOF
-echo '== caddy service'; systemctl is-active caddy; systemctl show caddy -p ActiveState,SubState,NRestarts,ExecMainStatus
-echo '== listeners :80/:443'; ss -ltnp '( sport = :80 or sport = :443 )'
-echo '== caddy config'; ls -l /etc/caddy /etc/caddy/conf.d
-echo '== local HTTPS via Caddy'; curl -sk -o /dev/null -w '%{http_code}\n' --max-time 10 --resolve ${DOMAIN}:443:127.0.0.1 https://${DOMAIN}/.well-known/openid-configuration
-echo '== local API'; curl -s -o /dev/null -w '%{http_code}\n' --max-time 10 -H 'Host: ${DOMAIN}' http://127.0.0.1:19080/.well-known/openid-configuration
-echo '== caddy journal'; journalctl -u caddy -n 60 --no-pager
-EOF
-)"
-  ansible -i "${access_dir}/inventory.json" all --limit "${NODE_NAME}" -b -m ansible.builtin.shell -a "${diagnostics}" \
-    || echo '::warning::Some IAM host HTTPS evidence could not be collected.' >&2
+# The role checks the stack, bootstrap, Caddy and TLS discovery on the host and
+# then the public endpoint; on failure it prints read-only host evidence.
+run_operation "${access_dir}/inventory.json" "${NODE_NAME}" verify_host || {
+  echo "::error::ZITADEL service verification failed for ${DOMAIN}; see the host evidence above." >&2
   exit 1
-fi
+}
 printf '### ZITADEL server\n\n- Project: `%s`\n- Node: `%s`\n- Domain: `%s`\n- OIDC discovery: passed\n' \
   "${PROJECT_ID}" "${NODE_NAME}" "${DOMAIN}" >> "${GITHUB_STEP_SUMMARY}"
