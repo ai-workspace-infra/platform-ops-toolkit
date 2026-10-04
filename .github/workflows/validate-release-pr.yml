@@ -53,6 +53,27 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: postgres
 
+      - name: Checkout immutable Accounts r3 finance migration
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-services/accounts
+          ref: c2c343fe2c91bb31e7f7f9b4fa60512a66e2b4c9
+          path: accounts-repair
+
+      - name: Set up Go for official migration integration
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: accounts-repair/go.mod
+
+      - name: Verify official r3 migration and repeat against PostgreSQL 17
+        run: python3 .github/scripts/tests/uat_finance_migration_postgres17_test.py
+        env:
+          ACCOUNTS_REPO_ROOT: ${{ github.workspace }}/accounts-repair
+          PGHOST: 127.0.0.1
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
   sec-qa-gate:
     name: Sec QA Gate (gitleaks)
     runs-on: ubuntu-latest
@@ -206,6 +227,7 @@ jobs:
         bash .github/scripts/tests/uat_accounts_schema_apply_test.sh
         bash .github/scripts/tests/uat_accounts_schema_probe_test.sh
         bash .github/scripts/tests/uat_accounts_durable_checkpoint_test.sh
+        python3 .github/scripts/tests/uat_schema_repair_evidence_test.py
 
     - name: Verify daily snapshot installation preflight
       run: bash .github/scripts/tests/daily_snapshot_installation_access_test.sh
