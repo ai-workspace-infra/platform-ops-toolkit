@@ -20,7 +20,7 @@ repository that owns the thing it operates on:
 | `platform-ops/` | selfhost orchestration: `provision/` (routing, dispatch, OIDC, key derivation), `deploy/`, `dns/`, `observe/` |
 | `environment-upgrade/` | data-operation dispatch and release evidence validation only |
 | `snapshots/`, `release/` | immutable artifact/tag orchestration |
-| `serverless/`, `resize/`, `observability/`, `platform-ops/`, … | mixed-generation legacy areas; execution files are migration debt, not an approved boundary |
+| `serverless/`, `resize/`, `platform-ops/`, … | mixed-generation legacy areas; execution files are migration debt, not an approved boundary |
 | `tests/` | contract tests; run by `validate-release-pr.yml` |
 
 Composite actions stay in `.github/actions/` of this repository: `uses: ./…` resolves
@@ -41,6 +41,13 @@ changes must first migrate to Playbooks/IaC with caller, Vault, tests and docs
 updated. Never put imperative execution in GitOps. The obsolete, unreferenced
 Supabase initialization wrapper has been removed rather than preserved as a
 hidden schema reset path.
+
+Observability's combined DNS/host executor has been removed. The workflow now
+calls the pinned IaC Modules Cloudflare record transaction, then the Playbooks
+`observability_server_operations` Role for Caddy refresh and HTTPS acceptance.
+Toolkit requests checkpoint recovery on acceptance failure without masking the
+failed run. Observability data migration and service checks also belong to the
+Playbooks Role, not a Toolkit copy or a GitOps executor.
 
 A workflow that pins `infra_ref` / `playbooks_ref` to a tag older than the
 `scripts/pipeline/` directories will not find these scripts; pin to a ref that has them.
