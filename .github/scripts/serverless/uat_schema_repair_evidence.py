@@ -126,7 +126,7 @@ def capture(key):
 def verify_finance():
     tables = query("SELECT coalesce(json_agg(relname),'[]') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname LIKE 'finance_%' AND c.relkind='r' AND c.relrowsecurity")
     triggers = query("SELECT coalesce(json_agg(tgname),'[]') FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname LIKE 'finance_%' AND NOT t.tgisinternal AND t.tgenabled='O'")
-    access = query("SELECT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a WHERE n.nspname='public' AND c.relname LIKE 'finance_%' AND c.relkind='r' AND a.grantee=0) OR EXISTS(SELECT 1 FROM pg_roles r CROSS JOIN pg_tables t WHERE r.rolname IN ('anon','authenticated') AND t.schemaname='public' AND t.tablename LIKE 'finance_%' AND has_table_privilege(r.oid,format('%I.%I',t.schemaname,t.tablename),'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))")
+    access = query("SELECT to_json((EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a WHERE n.nspname='public' AND c.relname LIKE 'finance_%' AND c.relkind='r' AND a.grantee=0) OR EXISTS(SELECT 1 FROM pg_roles r CROSS JOIN pg_tables t WHERE r.rolname IN ('anon','authenticated') AND t.schemaname='public' AND t.tablename LIKE 'finance_%' AND has_table_privilege(r.oid,format('%I.%I',t.schemaname,t.tablename),'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))))")
     constraints = query("SELECT coalesce(json_object_agg(conname,contype::text),'{}') FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='public' AND conname LIKE 'finance_%' AND convalidated")
     required = {
         "finance_invoices_payment_contract_uk": "u", "finance_invoices_provider_external_uk": "u",
@@ -138,7 +138,7 @@ def verify_finance():
         "finance_operation_events_operation_id_fkey": "f",
         **{name + "_pkey": "p" for name in FINANCE},
     }
-    if (set(tables) != FINANCE or set(triggers) != TRIGGERS or access
+    if (set(tables) != FINANCE or set(triggers) != TRIGGERS or access is not False
             or any(constraints.get(k) != v for k, v in required.items())):
         raise Blocked("finance_schema_or_client_access_protection_incomplete")
 
