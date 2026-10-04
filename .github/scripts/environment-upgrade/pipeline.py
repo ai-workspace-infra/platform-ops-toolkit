@@ -99,6 +99,12 @@ def resolve_candidate(env):
     candidate = inputs(env)
     repository = env.get("GITHUB_REPOSITORY", "")
     require(repository == "ai-workspace-infra/platform-ops-toolkit", "unexpected release repository")
+    if candidate["environment"] == "prod":
+        protected = json.loads(command(["gh", "api", f"repos/{repository}/environments/prod"]))
+        rules = protected.get("protection_rules", [])
+        require(any(rule.get("type") == "required_reviewers" and rule.get("prevent_self_review") is True
+                    and len(rule.get("reviewers", [])) > 0 for rule in rules),
+                "PROD environment must require an independent reviewer before dispatch")
     run_id = env["CANDIDATE_RUN_ID"]
     run = json.loads(command(["gh", "api", f"repos/{repository}/actions/runs/{run_id}"]))
     require(run.get("repository", {}).get("full_name") == repository, "foreign candidate run")

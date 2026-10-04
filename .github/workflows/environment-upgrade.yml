@@ -90,9 +90,8 @@ jobs:
           path: ${{ runner.temp }}/environment-upgrade/public
       - name: Refuse missing reviewed execution adapters before obtaining credentials
         run: python3 .github/scripts/environment-upgrade/pipeline.py capabilities
-      # Live adapters are intentionally not registered yet. They must obtain
-      # OIDC -> Vault credentials through an audited domain CD implementation,
-      # with this workflow added to the exact managed Vault allowlist first.
+      # Reviewed adapters obtain OIDC -> Vault credentials through an audited
+      # domain CD implementation and an exact managed Vault workflow allowlist.
       - name: Verify clean starting version and capture old-user/subscription baseline
         run: python3 .github/scripts/environment-upgrade/pipeline.py phase preflight
       - name: Publish sanitized preflight evidence

@@ -11,6 +11,12 @@ Selfhost 是最后兜底运行路径和备份节点，不因此成为日常 sche
 常规升级必须保留兜底运行时、兜底数据库和旧应用能力，不重建/re-bootstrap 兜底主机。
 备用路径切换和恢复真实业务数据库属于独立、人工审批的应急操作。
 
+2026-10-04 核查发现：当前 UAT GitOps `topology/uat/hybrid/runtime-topology.yaml`
+实际把 `accounts-selfhost-uat.onwalk.net` 设为 primary，把 Cloud Run 设为 fallback；
+该路径与“selfhost 为最后兜底”的目标相反。实际演练启动前必须明确本次接受当前路径，
+或另行评审并实施路由调整，随后重新验证数据库写入路径与回滚路径。不能仅依据本文
+把 selfhost 当作已在运行中的 fallback。
+
 主机由选定环境的 GitOps / CMDB 解析并核实实际身份，不接受用户任意输入主机/IP。
 建议加密目录：`/data/backups/web-saas/<environment>/<release-tag>/<run-id>/`，权限 0700，
 密钥来自对应环境 Vault，目录按运行唯一、不覆盖旧检查点；保留策略另行配置，禁止自动
@@ -20,7 +26,7 @@ Selfhost 是最后兜底运行路径和备份节点，不因此成为日常 sche
 
 ## 当前交付边界
 
-已实现环境选择、候选制品来源校验、受保护 Environment 阶段、阶段执行契约、
+已实现环境选择、候选制品来源校验、Environment 阶段、阶段执行契约、
 非敏感证据清单、离线成功/失败演练及显式最终判定。
 
 **尚未接入真实数据库/应用执行适配器。当前 live preflight 和 upgrade 会明确失败，
@@ -28,6 +34,8 @@ Selfhost 是最后兜底运行路径和备份节点，不因此成为日常 sche
 `.github/scripts/environment-upgrade/adapters.json` 中两个环境目前均为空；这是启动前
 阻断门禁，不是跳过后标记成功。现有 UAT 制品清单缺少完整业务验收和迁移 checksum
 时，PROD 候选校验也会失败。
+2026-10-04 查询到 `prod` Environment 尚无审核规则；候选校验会因此阻断 PROD。
+现有受审环境名 `production` 不等同于本流水线使用的 `prod`，不能混用。
 
 ## 操作模式
 

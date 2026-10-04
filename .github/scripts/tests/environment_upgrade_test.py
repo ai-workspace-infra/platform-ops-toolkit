@@ -96,6 +96,10 @@ class EnvironmentUpgradeTests(unittest.TestCase):
                 Path(args[-1], "uat-artifact-manifest.json").write_text(json.dumps(manifest))
                 return ""
             endpoint = args[-1]
+            if endpoint.endswith("/environments/prod"):
+                return json.dumps({"protection_rules": [{"type": "required_reviewers",
+                                                          "prevent_self_review": True,
+                                                          "reviewers": [{"reviewer": {"login": "reviewer"}}]}]})
             if "/actions/runs/" in endpoint:
                 return json.dumps(run)
             if "/git/ref/tags/" in endpoint:
@@ -123,6 +127,17 @@ class EnvironmentUpgradeTests(unittest.TestCase):
             self.resolved("prod", annotated=False)
         with self.assertRaises(pipeline.Blocked):
             self.resolved("prod", actual_sha="e" * 40)
+
+    def test_prod_requires_independent_environment_approval(self):
+        env = request("prod")
+        env.update(GITHUB_REPOSITORY="ai-workspace-infra/platform-ops-toolkit", GITHUB_SHA="f" * 40)
+        def fake_command(args):
+            if args[-1].endswith("/environments/prod"):
+                return json.dumps({"protection_rules": []})
+            self.fail("PROD source lookup happened before approval preflight")
+        with patch.object(pipeline, "command", side_effect=fake_command):
+            with self.assertRaisesRegex(pipeline.Blocked, "independent reviewer"):
+                pipeline.resolve_candidate(env)
 
     def test_uat_rejects_foreign_digest_source_or_snapshot(self):
         for field, bad in (("digest", "latest"), ("source_sha", "main"),
