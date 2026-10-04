@@ -10,9 +10,11 @@
 ## 四阶段记录
 
 1. **新增 Role：完成。** 扩展 `docker/observability_server_operations` 的 `verify_local_grafana`，不执行部署 tasks；显式 inventory、单 host、UAT-only、HTTP 200 和 JSON `database=ok`，有界重试、禁止重定向/代理、隐藏响应正文。
-2. **切换 Toolkit 调用：本 PR。** 独立 checkout 固定 owner SHA，不改变部署所用 `source_ref`；传入原 access inventory/node，调用前核对 checkout SHA。成功摘要记录 owner SHA、Toolkit SHA 和 node；失败不产生成功摘要，无静默回退。
-3. **验证：本地非变更演练通过，PR CI 待记录。** Owner 16 项测试及 Ansible syntax-check 通过；Toolkit 5 项测试运行真实 workflow command 与固定 SHA Role，使用 loopback HTTP fixture。覆盖成功、数据库故障、错误 SHA/目标与摘要门禁。workflow gating（39 个 workflow）、Observability OIDC 契约、`git diff --check` 通过。
-4. **删除旧副本：待本调用 PR 的 CI 与演练验证后，另提 PR。** 当前仍保留旧内联 `ansible -m uri | grep`，作为顺序明确的迁移过渡，不是失败回退。
+2. **切换 Toolkit 调用：完成。** [PR #1271](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1271)，合并 SHA `a4d3217e5558bf03798c1e79457f1f72164f1e26`。独立 checkout 固定 owner SHA，不改变部署所用 `source_ref`；传入原 access inventory/node，调用前核对 checkout SHA。成功摘要记录 owner SHA、Toolkit SHA 和 node；失败不产生成功摘要，无静默回退。
+3. **验证：本地和 PR CI 非变更演练通过。** Owner 16 项测试及 Ansible syntax-check 通过；Toolkit 5 项测试运行真实 workflow command 与固定 SHA Role，使用 loopback HTTP fixture。覆盖成功、数据库故障、错误 SHA/目标与摘要门禁。workflow gating（39 个 workflow）、Observability OIDC 契约、`git diff --check` 通过。
+   - Owner main CI：[37214692473](https://github.com/ai-workspace-infra/playbooks/actions/runs/37214692473)，成功。
+   - Toolkit 调用方 CI：[37215024197](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37215024197)，Workflow Gating Verify 与安全检查成功；部署等 runtime jobs skipped。
+4. **删除旧副本：本清理 PR。** 在调用方合并和 CI 演练通过后删除旧内联 `ansible -m uri | grep`，保留纯控制面的部署摘要，新增防止旧 probe 重回 Toolkit 的断言。清理后 Toolkit 路由测试共 6 项。
 
 ## 授权和证据限制
 

@@ -18,6 +18,13 @@ CHECKOUT = next(step for step in STEPS if step.get("with", {}).get("path") == "o
 
 
 class LocalHealthCallerContractTests(unittest.TestCase):
+    def test_legacy_inline_service_probe_cannot_return(self):
+        commands = "\n".join(step.get("run", "") for step in STEPS)
+        self.assertNotIn("-m uri", commands)
+        self.assertNotIn("http://127.0.0.1:3030/api/health", commands)
+        self.assertNotIn("return_content=true", commands)
+        self.assertNotIn('grep -F \'"database": "ok"\'', commands)
+
     def test_pinned_owner_precedes_health_and_cleanup_and_uses_exact_inventory(self):
         self.assertEqual(CHECKOUT["with"]["repository"], "ai-workspace-infra/playbooks")
         self.assertRegex(CHECKOUT["with"]["ref"], r"^[a-f0-9]{40}$")

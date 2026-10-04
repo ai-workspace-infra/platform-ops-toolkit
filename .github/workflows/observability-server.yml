@@ -730,15 +730,12 @@ jobs:
           printf '### Local Grafana owner evidence\n\n- Operation: `verify_local_grafana`\n- Node: `%s`\n- Playbooks SHA: `%s`\n- Toolkit SHA: `%s`\n- Scope: local Grafana health only; not complete UAT acceptance\n' \
             "${NODE_NAME}" "${OWNER_SHA}" "${GITHUB_SHA}" >> "${GITHUB_STEP_SUMMARY}"
 
-      # Retain the legacy check until the owner route passes CI and rehearsal.
-      - name: Verify local Observability service health
+      - name: Summarize Shared GCP Observability deployment
         env:
           ACCESS_DIR: ${{ steps.access.outputs.access_dir }}
           NODE_NAME: ${{ steps.target.outputs.node_name }}
         run: |
           set -euo pipefail
-          ansible -i "${ACCESS_DIR}/inventory.ini" "${NODE_NAME}" -b -m uri \
-            -a 'url=http://127.0.0.1:3030/api/health return_content=true status_code=200' | grep -F '"database": "ok"'
           printf '### Shared GCP Observability deployment\n\n- Node: `%s`\n- Public DNS: unchanged\n- SSH: temporary OS Login key and /32 firewall rule revoked after this job\n' "${NODE_NAME}" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Revoke temporary OS Login access and SSH firewall rule
