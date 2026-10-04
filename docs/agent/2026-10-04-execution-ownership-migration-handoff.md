@@ -35,7 +35,7 @@
 
 ### P1: ZITADEL 主机与服务操作迁移批次
 - **Playbooks 归属实现（服务健康与诊断）**: [PR #568](https://github.com/ai-workspace-infra/playbooks/pull/568)，固定提交 `ada1ce1eea8a5c9b26f9049eafc0f9bdd1ffa685`。
-  - 新增 `zitadel_operations.yml` 入口与 `roles/docker/zitadel_operations`，支持 `verify_host` 与 `verify_public`（OIDC discovery 端点探测与健康诊断）。
+  - 新增 `zitadel_operations.yml` 入口与 `roles/docker/zitadel_server_operations`，支持 `verify_host` 与 `verify_public`（OIDC discovery 端点探测与健康诊断）。
 - **IaC Modules 归属实现（临时 SSH 与防火墙访问）**: [PR #390](https://github.com/ai-workspace-infra/iac_modules/pull/390)，固定提交 `92fa6b9c592fa76a5e5fdd66bb0737de1723f20f`。
   - 新增 `scripts/pipeline/gcp-temporary-ssh-access.sh`（VM 运行态保证、OS Login 临时密钥注册、Runner `/32` 防火墙生命周期管理与安全吊销）。
 - **IaC Modules CI 测试隔离补丁**: [PR #391](https://github.com/ai-workspace-infra/iac_modules/pull/391)，固定提交 `71746d0`。
@@ -144,12 +144,10 @@
 
 以下两项设计决策直接影响后续发布与 UAT/PROD 晋级，需技术负责人确认：
 
-### 待决定项 1：Accounts 登录绕过补丁的处理（Accounts Login Bypass Policy）
-- **现状与冲突**：在非生产环境（如 local/sit/uat）中，Accounts 服务的鉴权可能受到外部 IdP（Google/GitHub OAuth）或生产邮箱验证码发送限制，历史分支中存在跳过真实鉴权或模拟凭据的绕过补丁。
-- **决策点**：
-  - **方案 A（严格安全等价）**：坚决禁止任何代码级登录绕过。必须在 Vault 中配置受保护的测试专用真实账号密码（original-user credentials），所有 UAT 验收必须走真实的密码校验与 Session 颁发。
-  - **方案 B（隔离模式绕过）**：允许在显式配置 `ENVIRONMENT_MODE=uat-isolated` 且由 GitOps 声明的环境下启用受限的模拟认证，但在晋级 PROD 前由门禁强制核验该绕过代码未编译进镜像。
-- **建议**：采用方案 A。任何代码层绕过均会使 UAT 失去“防降级”与“平滑升级”的验证效力。
+### 待决定项 1：Accounts 安全修复的交付方式
+- **现状**：Accounts 存在一个已确认的真实安全缺陷，修复补丁与回归测试已由会话私下交付给技术负责人。该缺陷在公开仓库的 PR、Issue 和文档中**不记录细节**。
+- **决策点**：由技术负责人决定在 Accounts 仓库以何种非公开流程（私有安全通告、私有分支）合入并发布，以及是否需要在 PROD 之前先修复。
+- **说明**：这与 UAT 验收无关。UAT 验收必须使用 Vault 中受保护的真实原用户凭据，走真实登录，不得用任何代码级绕过替代。
 
 ### 待决定项 2：UAT 验收分支处理与 PROD 晋级条件（Branch `claude/modest-lamport-y9vmc5` & Promotion Evidence）
 - **现状与漂移**：
@@ -167,7 +165,17 @@
    - B0（Artifact Registry）与 P1（ZITADEL）的全部 4 个阶段（归属实现、调用方切换、验证、清理）已全部走完，相关 PR 全部合并，`main` CI 均为绿色。
    - `docs/agent/2026-10-04-execution-ownership-migration-handoff.md` 已全面重构，明确四个架构边界与后续顺序。
 2. **后续推进路线**：
-   - **Step 1**：创建 PR 提交本文档的更新。
+   - **Step 1**：（已完成）本文档更新已由 #1270 合入，本次仅做事实纠正与经验补充。
    - **Step 2**：进入 **P1b 批次**，在 `playbooks` 仓库新增 Caddy 证书恢复通用 Role 及语法/本地测试；合并后固定 SHA。
    - **Step 3**：Toolkit 切换调用方至 Playbooks 新 Role，验证无误后删除旧版 `platform-ops_deploy_base_restore-caddy-certs.sh`。
    - **Step 4**：推进 P2（Cloudflare DNS 对账）及后续批次。
+
+---
+
+## 7. 经验教训（本轮复盘）
+
+1. **合并先于 CI 结束**：`Validate Release PR` 可能在 PR 被合并时仍在运行。删除旧副本之前，必须核对调用方变更那次运行的最终结论（本轮 #1267 合并后其完整运行结果为 success，随后才提交 #1268）。
+2. **PR 分支上的后续提交可能没进合并结果**：IaC #390 合并时用的是修复前的提交，测试环境隔离的修复没有进入 `main`，需要 #391 补上。合并后应核对 `main` 与分支 head 的差异。
+3. **行为测试跟随执行者**：执行入口及其行为测试放在归属仓库（IaC `scripts/pipeline/tests/`、Playbooks `tests/`），其 CI 会在脚本变更时直接测到；Toolkit 只保留接线、顺序和固定 SHA 的契约测试。
+4. **固定 SHA 使归属仓库可以安全重排**：Toolkit 固定合并提交后，IaC/Playbooks 之后调整目录结构不会影响已固定的调用方；但未固定的调用方（如 `selfhost-orchestrator.yml` 的动态 `infra_ref`）不能先移动路径。
+5. **Projects 看板**：当前会话无 GitHub Projects v2 接口，进度记录在 Issue #1269，需在看板中手动添加。
