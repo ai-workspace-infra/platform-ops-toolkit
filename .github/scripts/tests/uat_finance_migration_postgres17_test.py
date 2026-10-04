@@ -24,7 +24,11 @@ spec.loader.exec_module(repair)
 
 def psql(sql, db="postgres"):
     env = dict(os.environ, PGDATABASE=db)
-    return subprocess.check_output(["psql", "-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", sql], env=env, text=True, stderr=subprocess.DEVNULL).strip()
+    result = subprocess.run(["psql", "-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", sql], env=env, text=True, capture_output=True)
+    if result.returncode:
+        # This connection is explicitly loopback-only, with invented fixtures.
+        raise RuntimeError("Disposable fixture SQL failed: " + result.stderr)
+    return result.stdout.strip()
 
 
 assert psql("SELECT current_setting('server_version_num')::int / 10000") == "17"
@@ -35,13 +39,13 @@ try:
     created = True
     schema = (source / "sql/schema.sql").read_text()
     tables = []
-    for name in ("users", "subscriptions"):
+    for name in ("users", "identities", "subscriptions"):
         match = re.search(rf"CREATE TABLE IF NOT EXISTS public\.{name}\s*\([\s\S]*?\n\);", schema)
         assert match, f"Missing actual baseline definition: {name}"
         tables.append(match.group())
     psql("\n".join(tables), database)
     # Migration tracking is seeded ONLY in this isolated fixture, never UAT.
-    psql("CREATE TABLE identities(id text primary key, user_uuid uuid references users(uuid), provider text); CREATE TABLE schema_migrations(version bigint primary key, dirty boolean not null); INSERT INTO schema_migrations VALUES(2026092703,false); INSERT INTO users(uuid,username,email,password,groups,permissions) VALUES('00000000-0000-4000-8000-000000000001','fixture','fixture@example.invalid','fixture-password','[\"old-group\"]','[\"read\"]'); INSERT INTO identities VALUES('fixture','00000000-0000-4000-8000-000000000001','fixture-provider'); INSERT INTO subscriptions(uuid,user_uuid,provider,payment_method,kind,external_id,status,meta) VALUES('20000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','fixture','fixture','subscription','fixture','active','{\"plan\":\"retained\",\"quota\":123}');", database)
+    psql("CREATE TABLE schema_migrations(version bigint primary key, dirty boolean not null); INSERT INTO schema_migrations VALUES(2026092703,false); INSERT INTO users(uuid,username,email,password,groups,permissions,proxy_uuid) VALUES('00000000-0000-4000-8000-000000000001','fixture','fixture@example.invalid','fixture-password','[\"old-group\"]','[\"read\"]','10000000-0000-4000-8000-000000000001'); INSERT INTO identities(user_uuid,provider,external_id) VALUES('00000000-0000-4000-8000-000000000001','fixture-provider','fixture-external'); INSERT INTO subscriptions(uuid,user_uuid,provider,payment_method,kind,external_id,status,meta) VALUES('20000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','fixture','fixture','subscription','fixture','active','{\"plan\":\"retained\",\"quota\":123}');", database)
     repair.query = lambda sql: json.loads(psql(sql, database))
     key = b"fixture-only"
     before = repair.capture(key)
