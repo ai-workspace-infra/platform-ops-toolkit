@@ -43,27 +43,6 @@
       "owner": "playbooks",
       "sha256": "50892cb22347e4e6cfaf024f1812a1cbfc968091d05441062d775818ee9ebbcc"
     },
-    ".github/scripts/platform-ops/observe/platform-ops_observe-agent-proxy.sh": {
-      "markers": [
-        "host_execution"
-      ],
-      "owner": "playbooks",
-      "sha256": "74c9a71a61f707cb770b5a1011f72cca253af00c3616caf80df1a28c5d570b09"
-    },
-    ".github/scripts/platform-ops/observe/platform-ops_observe-web-saas-containers.sh": {
-      "markers": [
-        "host_execution"
-      ],
-      "owner": "playbooks",
-      "sha256": "b31377bc7e41b7bb40ef1a6ac4100f3fc71d7935a064d3db071d5ba03da38f25"
-    },
-    ".github/scripts/platform-ops/observe/platform-ops_observe-web-saas-ingress.sh": {
-      "markers": [
-        "host_execution"
-      ],
-      "owner": "playbooks",
-      "sha256": "14774506d6cb46bb7ba31e0862fb48c4c3d8c68cb09ea983f8a9cc30510ab1c2"
-    },
     ".github/scripts/platform-ops/provision/platform-ops_provision_initialize-agent-proxy-credentials.sh": {
       "markers": [
         "provider_execution"
