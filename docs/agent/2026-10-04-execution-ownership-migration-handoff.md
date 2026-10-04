@@ -68,6 +68,7 @@
 - UAT `37215201217` 与 `37215988175` 均在 Services GitHub App installation token 仓库查找阶段失败，未到 tag validator、resolver/build 或 child deployment。Observed failure 不是 tag 格式错误。
 - main push `37216013410` success，但实际 deployment/acceptance jobs 全 skipped，Role 未执行。独立 HTTP 200/readiness 现状未绑定本批 tag/commit/digest，不作为本批验收。
 - 主线已由 #1276（`ec7bc9b1eea38e6fdb05abb72589426c55f8c118`）将 Services 仓库错名 `postgresql.svc.plus` 修为 `postgresql`。新 UAT parent `37217324603` 最终 FAILURE（metadata `2026-10-04T16:48:51Z`）：四组 snapshot/build SUCCESS，但 summary 的 dispatch-and-wait step FAILURE；Hybrid `37217650094` ordered resource lanes FAILURE，routing verification SKIPPED。Selfhost `37217833619` success 仍仅 Prepare/summary、执行 jobs SKIPPED。不据此声称固定 Role 已运行或完整 UAT 通过；具体 lane 根因由主线继续诊断。
+- 对应 Selfhost `37217892945` Bootstrap web-saas-uat 的 `Restore domain TLS state from Vault before Caddy can issue` step FAILURE；主线诊断为 TLS preparation generic failure。只记录脱敏阶段，不推测敏感字段根因、不扩大为固定 Role 已执行的验收。
 - cleanup 跟踪 [#1275](https://github.com/ai-workspace-infra/platform-ops-toolkit/issues/1275) 仍 OPEN；旧 Toolkit 证书恢复脚本保留。需实际运行固定 Role、记录精确目标/证书权限/幂等与失败边界/runtime vars cleanup 后，才能单独提出删除 PR。管理员 App 权限与 Vault 凭据变更需授权操作人处理。
 
 ---
@@ -111,7 +112,7 @@ Toolkit `ec7bc9b1` 下 `git ls-tree -r --name-only HEAD .github/scripts` 为 **1
 1. **漏检动态包装的 SSH 调用**：例如 `.github/scripts/platform-ops/deploy/platform-ops_deploy_base_restore-caddy-certs.sh`（299 行）将命令包装在 `ssh_command=(ssh)`，并通过 `"${ssh_command[@]}"` 动态执行，绕过了正则 `(?:exec|sudo|command|run_gcloud)\s+)?(?:ssh|...)\s`。该脚本包含真实的远程主机文件写入与权限变更，属于 Playbooks 债务。
 2. **漏检变量与数组形式的 Provider 调用**：例如 `platform-ops_uat_dns_reconcile.sh`（347 行）、`platform-ops_sit_all_in_one_dns_reconcile.sh` 与 `xconnect-lab/reconcile-gateway-dns.sh` 使用 `curl --request "${method}"` 或 `curl "${curl_args[@]}"` 调用 Cloudflare API 修改 DNS，未匹配硬编码的 `(?:-X|--request)\s+(?:POST|PUT|PATCH|DELETE)`。这些脚本属于 IaC Modules DNS 执行债务。
 3. **目录粗暴判定**：现脚本对 `/serverless/` 路径一律赋予 `playbooks` 所有者，与实际边界不符。
-- **后续优化计划**：在完成 P1b 后，提专用 PR 修正扫描器规则：放行 Toolkit 原生的 Vault/HTTP 只读探测与只读验收；捕获动态 SSH 与变量 curl 修改；按行为属性精确归类。
+- **本轮独立修正 PR**：[Toolkit #1279](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1279) 已补动态 SSH/Provider 数组、变量 curl、本地主机操作及 marker-removal SHA 负例；精确区分控制面行为与执行债务，不改 executor 字节。15 项本地测试、完整 PR checks 全部 SUCCESS，尚未合并。该 PR 提议冻结登记为 15 个（原 8 减 3 个误报、补 10 个旧漏检），不是 main 已合并状态或 cleanup 完成；混合 owner 提示仅为 review aid。
 
 ---
 
@@ -138,7 +139,8 @@ Toolkit `ec7bc9b1` 下 `git ls-tree -r --name-only HEAD .github/scripts` 为 **1
   - **Playbooks**：需要时负责 Caddy refresh 与主机/服务健康，DNS executor 不包含 SSH/host probes。
   - **分期**：先 gateway UAT single-A upsert；随后独立合同加入 CNAME/canonical adopt-yield、SIT/multi-record。旧 UAT/SIT 隐式删除冲突重复记录不复制为默认行为；清理需冲突计划、精确 record ID 与单独授权。
   - **完成门禁**：owner 合并且固定 SHA → 逐个 caller 切换 → 合同/负例/实际 UAT → 对应旧副本删除；未覆盖的 legacy caller 保留。
-  - **主线 owner PR**：[IaC #393](https://github.com/ai-workspace-infra/iac_modules/pull/393) 已于 `2026-10-04T16:42:52Z` 合并，固定 owner SHA `a0185e61fc2b41ac4dbd40c8037016aaef1b3973`；owner-contract（37217754651）与 pipeline-scripts（37217754548）SUCCESS。当前仅 owner 阶段完成，未切 Toolkit、未验收新 DNS 路线、旧 DNS 脚本保留；下一门禁为独立 caller PR。
+  - **主线 owner PR**：[IaC #393](https://github.com/ai-workspace-infra/iac_modules/pull/393) 已合并，固定 owner SHA `a0185e61fc2b41ac4dbd40c8037016aaef1b3973`；owner-contract 与 pipeline-scripts SUCCESS。
+  - **主线 caller PR**：[Toolkit #1278](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1278) 已于 `2026-10-04T16:53:21Z` 合并，merge `62ea91b6e53da44552579841aa57d35de02c1852`、head `a8e6e7f0152de76504c20ae041c76b8a867043e8`，PR checks SUCCESS。main 中 `xconnect-zero-cloud` UAT gateway DNS 已调用固定 IaC owner；旧 `.github/scripts/xconnect-lab/reconcile-gateway-dns.sh` 保留。专门新路线 UAT 与 cleanup 尚未完成，失败 Snapshot/Hybrid 的 `ec7bc9b1` head 早于该 caller，不能当作新路线验收。
   - **并行候选**：[IaC #392](https://github.com/ai-workspace-infra/iac_modules/pull/392)（ready for review，head `bbfc3aecca28c127af0c63b81657c40fdd798d0e`），新增 `scripts/pipeline/dns-reconcile.py` 和独立契约，26 项新增测试、48 项 pipeline Python 测试与 CI 37217448148 通过。仍未合并，不作为主线当前 cutover 依赖，后续需审查与 #393 的能力重叠，不再并列声称主线需等待它合并。
 
 ### 后续批次 P3：XConnect 实验室与 existing-One 架构拆解
@@ -192,7 +194,7 @@ Toolkit `ec7bc9b1` 下 `git ls-tree -r --name-only HEAD .github/scripts` 为 **1
 2. **后续推进路线**：
    - **Step 1**：（已完成）本文档更新已由 #1270 合入，本次仅做事实纠正与经验补充。
    - **Step 2**：（owner/caller 已完成）P1b #570/#1273 已合并；#1276 已修复 Services repo 错名，但 run `37217324603` 最终 FAILURE。真实 Role UAT 与 cleanup 仍未验收，在 #1275 跟进固定 Role 实际执行证据，旧副本保留。
-   - **Step 3**：（owner 已合并）主线 #393 已提供 gateway single-A owner；下一步单独 Toolkit caller 固定 `a0185e61fc2b41ac4dbd40c8037016aaef1b3973`。当前未切 caller、未 UAT、未 cleanup；未覆盖的 DNS legacy 均保留。
+   - **Step 3**：（owner/caller 已合并）#393/#1278 已完成 gateway single-A 固定 owner 接线。下一门禁为专门新路线 UAT/receipt；未验收不得 cleanup，未覆盖的 DNS legacy 均保留。
    - **Step 4**：按 P2b canonical/SIT、P3 XConnect、P4 SMTP 和横向 GCP access/扫描器任务分批推进。每一批先核对实际执行与全部 caller，不直接复制混合脚本。
 
 ---
