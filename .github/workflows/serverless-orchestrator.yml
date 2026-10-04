@@ -1410,3 +1410,38 @@ jobs:
           SERVERLESS_DOMAINS_RESULT: ${{ needs.serverless_domains.result }}
           CLOUD_RUN_RESULT: ${{ needs.cloud_run.result }}
           SUPABASE_RESULT: ${{ needs.supabase.result }}
+
+  console_release_metadata:
+    name: Record release identity for Operations Console
+    needs: [preflight, cloud_run, cloudflare_ssr, frontend_router, edge_gateway, static_pages, serverless_domains, verify]
+    # Observe every terminal outcome; this job uploads metadata only.
+    if: >-
+      ${{ always() && needs.preflight.result != '' && needs.cloud_run.result != '' &&
+      needs.cloudflare_ssr.result != '' && needs.frontend_router.result != '' &&
+      needs.edge_gateway.result != '' && needs.static_pages.result != '' &&
+      needs.serverless_domains.result != '' && needs.verify.result != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Write allowlisted release metadata
+        env:
+          RELEASE_ENV: ${{ inputs.vault_env_path || 'uat' }}
+          RELEASE_TAG: ${{ inputs.tag_ref }}
+          RELEASE_OPERATION: ${{ inputs.operation }}
+          RELEASE_TARGET: ${{ inputs.target_domains || 'all' }}
+          RELEASE_LANES: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          lanes = json.loads(os.environ['RELEASE_LANES'])
+          payload = {'environment': os.environ['RELEASE_ENV'], 'tag': os.environ['RELEASE_TAG'],
+                     'operation': os.environ['RELEASE_OPERATION'], 'target': os.environ['RELEASE_TARGET'],
+                     'lanes': {key: {'result': value['result']} for key, value in lanes.items()}}
+          Path('release-metadata.json').write_text(json.dumps(payload))
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: console-release-metadata
+          path: release-metadata.json
