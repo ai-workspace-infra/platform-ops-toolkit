@@ -215,6 +215,24 @@ class EnvironmentUpgradeTests(unittest.TestCase):
                 pipeline.execute_phase(candidate(), "preflight", Path(directory),
                                        runner=lambda *a, **k: self.fail("adapter was run"))
 
+    def test_one_reviewed_delegate_serves_all_registered_phases(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            delegate = root / ".github/scripts/environment-upgrade/delegate.sh"
+            delegate.parent.mkdir(parents=True)
+            delegate.write_text("#!/bin/sh\nexit 1\n")
+            registry = {"schema": 2, "uat": {"phases": list(pipeline.REHEARSAL_PHASES),
+                        "delegate": {"path": ".github/scripts/environment-upgrade/delegate.sh",
+                                     "sha256": pipeline.hashlib.sha256(delegate.read_bytes()).hexdigest()}},
+                        "prod": {}}
+            with patch.object(pipeline, "ROOT", root):
+                selected = pipeline.registered_adapters(candidate(mode="rehearsal"), registry)
+                self.assertEqual(len(selected), len(pipeline.REHEARSAL_PHASES))
+                self.assertEqual(set(selected.values()), {delegate})
+                registry["uat"]["delegate"]["sha256"] = "a" * 64
+                with self.assertRaisesRegex(pipeline.Blocked, "checksum"):
+                    pipeline.registered_adapters(candidate(mode="rehearsal"), registry)
+
     def test_preflight_cannot_mutate(self):
         with self.assertRaisesRegex(pipeline.Blocked, "preflight cannot mutate"):
             pipeline.execute_phase(candidate(mode="preflight"), "backup", Path("/unused"))

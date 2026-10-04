@@ -164,26 +164,26 @@ def resolve_candidate(env):
 
 def registered_adapters(candidate, registry=None):
     registry = read_json(DIRECTORY / "adapters.json") if registry is None else registry
-    require(registry.get("schema") == 1, "unsupported adapter registry")
+    require(registry.get("schema") == 2, "unsupported adapter registry")
     require(candidate["evidence_kind"] == "live_candidate", "rehearsal cannot authorize live execution")
     needed = phase_sequence(candidate) if candidate["mode"] != "preflight" else ("preflight",)
     selected = registry.get(candidate["environment"], {})
-    missing = [phase for phase in needed if not selected.get(phase)]
+    declared_phases = selected.get("phases", [])
+    require(isinstance(declared_phases, list) and all(phase in REHEARSAL_PHASES for phase in declared_phases),
+            "invalid phase registration")
+    missing = [phase for phase in needed if phase not in declared_phases]
     require(not missing, "reviewed live adapters not registered: " + ", ".join(missing))
-    checked = {}
-    for phase in needed:
-        item = selected[phase]
-        require(isinstance(item, dict), "invalid adapter registration")
-        expected_path = f".github/scripts/environment-upgrade/live/{candidate['environment']}/{phase}.sh"
-        require(item.get("path") == expected_path, "adapter must use its fixed repository-owned path")
-        path = ROOT / expected_path
-        require(path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(ROOT),
-                "registered adapter missing or symlinked outside repository")
-        require(SHA.fullmatch(item.get("sha256", "")) is not None
-                and hashlib.sha256(path.read_bytes()).hexdigest() == item["sha256"],
-                "adapter checksum differs from reviewed registration")
-        checked[phase] = path
-    return checked
+    item = selected.get("delegate")
+    require(isinstance(item, dict), "single reviewed playbooks delegate is required")
+    expected_path = ".github/scripts/environment-upgrade/delegate.sh"
+    require(item.get("path") == expected_path, "delegate must use its fixed control-plane path")
+    path = ROOT / expected_path
+    require(path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(ROOT),
+            "reviewed delegate missing or symlinked outside repository")
+    require(SHA.fullmatch(item.get("sha256", "")) is not None
+            and hashlib.sha256(path.read_bytes()).hexdigest() == item["sha256"],
+            "delegate checksum differs from reviewed registration")
+    return {phase: path for phase in needed}
 
 
 def digests(candidate):
@@ -283,7 +283,8 @@ def execute_phase(candidate, phase, public, runner=None):
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / "receipt.json"
         env = dict(os.environ, UPGRADE_CANDIDATE_FILE=str(public / "candidate.json"),
-                   UPGRADE_RECEIPT_FILE=str(output), UPGRADE_EVIDENCE_DIR=str(public))
+                   UPGRADE_RECEIPT_FILE=str(output), UPGRADE_EVIDENCE_DIR=str(public),
+                   UPGRADE_PHASE=phase)
         run = runner or subprocess.run
         result = run(["bash", str(adapters[phase])], env=env, capture_output=True, timeout=7200)
         require(result.returncode == 0, f"{phase} adapter failed; downstream stages blocked (raw output withheld)")

@@ -79,9 +79,10 @@ Environment 审批 → 数据库预检 → 可恢复备份 → 增量迁移 → 
 ## 真实执行适配器接入（启用 live 前必须完成）
 
 1. 在拥有执行职责的 domain CD / playbooks 中实现并审核 DB、备份、恢复、部署和
-   业务探针；本仓库仅注册固定薄委托入口，不接收 workflow 输入中的任意脚本/命令。
-2. 固定入口必须是 `.github/scripts/environment-upgrade/live/<uat|prod>/<phase>.sh`。
-   在 adapters.json 对相应环境的所有阶段登记 `path` 和脚本 `sha256`。
+   业务探针；本仓库仅注册固定的单一薄委托入口，不接收 workflow 输入中的任意脚本/命令。
+2. 委托入口固定为 `.github/scripts/environment-upgrade/delegate.sh`。`adapters.json`
+   按环境声明经过审核的 `phases` 和该入口的 `path`、`sha256`；不得为每个环境、
+   阶段复制一个脚本。委托入口按 `UPGRADE_PHASE` 调用 `playbooks` 的参数化 role。
 3. 脚本读取 `UPGRADE_CANDIDATE_FILE`，从 `UPGRADE_EVIDENCE_DIR` 读取已验证前序证据，
    将原始 JSON 结果写入 `UPGRADE_RECEIPT_FILE`。只有 exit 0 且 receipt 全项验证通过
    才发布非敏感结果；boolean 字段是实际执行断言，不能填写人为批准或未执行的 true。
@@ -95,6 +96,10 @@ Environment 审批 → 数据库预检 → 可恢复备份 → 增量迁移 → 
    字符串。恢复工具不得操作源数据库，不调用现有会 DROP public 的恢复脚本。
 8. 用 UAT 真实旧版本样本演练成功、事务失败、非事务失败、应用回滚和再次晋级，
    生成可审核证据后再启用 PROD。receipt 的结构测试不能证明远端事实。
+
+当前 `playbooks` 已开始实现 `web_saas_release_upgrade` role，提供数据库只读预检
+及同环境备份/隔离恢复的组成证据。完整业务验收、增量迁移及同 digest 发布还没有
+对应的已审核执行 role，因此 adapter registry 仍为空，流水线继续阻断 live 执行。
 
 ## 回滚边界
 
