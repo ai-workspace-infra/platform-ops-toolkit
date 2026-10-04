@@ -36,6 +36,11 @@ Selfhost 是最后兜底运行路径和备份节点，不因此成为日常 sche
 时，PROD 候选校验也会失败。
 2026-10-04 查询到 `prod` Environment 尚无审核规则；候选校验会因此阻断 PROD。
 现有受审环境名 `production` 不等同于本流水线使用的 `prod`，不能混用。
+最新 UAT selfhost 构建的 CMDB 将 `web-saas-uat` 标记为 GCP Spot；对应 GitOps
+资源声明未声明独立 `/data` 数据卷。尚未核验远端实际挂载与空间，不得假定
+`/data/backups` 已是持久存储。`playbooks` role 会在 `/data` 不是独立挂载时
+拒绝备份。容量、挂载及 CMDB 来源核验属于 IaC/GitOps 与主机执行前置条件，
+不能用一个调用方传入的 `verified=true` 代替。
 
 ## 操作模式
 
