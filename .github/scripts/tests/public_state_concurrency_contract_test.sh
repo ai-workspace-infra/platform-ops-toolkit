@@ -17,7 +17,7 @@ def load(path):
 
 serverless, _ = load(root / ".github/workflows/serverless-orchestrator.yml")
 selfhost, _ = load(root / ".github/workflows/selfhost-orchestrator.yml")
-migration, _ = load(root / ".github/workflows/data-migration.yaml")
+migration, _ = load(root / ".github/workflows/environment-data-operations.yml")
 hybrid, _ = load(root / ".github/workflows/hybrid-orchestrator.yml")
 
 serverless_group = serverless["jobs"]["serverless_domains"]["concurrency"]["group"]
@@ -28,7 +28,7 @@ if selfhost_group != "public-dns-${{ needs.provision.outputs.deployment_env }}":
     raise SystemExit(f"unexpected selfhost public DNS group: {selfhost_group!r}")
 
 migration_group = migration["concurrency"]["group"]
-if migration_group != "data-migration-${{ inputs.vault_env_path || 'sit' }}-${{ inputs.migration_scope || 'accounts' }}":
+if migration_group != "environment-data-operations-${{ inputs.environment }}":
     raise SystemExit(f"unexpected data migration group: {migration_group!r}")
 
 # The serverless and hybrid orchestrators deploy the same three edge-gateway

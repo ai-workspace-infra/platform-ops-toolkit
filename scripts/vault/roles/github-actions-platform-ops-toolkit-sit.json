@@ -19,7 +19,6 @@
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-landingzone-baseline.yaml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/cron-rotate-domain-tls-certs.yaml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/configure-email-dns.yaml@*",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/data-migration.yaml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/k6-performance-test.yaml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/uat-serverless-orchestrator.yml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-orchestrator.yml@*",

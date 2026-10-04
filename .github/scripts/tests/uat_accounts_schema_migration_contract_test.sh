@@ -121,23 +121,12 @@ if 'supabase' not in baseline['needs'] or 'uat_accounts_baseline' not in cloud_r
     raise SystemExit('UAT baseline must run after Supabase and gate Cloud Run')
 if "needs.uat_accounts_baseline.result == 'success'" not in cloud_run['if']:
     raise SystemExit('Cloud Run must stop after a failed UAT baseline upgrade')
-sql = (root / '.github/scripts/serverless/uat_accounts_baseline_2026091401.sql').read_text()
-for forbidden in ('DROP TABLE', 'TRUNCATE ', 'DELETE FROM ', 'UPDATE PUBLIC.USERS'):
-    if forbidden in sql.upper():
-        raise SystemExit(f'Expand-only UAT baseline contains {forbidden}')
-for index_name in (
-    'overlay_registrations_owner_created_idx',
-    'overlay_registrations_network_pending_idx',
-    'overlay_registrations_network_created_idx',
-    'overlay_registrations_identity_pending_idx',
-):
-    if f'CREATE INDEX IF NOT EXISTS {index_name}' not in sql:
-        raise SystemExit(f'UAT baseline must repair missing prior index {index_name} idempotently')
-if "IF overlay_index_columns <> 7" not in sql:
-    raise SystemExit('UAT baseline must verify overlay index columns before creating indexes')
-adopter = (root / '.github/scripts/serverless/adopt_accounts_uat_baseline.sh').read_text()
-if '"2026091401:false:4:4"' not in adopter:
-    raise SystemExit('UAT baseline post-check must verify all repaired overlay indexes')
+for job_name, mode in (('uat_accounts_baseline', 'baseline'), ('uat_accounts_schema_migration', 'migrate')):
+    steps = serverless['jobs'][job_name]['steps']
+    calls = [step for step in steps if 'environment-upgrade/dispatch.py' in step.get('run', '')]
+    if len(calls) != 1 or calls[0]['env']['DATA_OPERATION'] != mode:
+        raise SystemExit('Requested schema steps must dispatch one owned, reviewed executor')
+# SQL and implementation-level repair assertions now run in Playbooks owner CI.
 PY
 
 echo "UAT Accounts schema migration dispatch contract passed."

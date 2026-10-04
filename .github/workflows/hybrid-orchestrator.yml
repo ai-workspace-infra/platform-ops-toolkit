@@ -108,6 +108,10 @@ on:
         required: true
         default: false
         type: boolean
+      data_config_json:
+        description: 'Optional explicit data operation JSON with mode; empty for normal deploys; never include secrets'
+        type: string
+        default: '{}'
       adopt_accounts_baseline:
         description: 'UAT-only: adopt the reviewed expand-only Accounts baseline before the web-saas deployment'
         required: false
@@ -180,10 +184,27 @@ jobs:
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/hybrid-routing.json
           REQUIRED_RUNTIME_MODE: hybrid
 
+  data_operations:
+    name: '[1] Delegate | environment data operation'
+    needs: preflight
+    if: ${{ fromJSON(inputs.data_config_json).mode }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Dispatch and wait for data result
+        run: python3 .github/scripts/environment-upgrade/dispatch.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DATA_ENVIRONMENT: ${{ inputs.vault_env_path }}
+          DATA_OPERATION: ${{ fromJSON(inputs.data_config_json).mode }}
+          DATA_CONFIG_JSON: ${{ inputs.data_config_json }}
+          RELEASE_TAG: ${{ inputs.deploy_tag }}
+          ACCOUNTS_REF: ${{ inputs.deploy_tag || 'main' }}
+
   resource_orchestration:
     name: '[1] Execute | eight ordered resource lanes'
-    needs: preflight
-    if: ${{ needs.preflight.result == 'success' }}
+    needs: [preflight, data_operations]
+    if: ${{ always() && needs.preflight.result == 'success' && (needs.data_operations.result == 'success' || needs.data_operations.result == 'skipped') }}
     runs-on: ${{ inputs.runner_type || 'ubuntu-latest' }}
     environment: uat
     steps:
@@ -247,7 +268,7 @@ jobs:
   edge_gateway:
     name: '[2] Edge handoff | ${{ matrix.boundary }} | delegated to Serverless child'
     needs: resource_orchestration
-    if: ${{ needs.resource_orchestration.result == 'success' }}
+    if: ${{ always() && needs.resource_orchestration.result == 'success' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

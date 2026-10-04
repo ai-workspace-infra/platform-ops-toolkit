@@ -1,5 +1,9 @@
 # 架构规划：基于 Release Tag 的数据库原子化升级与备份回滚体系 (Supabase & VPS PostgreSQL)
 
+> 历史方案（2026-10-04 后被统一入口取代）：旧 migration/rollback/Akamai Actions 名称和 hard restore 示例不再可执行。
+> 当前入口为 `environment-data-operations.yml`；仅显式 UAT legacy_import 可做一次性 PROD→UAT 导入。
+> 普通发布不复制数据、禁止自动破坏性恢复。执行边界及未注册能力见 docs/data_migration/environment-data-operations.md。
+
 > **核心目标**：实现生产每次发布的**原子化升级（Atomic Upgrades）**与**确定性可回滚（Deterministic Rollback）**。任何一次发布在发生异常时，均能在秒级到分钟级安全回退至上一稳定版本 Release Tag，彻底杜绝代码回退但数据库被破坏的非一致状态。
 
 ---

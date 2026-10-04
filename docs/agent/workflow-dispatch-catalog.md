@@ -171,13 +171,14 @@ dns_mode=none
 
 ---
 
-## 5. `data-migration.yaml`
+## 5. `environment-data-operations.yml`
 
-同时有 `workflow_call` 与 `workflow_dispatch` 两套 inputs，字段同名但类型不同
-（`workflow_call` 版是 string，`workflow_dispatch` 版是 choice）。Agent 只需要对
-`workflow_dispatch` 版建模。`toolkit_action=restore` 与 `vault_env_path=prod`
-同时出现是本仓库风险最高的组合，按 §3.2 的规格同等对待——需要用户对这两个字段本身
-分别确认。
+统一数据预检、备份、审核迁移、升级/回滚门禁和 Akamai UAT 预检。环境必须明确选择 uat/prod，
+参数为 mode、不可变 release_tag、候选运行/版本/checksum 与非敏感 config_json。
+旧 migration、rollback、Akamai 入口已退役，不再允许 toolkit_action=restore 或 hard 自动恢复。
+一次性 PROD→UAT 导入仅 legacy_import、UAT-only、显式 confirm_legacy_import=true；普通发布不复制数据。
+完整发布与独立应用回滚的真实执行器未注册时必须阻断，不能把派发视为执行验收。
+详见 [统一操作与能力边界](../data_migration/environment-data-operations.md)。
 
 ---
 

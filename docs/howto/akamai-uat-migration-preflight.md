@@ -1,5 +1,10 @@
 # Akamai UAT migration preflight
 
+Entry updated: dispatch Toolkit `environment-data-operations.yml`, mode `akamai_preflight`,
+environment `uat`, config_json.account set explicitly. The executor now belongs to
+IaC `akamai-state-preflight.yml` at a fixed merge SHA; the old Toolkit workflow is retired.
+Account `manbuzhe2026` below is an example, not a hardcoded runtime default.
+
 This manual workflow inventories the six UAT Akamai namespaces, the historical
 shared state, and matching Linode instances/firewalls. It is read-only: it runs
 Terraform backend initialization plus `terraform show -json`, S3 object-version
@@ -10,7 +15,7 @@ runs a Terraform plan/apply, state import/move/remove/push, or resource deletion
 
 ## Scope and state keys
 
-The workflow always uses the concrete UAT account `manbuzhe2026`, reads provider
+For the concrete UAT account `manbuzhe2026`, it reads provider
 credentials from `kv/data/CICD/uat/akamai-cloud/manbuzhe2026`, and reads the S3
 compatible backend fields from `kv/data/CICD/uat/iac_state`.
 

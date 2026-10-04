@@ -18,7 +18,7 @@ for path in sys.argv[1:]:
     assert any(ref.endswith("akamai-cloud-iac.yml@*") for ref in refs)
     assert any(ref.endswith("selfhost-orchestrator.yml@*") for ref in refs)
     if data["bound_claims"]["environment"] == "uat":
-        assert any(ref.endswith("akamai-uat-migration-preflight.yml@*") for ref in refs)
+        assert any("ai-workspace-infra/iac_modules/.github/workflows/akamai-state-preflight.yml@" in ref for ref in refs)
 print("akamai_selfhost_vault_role_contract: PASS")
 PY
 
