@@ -1,0 +1,33 @@
+name: Environment Upgrade Contract CI
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/environment-upgrade*.yml
+      - .github/scripts/environment-upgrade/**
+      - .github/scripts/tests/environment_upgrade_test.py
+      - .github/scripts/snapshots/verify-promotion-manifest.py
+      - .github/scripts/tests/fixtures/uat-upgrade-acceptance.jq
+      - docs/data_migration/environment-upgrade.md
+  push:
+    branches: [feature/environment-upgrade]
+    paths:
+      - .github/workflows/environment-upgrade*.yml
+      - .github/scripts/environment-upgrade/**
+      - .github/scripts/tests/environment_upgrade_test.py
+      - .github/scripts/snapshots/verify-promotion-manifest.py
+      - .github/scripts/tests/fixtures/uat-upgrade-acceptance.jq
+
+permissions:
+  contents: read
+
+jobs:
+  offline-rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Falsify both environments and all phase gates without deployment credentials
+        run: python3 .github/scripts/tests/environment_upgrade_test.py
