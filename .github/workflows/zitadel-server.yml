@@ -317,13 +317,13 @@ jobs:
             zitadel_operations.yml
             roles/docker/zitadel_server_operations
       # VM runtime, the OS Login key and the runner-/32 SSH rule are IaC
-      # Modules operations (ai-workspace-infra/iac_modules#390), pinned here.
+      # Modules operations (ai-workspace-infra/iac_modules#390 at its merge commit), pinned here.
       - name: Checkout reviewed IaC temporary SSH access executor
         if: ${{ inputs.service_stage == 'deploy' }}
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: 02385f0bc369bfe68369fbb28b20f2186abd296c
+          ref: 92fa6b9c592fa76a5e5fdd66bb0737de1723f20f
           path: iac_modules
           persist-credentials: false
           sparse-checkout: scripts/pipeline
