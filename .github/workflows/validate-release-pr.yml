@@ -81,6 +81,10 @@ jobs:
         sparse-checkout: |
           scripts/pipeline
           .github/scripts
+          verify_web_saas_post_deploy.yml
+          verify_agent_proxy_post_dns.yml
+          roles/vhosts/web_saas_post_deploy_readiness
+          roles/vhosts/agent_proxy_post_dns_readiness
 
     - name: Verify every script a workflow calls exists
       run: >-
@@ -177,10 +181,8 @@ jobs:
     - name: Validate AWS selfhost rootless SSH contract
       run: bash .github/scripts/tests/aws_selfhost_rootless_ssh_test.sh
 
-    - name: Verify Web SaaS host scripts use the CMDB SSH user
-      run: |
-        bash .github/scripts/tests/web_saas_rootless_ssh_test.sh
-        bash .github/scripts/tests/web_saas_container_readiness_test.sh
+    - name: Verify post-deploy host operations use Playbooks roles
+      run: python3 -m unittest scripts.tests.test_post_deploy_readiness_owner_contract
 
     - name: Verify Agent Proxy controller registration contract
       run: bash .github/scripts/tests/platform_ops_agent_proxy_controller_contract_test.sh
