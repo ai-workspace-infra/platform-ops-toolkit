@@ -145,16 +145,18 @@ Toolkit `ec7bc9b1` 下 `git ls-tree -r --name-only HEAD .github/scripts` 为 **1
   - `xconnect-lab/`（`deploy.sh` 729 行, `run.sh` 270 行, `enroll-node.sh` 176 行, `desktop.sh`, `node-observation.sh`, `lease.sh`, `terraform-diagnostics.py`）
   - `xconnect-existing-one-uat/deploy.sh`（527 行）
 - **边界划分**：
-  - **IaC Modules**：接管 Terraform 资源操作、租约生命周期（`lease.sh`）与 Terraform 异常诊断（`terraform-diagnostics.py`）。
+  - **IaC Modules**：接管 Terraform 资源操作、租约对象存储 CRUD 与 Terraform 异常诊断（`terraform-diagnostics.py`）；`lease.sh` 的过期 cleanup dispatch 与阶段审批保留 Toolkit，不能整体搬移混合脚本。
   - **Playbooks Roles**：承接主机层 WireGuard/XRay 容器部署、节点注册、桌面配置与节点可观测性探测。
   - **Toolkit**：保留实验网生命周期阶段编排（plan -> lease -> apply -> enroll -> verify -> teardown）与审批门禁。
+  - **本轮细化**：优先复用现有 One/Gateway/Observability Roles；invite-only、观察 SUMMARY_ONLY 与主机验收分别记录。详见 [下一批合同草案](2026-10-05-next-execution-batches-contract.md)。P3 尚未实现。
 
 ### 后续批次 P4：SMTP 凭据同步拆分
 - **涉及脚本**：`.github/scripts/serverless/sync_smtp_secrets.sh`（145 行）。
 - **边界划分**：
-  - **Toolkit**：负责 Vault Token/OIDC 认证，读取 `kv/data/<env>/platform/smtp/google`，执行版本比对。
-  - **IaC Modules**：提供通用的 GCP Secret Manager 写入入口（包含 API 启用安全探测、`gcloud secrets versions add / create` 幂等写入）。
+  - **Toolkit**：负责 Vault Token/OIDC 认证，读取 `kv/data/<env>/platform/smtp/google`，生成 private runtime payload、控制降级 policy 与 always cleanup。
+  - **IaC Modules**：提供通用的 GCP Secret Manager 读写/比对入口（API 状态探测、`gcloud secrets versions add / create` 幂等写入与明确 receipt），默认不擅自 enable API 或改 IAM。
   - **Toolkit**：调用 IaC 脚本完成写入，并验证 Accounts 服务的降级/就绪状态。
+  - **本轮细化**：不得继承 legacy 的 warning/exit0 为 synced；partial failure 与 invitation/readiness 等独立门禁详见 [下一批合同草案](2026-10-05-next-execution-batches-contract.md)。P4 尚未实现。
 
 ### 横向优化批次：GCP 管道脚本归整至 `iac_modules/scripts/pipeline/gcp/`
 - 将 IaC Modules 现有的 `ensure-gcp-vm-running.py`、`register-gcp-oslogin-key.sh` 与 `gcp-temporary-ssh-access.sh` 统一规整至 `iac_modules/scripts/pipeline/gcp/`。
