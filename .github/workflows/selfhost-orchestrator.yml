@@ -1197,6 +1197,7 @@ jobs:
     # 顺序: 先恢复(bootstrap 之后、Doco-CD 把 caddy 拉起来之前), 让 caddy 一起来
     # 就发现证书已在, 根本不调 ACME; 部署末尾再备份, 把这一轮可能新签的证书存回去。
     - name: Restore domain TLS state from Vault before Caddy can issue
+      id: tls_restore
       # Agent Proxy owns a public Caddy vhost too.  The combined UAT path
       # deploys it after serverless web-saas, so restore the shared wildcard
       # certificate for agent-proxy-only runs as well; otherwise the playbook
@@ -1209,7 +1210,30 @@ jobs:
         # to stunnel's internal CA. Non-Caddy consumers use current/{fullchain,
         # cert,key,ca}.pem below; `current` flips atomically after validation.
         DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
-      run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_base_restore-caddy-certs.sh
+      run: python3 ${{ github.workspace }}/.github/scripts/platform-ops/deploy/prepare-domain-tls-restore.py
+
+    - name: Checkout reviewed Caddy PEM restore owner
+      if: ${{ steps.tls_restore.outputs.restore_required == 'true' }}
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/playbooks
+        ref: 14f6196bbf69b78d07f1adb9fb8c97bc816a485b
+        path: caddy-restore-playbooks
+
+    - name: Restore PEM with pinned Playbooks Role
+      if: ${{ steps.tls_restore.outputs.restore_required == 'true' }}
+      env:
+        TLS_RESTORE_VARS_FILE: ${{ steps.tls_restore.outputs.vars_file }}
+      run: >-
+        ansible-playbook -i cmdb/inventory.ini
+        caddy-restore-playbooks/caddy_certificate_restore.yml
+        -e "@${TLS_RESTORE_VARS_FILE}"
+
+    - name: Remove runtime PEM variables
+      if: ${{ always() && steps.tls_restore.outputs.vars_file != '' }}
+      env:
+        TLS_RESTORE_VARS_FILE: ${{ steps.tls_restore.outputs.vars_file }}
+      run: rm -f -- "${TLS_RESTORE_VARS_FILE}"
 
     - name: Bootstrap node according to CMDB role
       working-directory: playbooks
@@ -2416,12 +2440,36 @@ jobs:
         ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_render-non-iac-agent-proxy-inventory.py
 
     - name: Restore domain TLS state to non-IaC node
+      id: tls_restore
       env:
         VAULT_ROLE: ${{ env.VAULT_ROLE }}
         VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
         DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
-        RESTORE_INVENTORY_FILE: ${{ runner.temp }}/external-agent-proxy-inventory.yml
-      run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_base_restore-caddy-certs.sh
+      run: python3 ${{ github.workspace }}/.github/scripts/platform-ops/deploy/prepare-domain-tls-restore.py
+
+    - name: Checkout reviewed Caddy PEM restore owner for non-IaC node
+      if: ${{ steps.tls_restore.outputs.restore_required == 'true' }}
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/playbooks
+        ref: 14f6196bbf69b78d07f1adb9fb8c97bc816a485b
+        path: caddy-restore-playbooks
+
+    - name: Restore PEM with pinned Playbooks Role on non-IaC node
+      if: ${{ steps.tls_restore.outputs.restore_required == 'true' }}
+      env:
+        TLS_RESTORE_VARS_FILE: ${{ steps.tls_restore.outputs.vars_file }}
+        ANSIBLE_SSH_ARGS: "-o ControlMaster=auto -o ControlPersist=60s -o IdentityFile=${{ runner.temp }}/xconnect-non-iac-deploy-key -o PreferredAuthentications=publickey,password -o StrictHostKeyChecking=no"
+      run: >-
+        ansible-playbook -i "${{ runner.temp }}/external-agent-proxy-inventory.yml"
+        caddy-restore-playbooks/caddy_certificate_restore.yml
+        -e "@${TLS_RESTORE_VARS_FILE}"
+
+    - name: Remove non-IaC runtime PEM variables
+      if: ${{ always() && steps.tls_restore.outputs.vars_file != '' }}
+      env:
+        TLS_RESTORE_VARS_FILE: ${{ steps.tls_restore.outputs.vars_file }}
+      run: rm -f -- "${TLS_RESTORE_VARS_FILE}"
 
     - name: Resolve Xray Exporter image
       id: xray_exporter
