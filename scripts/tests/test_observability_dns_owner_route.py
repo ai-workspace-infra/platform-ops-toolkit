@@ -62,6 +62,14 @@ class DnsOwnerContractTests(unittest.TestCase):
         self.assertEqual(recovery["run"], step_by_id("dns_change")["run"])
         self.assertLess(STEPS.index(acceptance), STEPS.index(recovery))
 
+    def test_job_budget_preserves_bounded_recovery_after_host_timeout(self):
+        recovery = next(step for step in STEPS if step.get("env", {}).get("DNS_ACTION") == "restore")
+        budgets = [step_by_id("dns_change")["timeout-minutes"],
+                   step_by_id("service_acceptance")["timeout-minutes"],
+                   recovery["timeout-minutes"]]
+        self.assertTrue(all(budget > 0 for budget in budgets))
+        self.assertGreaterEqual(JOB["timeout-minutes"], sum(budgets) + 5)
+
 
 class NonMutatingCutoverRehearsalTests(unittest.TestCase):
     @classmethod

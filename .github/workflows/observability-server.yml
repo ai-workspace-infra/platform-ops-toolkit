@@ -1088,7 +1088,8 @@ jobs:
       ((needs.historical_data.result == 'success' && needs.verify_stores.result == 'success') ||
       (inputs.migration_mode == 'none' && inputs.confirm_history_omission && needs.historical_data.result == 'skipped' && needs.verify_stores.result == 'skipped')))) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Reserve time for bounded DNS convergence, host acceptance, and recovery.
+    timeout-minutes: 60
     environment: ${{ inputs.deploy_env }}
     permissions:
       contents: read
@@ -1160,11 +1161,14 @@ jobs:
           chmod 600 "${RUNNER_TEMP}/observability-ssh/id_deploy"
       - name: Change only the observability.svc.plus A record
         id: dns_change
+        # Includes the executor's recovery if DNS propagation itself fails.
+        timeout-minutes: 28
         env:
           CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
         run: python3 iac_modules/scripts/pipeline/cloudflare-dns-record.py
       - name: Refresh Caddy and verify service after DNS cutover
         id: service_acceptance
+        timeout-minutes: 12
         if: inputs.dns_action == 'cutover'
         env:
           SSH_PRIVATE_KEY_PATH: ${{ runner.temp }}/observability-ssh/id_deploy
@@ -1177,6 +1181,7 @@ jobs:
           -e observability_operations_environment=uat
           -e observability_operation=post_dns_cutover
       - name: Restore DNS checkpoint after failed service acceptance
+        timeout-minutes: 14
         if: >-
           ${{ failure() && inputs.dns_action == 'cutover' &&
           steps.dns_change.outcome == 'success' && steps.service_acceptance.outcome == 'failure' }}
