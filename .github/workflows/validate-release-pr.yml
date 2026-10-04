@@ -45,6 +45,14 @@ jobs:
           ACCOUNTS_REPO_ROOT: ${{ github.workspace }}/accounts
           TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
 
+      - name: Verify Web SaaS upgrade acceptance against PostgreSQL 17
+        run: bash .github/scripts/tests/web_saas_upgrade_acceptance_postgres_test.sh
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
   sec-qa-gate:
     name: Sec QA Gate (gitleaks)
     runs-on: ubuntu-latest
@@ -220,11 +228,18 @@ jobs:
     - name: Validate AWS selfhost rootless SSH contract
       run: bash .github/scripts/tests/aws_selfhost_rootless_ssh_test.sh
 
+    - name: Verify Accounts SSH migration safeguards and endpoint preflight
+      run: |
+        bash .github/scripts/tests/accounts_data_migration_ssh_safeguard_test.sh
+        bash .github/scripts/tests/accounts_data_migration_ssh_preflight_test.sh
+        bash .github/scripts/tests/accounts_data_migration_ssh_readiness_test.sh
+
     - name: Verify Web SaaS host scripts use the CMDB SSH user
       run: |
         bash .github/scripts/tests/web_saas_rootless_ssh_test.sh
         bash .github/scripts/tests/doco_cd_postgres_readiness_test.sh
         bash .github/scripts/tests/web_saas_container_readiness_test.sh
+        bash .github/scripts/tests/web_saas_upgrade_acceptance_test.sh
         bash .github/scripts/tests/caddy_restored_cert_diagnostic_test.sh
 
     - name: Verify Agent Proxy controller registration contract

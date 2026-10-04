@@ -34,7 +34,7 @@ on:
         default: "accounts"
         type: string
       accounts_dry_run:
-        description: "accounts scope: preview only, never write to the target DB"
+        description: "accounts scope: never write to the target DB. ssh transport still exports the PROD snapshot (password hashes, MFA secrets, session tokens) and copies it to UAT for the preview"
         required: false
         default: true
         type: boolean
@@ -201,7 +201,7 @@ on:
         type: choice
         options: [accounts, site]
       accounts_dry_run:
-        description: "accounts 范围：只做 dry-run 预览，绝不写入目标库"
+        description: "accounts 范围：不写入目标库；ssh 传输仍会导出 PROD 快照（含密码哈希/MFA/会话 token）并复制到 UAT 做预览，不是纯模拟"
         required: false
         default: true
         type: boolean
@@ -368,6 +368,9 @@ jobs:
 
     - name: Verify SSH transport safeguard assertions
       run: .github/scripts/tests/accounts_data_migration_ssh_safeguard_test.sh
+
+    - name: Verify SSH endpoint preflight classification
+      run: .github/scripts/tests/accounts_data_migration_ssh_preflight_test.sh
 
     - name: Checkout accounts service
       uses: actions/checkout@v7

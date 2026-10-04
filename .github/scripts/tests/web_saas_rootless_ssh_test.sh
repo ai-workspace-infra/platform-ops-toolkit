@@ -10,6 +10,7 @@ scripts=(
   .github/scripts/platform-ops/observe/platform-ops_observe_backup-caddy-certs.sh
   .github/scripts/platform-ops/observe/platform-ops_observe-web-saas-ingress.sh
   .github/scripts/platform-ops/observe/platform-ops_observe-web-saas-containers.sh
+  .github/scripts/platform-ops/observe/platform-ops_web-saas-upgrade-acceptance.sh
 )
 for script in "${scripts[@]}"; do
   grep -Fq 'lib/cmdb-ssh-login.sh' "${repo_root}/${script}" || { echo "${script} must resolve the CMDB SSH user" >&2; exit 1; }

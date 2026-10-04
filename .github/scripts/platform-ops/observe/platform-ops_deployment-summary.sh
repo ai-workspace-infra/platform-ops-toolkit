@@ -9,6 +9,8 @@ render_summary() {
   printf '| Provision | `%s` |\n' "${PROVISION_RESULT:-unknown}"
   printf '| Web SaaS deploy | `%s` |\n' "${WEB_SAAS_DEPLOY_RESULT:-unknown}"
   printf '| DB initialization | `%s` |\n' "${DB_INIT_RESULT:-unknown}"
+  printf '| Web SaaS pre-upgrade baseline | `%s` |\n' "${WEB_SAAS_BASELINE_RESULT:-unknown}"
+  printf '| Web SaaS upgrade acceptance (DNS-independent) | `%s` |\n' "${WEB_SAAS_ACCEPTANCE_RESULT:-unknown}"
   printf '| Agent Proxy deploy | `%s` |\n' "${AGENT_PROXY_DEPLOY_RESULT:-unknown}"
   printf '| Agent Proxy non-IaC deploy | `%s` |\n' "${AGENT_PROXY_NON_IAC_DEPLOY_RESULT:-unknown}"
   printf '| Open Platform deployment/verification | `%s` |\n' "${INFRA_PLATFORM_DEPLOY_RESULT:-unknown}"
