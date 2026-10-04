@@ -254,10 +254,10 @@ ACCOUNTS_SCHEMA_TARGET_VERSION=2026092801 \
 ACCOUNTS_SCHEMA_SHA256=d066e223641b4eccbb65a00dce70f717b6dce02491d1d54edc1099baf2071433 \
 DRY_RUN=true \
 bash "${dispatcher}" >"${migration_dry_run}"
-grep -Fq '"apply_accounts_schema_migration":"true"' "${migration_dry_run}"
-grep -Fq '"accounts_schema_expected_version":"2026092703"' "${migration_dry_run}"
-grep -Fq '"accounts_schema_target_version":"2026092801"' "${migration_dry_run}"
-grep -Fq '"accounts_schema_sha256":"d066e223641b4eccbb65a00dce70f717b6dce02491d1d54edc1099baf2071433"' "${migration_dry_run}"
+grep -Eq '"apply_accounts_schema_migration"[[:space:]]*:[[:space:]]*"true"' "${migration_dry_run}"
+grep -Eq '"accounts_schema_expected_version"[[:space:]]*:[[:space:]]*"2026092703"' "${migration_dry_run}"
+grep -Eq '"accounts_schema_target_version"[[:space:]]*:[[:space:]]*"2026092801"' "${migration_dry_run}"
+grep -Eq '"accounts_schema_sha256"[[:space:]]*:[[:space:]]*"d066e223641b4eccbb65a00dce70f717b6dce02491d1d54edc1099baf2071433"' "${migration_dry_run}"
 
 python3 - "${workflow}" "${dispatcher}" <<'PY'
 import sys
