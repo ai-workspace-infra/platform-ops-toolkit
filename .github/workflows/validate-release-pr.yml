@@ -132,6 +132,23 @@ jobs:
         PLAYBOOKS_DNS_TEST_ROOT: ${{ github.workspace }}/pipeline-contract/playbooks
       run: python3 scripts/tests/test_observability_dns_owner_route.py
 
+    - name: Checkout pinned local Grafana health owner for non-mutating rehearsal
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/playbooks
+        ref: 49b37d3a7d35610282f5986367c3853158660457
+        path: pipeline-contract/local-health-playbooks
+        sparse-checkout-cone-mode: false
+        sparse-checkout: |
+          observability_operations.yml
+          roles/docker/observability_server_operations
+          tests/test_observability_local_grafana.py
+
+    - name: Verify pinned Grafana owner route and fail-closed caller behavior
+      env:
+        PLAYBOOKS_LOCAL_HEALTH_TEST_ROOT: ${{ github.workspace }}/pipeline-contract/local-health-playbooks
+      run: python3 scripts/tests/test_observability_local_health_owner_route.py
+
     # Over 25 workflow_dispatch inputs and the file stops being a workflow at
     # all -- callers included. Cheap to assert here, expensive to discover on
     # main.
