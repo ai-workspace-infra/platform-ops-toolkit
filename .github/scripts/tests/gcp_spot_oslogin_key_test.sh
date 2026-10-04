@@ -12,13 +12,16 @@ python3 - "${workflow}" <<'PY'
 import sys
 text = open(sys.argv[1], encoding="utf-8").read()
 running = text.index("- name: Ensure declared GCP VMs are running")
-refresh = text.index("- name: Refresh Terraform outputs after starting VMs")
+refresh = text.index("- name: Refresh Terraform outputs from the running VMs")
 register = text.index("- name: Register the deploy key for OS Login Spot VMs")
 inventory = text.index("- name: generate.py inventory")
 assert running < refresh < register < inventory, "VM start, output refresh, OS Login, then inventory"
 assert "id: gcp_runtime" in text[running:refresh]
 refresh_step = text[refresh:register]
-assert "steps.gcp_runtime.outputs.started == 'true'" in refresh_step
+# Terraform's own stop/start (an in-place machine_type change) also moves the
+# ephemeral IP, so the refresh must not depend on this step starting a VM.
+assert "steps.gcp_runtime.outputs.started" not in refresh_step
+assert "steps.route.outputs.cloud_provider == 'gcp-cloud'" in refresh_step
 assert "run: terraform apply -refresh-only -input=false -auto-approve -no-color" in refresh_step
 assert "working-directory: ${{ steps.route.outputs.env_dir }}" in refresh_step
 step = text[register:inventory]

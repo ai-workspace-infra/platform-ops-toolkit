@@ -768,16 +768,19 @@ jobs:
           --manifest "${{ steps.route.outputs.env_dir }}/resources_manifest.json" \
           --project "${GCP_PROJECT_ID}"
 
-    # A Spot VM started above was stopped when Terraform refreshed, so its new
-    # ephemeral public IP is missing from state and the inventory would reject
-    # it. Refresh-only updates state and outputs to match the running VMs; it
-    # cannot create, change, or destroy any resource.
-    - name: Refresh Terraform outputs after starting VMs
+    # Spot VMs use ephemeral public IPs, and GCP assigns a new one on every
+    # stop/start. That happens both when the step above starts a stopped VM
+    # and when Terraform stops and starts a VM to change it in place (for
+    # example machine_type). In the second case the post-apply output has
+    # kept the pre-restart address, so the inventory sent the deploy jobs to
+    # a released IP and SSH timed out. Always re-read the running VMs.
+    # Refresh-only updates state and outputs; it cannot create, change, or
+    # destroy any resource.
+    - name: Refresh Terraform outputs from the running VMs
       if: >-
         ${{ steps.route.outputs.run_infrastructure == 'true' &&
         steps.route.outputs.terraform_action == 'apply' &&
-        steps.route.outputs.cloud_provider == 'gcp-cloud' &&
-        steps.gcp_runtime.outputs.started == 'true' }}
+        steps.route.outputs.cloud_provider == 'gcp-cloud' }}
       working-directory: ${{ steps.route.outputs.env_dir }}
       run: terraform apply -refresh-only -input=false -auto-approve -no-color
 
