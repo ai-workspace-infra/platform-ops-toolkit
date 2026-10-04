@@ -1,1 +1,3 @@
 16eb151dee86c79a0288d1021110415286b80e97:docs/tasks/2026-07-24-secret-leak-ledger.md:generic-api-key:51
+519a8b0e4df0a5c90e265c5739ec10d627af957e:.github/scripts/tests/uat_environment_inventory_test.sh:generic-api-key:15
+519a8b0e4df0a5c90e265c5739ec10d627af957e:.github/scripts/tests/uat_environment_inventory_test.sh:stripe-access-token:16
