@@ -108,6 +108,31 @@ on:
         required: true
         default: false
         type: boolean
+      adopt_accounts_baseline:
+        description: 'UAT-only: adopt the reviewed expand-only Accounts baseline before the web-saas deployment'
+        required: false
+        default: false
+        type: boolean
+      apply_accounts_schema_migration:
+        description: 'UAT-only: apply one reviewed Accounts migration before the web-saas deployment'
+        required: false
+        default: false
+        type: boolean
+      accounts_schema_expected_version:
+        description: 'UAT schema_migrations version before the reviewed migration'
+        required: false
+        default: ''
+        type: string
+      accounts_schema_target_version:
+        description: 'Exact target version of the reviewed Accounts migration'
+        required: false
+        default: ''
+        type: string
+      accounts_schema_sha256:
+        description: 'SHA-256 of the reviewed Accounts migration file'
+        required: false
+        default: ''
+        type: string
 
 concurrency:
   group: hybrid-uat-${{ inputs.target_domains || 'all' }}-${{ inputs.operation || 'plan' }}
@@ -201,6 +226,11 @@ jobs:
           VAULT_ADDR: ${{ inputs.vault_addr }}
           XCONNECT_GATEWAY_REF: ${{ inputs.xconnect_gateway_ref }}
           XCONNECT_MIGRATION: ${{ inputs.xconnect_migration }}
+          ADOPT_ACCOUNTS_BASELINE: ${{ inputs.adopt_accounts_baseline }}
+          APPLY_ACCOUNTS_SCHEMA_MIGRATION: ${{ inputs.apply_accounts_schema_migration }}
+          ACCOUNTS_SCHEMA_EXPECTED_VERSION: ${{ inputs.accounts_schema_expected_version }}
+          ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
+          ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}
           UAT_ARTIFACT_DIR: ${{ runner.temp }}/uat-artifacts
         run: ./.github/scripts/platform-ops/provision/platform-ops_dispatch-hybrid-uat-matrix.sh
       # The UAT verdict and the exact images it accepted travel together; a

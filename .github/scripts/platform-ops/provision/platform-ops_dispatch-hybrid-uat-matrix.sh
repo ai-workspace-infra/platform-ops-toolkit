@@ -32,6 +32,11 @@ DEPLOY_TAG="${DEPLOY_TAG:-}"
 VAULT_ADDR="${VAULT_ADDR:-https://vault.svc.plus}"
 XCONNECT_GATEWAY_REF="${XCONNECT_GATEWAY_REF:-tw-xconnect.svc.plus}"
 XCONNECT_MIGRATION="${XCONNECT_MIGRATION:-false}"
+ADOPT_ACCOUNTS_BASELINE="${ADOPT_ACCOUNTS_BASELINE:-false}"
+APPLY_ACCOUNTS_SCHEMA_MIGRATION="${APPLY_ACCOUNTS_SCHEMA_MIGRATION:-false}"
+ACCOUNTS_SCHEMA_EXPECTED_VERSION="${ACCOUNTS_SCHEMA_EXPECTED_VERSION:-}"
+ACCOUNTS_SCHEMA_TARGET_VERSION="${ACCOUNTS_SCHEMA_TARGET_VERSION:-}"
+ACCOUNTS_SCHEMA_SHA256="${ACCOUNTS_SCHEMA_SHA256:-}"
 DRY_RUN="${DRY_RUN:-false}"
 WAIT_INTERVAL_SECONDS="${WAIT_INTERVAL_SECONDS:-30}"
 CHILD_WAIT_TIMEOUT_SECONDS="${CHILD_WAIT_TIMEOUT_SECONDS:-10800}"
@@ -45,6 +50,22 @@ if [[ "${OPERATION}" == deploy ]]; then
 fi
 [[ "${DRY_RUN}" == true || "${DRY_RUN}" == false ]] || { echo "::error::DRY_RUN must be true or false" >&2; exit 1; }
 [[ "${XCONNECT_MIGRATION}" == true || "${XCONNECT_MIGRATION}" == false ]] || { echo "::error::XCONNECT_MIGRATION must be true or false" >&2; exit 1; }
+[[ "${ADOPT_ACCOUNTS_BASELINE}" == true || "${ADOPT_ACCOUNTS_BASELINE}" == false ]] || { echo "::error::ADOPT_ACCOUNTS_BASELINE must be true or false" >&2; exit 1; }
+[[ "${APPLY_ACCOUNTS_SCHEMA_MIGRATION}" == true || "${APPLY_ACCOUNTS_SCHEMA_MIGRATION}" == false ]] || { echo "::error::APPLY_ACCOUNTS_SCHEMA_MIGRATION must be true or false" >&2; exit 1; }
+if [[ "${APPLY_ACCOUNTS_SCHEMA_MIGRATION}" == true || "${ADOPT_ACCOUNTS_BASELINE}" == true ]]; then
+  [[ "${OPERATION}" == deploy ]] || { echo "::error::Accounts schema changes require Hybrid operation=deploy" >&2; exit 1; }
+fi
+if [[ "${APPLY_ACCOUNTS_SCHEMA_MIGRATION}" == true ]]; then
+  [[ "${ADOPT_ACCOUNTS_BASELINE}" == false ]] || { echo "::error::Accounts baseline adoption cannot be combined with schema migration" >&2; exit 1; }
+  [[ "${ACCOUNTS_SCHEMA_EXPECTED_VERSION}" =~ ^[0-9]+$ && "${ACCOUNTS_SCHEMA_TARGET_VERSION}" =~ ^[0-9]+$ && "${ACCOUNTS_SCHEMA_TARGET_VERSION}" -gt "${ACCOUNTS_SCHEMA_EXPECTED_VERSION}" ]] || {
+    echo "::error::Accounts schema migration requires increasing numeric versions" >&2
+    exit 1
+  }
+  [[ "${ACCOUNTS_SCHEMA_SHA256}" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::Accounts schema migration requires a lowercase SHA-256 digest" >&2; exit 1; }
+elif [[ -n "${ACCOUNTS_SCHEMA_EXPECTED_VERSION}${ACCOUNTS_SCHEMA_TARGET_VERSION}${ACCOUNTS_SCHEMA_SHA256}" ]]; then
+  echo "::error::Accounts schema version/checksum inputs require APPLY_ACCOUNTS_SCHEMA_MIGRATION=true" >&2
+  exit 1
+fi
 
 account_for() {
   case "$1" in
@@ -142,7 +163,12 @@ dispatch_serverless() {
   # from GitOps and applies selfhost-first routing; Cloud Run remains the
   # elastic/fallback origin for web-saas, not a replacement for its full-stack
   # Selfhost backend.
-  payload="$(jq -n --arg ref "${CHILD_REF}" --arg operation "${child_operation}" --arg tag "${DEPLOY_TAG}" --arg target_domains "${target_domains}" '{ref:$ref,inputs:{operation:$operation,target_domains:$target_domains,cloud_provider:"gcp-cloud",vault_env_path:"uat",tag_ref:$tag,deploy_cloudflare:"true",deploy_cloud_run:"true",skip_stripe_catalog:"true",dns_mode:"none",runner_type:"ubuntu-latest"}}')"
+  payload="$(jq -n \
+    --arg ref "${CHILD_REF}" --arg operation "${child_operation}" --arg tag "${DEPLOY_TAG}" --arg target_domains "${target_domains}" \
+    --arg adopt "${ADOPT_ACCOUNTS_BASELINE}" --arg apply "${APPLY_ACCOUNTS_SCHEMA_MIGRATION}" \
+    --arg expected "${ACCOUNTS_SCHEMA_EXPECTED_VERSION}" --arg target "${ACCOUNTS_SCHEMA_TARGET_VERSION}" \
+    --arg checksum "${ACCOUNTS_SCHEMA_SHA256}" \
+    '{ref:$ref,inputs:{operation:$operation,target_domains:$target_domains,cloud_provider:"gcp-cloud",vault_env_path:"uat",tag_ref:$tag,deploy_cloudflare:"true",deploy_cloud_run:"true",skip_stripe_catalog:"true",dns_mode:"none",runner_type:"ubuntu-latest",adopt_accounts_baseline:$adopt,apply_accounts_schema_migration:$apply,accounts_schema_expected_version:$expected,accounts_schema_target_version:$target,accounts_schema_sha256:$checksum}}')"
   dispatch_and_wait serverless-orchestrator.yml "${payload}" "web-saas serverless"
   if [[ "${child_operation}" == deploy && "${DRY_RUN}" != true ]]; then
     collect_uat_artifact_manifest "${CHILD_RUN_ID}"
