@@ -316,14 +316,17 @@ jobs:
           sparse-checkout: |
             zitadel_operations.yml
             roles/docker/zitadel_server_operations
-      - name: Checkout reviewed IaC VM runtime executor
+      # VM runtime, the OS Login key and the runner-/32 SSH rule are IaC
+      # Modules operations (ai-workspace-infra/iac_modules#390 at its merge commit), pinned here.
+      - name: Checkout reviewed IaC temporary SSH access executor
         if: ${{ inputs.service_stage == 'deploy' }}
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: 1b5277ffbe14b2103bc2c92eb0110ef66954ad42
+          ref: 92fa6b9c592fa76a5e5fdd66bb0737de1723f20f
           path: iac_modules
           persist-credentials: false
+          sparse-checkout: scripts/pipeline
       - name: Authenticate GCP through GitHub OIDC and Vault
         if: ${{ inputs.service_stage == 'deploy' }}
         id: auth
@@ -353,8 +356,134 @@ jobs:
             kv/data/shared/iam login_session_cookie_secret | ZITADEL_LOGIN_SESSION_COOKIE_SECRET ;
             kv/data/shared/databases postgres_root_password | POSTGRESQL_ADMIN_PASSWORD ;
             kv/data/shared/databases zitadel_pg_password | ZITADEL_PG_PASSWORD
-      - name: Deploy or verify ZITADEL
-        run: bash .github/scripts/service-deploy/zitadel.sh
+      # The verify stage needs no host access: the Playbooks role checks OIDC
+      # discovery from the runner, and a failure fails this job.
+      - name: Verify ZITADEL public OIDC discovery
+        if: ${{ inputs.service_stage == 'verify' }}
+        working-directory: playbooks-operations
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --quiet ansible-core
+          ansible-playbook -i localhost, -c local zitadel_operations.yml \
+            -e zitadel_operation=verify_public -e zitadel_operations_target=localhost \
+            -e "zitadel_operations_domain=${DOMAIN}"
+
+      - name: Check the Vault identity and IAM secrets before host access
+        if: ${{ inputs.service_stage == 'deploy' }}
         env:
           AUTH_PROJECT_ID: ${{ steps.auth.outputs.project_id }}
+        run: |
+          set -euo pipefail
+          : "${PROJECT_ID:?}" "${AUTH_PROJECT_ID:?}" "${NODE_NAME:?}" "${NODE_ZONE:?}" "${NETWORK_NAME:?}"
+          : "${ZITADEL_MASTERKEY:?}" "${ZITADEL_ADMIN_PASSWORD:?}" "${ZITADEL_PG_PASSWORD:?}" "${POSTGRESQL_ADMIN_PASSWORD:?}" "${VAULT_TOKEN:?}"
+          : "${ZITADEL_GITOPS_SHA:?}" "${ZITADEL_GITOPS_URL:?}" "${ZITADEL_DOCO_CD_IMAGE:?}"
+          : "${ZITADEL_IMAGE:?}" "${ZITADEL_LOGIN_IMAGE:?}" "${ZITADEL_LOGIN_SESSION_COOKIE_SECRET:?}"
+          [[ "${AUTH_PROJECT_ID}" == "${PROJECT_ID}" ]] || { echo 'Vault GCP identity does not match GitOps project' >&2; exit 1; }
+          [[ "${#ZITADEL_MASTERKEY}" == 32 && "${ZITADEL_MASTERKEY}" != MasterkeyNeedsToHave32Characters ]] || {
+            echo 'Vault must contain a non-placeholder 32-character ZITADEL masterkey' >&2; exit 1;
+          }
+          [[ -f playbooks/deploy_zitadel_docker.yaml ]] || { echo 'Requested ZITADEL playbook is missing' >&2; exit 1; }
+
+      # Starts the VM if GCP stopped it, registers a one-run OS Login key and
+      # allows tcp:22 from this runner only. Close below revokes both.
+      - name: Open temporary SSH access to the IAM VM
+        id: access
+        if: ${{ inputs.service_stage == 'deploy' }}
+        run: ./iac_modules/scripts/pipeline/gcp-temporary-ssh-access.sh open
+        env:
+          GCP_PROJECT_ID: ${{ needs.declaration.outputs.project }}
+          GCP_ZONE: ${{ needs.declaration.outputs.zone }}
+          GCP_INSTANCE: ${{ needs.declaration.outputs.node }}
+          GCP_NETWORK: ${{ needs.declaration.outputs.network }}
+          ACCESS_RULE_NAME: zitadel-ssh-${{ github.run_id }}-${{ github.run_attempt }}
+          ACCESS_DIR: ${{ runner.temp }}/zitadel-access
+
+      # ACME requires the declared public domain to resolve to this exact VM.
+      - name: Require IAM DNS to point only at the IAM VM
+        if: ${{ inputs.service_stage == 'deploy' }}
+        shell: python
+        env:
+          TARGET_IP: ${{ steps.access.outputs.target_ip }}
+        run: |
+          import os, socket
+          addresses = {item[4][0] for item in socket.getaddrinfo(os.environ["DOMAIN"], 443, socket.AF_INET)}
+          if addresses != {os.environ["TARGET_IP"]}:
+              raise SystemExit("IAM DNS must point exclusively to the declared VM before deployment")
+
+      - name: Render the IAM inventory and deploy inputs
+        if: ${{ inputs.service_stage == 'deploy' }}
+        shell: python
+        env:
+          ACCESS_FILE: ${{ steps.access.outputs.access_file }}
           RESET_UNBOOTSTRAPPED_CONFIRMATION: ${{ inputs.reset_unbootstrapped_confirmation }}
+        run: |
+          import json, os
+          from pathlib import Path
+          access = json.loads(Path(os.environ["ACCESS_FILE"]).read_text())
+          folder = Path(os.environ["ACCESS_FILE"]).parent
+          host = os.environ["NODE_NAME"]
+          if access["instance"] != host:
+              raise SystemExit("temporary access was opened for another VM")
+          inventory = {"all": {"hosts": {host: {
+              "ansible_host": access["target_ip"], "ansible_user": access["ssh_user"],
+              "ansible_ssh_private_key_file": access["private_key"],
+              "ansible_ssh_common_args": f"-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile={access['known_hosts']}"}}}}
+          (folder / "inventory.json").write_text(json.dumps(inventory))
+          extra = {"domain": os.environ["DOMAIN"], "zitadel_domain": os.environ["DOMAIN"],
+                   "zitadel_deployment_mode": "doco-cd",
+                   "zitadel_masterkey": os.environ["ZITADEL_MASTERKEY"],
+                   "zitadel_admin_password": os.environ["ZITADEL_ADMIN_PASSWORD"],
+                   "db_configs_raw": [{"db": "zitadel", "user": "zitadel_user",
+                                       "env_var": "ZITADEL_PG_PASSWORD", "vault_key": "zitadel_pg_password"}]}
+          # One-time, explicitly confirmed recovery; the playbook re-checks the token and
+          # refuses when the Login client PAT exists.
+          if os.environ.get("RESET_UNBOOTSTRAPPED_CONFIRMATION", "") == "RESET-ZITADEL-DATABASE":
+              extra["zitadel_reset_unbootstrapped_instance"] = True
+              extra["zitadel_reset_confirmation"] = "RESET-ZITADEL-DATABASE"
+          extra_file = folder / "extra.json"
+          extra_file.touch(mode=0o600)
+          extra_file.write_text(json.dumps(extra))
+
+      # The IAM wrapper owns PostgreSQL setup and imports deploy_zitadel_docker.yaml,
+      # limited to the single declared host.
+      - name: Deploy ZITADEL with Playbooks
+        if: ${{ inputs.service_stage == 'deploy' }}
+        working-directory: playbooks
+        env:
+          ACCESS_FILE: ${{ steps.access.outputs.access_file }}
+        run: |
+          set -euo pipefail
+          access_dir="$(dirname "${ACCESS_FILE}")"
+          python3 -m pip install --disable-pip-version-check --quiet ansible hvac psycopg2-binary
+          ansible-galaxy collection install community.hashi_vault community.postgresql community.docker
+          ping_output="$(ansible -i "${access_dir}/inventory.json" all --limit "${NODE_NAME}" -b -m ping)"
+          grep -Fq 'SUCCESS' <<<"${ping_output}" || { echo 'IAM host did not match a reachable inventory target' >&2; exit 1; }
+          export POSTGRESQL_DEPLOY_MODE=compose POSTGRESQL_CONTAINER_NAME=postgresql-svc-plus
+          export WEB_SAAS_POSTGRES_PASSWORD="${POSTGRESQL_ADMIN_PASSWORD}"
+          export ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD="${POSTGRESQL_ADMIN_PASSWORD}"
+          export OPEN_PLATFORM_DEPLOY_ONLY=false
+          ansible-playbook -i "${access_dir}/inventory.json" deploy_iam_domain.yml \
+            --limit "${NODE_NAME}" -e "@${access_dir}/extra.json"
+
+      # Stack, bootstrap, Caddy and TLS discovery on the host, then the public
+      # endpoint; on failure the role prints read-only host evidence.
+      - name: Verify ZITADEL on the IAM host
+        if: ${{ inputs.service_stage == 'deploy' }}
+        working-directory: playbooks-operations
+        env:
+          ACCESS_FILE: ${{ steps.access.outputs.access_file }}
+        run: |
+          set -euo pipefail
+          ansible-playbook -i "$(dirname "${ACCESS_FILE}")/inventory.json" zitadel_operations.yml \
+            -e zitadel_operation=verify_host -e "zitadel_operations_target=${NODE_NAME}" \
+            -e "zitadel_operations_domain=${DOMAIN}"
+          printf '### ZITADEL server\n\n- Project: `%s`\n- Node: `%s`\n- Domain: `%s`\n- Service and OIDC discovery: passed\n' \
+            "${PROJECT_ID}" "${NODE_NAME}" "${DOMAIN}" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Close temporary SSH access to the IAM VM
+        if: ${{ always() && inputs.service_stage == 'deploy' && steps.access.outcome != 'skipped' }}
+        run: ./iac_modules/scripts/pipeline/gcp-temporary-ssh-access.sh close
+        env:
+          GCP_PROJECT_ID: ${{ needs.declaration.outputs.project }}
+          ACCESS_RULE_NAME: zitadel-ssh-${{ github.run_id }}-${{ github.run_attempt }}
+          ACCESS_DIR: ${{ runner.temp }}/zitadel-access

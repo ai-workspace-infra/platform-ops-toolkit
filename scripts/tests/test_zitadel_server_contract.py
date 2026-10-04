@@ -77,8 +77,9 @@ class ZitadelContractTest(unittest.TestCase):
                          "${{ needs.declaration.outputs.gitops_sha }}")
         self.assertEqual(jobs["service"]["env"]["ZITADEL_GITOPS_SHA"],
                          "${{ needs.declaration.outputs.gitops_sha }}")
-        script = (ROOT / ".github/scripts/service-deploy/zitadel.sh").read_text()
-        self.assertIn('"zitadel_deployment_mode": "doco-cd"', script)
+        render = next(step for step in jobs["service"]["steps"]
+                      if step.get("name") == "Render the IAM inventory and deploy inputs")
+        self.assertIn('"zitadel_deployment_mode": "doco-cd"', render["run"])
 
     def test_vault_selector_escapes_admin_key_with_jsonata_backticks(self):
         workflow_text = (ROOT / ".github/workflows/zitadel-server.yml").read_text()
