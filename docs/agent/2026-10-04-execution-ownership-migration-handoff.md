@@ -138,7 +138,8 @@ Toolkit `ec7bc9b1` 下 `git ls-tree -r --name-only HEAD .github/scripts` 为 **1
   - **Playbooks**：需要时负责 Caddy refresh 与主机/服务健康，DNS executor 不包含 SSH/host probes。
   - **分期**：先 gateway UAT single-A upsert；随后独立合同加入 CNAME/canonical adopt-yield、SIT/multi-record。旧 UAT/SIT 隐式删除冲突重复记录不复制为默认行为；清理需冲突计划、精确 record ID 与单独授权。
   - **完成门禁**：owner 合并且固定 SHA → 逐个 caller 切换 → 合同/负例/实际 UAT → 对应旧副本删除；未覆盖的 legacy caller 保留。
-  - **本轮 owner PR**：[IaC #392](https://github.com/ai-workspace-infra/iac_modules/pull/392)（ready for review，head `bbfc3aecca28c127af0c63b81657c40fdd798d0e`），新增 `scripts/pipeline/dns-reconcile.py` 和独立契约。26 项新增 fake-provider/CLI 测试、48 项 pipeline Python 测试通过；完整 Ubuntu pipeline CI [37217448148](https://github.com/ai-workspace-infra/iac_modules/actions/runs/37217448148) 成功。未合并、未切换 caller、未运行真实 DNS/UAT、未清理旧副本。
+  - **主线 owner PR**：[IaC #393](https://github.com/ai-workspace-infra/iac_modules/pull/393) 已于 `2026-10-04T16:42:52Z` 合并，固定 owner SHA `a0185e61fc2b41ac4dbd40c8037016aaef1b3973`；owner-contract（37217754651）与 pipeline-scripts（37217754548）SUCCESS。当前仅 owner 阶段完成，未切 Toolkit、未验收新 DNS 路线、旧 DNS 脚本保留；下一门禁为独立 caller PR。
+  - **并行候选**：[IaC #392](https://github.com/ai-workspace-infra/iac_modules/pull/392)（ready for review，head `bbfc3aecca28c127af0c63b81657c40fdd798d0e`），新增 `scripts/pipeline/dns-reconcile.py` 和独立契约，26 项新增测试、48 项 pipeline Python 测试与 CI 37217448148 通过。仍未合并，不作为主线当前 cutover 依赖，后续需审查与 #393 的能力重叠，不再并列声称主线需等待它合并。
 
 ### 后续批次 P3：XConnect 实验室与 existing-One 架构拆解
 - **涉及脚本**：
@@ -191,7 +192,7 @@ Toolkit `ec7bc9b1` 下 `git ls-tree -r --name-only HEAD .github/scripts` 为 **1
 2. **后续推进路线**：
    - **Step 1**：（已完成）本文档更新已由 #1270 合入，本次仅做事实纠正与经验补充。
    - **Step 2**：（owner/caller 已完成）P1b #570/#1273 已合并；#1276 已修复 Services repo 错名，run `37217324603` 运行中。真实 Role UAT 与 cleanup 仍未验收，在 #1275 跟进固定 Role 实际执行证据。
-   - **Step 3**：（本轮推进）完成 P2a gateway single-A owner 的参数/计划/恢复合约及 fake-provider tests，提出 owner PR；owner merge 前不切换 Toolkit，不删除任一 DNS 脚本。
+   - **Step 3**：（owner 已合并）主线 #393 已提供 gateway single-A owner；下一步单独 Toolkit caller 固定 `a0185e61fc2b41ac4dbd40c8037016aaef1b3973`。当前未切 caller、未 UAT、未 cleanup；未覆盖的 DNS legacy 均保留。
    - **Step 4**：按 P2b canonical/SIT、P3 XConnect、P4 SMTP 和横向 GCP access/扫描器任务分批推进。每一批先核对实际执行与全部 caller，不直接复制混合脚本。
 
 ---
