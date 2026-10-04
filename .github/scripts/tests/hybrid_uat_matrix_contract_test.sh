@@ -229,6 +229,36 @@ if grep -Fq '10.79.0.7' "${dry_run}"; then
   exit 1
 fi
 
+migration_dry_run="$(mktemp)"
+trap 'rm -f "${dry_run}" "${invalid_matrix}" "${migration_dry_run}"' EXIT
+GH_TOKEN=dry-run \
+GH_REPO=ai-workspace-infra/platform-ops-toolkit \
+MATRIX_FILE="${matrix}" \
+OPERATION=deploy \
+CHILD_REF=main \
+VAULT_ENV_PATH=uat \
+TARGET_DOMAIN_BASE=onwalk.net \
+OBSERVABILITY_ENDPOINT=https://observability.svc.plus \
+AKAMAI_ACCOUNT=manbuzhe2026 \
+AWS_ACCOUNT=081434641398 \
+GCP_ACCOUNT=xworktech \
+EXISTING_ACCOUNT=ucloud-ulighthost \
+SOURCE_REF=main \
+DEPLOY_TAG=uat-daily-build-2026.09.28-r1 \
+VAULT_ADDR=https://vault.svc.plus \
+XCONNECT_GATEWAY_REF=tw-xconnect.svc.plus \
+XCONNECT_MIGRATION=false \
+APPLY_ACCOUNTS_SCHEMA_MIGRATION=true \
+ACCOUNTS_SCHEMA_EXPECTED_VERSION=2026092703 \
+ACCOUNTS_SCHEMA_TARGET_VERSION=2026092801 \
+ACCOUNTS_SCHEMA_SHA256=d066e223641b4eccbb65a00dce70f717b6dce02491d1d54edc1099baf2071433 \
+DRY_RUN=true \
+bash "${dispatcher}" >"${migration_dry_run}"
+grep -Fq '"apply_accounts_schema_migration":"true"' "${migration_dry_run}"
+grep -Fq '"accounts_schema_expected_version":"2026092703"' "${migration_dry_run}"
+grep -Fq '"accounts_schema_target_version":"2026092801"' "${migration_dry_run}"
+grep -Fq '"accounts_schema_sha256":"d066e223641b4eccbb65a00dce70f717b6dce02491d1d54edc1099baf2071433"' "${migration_dry_run}"
+
 python3 - "${workflow}" "${dispatcher}" <<'PY'
 import sys
 import yaml
@@ -239,7 +269,12 @@ inputs = on["workflow_dispatch"]["inputs"]
 assert inputs["target_domains"]["default"] == "all"
 assert set(inputs["operation"]["options"]) >= {"plan", "apply", "deploy", "destroy"}
 assert inputs["xconnect_migration"]["default"] is False
-assert "CHILD_REF: ${{ inputs.source_ref || 'main' }}" in open(sys.argv[1], encoding="utf-8").read()
+assert inputs["apply_accounts_schema_migration"]["default"] is False
+assert inputs["adopt_accounts_baseline"]["default"] is False
+workflow_text = open(sys.argv[1], encoding="utf-8").read()
+assert "CHILD_REF: ${{ inputs.source_ref || 'main' }}" in workflow_text
+assert "APPLY_ACCOUNTS_SCHEMA_MIGRATION: ${{ inputs.apply_accounts_schema_migration }}" in workflow_text
+assert "ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}" in workflow_text
 assert "resource_orchestration" in doc["jobs"]
 assert "platform-ops_dispatch-hybrid-uat-matrix.sh" in open(sys.argv[1], encoding="utf-8").read()
 resource_job = doc["jobs"]["resource_orchestration"]

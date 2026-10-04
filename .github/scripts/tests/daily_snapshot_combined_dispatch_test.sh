@@ -54,10 +54,24 @@ if grep -Fq -- 'operation=destroy' "${workdir}/gh.log"; then
   exit 1
 fi
 
-# Requests the Hybrid Orchestrator cannot carry must fail before any dispatch
-# instead of being dropped while the run still reports success.
-for unsupported in ENABLE_MIGRATION=true APPLY_ACCOUNTS_SCHEMA_MIGRATION=true \
-    ADOPT_ACCOUNTS_BASELINE=true XCONNECT_ONE_RELEASE_TAG=v1.2.3 \
+# A reviewed schema migration is carried explicitly to Hybrid and then to the
+# Serverless child; it must not be rejected or silently dropped before dispatch.
+: > "${workdir}/gh.log"
+env APPLY_ACCOUNTS_SCHEMA_MIGRATION=true \
+  ACCOUNTS_SCHEMA_EXPECTED_VERSION=2026092703 \
+  ACCOUNTS_SCHEMA_TARGET_VERSION=2026092801 \
+  ACCOUNTS_SCHEMA_SHA256=d066e223641b4eccbb65a00dce70f717b6dce02491d1d54edc1099baf2071433 \
+  GH_LOG="${workdir}/gh.log" PATH="${workdir}:${PATH}" GH_TOKEN=test-token \
+  SNAPSHOT_TAG=uat-daily-build-2026.09.28-r2 \
+  bash "${dispatcher}" >/dev/null
+grep -Fq -- '-f apply_accounts_schema_migration=true' "${workdir}/gh.log"
+grep -Fq -- '-f accounts_schema_expected_version=2026092703' "${workdir}/gh.log"
+grep -Fq -- '-f accounts_schema_target_version=2026092801' "${workdir}/gh.log"
+grep -Fq -- '-f accounts_schema_sha256=d066e223641b4eccbb65a00dce70f717b6dce02491d1d54edc1099baf2071433' "${workdir}/gh.log"
+
+# Data merge and unimplemented release overrides still fail before dispatch
+# instead of being dropped while the run reports success.
+for unsupported in ENABLE_MIGRATION=true XCONNECT_ONE_RELEASE_TAG=v1.2.3 \
     XCONNECT_GATEWAY_RELEASE_TAG=v1.2.3; do
   : > "${workdir}/gh.log"
   if env "${unsupported}" \

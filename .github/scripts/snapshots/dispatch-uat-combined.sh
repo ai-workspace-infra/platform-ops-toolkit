@@ -67,14 +67,11 @@ for release_tag in "${xconnect_one_release_override}" "${xconnect_gateway_releas
   fi
 done
 
-# The Hybrid Orchestrator is the only UAT dispatch target and it has no inputs
-# for data migration, Accounts schema migration / baseline adoption or the
-# XConnect Lab release overrides. Dropping them would report a green UAT deploy
-# that never performed the requested operation, so refuse the request instead.
+# The Hybrid Orchestrator is the only UAT dispatch target. Schema migration and
+# baseline adoption are passed through explicitly to its Serverless web-saas
+# child; data migration and XConnect release overrides remain unsupported here.
 unsupported_requests=()
 [[ "${enable_migration}" == "true" ]] && unsupported_requests+=("enable_migration")
-[[ "${apply_accounts_schema_migration}" == "true" ]] && unsupported_requests+=("apply_accounts_schema_migration")
-[[ "${adopt_accounts_baseline}" == "true" ]] && unsupported_requests+=("adopt_accounts_baseline")
 [[ -n "${xconnect_one_release_override}" ]] && unsupported_requests+=("xconnect_one_release_tag")
 [[ -n "${xconnect_gateway_release_override}" ]] && unsupported_requests+=("xconnect_gateway_release_tag")
 if [[ "${#unsupported_requests[@]}" -gt 0 ]]; then
@@ -106,7 +103,12 @@ hybrid_run_url="$(gh workflow run "${hybrid_workflow}" \
   -f "existing_account=ucloud-ulighthost" \
   -f routing_mode=selfhost-first \
   -f vault_addr=https://vault.svc.plus \
-  -f xconnect_gateway_ref=tw-xconnect.svc.plus)"
+  -f xconnect_gateway_ref=tw-xconnect.svc.plus \
+  -f "adopt_accounts_baseline=${adopt_accounts_baseline}" \
+  -f "apply_accounts_schema_migration=${apply_accounts_schema_migration}" \
+  -f "accounts_schema_expected_version=${ACCOUNTS_SCHEMA_EXPECTED_VERSION:-}" \
+  -f "accounts_schema_target_version=${ACCOUNTS_SCHEMA_TARGET_VERSION:-}" \
+  -f "accounts_schema_sha256=${ACCOUNTS_SCHEMA_SHA256:-}")"
 echo "Dispatched UAT Hybrid Orchestrator for ${snapshot_tag}: ${hybrid_run_url}"
 RUN_REPOSITORY="${target_repo}" RUN_POLL_INTERVAL_SECONDS="${wait_interval_seconds}" \
   bash "$(dirname "${BASH_SOURCE[0]}")/wait-for-workflow-run.sh" \
