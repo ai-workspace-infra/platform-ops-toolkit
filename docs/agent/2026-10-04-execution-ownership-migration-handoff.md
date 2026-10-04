@@ -1,6 +1,6 @@
 # Toolkit 执行职责迁移交接与评估（2026-10-05 更新）
 
-本次核对基线：Toolkit `9f5d9acd`（#1274）、Playbooks `14f6196b`（#570）、IaC Modules `71746d06`（#391）。下文历史批次保留其 PR 证据；代码合并、合同/模拟演练通过与真实环境验收分别记录，不以文件数量或自动 owner 标签判断迁移完成。
+本次核对基线：Toolkit `ec7bc9b1`（#1276）、Playbooks `14f6196b`（#570）、IaC Modules `71746d06`（#391）。下文历史批次保留其 PR 证据；代码合并、合同/模拟演练通过与真实环境验收分别记录，不以文件数量或自动 owner 标签判断迁移完成。
 
 ## 1. 架构目标与四个边界重排原则
 
@@ -60,13 +60,14 @@
 - Toolkit caller #1271：`a4d3217e5558bf03798c1e79457f1f72164f1e26`；cleanup #1272 已合并。
 - owner、caller 与 cleanup CI，以及真实 Role 对 loopback fixture 的非变更演练通过；没有真实主机/云操作。详见 [独立记录](2026-10-04-observability-local-health-migration.md)。
 
-### P1b：Caddy PEM restore（owner/caller 已合并，UAT BLOCKED）
+### P1b：Caddy PEM restore（owner/caller 已合并，UAT 待验收）
 
 - Playbooks owner [#570](https://github.com/ai-workspace-infra/playbooks/pull/570)：`14f6196bbf69b78d07f1adb9fb8c97bc816a485b`，9 项本地测试、Ansible syntax 和 owner CI 通过。
 - Toolkit caller [#1273](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1273)：`9d9d7129b82324d02f4de93fcadb95fa9934436e`，两处 Selfhost 调用使用独立 owner checkout，不修改 release deployment playbooks ref。4 项 caller 合同与完整 PR checks 通过。
 - Role 只验证/落盘 PEM、保护密钥权限与原子 generation；不重启/重载 Caddy，不声称 served TLS 已启用。
 - UAT `37215201217` 与 `37215988175` 均在 Services GitHub App installation token 仓库查找阶段失败，未到 tag validator、resolver/build 或 child deployment。Observed failure 不是 tag 格式错误。
 - main push `37216013410` success，但实际 deployment/acceptance jobs 全 skipped，Role 未执行。独立 HTTP 200/readiness 现状未绑定本批 tag/commit/digest，不作为本批验收。
+- 主线已由 #1276（`ec7bc9b1eea38e6fdb05abb72589426c55f8c118`）将 Services 仓库错名 `postgresql.svc.plus` 修为 `postgresql`；新 UAT run `37217324603` 正在执行。修复/派发不等于 Role-host 验收通过，结果仍待跟踪。
 - cleanup 跟踪 [#1275](https://github.com/ai-workspace-infra/platform-ops-toolkit/issues/1275) 仍 OPEN；旧 Toolkit 证书恢复脚本保留。需实际运行固定 Role、记录精确目标/证书权限/幂等与失败边界/runtime vars cleanup 后，才能单独提出删除 PR。管理员 App 权限与 Vault 凭据变更需授权操作人处理。
 
 ---
@@ -74,7 +75,7 @@
 ## 3. `.github/scripts` 深度盘点与扫描器评估
 
 ### 当前文件结构统计
-Toolkit `9f5d9acd` 下 `git ls-tree -r --name-only HEAD .github/scripts` 为 **188 个 tracked 文件**。下列分类数字保留 15:31 UTC 的 186 文件历史快照，不作为当前精确统计或迁移完成依据：
+Toolkit `ec7bc9b1` 下 `git ls-tree -r --name-only HEAD .github/scripts` 为 **189 个 tracked 文件**。下列分类数字保留 15:31 UTC 的 186 文件历史快照，不作为当前精确统计或迁移完成依据：
 - `tests/`: 87 个（契约测试与模拟用例）
 - `platform-ops/`: 28 个（涵盖 deploy, dns, observe, provision 适配器）
 - `xconnect-lab/`: 21 个（XConnect 实验网与网关脚本）
@@ -137,7 +138,7 @@ Toolkit `9f5d9acd` 下 `git ls-tree -r --name-only HEAD .github/scripts` 为 **1
   - **Playbooks**：需要时负责 Caddy refresh 与主机/服务健康，DNS executor 不包含 SSH/host probes。
   - **分期**：先 gateway UAT single-A upsert；随后独立合同加入 CNAME/canonical adopt-yield、SIT/multi-record。旧 UAT/SIT 隐式删除冲突重复记录不复制为默认行为；清理需冲突计划、精确 record ID 与单独授权。
   - **完成门禁**：owner 合并且固定 SHA → 逐个 caller 切换 → 合同/负例/实际 UAT → 对应旧副本删除；未覆盖的 legacy caller 保留。
-  - **本轮 owner 候选**：[IaC #392](https://github.com/ai-workspace-infra/iac_modules/pull/392)（draft），新增 `scripts/pipeline/dns-reconcile.py` 和独立契约。26 项新增 fake-provider/CLI 测试、48 项 pipeline Python 测试通过；完整 Ubuntu pipeline CI 待确认。未合并、未切换 caller、未运行真实 DNS/UAT、未清理旧副本。
+  - **本轮 owner PR**：[IaC #392](https://github.com/ai-workspace-infra/iac_modules/pull/392)（ready for review，head `bbfc3aecca28c127af0c63b81657c40fdd798d0e`），新增 `scripts/pipeline/dns-reconcile.py` 和独立契约。26 项新增 fake-provider/CLI 测试、48 项 pipeline Python 测试通过；完整 Ubuntu pipeline CI [37217448148](https://github.com/ai-workspace-infra/iac_modules/actions/runs/37217448148) 成功。未合并、未切换 caller、未运行真实 DNS/UAT、未清理旧副本。
 
 ### 后续批次 P3：XConnect 实验室与 existing-One 架构拆解
 - **涉及脚本**：
@@ -187,7 +188,7 @@ Toolkit `9f5d9acd` 下 `git ls-tree -r --name-only HEAD .github/scripts` 为 **1
    - `docs/agent/2026-10-04-execution-ownership-migration-handoff.md` 已全面重构，明确四个架构边界与后续顺序。
 2. **后续推进路线**：
    - **Step 1**：（已完成）本文档更新已由 #1270 合入，本次仅做事实纠正与经验补充。
-   - **Step 2**：（owner/caller 已完成）P1b #570/#1273 已合并。真实 UAT 及 cleanup 保持 BLOCKED，在 #1275 跟进 Services GitHub App repo lookup 前置问题与固定 Role 实际执行证据。
+   - **Step 2**：（owner/caller 已完成）P1b #570/#1273 已合并；#1276 已修复 Services repo 错名，run `37217324603` 运行中。真实 Role UAT 与 cleanup 仍未验收，在 #1275 跟进固定 Role 实际执行证据。
    - **Step 3**：（本轮推进）完成 P2a gateway single-A owner 的参数/计划/恢复合约及 fake-provider tests，提出 owner PR；owner merge 前不切换 Toolkit，不删除任一 DNS 脚本。
    - **Step 4**：按 P2b canonical/SIT、P3 XConnect、P4 SMTP 和横向 GCP access/扫描器任务分批推进。每一批先核对实际执行与全部 caller，不直接复制混合脚本。
 
