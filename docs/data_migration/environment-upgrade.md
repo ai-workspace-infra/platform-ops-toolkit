@@ -12,7 +12,7 @@ Selfhost 是最后兜底运行路径和备份节点，不因此成为日常 sche
 备用路径切换和恢复真实业务数据库属于独立、人工审批的应急操作。
 
 主机由选定环境的 GitOps / CMDB 解析并核实实际身份，不接受用户任意输入主机/IP。
-建议加密目录：`/var/backups/web-saas/<environment>/<release-tag>/<run-id>/`，权限 0700，
+建议加密目录：`/data/backups/web-saas/<environment>/<release-tag>/<run-id>/`，权限 0700，
 密钥来自对应环境 Vault，目录按运行唯一、不覆盖旧检查点；保留策略另行配置，禁止自动
 删除本次升级的回滚点。备份前检查磁盘空间和兜底健康；校验复制后的 checksum、归属和
 可读性，再在专用临时库验证恢复。不能将 dump 恢复到兜底主机正在服务的数据库。
