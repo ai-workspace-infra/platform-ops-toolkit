@@ -1351,29 +1351,14 @@ jobs:
       with:
         ref: ${{ github.sha }}
 
-    - name: Download CMDB
-      uses: actions/download-artifact@v8
-      with:
-        name: platform-ops-toolkit-cmdb
-        path: cmdb
-
-    - name: Load deployment SSH key from Vault
+    - name: Prepare host runner from the workflow commit
       id: vault
-      uses: hashicorp/vault-action@v4
+      uses: ./.github/actions/prepare-host-runner
       with:
-        url: ${{ env.VAULT_ADDR }}
-        method: jwt
-        role: ${{ env.VAULT_ROLE }}
-        jwtGithubAudience: vault
-        secrets: |
-          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64
-
-    - name: Setup deployment runner
-      uses: ./.github/actions/setup-deployment-runner
-      with:
-        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+        vault_address: ${{ env.VAULT_ADDR }}
+        vault_role: ${{ env.VAULT_ROLE }}
+        vault_kv_path: ${{ env.VAULT_KV_BASE }}
         matrix_host: ${{ matrix.host }}
-        wait_for_ssh: 'true'
 
     - name: Capture pre-upgrade Accounts data fingerprint
       env:
@@ -1541,34 +1526,16 @@ jobs:
         ref: ${{ needs.provision.outputs.playbooks_ref }}
         path: playbooks
 
-    - name: Download CMDB
-      uses: actions/download-artifact@v8
-      with:
-        name: platform-ops-toolkit-cmdb
-        path: cmdb
-
-    - name: Load Vault secrets
+    - name: Prepare host runner from the workflow commit
       id: vault
-      uses: hashicorp/vault-action@v4
+      uses: ./.github/actions/prepare-host-runner
       with:
-        url: ${{ env.VAULT_ADDR }}
-        method: jwt
-        role: ${{ env.VAULT_ROLE }}
-        jwtGithubAudience: vault
-        exportToken: true
-        secrets: |
-          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
-          ${{ env.VAULT_KV }} ROOT_BOOTSTRAP_PASSWORD | ROOT_BOOTSTRAP_PASSWORD ;
-
-    # The readiness probe below uses ~/.ssh/id_deploy directly. Configure the
-    # runner before probing PostgreSQL; placing this after the probe causes a
-    # misleading "container not ready" failure on a perfectly reachable host.
-    - name: Setup deployment runner
-      uses: ./.github/actions/setup-deployment-runner
-      with:
-        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+        vault_address: ${{ env.VAULT_ADDR }}
+        vault_role: ${{ env.VAULT_ROLE }}
+        vault_kv_path: ${{ env.VAULT_KV_BASE }}
+        root_bootstrap_vault_path: ${{ env.VAULT_KV }}
+        export_vault_token: 'true'
         matrix_host: ${{ matrix.host }}
-        wait_for_ssh: 'true'
         install_ansible: 'true'
         assert_ansible_target: 'true'
         ansible_inventory: cmdb/inventory.ini
@@ -1696,29 +1663,14 @@ jobs:
       with:
         ref: ${{ github.sha }}
 
-    - name: Download CMDB
-      uses: actions/download-artifact@v8
-      with:
-        name: platform-ops-toolkit-cmdb
-        path: cmdb
-
-    - name: Load deployment SSH key from Vault
+    - name: Prepare host runner from the workflow commit
       id: vault
-      uses: hashicorp/vault-action@v4
+      uses: ./.github/actions/prepare-host-runner
       with:
-        url: ${{ env.VAULT_ADDR }}
-        method: jwt
-        role: ${{ env.VAULT_ROLE }}
-        jwtGithubAudience: vault
-        secrets: |
-          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64
-
-    - name: Setup deployment runner
-      uses: ./.github/actions/setup-deployment-runner
-      with:
-        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+        vault_address: ${{ env.VAULT_ADDR }}
+        vault_role: ${{ env.VAULT_ROLE }}
+        vault_kv_path: ${{ env.VAULT_KV_BASE }}
         matrix_host: ${{ matrix.host }}
-        wait_for_ssh: 'true'
 
     - name: Verify Web SaaS containers are running
       env:

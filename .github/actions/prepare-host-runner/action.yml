@@ -1,0 +1,74 @@
+name: Prepare Host Runner
+description: Download this run's CMDB, load the scoped Vault deploy key, and prepare the deployment runner.
+
+inputs:
+  vault_address:
+    description: Runtime Vault address.
+    required: true
+  vault_role:
+    description: Environment-scoped GitHub OIDC role.
+    required: true
+  vault_kv_path:
+    description: KV v2 API path containing SSH_PRIVATE_DEPLOY_KEY_B64.
+    required: true
+  matrix_host:
+    description: Host name in this run's CMDB artifact.
+    required: true
+  root_bootstrap_vault_path:
+    description: Optional KV v2 API path containing ROOT_BOOTSTRAP_PASSWORD for DB Init.
+    required: false
+    default: ''
+  export_vault_token:
+    description: Export the Vault token for subsequent runner-side consumers.
+    required: false
+    default: 'false'
+  install_ansible:
+    description: Install Ansible on the runner.
+    required: false
+    default: 'false'
+  assert_ansible_target:
+    description: Check the target with the downloaded inventory.
+    required: false
+    default: 'false'
+  ansible_inventory:
+    description: Inventory used for the target assertion.
+    required: false
+    default: cmdb/inventory.ini
+
+outputs:
+  ROOT_BOOTSTRAP_PASSWORD:
+    description: Optional masked Vault output for DB Init; never log or upload it.
+    value: ${{ steps.vault.outputs.ROOT_BOOTSTRAP_PASSWORD }}
+
+runs:
+  using: composite
+  steps:
+    - name: Download CMDB from the current run
+      uses: actions/download-artifact@v8
+      with:
+        name: platform-ops-toolkit-cmdb
+        path: cmdb
+
+    - name: Load the environment-scoped deployment key
+      id: vault
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ inputs.vault_address }}
+        method: jwt
+        role: ${{ inputs.vault_role }}
+        jwtGithubAudience: vault
+        exportToken: ${{ inputs.export_vault_token }}
+        secrets: |
+          ${{ inputs.vault_kv_path }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
+          ${{ inputs.root_bootstrap_vault_path && format('{0} ROOT_BOOTSTRAP_PASSWORD | ROOT_BOOTSTRAP_PASSWORD ;', inputs.root_bootstrap_vault_path) || '' }}
+
+    - name: Setup deployment runner
+      uses: ./.github/actions/setup-deployment-runner
+      with:
+        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+        matrix_host: ${{ inputs.matrix_host }}
+        cmdb_file: cmdb/cmdb.json
+        wait_for_ssh: 'true'
+        install_ansible: ${{ inputs.install_ansible }}
+        assert_ansible_target: ${{ inputs.assert_ansible_target }}
+        ansible_inventory: ${{ inputs.ansible_inventory }}

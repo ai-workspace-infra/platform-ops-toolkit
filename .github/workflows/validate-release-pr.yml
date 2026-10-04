@@ -142,6 +142,9 @@ jobs:
     - name: Verify UAT business evidence is required for PROD promotion
       run: python3 .github/scripts/tests/uat_business_promotion_gate_test.py
 
+    - name: Verify host runner composite preserves Vault, CMDB and ref contracts
+      run: python3 .github/scripts/tests/host_runner_composite_contract_test.py
+
     - name: Verify Observability Vault jobs request OIDC tokens
       run: python3 .github/scripts/tests/observability_oidc_permissions_contract_test.py
 
