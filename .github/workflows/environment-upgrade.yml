@@ -148,7 +148,7 @@ jobs:
   verdict:
     name: Explicit requested-mode verdict
     needs: [candidate, preflight, upgrade]
-    if: ${{ always() }}
+    if: ${{ always() && needs.candidate.result != '' && needs.preflight.result != '' && needs.upgrade.result != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
