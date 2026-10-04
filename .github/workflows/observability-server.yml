@@ -577,6 +577,14 @@ jobs:
           ref: ${{ inputs.source_ref }}
           path: playbooks
 
+      - name: Checkout reviewed IaC VM runtime executor
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: 1b5277ffbe14b2103bc2c92eb0110ef66954ad42
+          path: iac_modules
+          persist-credentials: false
+
       - name: Authenticate to shared GCP with the service-only Vault role
         id: gcp_auth
         uses: ./.github/actions/configure-gcp-oidc
@@ -619,7 +627,8 @@ jobs:
           source "${target_env}"
           cat "${target_env}" >> "${GITHUB_OUTPUT}"
           PROJECT_ID="${project_id}" NODE_NAME="${node_name}" NODE_ZONE="${node_zone}" \
-            bash .github/scripts/service-deploy/ensure-declared-vm-running.sh
+            python3 iac_modules/scripts/pipeline/ensure-gcp-vm-running.py \
+              --instance "${node_name}" --zone "${node_zone}" --project "${project_id}"
           instance="$(gcloud compute instances describe "${node_name}" \
             --project="${project_id}" --zone="${node_zone}" --format=json)"
           test "$(jq -r '.status // empty' <<<"${instance}")" = RUNNING || { echo '::error::Shared Observability VM is not RUNNING' >&2; exit 1; }

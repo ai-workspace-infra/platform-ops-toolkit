@@ -128,20 +128,13 @@
       "owner": "playbooks",
       "sha256": "7c4fb3c06a8567953433fd619b851f2c9ea2b3bd526ca4473029de3890573cca"
     },
-    ".github/scripts/service-deploy/ensure-declared-vm-running.sh": {
-      "markers": [
-        "provider_execution"
-      ],
-      "owner": "iac_modules",
-      "sha256": "da8abb31f423a7681dd80770c8b5b7a098b39a7cc218c9f809abde70e1c03fd1"
-    },
     ".github/scripts/service-deploy/zitadel.sh": {
       "markers": [
         "host_execution",
         "provider_execution"
       ],
       "owner": "playbooks",
-      "sha256": "48f421ce7c4d85e51383eb16b8e6c21772fd533810583ab652166901fd1ec06c"
+      "sha256": "a592848acc7bdb2ccd1ef9d9b25455d4a352ea39fd819b582ee775777ba59c11"
     },
     ".github/scripts/xconnect-existing-one-uat/deploy.sh": {
       "markers": [
