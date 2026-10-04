@@ -1317,16 +1317,81 @@ jobs:
       run: ${{ github.workspace }}/playbooks/scripts/pipeline/bootstrap-node.sh
 
   # ---------------------------------------------------------------------------
+  # Pre-upgrade data fingerprint for accept_web_saas_upgrade.
+  #
+  # It must run before update_gitops_tags: the tag commit is what makes Doco-CD
+  # roll the new images, and a fingerprint taken after that would compare the
+  # upgrade with itself. Read-only on the database; the fingerprint stays on the
+  # host. A fresh host simply records that no account database existed yet.
+  # PROD is excluded until promotion of this gate to PROD is decided explicitly.
+  # ---------------------------------------------------------------------------
+  capture_web_saas_baseline:
+    name: "[1] Web SaaS baseline | ${{ matrix.host }}"
+    needs: [provision]
+    if: >-
+      ${{ !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.provision.outputs.run_application_deploy == 'true' &&
+      needs.provision.outputs.terraform_action == 'apply' &&
+      needs.provision.outputs.deployment_env != 'prod' &&
+      needs.provision.outputs.count != '0' &&
+      contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
+      needs.provision.outputs.hosts_web_saas != '[]' &&
+      needs.provision.outputs.hosts_web_saas != '' }}
+    runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host: ${{ fromJSON(needs.provision.outputs.hosts_web_saas) }}
+    env:
+      MATRIX_HOST: ${{ matrix.host }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ github.sha }}
+
+    - name: Download CMDB
+      uses: actions/download-artifact@v8
+      with:
+        name: platform-ops-toolkit-cmdb
+        path: cmdb
+
+    - name: Load deployment SSH key from Vault
+      id: vault
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        method: jwt
+        role: ${{ env.VAULT_ROLE }}
+        jwtGithubAudience: vault
+        secrets: |
+          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64
+
+    - name: Setup deployment runner
+      uses: ./.github/actions/setup-deployment-runner
+      with:
+        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+        matrix_host: ${{ matrix.host }}
+        wait_for_ssh: 'true'
+
+    - name: Capture pre-upgrade Accounts data fingerprint
+      env:
+        CMDB_FILE: cmdb/cmdb.json
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_web-saas-upgrade-acceptance.sh baseline
+
+  # ---------------------------------------------------------------------------
   # 步骤 2.5: 自动推进 GitOps 版本
   # 如果用户在触发流程时显式指定了 deploy_tag，我们将替用户自动把新的 tag 写入
   # ai-workspace-infra/gitops 并提交，以打通 CI 到 Pull-Only CD 的闭环。
   # ---------------------------------------------------------------------------
   update_gitops_tags:
     name: "[1] GitOps | deploy tags"
-    needs: [provision]
+    needs: [provision, capture_web_saas_baseline]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
+      (needs.capture_web_saas_baseline.result == 'success' || needs.capture_web_saas_baseline.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.deploy_tag != '' }}
@@ -1596,6 +1661,75 @@ jobs:
       # Deployment only. The final DNS stage performs public endpoint checks
       # after reconciliation/cutover.
       observe_urls: ''
+
+  # ---------------------------------------------------------------------------
+  # DNS-independent upgrade acceptance.
+  #
+  # observe_web_saas_after_dns only runs after switch_dns, so a dns_mode=none
+  # upgrade (UAT repair run 37171674829) finished green with no proof that the
+  # new Accounts/Console served, which images ran, or that existing users and
+  # subscriptions survived. This job always runs once the deploy and DB Init
+  # succeed, reaching services by CMDB address from inside the host. It does
+  # not gate switch_dns; a failure here fails the run and the summary.
+  # ---------------------------------------------------------------------------
+  accept_web_saas_upgrade:
+    name: "[3] Web SaaS acceptance | ${{ matrix.host }}"
+    needs: [provision, capture_web_saas_baseline, deploy_web_saas, initialize_web_saas_databases]
+    if: >-
+      ${{ always() && !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.capture_web_saas_baseline.result == 'success' &&
+      needs.deploy_web_saas.result == 'success' &&
+      needs.initialize_web_saas_databases.result == 'success' &&
+      needs.provision.outputs.hosts_web_saas != '[]' &&
+      needs.provision.outputs.hosts_web_saas != '' }}
+    runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host: ${{ fromJSON(needs.provision.outputs.hosts_web_saas) }}
+    env:
+      MATRIX_HOST: ${{ matrix.host }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ github.sha }}
+
+    - name: Download CMDB
+      uses: actions/download-artifact@v8
+      with:
+        name: platform-ops-toolkit-cmdb
+        path: cmdb
+
+    - name: Load deployment SSH key from Vault
+      id: vault
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        method: jwt
+        role: ${{ env.VAULT_ROLE }}
+        jwtGithubAudience: vault
+        secrets: |
+          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64
+
+    - name: Setup deployment runner
+      uses: ./.github/actions/setup-deployment-runner
+      with:
+        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+        matrix_host: ${{ matrix.host }}
+        wait_for_ssh: 'true'
+
+    - name: Verify Web SaaS containers are running
+      env:
+        CMDB_FILE: cmdb/cmdb.json
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_observe-web-saas-containers.sh
+
+    - name: Verify Accounts/Console, running images, schema and data preservation
+      env:
+        CMDB_FILE: cmdb/cmdb.json
+        DEPLOY_TAG: ${{ needs.provision.outputs.deploy_tag }}
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_web-saas-upgrade-acceptance.sh verify
 
   switch_dns:
     name: "[3] DNS Update"
@@ -1963,6 +2097,8 @@ jobs:
       provision,
       deploy_web_saas,
       initialize_web_saas_databases,
+      capture_web_saas_baseline,
+      accept_web_saas_upgrade,
       deploy_agent_proxy,
       deploy_agent_proxy_non_iac,
       switch_dns,
@@ -1984,6 +2120,8 @@ jobs:
       needs.provision.result != '' &&
       needs.deploy_web_saas.result != '' &&
       needs.initialize_web_saas_databases.result != '' &&
+      needs.capture_web_saas_baseline.result != '' &&
+      needs.accept_web_saas_upgrade.result != '' &&
       needs.deploy_agent_proxy.result != '' &&
       needs.deploy_agent_proxy_non_iac.result != '' &&
       needs.switch_dns.result != '' &&
@@ -2008,6 +2146,8 @@ jobs:
         PROVISION_RESULT: ${{ needs.provision.result }}
         WEB_SAAS_DEPLOY_RESULT: ${{ needs.deploy_web_saas.result }}
         DB_INIT_RESULT: ${{ needs.initialize_web_saas_databases.result }}
+        WEB_SAAS_BASELINE_RESULT: ${{ needs.capture_web_saas_baseline.result }}
+        WEB_SAAS_ACCEPTANCE_RESULT: ${{ needs.accept_web_saas_upgrade.result }}
         AGENT_PROXY_DEPLOY_RESULT: ${{ needs.deploy_agent_proxy.result }}
         AGENT_PROXY_NON_IAC_DEPLOY_RESULT: ${{ needs.deploy_agent_proxy_non_iac.result }}
         DNS_UPDATE_RESULT: ${{ needs.switch_dns.result }}

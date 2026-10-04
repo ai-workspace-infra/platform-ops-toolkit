@@ -7,8 +7,9 @@ orchestrator="${repo_root}/.github/workflows/selfhost-orchestrator.yml"
 
 grep -Fq 'SSH_READY_ATTEMPTS="${SSH_READY_ATTEMPTS:-60}"' "${script}"
 grep -Fq 'SSH_READY_INTERVAL_SECONDS="${SSH_READY_INTERVAL_SECONDS:-3}"' "${script}"
-grep -Fq 'wait_for_ssh source "${SOURCE_ADDR}"' "${script}"
-grep -Fq 'wait_for_ssh target "${TARGET_ADDR}"' "${script}"
+grep -Fq 'SSH_AUTH_ATTEMPTS="${SSH_AUTH_ATTEMPTS:-5}"' "${script}"
+grep -Fq 'preflight_endpoint source "${SOURCE_HOST}" "${SOURCE_ADDR}"' "${script}"
+grep -Fq 'preflight_endpoint target "${TARGET_HOST}" "${TARGET_ADDR}"' "${script}"
 grep -Fq 'ConnectTimeout=${SSH_READY_CONNECT_TIMEOUT_SECONDS}' "${script}"
 grep -Fq 'accounts_target_host: ${{ needs.provision.outputs.migration_target_host }}' "${orchestrator}"
 

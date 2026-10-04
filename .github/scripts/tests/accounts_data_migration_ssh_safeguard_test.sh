@@ -28,6 +28,15 @@ STUB
   chmod +x "${WORKDIR}/${stub}"
 done
 
+# The endpoint preflight resolves names with getent. Stub it with a TEST-NET
+# address so these host-identity cases never depend on live DNS (several names
+# below have no record, and console.svc.plus is CDN-proxied).
+cat >"${WORKDIR}/getent" <<'STUB'
+#!/usr/bin/env bash
+echo "192.0.2.10      STREAM $2"
+STUB
+chmod +x "${WORKDIR}/getent"
+
 # A stand-in for the migratectl binary; only its executable bit is inspected
 # before the safeguards run.
 printf '#!/bin/sh\nexit 0\n' >"${WORKDIR}/migratectl"

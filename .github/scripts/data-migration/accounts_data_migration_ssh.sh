@@ -35,10 +35,19 @@ set -euo pipefail
 #   MIGRATION_DB                database name (default account)
 #   MIGRATECTL_BIN              linux/amd64 migratectl built on the runner
 #   SSH_USER                    default root
-#   DRY_RUN                     "true" = stop after the preview (default true)
+#   DRY_RUN                     "true" = stop after the preview (default true).
+#                               NOT a simulation: the snapshot is still exported
+#                               from PROD and copied to UAT for the preview, so
+#                               a dry run moves the same password hashes, MFA
+#                               secrets and session tokens as a real run.
 #   MIGRATION_EMAIL_FILTER      optional --email keyword, to rehearse on one
 #                               account instead of moving every production user
 #   SKIP_VERIFY                 "true" = skip post-import convergence check
+#   SSH_READY_ATTEMPTS          TCP/22 attempts while a host boots (default 60)
+#   SSH_AUTH_ATTEMPTS           key-rejected attempts before failing (default 5)
+#
+# Exit codes: 1 safeguard/runtime failure; 10-14 endpoint preflight failure
+# (DNS, EDGE, CONNECT, AUTH, HOSTKEY -- see "Endpoint preflight" below).
 # ==============================================================================
 
 SOURCE_HOST="${MIGRATION_SOURCE_HOST:-}"
@@ -57,6 +66,7 @@ RUNTIME_IMAGE="${MIGRATION_RUNTIME_IMAGE:-alpine:latest}"
 SSH_READY_ATTEMPTS="${SSH_READY_ATTEMPTS:-60}"
 SSH_READY_INTERVAL_SECONDS="${SSH_READY_INTERVAL_SECONDS:-3}"
 SSH_READY_CONNECT_TIMEOUT_SECONDS="${SSH_READY_CONNECT_TIMEOUT_SECONDS:-5}"
+SSH_AUTH_ATTEMPTS="${SSH_AUTH_ATTEMPTS:-5}"
 
 REMOTE_DIR="/root/.accounts-migration.$$"
 SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -i ~/.ssh/id_deploy)
@@ -64,17 +74,23 @@ SSH_READY_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o "Connect
 
 # The snapshot holds password hashes and session tokens. It must not outlive the
 # run on either host, including on every failure path.
-# SOURCE_ADDR/TARGET_ADDR are set after the safeguard block; until then they are
-# unset and the fallback keeps cleanup working for early failures. Removing the
-# snapshot has to target the same machine it was written to, so this uses the
-# resolved address for exactly the same reason the transfer steps do.
+# Only hosts that reached staging can hold ${REMOTE_DIR}, so only those are
+# cleaned. Each address is recorded before its mkdir, which keeps a host whose
+# staging failed halfway on the list. Cleaning every configured host instead
+# meant a preflight failure on an unreachable host still waited out a full SSH
+# ConnectTimeout just to delete nothing (run 37173103865: 20s).
+STAGED_ADDRS=()
 cleanup() {
   local rc=$?
-  for h in "${SOURCE_ADDR:-${SOURCE_HOST}}" "${TARGET_ADDR:-${TARGET_HOST}}"; do
-    [ -n "${h}" ] || continue
+  local h
+  for h in ${STAGED_ADDRS[@]+"${STAGED_ADDRS[@]}"}; do
     ssh "${SSH_OPTS[@]}" "${SSH_USER}@${h}" "rm -rf ${REMOTE_DIR}" >/dev/null 2>&1 || true
   done
-  echo "[CLEANUP] Removed ${REMOTE_DIR} from both hosts."
+  if [ "${#STAGED_ADDRS[@]}" -gt 0 ]; then
+    echo "[CLEANUP] Removed ${REMOTE_DIR} from ${STAGED_ADDRS[*]}."
+  else
+    echo "[CLEANUP] Nothing was staged on any host."
+  fi
   exit "${rc}"
 }
 trap cleanup EXIT
@@ -87,6 +103,12 @@ if [ -z "${MIGRATECTL_BIN}" ] || [ ! -x "${MIGRATECTL_BIN}" ]; then
   echo "ERROR: MIGRATECTL_BIN must point at an executable linux/amd64 migratectl." >&2
   exit 1
 fi
+for tool in getent python3; do
+  command -v "${tool}" >/dev/null 2>&1 || {
+    echo "ERROR: ${tool} is required by the endpoint preflight." >&2
+    exit 1
+  }
+done
 
 echo "=========================================="
 echo " Accounts Migration over SSH (PROD -> UAT) "
@@ -188,34 +210,135 @@ for pair in "source:${SOURCE_HOST}:${SOURCE_ADDR}" "target:${TARGET_HOST}:${TARG
   fi
 done
 
-# A freshly provisioned VPS can have its address and containers ready before
-# sshd is accepting connections. Do not let the migration race that boot
-# window: retry the same resolved addresses before staging any snapshot data.
-wait_for_ssh() { # <role> <address>
-  local role="$1" address="$2"
-  local attempt
-  echo "[READINESS] Waiting for SSH on ${role} ${address}..."
+# ------------------------------------------------------------------------------
+# Endpoint preflight -- prove each SSH endpoint is real before touching data
+#
+# Run 37173103865 spent three minutes in a 60-attempt readiness loop against
+# console-selfhost-prod.svc.plus, a name with no A/AAAA record at all, and then
+# reported only "SSH did not become ready". A missing record, a CDN-proxied
+# name, a closed port and a rejected key all looked identical. Waiting fixes
+# exactly one of those -- a host that is still booting -- so each failure is
+# classified and only that one is retried:
+#
+#   DNS      exit 10  the name has no A/AAAA record           fail immediately
+#   EDGE     exit 11  the name resolves to a CDN edge (proxy) fail immediately
+#   CONNECT  exit 12  TCP/22 refused, timed out, or reset     retried (boot window)
+#   AUTH     exit 13  the deploy key is rejected              brief retry, then fail
+#   HOSTKEY  exit 14  the host key does not match known_hosts fail immediately
+#
+# None of these is fixed by substituting an address. The authoritative address
+# comes from this run's CMDB or from a DNS record GitOps declares; anything
+# else is a guess, and a guessed PROD address is not a safe input to a script
+# that exports password hashes from it.
+
+# Cloudflare's published edge ranges (https://www.cloudflare.com/ips/). A
+# proxied record answers HTTP(S) only, so SSH to it can never succeed --
+# console.svc.plus is such a name.
+CDN_EDGE_CIDRS="173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32"
+
+is_ip_literal() { # <address>
+  [[ "$1" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ || "$1" == *:* ]]
+}
+
+# Prints every address in the given list that falls inside a CDN edge range.
+cdn_edge_addresses() { # <address...>
+  python3 - "${CDN_EDGE_CIDRS}" "$@" <<'PY_EDGE'
+import ipaddress
+import sys
+
+networks = [ipaddress.ip_network(cidr) for cidr in sys.argv[1].split()]
+for raw in sys.argv[2:]:
+    try:
+        address = ipaddress.ip_address(raw)
+    except ValueError:
+        continue
+    if any(address.version == net.version and address in net for net in networks):
+        print(raw)
+PY_EDGE
+}
+
+classify_ssh_error() { # <ssh stderr>
+  case "$1" in
+    *"Could not resolve hostname"*|*"Name or service not known"*|*"Temporary failure in name resolution"*)
+      echo DNS ;;
+    *"Host key verification failed"*|*"REMOTE HOST IDENTIFICATION HAS CHANGED"*)
+      echo HOSTKEY ;;
+    *"Permission denied"*|*"Too many authentication failures"*)
+      echo AUTH ;;
+    *)
+      echo CONNECT ;;
+  esac
+}
+
+preflight_fail() { # <class> <exit-code> <role> <message>
+  local class="$1" code="$2" role="$3" message="$4"
+  echo "::error title=Accounts migration preflight (${class})::${role}: ${message}" >&2
+  echo "[PREFLIGHT:${class}] ${role}: ${message}" >&2
+  echo "[PREFLIGHT:${class}] No snapshot was exported; no host was modified." >&2
+  exit "${code}"
+}
+
+preflight_endpoint() { # <role> <logical-host> <address>
+  local role="$1" name="$2" address="$3"
+  local resolved edge err class="" attempt auth_failures=0 last_err=""
+
+  if is_ip_literal "${address}"; then
+    resolved="${address}"
+  else
+    resolved="$(getent ahosts "${address}" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ' || true)"
+    resolved="${resolved% }"
+    if [ -z "${resolved}" ]; then
+      preflight_fail DNS 10 "${role}" "${name} has no A/AAAA record and no CMDB entry. Publish the GitOps-declared record or supply this run's CMDB; do not substitute a guessed IP or a CDN-proxied alias."
+    fi
+  fi
+
+  # shellcheck disable=SC2086 # one argument per resolved address
+  edge="$(cdn_edge_addresses ${resolved} | tr '\n' ' ')"
+  edge="${edge% }"
+  if [ -n "${edge}" ]; then
+    preflight_fail EDGE 11 "${role}" "${name} resolves to CDN edge address(es) ${edge}. A proxied record serves HTTP(S) only and cannot carry SSH; use the origin host's own record."
+  fi
+  echo "[PREFLIGHT] ${role} ${name} -> ${resolved}"
+
   for attempt in $(seq 1 "${SSH_READY_ATTEMPTS}"); do
-    if ssh "${SSH_READY_OPTS[@]}" "${SSH_USER}@${address}" true >/dev/null 2>&1; then
-      echo "[READINESS] SSH ready on ${role} ${address}."
+    if err="$(ssh "${SSH_READY_OPTS[@]}" "${SSH_USER}@${address}" true 2>&1 >/dev/null)"; then
+      echo "[PREFLIGHT] ${role} ${name}: SSH reachable and the deploy key is accepted."
       return 0
     fi
+    last_err="$(printf '%s' "${err}" | tr '\n' ' ')"
+    class="$(classify_ssh_error "${err}")"
+    case "${class}" in
+      DNS)
+        preflight_fail DNS 10 "${role}" "ssh could not resolve ${address}: ${last_err}" ;;
+      HOSTKEY)
+        preflight_fail HOSTKEY 14 "${role}" "host key for ${address} does not match known_hosts: ${last_err}" ;;
+      AUTH)
+        auth_failures=$((auth_failures + 1))
+        if (( auth_failures >= SSH_AUTH_ATTEMPTS )); then
+          preflight_fail AUTH 13 "${role}" "${SSH_USER}@${address} rejected the deploy key ${auth_failures} times: ${last_err}. Confirm id_deploy is authorized on this host; the pipeline will not retry with other credentials."
+        fi ;;
+    esac
     if (( attempt < SSH_READY_ATTEMPTS )); then
       sleep "${SSH_READY_INTERVAL_SECONDS}"
     fi
   done
-  echo "[CRITICAL ERROR] SSH did not become ready on ${role} ${address} after ${SSH_READY_ATTEMPTS} attempts." >&2
-  return 1
+  if [ "${class}" = AUTH ]; then
+    preflight_fail AUTH 13 "${role}" "${SSH_USER}@${address} still rejects the deploy key after ${SSH_READY_ATTEMPTS} attempts: ${last_err}"
+  fi
+  preflight_fail CONNECT 12 "${role}" "no SSH session to ${address} (${name}) after ${SSH_READY_ATTEMPTS} attempts; last error: ${last_err:-none}"
 }
 
-wait_for_ssh source "${SOURCE_ADDR}"
-wait_for_ssh target "${TARGET_ADDR}"
+# Both endpoints are proven before either is staged, so a dead source can no
+# longer leave a half-staged target behind.
+preflight_endpoint source "${SOURCE_HOST}" "${SOURCE_ADDR}"
+preflight_endpoint target "${TARGET_HOST}" "${TARGET_ADDR}"
 
 # ------------------------------------------------------------------------------
 # Step 0: stage migratectl on both hosts
 # ------------------------------------------------------------------------------
 echo "[STEP 0/5] Staging migratectl on both hosts..."
 for h in "${SOURCE_ADDR}" "${TARGET_ADDR}"; do
+  STAGED_ADDRS+=("${h}")
   ssh "${SSH_OPTS[@]}" "${SSH_USER}@${h}" "mkdir -p ${REMOTE_DIR} && chmod 700 ${REMOTE_DIR}"
   scp "${SSH_OPTS[@]}" -q "${MIGRATECTL_BIN}" "${SSH_USER}@${h}:${REMOTE_DIR}/migratectl"
   ssh "${SSH_OPTS[@]}" "${SSH_USER}@${h}" \
