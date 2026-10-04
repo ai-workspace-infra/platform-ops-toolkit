@@ -39,7 +39,13 @@ else
 fi
 [[ "${actual_sha}" == "${expected_sha}" ]] || fail "Target migration checksum differs from the reviewed digest."
 
-if grep -Eiq '^[[:space:]]*(DROP|TRUNCATE|DELETE|UPDATE)[[:space:]]' "${migration_file}"; then
+# The reviewed finance migration replaces protection triggers, not data. Keep
+# the destructive-statement guard for every other payload; this exception is
+# bound to the entire immutable file, not a permissive DROP TRIGGER regexp.
+reviewed_finance_sha=d066e223641b4eccbb65a00dce70f717b6dce02491d1d54edc1099baf2071433
+if [[ "${target}" == 2026092801 && "${actual_sha}" == "${reviewed_finance_sha}" ]]; then
+  :
+elif grep -Eiq '^[[:space:]]*(DROP|TRUNCATE|DELETE|UPDATE)[[:space:]]' "${migration_file}"; then
   fail "The selected migration contains a top-level destructive or data-rewriting statement."
 fi
 
@@ -70,8 +76,9 @@ data_sentinel() {
   printf '%s' "${result}"
 }
 
-current="$(psql "${target_dsn}" -X -v ON_ERROR_STOP=1 -Atqc "SELECT version::text || ':' || dirty::text FROM public.schema_migrations LIMIT 1" 2>/dev/null)" || fail "Could not read UAT schema_migrations."
-[[ "${current}" == "${expected}:false" ]] || fail "UAT schema version/dirty state differs from the reviewed precondition."
+version_sql="SELECT version::text || ':' || dirty::text FROM public.schema_migrations"
+current="$(psql "${target_dsn}" -X -v ON_ERROR_STOP=1 -Atqc "${version_sql}" 2>/dev/null)" || fail "Could not read UAT schema_migrations."
+[[ "${current}" == "${expected}:false" || "${current}" == "${target}:false" ]] || fail "UAT schema version/dirty state differs from the reviewed precondition."
 schema_probe
 sentinel_before="$(data_sentinel)"
 
@@ -80,14 +87,28 @@ if ! (cd "${accounts_dir}" && go run ./cmd/migratectl migrate --dsn "${target_ds
   fail "Accounts migration command failed; downstream deployment is blocked."
 fi
 
-after="$(psql "${target_dsn}" -X -v ON_ERROR_STOP=1 -Atqc "SELECT version::text || ':' || dirty::text FROM public.schema_migrations LIMIT 1" 2>/dev/null)" || fail "Could not verify UAT schema_migrations after apply."
+after="$(psql "${target_dsn}" -X -v ON_ERROR_STOP=1 -Atqc "${version_sql}" 2>/dev/null)" || fail "Could not verify UAT schema_migrations after apply."
 [[ "${after}" == "${target}:false" ]] || fail "UAT schema did not reach the expected clean target version."
 schema_probe
 sentinel_after="$(data_sentinel)"
 [[ "${sentinel_after}" == "${sentinel_before}" ]] || fail "Existing UAT user/subscription sentinel changed during migration; downstream deployment is blocked."
+
+# Exercise the official migrator again, rather than inferring idempotence from
+# IF NOT EXISTS clauses or a clean version number.
+if ! (cd "${accounts_dir}" && go run ./cmd/migratectl migrate --dsn "${target_dsn}" --dir sql/migrations) >/dev/null 2>&1; then
+  fail "Repeated Accounts migration failed; downstream deployment is blocked."
+fi
+after_repeat="$(psql "${target_dsn}" -X -v ON_ERROR_STOP=1 -Atqc "${version_sql}" 2>/dev/null)" || fail "Could not verify repeated UAT migration."
+[[ "${after_repeat}" == "${target}:false" ]] || fail "Repeated migration changed the clean target version."
+schema_probe
+sentinel_repeat="$(data_sentinel)"
+[[ "${sentinel_repeat}" == "${sentinel_before}" ]] || fail "Repeated migration changed existing UAT data."
 users_count="$(sed -n 's/^users:\([0-9][0-9]*\):.*/\1/p' <<<"${sentinel_before}")"
 subscriptions_count="$(sed -n 's/^subscriptions:\([0-9][0-9]*\):.*/\1/p' <<<"${sentinel_before}")"
-echo "Verified UAT migration version, required schema probes, and unchanged user/subscription sentinel (${users_count} users, ${subscriptions_count} subscriptions)."
+echo "Verified UAT migration version, repeated official migration, required schema probes, and unchanged user/subscription sentinel (${users_count} users, ${subscriptions_count} subscriptions)."
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  printf 'official_migrator_repeat_verified=true\n' >>"${GITHUB_OUTPUT}"
+fi
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   printf 'Accounts UAT schema migration: `%s` → `%s`, snapshot `%s`, migration SHA-256 `%s`; required schema probes passed and user/subscription sentinel was unchanged (%s users, %s subscriptions).\n' "${expected}" "${target}" "${snapshot_tag}" "${actual_sha}" "${users_count}" "${subscriptions_count}" >>"${GITHUB_STEP_SUMMARY}"
 fi

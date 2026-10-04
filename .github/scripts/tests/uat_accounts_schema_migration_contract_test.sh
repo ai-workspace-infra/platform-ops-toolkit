@@ -67,6 +67,18 @@ reject env "${valid_serverless[@]}" VAULT_ENV_PATH=prod bash "${serverless_valid
 reject env "${valid_serverless[@]}" OPERATION=deploy+migrate bash "${serverless_validator}"
 reject env "${valid_serverless[@]}" DEPLOY_CLOUD_RUN=false bash "${serverless_validator}"
 
+repair=("${valid_serverless[@]}" OPERATION=repair-schema DEPLOY_CLOUD_RUN=false DEPLOY_CLOUDFLARE=false
+  TAG_REF=daily-build-2026.10.04-r3 ACCOUNTS_SCHEMA_EXPECTED_VERSION=2026092703
+  ACCOUNTS_SCHEMA_TARGET_VERSION=2026092801
+  ACCOUNTS_SCHEMA_SHA256=d066e223641b4eccbb65a00dce70f717b6dce02491d1d54edc1099baf2071433)
+env "${repair[@]}" bash "${serverless_validator}" >/dev/null
+reject env "${repair[@]}" VAULT_ENV_PATH=prod bash "${serverless_validator}"
+reject env "${repair[@]}" DEPLOY_CLOUD_RUN=true bash "${serverless_validator}"
+reject env "${repair[@]}" DEPLOY_CLOUDFLARE=true bash "${serverless_validator}"
+reject env "${repair[@]}" SERVERLESS_DNS_MODE=uat-records bash "${serverless_validator}"
+reject env "${repair[@]}" TAG_REF=main bash "${serverless_validator}"
+reject env "${repair[@]}" APPLY_ACCOUNTS_SCHEMA_MIGRATION=false bash "${serverless_validator}"
+
 baseline_serverless=(
   VAULT_ENV_PATH=uat
   OPERATION=deploy

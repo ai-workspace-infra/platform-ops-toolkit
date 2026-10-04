@@ -4,14 +4,16 @@
     "account": "primary"
   },
   "uat": {
-    "cloud_provider": "akamai-cloud",
+    "cloud_provider": "gcp-cloud",
     "account": "manbuzhe2026",
+    "gcp_account": "xworktech",
     "accounts_public_origin": "https://accounts-uat.onwalk.net",
     "billing_public_origin": "https://billing-uat.onwalk.net"
   },
   "prod": {
-    "cloud_provider": "aws-cloud",
+    "cloud_provider": "gcp-cloud",
     "account": "primary",
+    "gcp_account": "xworktech",
     "accounts_public_origin": "https://accounts.svc.plus",
     "billing_public_origin": "https://billing.svc.plus"
   }

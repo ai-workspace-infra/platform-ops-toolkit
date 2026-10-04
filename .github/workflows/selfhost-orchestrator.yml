@@ -104,7 +104,7 @@ on:
       cloud_provider:
         description: "云服务商（按 UAT Hybrid/GitOps provider registry 选择；不要用单一 provider 覆盖 target_domains=all；ULightHost existing 由 external adapter 处理）"
         required: true
-        default: "akamai-cloud"
+        default: "gcp-cloud"
         type: choice
         options:
         - aws-cloud
@@ -370,6 +370,7 @@ jobs:
           resources/onwalk.net/uat/gcp/open-platform.yaml
           resources/svc.plus/uat/gcp/open-platform.yaml
           resources/onwalk.net/uat/gcp/web-saas.yaml
+          resources/svc.plus/prod/gcp/web-saas.yaml
           resources/svc.plus/uat/gcp/web-saas.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/azure/web-saas.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/azure/agent-proxy.yaml

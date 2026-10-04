@@ -4,8 +4,8 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 workflow="${repo_root}/.github/workflows/selfhost-orchestrator.yml"
 
-grep -Fq 'default: "akamai-cloud"' "${workflow}" || {
-  echo "selfhost workflow must keep Akamai Cloud as the UAT default provider" >&2
+grep -Fq 'default: "gcp-cloud"' "${workflow}" || {
+  echo "selfhost workflow must default to GCP for persistent web-saas" >&2
   exit 1
 }
 grep -Fq "steps.route.outputs.cloud_provider == 'akamai-cloud'" "${workflow}" || {
