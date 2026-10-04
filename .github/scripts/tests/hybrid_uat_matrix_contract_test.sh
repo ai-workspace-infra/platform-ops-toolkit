@@ -253,7 +253,9 @@ assert "needs.edge_gateway.result == 'success'" in verify_job["if"]
 dispatcher_text = open(sys.argv[2], encoding="utf-8").read()
 assert 'wait-for-workflow-run.sh' in dispatcher_text
 assert 'RUN_REPOSITORY="${GH_REPO}"' in dispatcher_text
-assert 'Multiple ${workflow} runs match' in dispatcher_text
+assert 'X-GitHub-Api-Version: 2026-03-10' in dispatcher_text
+assert '.workflow_run_id' in dispatcher_text
+assert 'gh run list' not in dispatcher_text
 assert 'gh run watch' not in dispatcher_text
 selfhost = yaml.safe_load(open(".github/workflows/selfhost-orchestrator.yml", encoding="utf-8"))
 steps = selfhost["jobs"]["provision"]["steps"]
