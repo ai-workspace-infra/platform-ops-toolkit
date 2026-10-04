@@ -85,6 +85,8 @@ jobs:
           verify_agent_proxy_post_dns.yml
           roles/vhosts/web_saas_post_deploy_readiness
           roles/vhosts/agent_proxy_post_dns_readiness
+          observability_operations.yml
+          roles/docker/observability_server_operations
 
     - name: Verify every script a workflow calls exists
       run: >-

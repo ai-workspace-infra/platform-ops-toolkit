@@ -52,9 +52,38 @@ class SharedObservabilityVerificationTests(unittest.TestCase):
         self.assertIn("inputs.target_platform == 'shared-gcp')", condition)
         self.assertNotIn("inputs.target_platform == 'shared-gcp' && inputs.dns_action == 'cutover'", condition)
         https = next(step for step in job["steps"] if step.get("name") == "Verify shared GCP Observability HTTPS target")
-        self.assertIn("/grafana/api/health", https["run"])
-        for store in ("victoriametrics", "victorialogs", "victoriatraces"):
-            self.assertIn(store, https["run"])
+        self.assertIn("observability_operations.yml", https["run"])
+        self.assertIn("observability_operation=verify_target", https["run"])
+        self.assertEqual(https["working-directory"], "playbooks")
+
+    def test_observability_data_and_health_execution_is_delegated_to_playbooks(self):
+        document = load("observability-server.yml")
+        expected = {
+            "historical_data": "data_migrate",
+            "verify_stores": "verify_store",
+            "verify_target": "verify_target",
+            "verify_mcp_matrix": "verify_mcp",
+        }
+        for job_name, operation in expected.items():
+            job = document["jobs"][job_name]
+            steps = job["steps"]
+            role_checkout = next(
+                index for index, step in enumerate(steps)
+                if step.get("name", "").startswith("Checkout Playbooks Observability role")
+            )
+            runner_setup = next(
+                index for index, step in enumerate(steps)
+                if step.get("name") == "Install Ansible runtime"
+            )
+            calls = [step for step in steps if operation in step.get("run", "")]
+            self.assertTrue(calls, f"{job_name} must invoke {operation}")
+            self.assertLess(role_checkout, runner_setup)
+            for call in calls:
+                self.assertIn("observability_operations.yml", call["run"])
+                self.assertEqual(call["working-directory"], "playbooks")
+                self.assertIn("observability_operations_environment=uat", call["run"])
+                if job_name == "verify_mcp_matrix":
+                    self.assertTrue(call.get("if", "").startswith("matrix.enabled"))
 
 
 class OrchestratorUpgradeBoundaryTests(unittest.TestCase):

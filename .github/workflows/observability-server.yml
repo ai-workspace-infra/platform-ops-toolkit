@@ -819,6 +819,18 @@ jobs:
       - name: Checkout toolkit
         uses: actions/checkout@v4
 
+      - name: Checkout Playbooks Observability role
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ inputs.source_ref }}
+          path: playbooks
+
+      - name: Install Ansible runtime
+        uses: ./.github/actions/setup-deployment-runner
+        with:
+          install_ansible: 'true'
+
       - name: Load SSH deployment key from Vault
         id: vault
         uses: hashicorp/vault-action@v4
@@ -842,7 +854,11 @@ jobs:
       - name: Snapshot, transfer, restore, and verify one store
         env:
           SSH_PRIVATE_KEY_PATH: ${{ runner.temp }}/observability-ssh/id_deploy
-        run: .github/scripts/observability/observability_data_migrate.sh
+        working-directory: playbooks
+        run: >-
+          ansible-playbook -i 'localhost,' -c local observability_operations.yml
+          -e observability_operations_environment=uat
+          -e observability_operation=data_migrate
 
   verify_stores:
     name: "Verify restored ${{ matrix.component }} history"
@@ -867,6 +883,16 @@ jobs:
     steps:
       - name: Checkout toolkit
         uses: actions/checkout@v4
+      - name: Checkout Playbooks Observability role
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ inputs.source_ref }}
+          path: playbooks
+      - name: Install Ansible runtime
+        uses: ./.github/actions/setup-deployment-runner
+        with:
+          install_ansible: 'true'
       - name: Load SSH deployment key from Vault
         id: vault
         uses: hashicorp/vault-action@v4
@@ -888,7 +914,11 @@ jobs:
       - name: Check component health, restored byte counts, and partition set
         env:
           SSH_PRIVATE_KEY_PATH: ${{ runner.temp }}/observability-ssh/id_deploy
-        run: .github/scripts/observability/observability_verify_store.sh
+        working-directory: playbooks
+        run: >-
+          ansible-playbook -i 'localhost,' -c local observability_operations.yml
+          -e observability_operations_environment=uat
+          -e observability_operation=verify_store
 
   # Shared GCP runs its HTTPS and store health checks after every deploy, not
   # only before a DNS cutover: an ordinary upgrade must prove the public entry.
@@ -912,8 +942,7 @@ jobs:
     steps:
       - name: Checkout toolkit
         uses: actions/checkout@v4
-      - name: Checkout Playbooks dashboard source
-        if: inputs.target_platform == 'legacy-akamai'
+      - name: Checkout Playbooks Observability role and dashboard source
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/playbooks
@@ -939,6 +968,10 @@ jobs:
           install -d -m 700 "${RUNNER_TEMP}/observability-ssh"
           printf '%s' "${SSH_PRIVATE_DEPLOY_KEY_B64}" | base64 --decode > "${RUNNER_TEMP}/observability-ssh/id_deploy"
           chmod 600 "${RUNNER_TEMP}/observability-ssh/id_deploy"
+      - name: Install Ansible runtime
+        uses: ./.github/actions/setup-deployment-runner
+        with:
+          install_ansible: 'true'
       - name: Verify Grafana health and exact dashboard asset set
         if: inputs.target_platform == 'legacy-akamai'
         env:
@@ -946,28 +979,24 @@ jobs:
           TARGET_IP: ${{ needs.resolve_target.outputs.target_ip }}
           SOURCE_IP: ${{ inputs.source_ip }}
           VERIFY_SOURCE_NODE: ${{ inputs.verify_existing_target }}
-          DASHBOARD_SOURCE: playbooks/roles/docker/observability-server/files
           DNS_ACTION: ${{ inputs.dns_action }}
-        run: .github/scripts/observability/observability_verify_target.sh
+          TARGET_PLATFORM: ${{ inputs.target_platform }}
+        working-directory: playbooks
+        run: >-
+          ansible-playbook -i 'localhost,' -c local observability_operations.yml
+          -e observability_operations_environment=uat
+          -e observability_operation=verify_target
 
       - name: Verify shared GCP Observability HTTPS target
         if: inputs.target_platform == 'shared-gcp'
         env:
           TARGET_IP: ${{ needs.resolve_target.outputs.target_ip }}
-        run: |
-          set -euo pipefail
-          domain='observability.svc.plus'
-          curl --fail --silent --show-error --retry 4 --retry-all-errors --retry-delay 2 \
-            --connect-timeout 5 --max-time 20 --insecure \
-            --resolve "${domain}:443:${TARGET_IP}" \
-            "https://${domain}/grafana/api/health" | jq -e '.database == "ok"' >/dev/null
-          for path in victoriametrics victorialogs victoriatraces; do
-            curl --fail --silent --show-error --retry 4 --retry-all-errors --retry-delay 2 \
-              --connect-timeout 5 --max-time 20 --insecure \
-              --resolve "${domain}:443:${TARGET_IP}" \
-              "https://${domain}/${path}/metrics" >/dev/null
-          done
-          printf 'Shared GCP target %s passed HTTPS health checks before DNS cutover.\n' "${TARGET_IP}" >> "${GITHUB_STEP_SUMMARY}"
+          TARGET_PLATFORM: ${{ inputs.target_platform }}
+        working-directory: playbooks
+        run: >-
+          ansible-playbook -i 'localhost,' -c local observability_operations.yml
+          -e observability_operations_environment=uat
+          -e observability_operation=verify_target
 
   verify_mcp_matrix:
     name: "Verify ${{ matrix.component }} MCP protocol and backend auth"
@@ -1000,6 +1029,18 @@ jobs:
       - name: Checkout toolkit
         if: matrix.enabled
         uses: actions/checkout@v4
+      - name: Checkout Playbooks Observability role
+        if: matrix.enabled
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ inputs.source_ref }}
+          path: playbooks
+      - name: Install Ansible runtime
+        if: matrix.enabled
+        uses: ./.github/actions/setup-deployment-runner
+        with:
+          install_ansible: 'true'
       - name: Load SSH deployment key from Vault
         if: matrix.enabled
         id: vault
@@ -1024,7 +1065,11 @@ jobs:
         if: matrix.enabled
         env:
           SSH_PRIVATE_KEY_PATH: ${{ runner.temp }}/observability-ssh/id_deploy
-        run: .github/scripts/observability/observability_verify_mcp.sh
+        working-directory: playbooks
+        run: >-
+          ansible-playbook -i 'localhost,' -c local observability_operations.yml
+          -e observability_operations_environment=uat
+          -e observability_operation=verify_mcp
 
   dns_switch:
     name: "${{ inputs.dns_action == 'rollback' && 'Rollback' || 'Cut over' }} observability.svc.plus"
