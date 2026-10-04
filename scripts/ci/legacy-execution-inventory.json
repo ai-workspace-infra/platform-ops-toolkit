@@ -14,13 +14,6 @@
       "owner": "iac_modules",
       "sha256": "ca8370e275d20ed1599d957e68e96c953f94412f0a51316d83b49e5e8de6a044"
     },
-    ".github/scripts/serverless/promote_image_by_digest.sh": {
-      "markers": [
-        "provider_execution"
-      ],
-      "owner": "playbooks",
-      "sha256": "445a7cba136ccc261b959f262ae8e3dc50264fbc9f7c4ce6158620b009988ddd"
-    },
     ".github/scripts/serverless/sync_smtp_secrets.sh": {
       "markers": [
         "provider_execution"
@@ -35,13 +28,6 @@
       ],
       "owner": "playbooks",
       "sha256": "ce6edd9fb072c61260d63b1ff325103eab396eef8791264e817ef92ca1a536d6"
-    },
-    ".github/scripts/serverless/wait_for_artifact_image.sh": {
-      "markers": [
-        "provider_execution"
-      ],
-      "owner": "playbooks",
-      "sha256": "7c4fb3c06a8567953433fd619b851f2c9ea2b3bd526ca4473029de3890573cca"
     },
     ".github/scripts/service-deploy/zitadel.sh": {
       "markers": [
