@@ -29,6 +29,11 @@ def import_file(name, path):
 
 
 class DnsOwnerContractTests(unittest.TestCase):
+    def test_removed_combined_executor_cannot_be_reintroduced(self):
+        self.assertFalse((ROOT / ".github/scripts/observability/observability_dns_switch.sh").exists())
+        for workflow in (ROOT / ".github/workflows").glob("*.y*ml"):
+            self.assertNotIn("observability_dns_switch.sh", workflow.read_text(), str(workflow))
+
     def test_owner_checkouts_are_immutable_and_precede_calls(self):
         for repo, call_id in (("iac_modules", "dns_change"), ("playbooks", "service_acceptance")):
             checkout = next(step for step in STEPS if step.get("with", {}).get("path") == repo)
