@@ -78,20 +78,6 @@
       "owner": "iac_modules",
       "sha256": "ca8370e275d20ed1599d957e68e96c953f94412f0a51316d83b49e5e8de6a044"
     },
-    ".github/scripts/resize/resize-instance_destroy-old.sh": {
-      "markers": [
-        "provider_execution"
-      ],
-      "owner": "iac_modules",
-      "sha256": "832bbdfd35425584967e104361c0dcce058ece24dbb8db8de5fbb858765a995a"
-    },
-    ".github/scripts/resize/resize-instance_switch-dns.sh": {
-      "markers": [
-        "provider_execution"
-      ],
-      "owner": "iac_modules",
-      "sha256": "d987d3b09e873402965e356f51c8559461268aae321694d63d3f6e89bbedc3a5"
-    },
     ".github/scripts/serverless/promote_image_by_digest.sh": {
       "markers": [
         "provider_execution"
