@@ -225,6 +225,9 @@ jobs:
     - name: Validate AWS selfhost rootless SSH contract
       run: bash .github/scripts/tests/aws_selfhost_rootless_ssh_test.sh
 
+    - name: Verify pinned PEM restore owner and protected runtime inputs
+      run: python3 .github/scripts/tests/caddy_pem_restore_caller_test.py
+
     - name: Verify post-deploy host operations use Playbooks roles
       run: python3 -m unittest scripts.tests.test_post_deploy_readiness_owner_contract
 

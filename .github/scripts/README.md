@@ -54,6 +54,14 @@ A workflow that pins `infra_ref` / `playbooks_ref` to a tag older than the
 
 ## Cross-repository delivery contract
 
+Caddy PEM restoration now calls the immutable Playbooks
+`caddy_certificate_restore.yml` owner. Toolkit's
+`prepare-domain-tls-restore.py` only exchanges OIDC/Vault identity and writes a
+mode-0600 runtime vars file; the workflow invokes the Role using this run's CMDB
+or explicit non-IaC inventory and always removes the vars file. Vault tokens are
+revoked before host execution. The legacy executor stays until caller and UAT
+verification; no Caddy restart or served-TLS claim is added by this cutover.
+
 The four repositories form one delivery boundary and are changed in dependency order:
 
 1. [`iac_modules`](https://github.com/ai-workspace-infra/iac_modules) — Terraform and
