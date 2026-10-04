@@ -139,6 +139,9 @@ jobs:
         GITOPS_RESOURCE_ROOTS: ${{ github.workspace }}/gitops-hybrid-contract/resources/onwalk.net/uat/gcp:${{ github.workspace }}/gitops-hybrid-contract/resources/svc.plus/uat/gcp
       run: bash .github/scripts/tests/hybrid_uat_matrix_contract_test.sh
 
+    - name: Verify UAT business evidence is required for PROD promotion
+      run: python3 .github/scripts/tests/uat_business_promotion_gate_test.py
+
     - name: Verify Observability Vault jobs request OIDC tokens
       run: python3 .github/scripts/tests/observability_oidc_permissions_contract_test.py
 

@@ -18,18 +18,18 @@ set -euo pipefail
 #   verify    After deploy + DB init. Waits for Accounts /readyz and /api/ping
 #             and Console / to answer from inside the host (no DNS, no TLS),
 #             requires the running managed images to carry DEPLOY_TAG, requires
-#             schema_migrations clean and not older than the baseline, and
+#             schema_migrations clean and at the artifact's exact version, and
 #             requires every baseline row to still exist unchanged.
 #
-# Deliberately NOT proven here, and reported as such in the summary:
+# Not proven by SQL/health probes; these are BLOCKED business gates:
 #   - an interactive login with an original account (that needs a credential
 #     this pipeline must not hold);
 #   - subscription preservation when the baseline held zero subscription rows
 #     (an empty set is trivially preserved).
 #
 # Env: MATRIX_HOST, CMDB_FILE (default cmdb/cmdb.json), ACCEPTANCE_RUN_ID
-# (default GITHUB_RUN_ID), DEPLOY_TAG (verify; empty skips the tag check),
-# EXPECTED_ACCOUNTS_SCHEMA_VERSION (verify; optional exact version),
+# (default GITHUB_RUN_ID), DEPLOY_TAG (verify; required),
+# EXPECTED_ACCOUNTS_SCHEMA_VERSION (verify; required exact version),
 # WEB_SAAS_ACCEPTANCE_TIMEOUT_SECONDS (300), WEB_SAAS_ACCEPTANCE_POLL_SECONDS (5).
 
 . "$(dirname "${BASH_SOURCE[0]}")/../../lib/require-env.sh"
@@ -55,6 +55,14 @@ poll_seconds="${WEB_SAAS_ACCEPTANCE_POLL_SECONDS:-5}"
 }
 deploy_tag="${DEPLOY_TAG:-}"
 expected_version="${EXPECTED_ACCOUNTS_SCHEMA_VERSION:-}"
+if [[ "${mode}" == verify ]]; then
+  [[ "${deploy_tag}" =~ ^[A-Za-z0-9._-]+$ ]] || {
+    echo "::error::BLOCKED: DEPLOY_TAG is required for upgrade acceptance." >&2; exit 2;
+  }
+  [[ "${expected_version}" =~ ^[1-9][0-9]*$ ]] || {
+    echo "::error::BLOCKED: the artifact's explicit EXPECTED_ACCOUNTS_SCHEMA_VERSION is required." >&2; exit 2;
+  }
+fi
 
 cmdb_file="${CMDB_FILE:-cmdb/cmdb.json}"
 [[ -f "${cmdb_file}" ]] || { echo "::error::CMDB file not found: ${cmdb_file}" >&2; exit 2; }
@@ -90,7 +98,7 @@ tables="users identities subscriptions"
 declare -A candidates=(
   [users]="username,email,password,role,level,groups,permissions,mfa_enabled,mfa_totp_secret,active,subscription_valid_from,subscription_valid_until"
   [identities]="provider,external_id,user_uuid"
-  [subscriptions]="user_uuid,provider,payment_method,kind,plan_id,external_id,status,cancelled_at,created_at"
+  [subscriptions]="user_uuid,provider,payment_method,kind,plan_id,external_id,status,cancelled_at,created_at,valid_from,valid_until,current_period_start,current_period_end,entitlements,meta"
 )
 
 q() { docker exec -i -e PGTZ=UTC "${pg}" psql -U postgres -d account -XAtq -v ON_ERROR_STOP=1 -c "$1"; }
@@ -105,6 +113,7 @@ table_present() { [ "$(q "SELECT to_regclass('public.$1') IS NOT NULL")" = t ]; 
 migration_state() {
   if table_present schema_migrations; then
     local state
+    [ "$(q 'SELECT count(*) FROM public.schema_migrations')" = 1 ] || { echo invalid; return; }
     state="$(q "SELECT version::text || ':' || dirty::text FROM public.schema_migrations LIMIT 1")"
     echo "${state:-empty}"
   else
@@ -159,6 +168,13 @@ case "${cmd}" in
         echo "state=present"
         echo "migration=$(migration_state)"
         echo "users_with_password=$(users_with_password)"
+        for c in web-saas-accounts web-saas-console web-saas-billing; do
+          ref="$(docker inspect -f '{{.Config.Image}}' "${c}" 2>/dev/null || true)"
+          echo "image_before_${c}=${ref:-absent}"
+          id="$(docker inspect -f '{{.Image}}' "${c}" 2>/dev/null || true)"
+          digest="$(docker image inspect -f '{{join .RepoDigests ","}}' "${id}" 2>/dev/null || true)"
+          echo "digest_before_${c}=${digest:-absent}"
+        done
       } >"${tmp}/summary"
       for t in ${tables}; do
         if table_present "${t}"; then
@@ -306,26 +322,44 @@ notes=()
 if grep -qx 'baseline=missing' <<<"${compare}"; then
   failures+=("no pre-upgrade baseline for run ${run_id} on this host; data preservation cannot be proven")
 elif [[ "${baseline_state}" == absent ]]; then
-  notes+=("fresh host: no account database existed before this run, so there was no data to preserve")
+  failures+=("BLOCKED: fresh host has no old-version account baseline; upgrade preservation cannot be proven")
+elif [[ "${baseline_state}" != present ]]; then
+  failures+=("BLOCKED: pre-upgrade baseline state is unknown")
 fi
 if grep -qx 'post_db=absent' <<<"${compare}"; then
   failures+=("the account database is not reachable after the upgrade")
 fi
+before_image="$(value baseline_image_before_web-saas-accounts)"
+if [[ ! "${before_image}" =~ :(uat-)?daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?$ &&
+      ! "${before_image}" =~ :v[0-9][0-9.r-]*$ ]]; then
+  failures+=("BLOCKED: immutable pre-upgrade Accounts image identity is missing")
+elif [[ "${before_image}" == *":${deploy_tag}" ]]; then
+  failures+=("BLOCKED: same-tag redeployment is not an old-version upgrade rehearsal")
+fi
 
+if [[ "${after_migration}" =~ ^[1-9][0-9]*:false$ ]]; then
+  if [[ "${after_migration%%:*}" != "${expected_version}" ]]; then
+    failures+=("schema_migrations version ${after_migration%%:*}, expected ${expected_version}")
+  fi
+else
+  failures+=("schema_migrations is ${after_migration:-unknown}: a missing, dirty or empty migration state is never accepted")
+fi
 if [[ -n "${after_migration}" && "${after_migration}" != absent ]]; then
   if [[ "${after_migration}" != *:false ]]; then
     failures+=("schema_migrations is ${after_migration}: a dirty or empty migration state is never accepted")
   fi
-  if [[ -n "${expected_version}" && "${after_migration%%:*}" != "${expected_version}" ]]; then
-    failures+=("schema_migrations version ${after_migration%%:*}, expected ${expected_version}")
-  fi
 fi
 if [[ "${before_migration}" =~ ^[0-9]+: ]]; then
+  if [[ "${before_migration}" != *:false ]]; then
+    failures+=("BLOCKED: pre-upgrade migration baseline is dirty")
+  fi
   if [[ ! "${after_migration}" =~ ^[0-9]+: ]]; then
     failures+=("schema_migrations was ${before_migration} before the upgrade and is ${after_migration:-unknown} after it")
   elif (( ${after_migration%%:*} < ${before_migration%%:*} )); then
     failures+=("schema_migrations went backwards: ${before_migration%%:*} -> ${after_migration%%:*}")
   fi
+else
+  failures+=("BLOCKED: pre-upgrade migration baseline is missing or unrecognized; reviewed baseline adoption is required")
 fi
 
 table_rows=()
@@ -339,11 +373,19 @@ while read -r _ t before after missing changed dropped; do
 done < <(grep '^table ' <<<"${compare}")
 
 subscriptions_before="$(value baseline_rows_subscriptions)"
-if [[ "${baseline_state}" == present && ( "${subscriptions_before}" == 0 || "${subscriptions_before}" == absent ) ]]; then
-  notes+=("subscription preservation is vacuous: the baseline held ${subscriptions_before} subscription rows; the promotion gate still needs a controlled non-empty sample")
-  echo "::warning::Subscription preservation not demonstrated on ${MATRIX_HOST}: baseline held ${subscriptions_before} subscription rows."
+if [[ ! "${subscriptions_before}" =~ ^[1-9][0-9]*$ ]]; then
+  failures+=("BLOCKED: subscription preservation requires a non-empty pre-upgrade sample")
 fi
-notes+=("login with an original account is not exercised by this job; it remains a manual promotion gate")
+if [[ ! "$(value baseline_users_with_password)" =~ ^[1-9][0-9]*$ ]]; then
+  failures+=("BLOCKED: original-password compatibility requires an existing password-user sample")
+fi
+if [[ "${#failures[@]}" -eq 0 ]]; then
+  echo "Structural SQL/image/health checks passed; business acceptance remains blocked."
+fi
+# No environment boolean can substitute for execution evidence. Until the
+# credential-backed login/API probe is wired in, this job must fail closed.
+failures+=("BLOCKED: login with an original account is not exercised; SQL comparison cannot prove password compatibility or effective permissions")
+failures+=("BLOCKED: subscription API/page, quota preservation, duplicate-charge, target digest matching and repeated formal migration evidence are not collected")
 
 summary "### Web SaaS upgrade acceptance (${MATRIX_HOST})" '' \
   "| Check | Result |" "| --- | --- |" \

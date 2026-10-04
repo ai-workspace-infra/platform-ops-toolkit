@@ -30,6 +30,7 @@ case "${cmd}" in
     n=$(( $(cat "${SSH_LOG}.probe" 2>/dev/null || echo 0) + 1 )); echo "${n}" >"${SSH_LOG}.probe"
     var="PROBE_${n}"; printf '%b\n' "${!var:-${PROBE}}" ;;
   *"-- compare "*)
+    echo 'baseline_image_before_web-saas-accounts=ghcr.io/ai-workspace-services/accounts:uat-daily-build-2026.10.03-r1'
     printf '%b\n' "baseline_state=present\nbaseline_migration=2026092801:false\nbaseline_users_with_password=2\nbaseline_rows_users=2\nbaseline_rows_identities=0\nbaseline_rows_subscriptions=1\npost_db=present\npost_migration=2026092801:false\npost_users_with_password=2\ntable users before=2 after=2 missing=0 changed=0 dropped_columns=0\ntable identities before=0 after=0 missing=0 changed=0 dropped_columns=0\ntable subscriptions before=1 after=1 missing=0 changed=0 dropped_columns=0" ;;
   *"-- baseline "*)
     n=$(( $(cat "${SSH_LOG}.baseline" 2>/dev/null || echo 0) + 1 )); echo "${n}" >"${SSH_LOG}.baseline"
@@ -51,6 +52,7 @@ run() { # <mode> [env...]
   rc=0
   out="$(env PATH="${workdir}:${PATH}" SSH_LOG="${workdir}/ssh.log" MATRIX_HOST=web-saas-uat \
     CMDB_FILE="${workdir}/cmdb.json" ACCEPTANCE_RUN_ID=4242 DEPLOY_TAG="${TAG}" \
+    EXPECTED_ACCOUNTS_SCHEMA_VERSION=2026092801 \
     WEB_SAAS_ACCEPTANCE_TIMEOUT_SECONDS=0 WEB_SAAS_ACCEPTANCE_POLL_SECONDS=0 \
     "$@" bash "${script}" "${mode}" 2>&1)" || rc=$?
 }
@@ -65,7 +67,9 @@ has() { grep -Fq -- "$1" <<<"${out}"; }
 echo "=== Web SaaS upgrade acceptance: verify rules ==="
 
 run verify PROBE="$(probe "${TAG}" 200 307)"
-expect "healthy services on the deployed tag pass" rc_is 0
+expect "healthy structural checks do not substitute for business acceptance" rc_is 1
+expect "healthy structural checks are reported independently" has "Structural SQL/image/health checks passed"
+expect "missing real login explicitly blocks acceptance" has "BLOCKED: login with an original account is not exercised"
 expect "the remote side runs through sudo for a non-root CMDB user" \
   grep -Fq "sudo -n bash -s -- compare 4242" "${workdir}/ssh.log"
 
@@ -91,11 +95,17 @@ expect "a probe that returns nothing is a failure, not a pass" \
   bash -c '[ "$0" = 1 ] && grep -Fq "probe returned no '"'"'http accounts_readyz'"'"' result" <<<"$1"' "${rc}" "${out}"
 
 run verify PROBE="$(probe some-other-tag 200 200)" DEPLOY_TAG=
-expect "without a DEPLOY_TAG the running tag is recorded, not enforced" rc_is 0
+expect "missing target tag blocks acceptance" rc_is 2
+
+run verify PROBE="$(probe "${TAG}" 200 200)" EXPECTED_ACCOUNTS_SCHEMA_VERSION=
+expect "missing artifact schema target blocks acceptance" rc_is 2
+
+run verify PROBE="$(probe "${TAG}" 200 200)" EXPECTED_ACCOUNTS_SCHEMA_VERSION=2026092802
+expect "unchanged migration version does not meet a newer target" has "expected 2026092802"
 
 run verify PROBE="$(probe "${TAG}" 200 200)" PROBE_1="$(probe old 503 none)" \
   WEB_SAAS_ACCEPTANCE_TIMEOUT_SECONDS=30
-expect "a stack that converges within the window passes" rc_is 0
+expect "converged health still requires business evidence" has "Structural SQL/image/health checks passed"
 expect "convergence took more than one probe" \
   test "$(cat "${workdir}/ssh.log.probe")" = 2
 
@@ -147,6 +157,9 @@ assert "switch_dns" not in needs and "switch_dns" not in accept["if"], "acceptan
 assert "dns_mode" not in accept["if"], "acceptance must run for dns_mode=none"
 verify = [s for s in accept["steps"] if f"{script} verify" in s.get("run", "")]
 assert verify and verify[0]["env"]["DEPLOY_TAG"] == "${{ needs.provision.outputs.deploy_tag }}"
+source = [s for s in accept["steps"] if s.get("with", {}).get("path") == "upgrade-accounts-source"]
+assert source and source[0]["with"]["ref"] == "${{ needs.provision.outputs.deploy_tag }}"
+assert any("resolve-accounts-upgrade-target.py" in s.get("run", "") for s in accept["steps"])
 
 summary = jobs["deployment_summary"]
 assert "accept_web_saas_upgrade" in summary["needs"] and "capture_web_saas_baseline" in summary["needs"]

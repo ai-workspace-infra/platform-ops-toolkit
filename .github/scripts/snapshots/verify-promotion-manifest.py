@@ -29,6 +29,19 @@ DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 SOURCE_SHA = re.compile(r"^[0-9a-f]{40}$")
 REQUIRED_SERVICES = ("accounts", "billing-service", "content-service")
 HYBRID_WORKFLOW_PATH = ".github/workflows/hybrid-orchestrator.yml"
+GATE_CHECKS = {
+    "smooth_upgrade": (
+        "data_and_relations_preserved", "application_healthy", "runtime_digest_verified",
+        "migration_idempotent",
+    ),
+    "original_user_login": (
+        "uat_login_executed", "original_password_compatible", "permissions_verified",
+    ),
+    "subscriptions_preserved": (
+        "plan_status_validity_entitlements_unchanged", "api_or_page_readable",
+        "quota_not_reset", "no_duplicate_charge",
+    ),
+}
 
 
 class Refused(Exception):
@@ -51,6 +64,66 @@ def check_uat_run(run: dict, run_id: str) -> None:
         run.get("conclusion") == "success",
         f"UAT Hybrid run {run_id} concluded {run.get('conclusion')}, not success",
     )
+    require(run.get("head_branch") == "main" and run.get("event") == "workflow_dispatch",
+            "UAT promotion evidence must be produced by a manual Hybrid run on protected main")
+
+
+def check_upgrade_acceptance(manifest: dict, tag: str, images: list[dict]) -> dict:
+    """Business evidence is separate from deployment success and artifact identity.
+
+    The accepted artifact must carry this record. No caller flag, SQL-only
+    fingerprint, empty sample, or historical green deployment fills it in.
+    The full record survives normalization and artifact provenance comparison.
+    """
+    proof = manifest.get("upgrade_acceptance")
+    require(isinstance(proof, dict), "BLOCKED: missing UAT upgrade/login/subscription evidence")
+    require(proof.get("schema") == 1 and proof.get("environment") == "uat",
+            "upgrade acceptance must use schema 1 and environment uat")
+    require(proof.get("snapshot_tag") == tag, "upgrade evidence belongs to a different target tag")
+    require(proof.get("images") == images, "upgrade evidence does not cover the promoted image digests")
+    baseline = proof.get("baseline")
+    require(isinstance(baseline, dict), "BLOCKED: missing old-version UAT baseline")
+    old_tag = baseline.get("snapshot_tag")
+    require(isinstance(old_tag, str) and (SNAPSHOT_TAG.fullmatch(old_tag) or RELEASE_TAG.fullmatch(old_tag)),
+            "baseline must identify an immutable old release tag")
+    require(old_tag != tag, "same-tag redeployment is not an old-version upgrade rehearsal")
+    for field in ("existing_users", "subscriptions"):
+        count = baseline.get(field)
+        require(type(count) is int and count > 0, f"BLOCKED: baseline {field} must be non-empty")
+    migration = proof.get("migration")
+    require(isinstance(migration, dict), "BLOCKED: missing migration evidence")
+    expected = migration.get("expected_version")
+    require(type(expected) is int and expected > 0, "migration requires the artifact's explicit target version")
+    before = migration.get("before_version")
+    require(type(before) is int and 0 < before <= expected and migration.get("before_dirty") is False,
+            "BLOCKED: old schema requires a clean, recognized migration baseline")
+    require(type(migration.get("actual_version")) is int and migration["actual_version"] == expected,
+            "migration did not reach the artifact's exact target version")
+    require(migration.get("dirty") is False, "migration dirty must be false")
+    gates = proof.get("gates")
+    require(isinstance(gates, dict), "BLOCKED: missing business acceptance gates")
+    for name, checks in GATE_CHECKS.items():
+        gate = gates.get(name)
+        require(isinstance(gate, dict) and gate.get("status") == "passed",
+                f"BLOCKED: {name} was not demonstrated")
+        for check in checks:
+            require(gate.get(check) is True, f"BLOCKED: {name}.{check} was not demonstrated")
+        urls = gate.get("evidence_urls")
+        require(isinstance(urls, list) and len(urls) > 0 and all(
+            isinstance(url, str) and re.fullmatch(
+                r"https://github\.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/[1-9][0-9]*(/job/[1-9][0-9]*)?", url
+            ) for url in urls), f"BLOCKED: {name} needs reviewable UAT run evidence")
+    # Only publish the contract's non-secret fields, never arbitrary payload
+    # supplied alongside evidence (credentials and row fingerprints stay out).
+    return {
+        "schema": 1, "environment": "uat", "snapshot_tag": tag, "images": images,
+        "baseline": {key: baseline[key] for key in ("snapshot_tag", "existing_users", "subscriptions")},
+        "migration": {key: migration[key] for key in (
+            "before_version", "before_dirty", "expected_version", "actual_version", "dirty")},
+        "gates": {name: {"status": "passed", **{check: gates[name][check] for check in checks},
+                         "evidence_urls": gates[name]["evidence_urls"]}
+                  for name, checks in GATE_CHECKS.items()},
+    }
 
 
 def normalize(manifest: dict, snapshot_tag: str, uat_run_id: str | None) -> dict:
@@ -85,7 +158,9 @@ def normalize(manifest: dict, snapshot_tag: str, uat_run_id: str | None) -> dict
         require(image.get("source_repository") == f"ai-workspace-services/{service}",
                 f"{service}: source repository must be ai-workspace-services/{service}")
         normalized.append({key: image[key] for key in ("service", "image", "tag", "digest", "source_repository", "source_sha")})
-    return {"schema": 1, "environment": "uat", "snapshot_tag": tag, "uat_run_id": run_id, "images": normalized}
+    proof = check_upgrade_acceptance(manifest, tag, normalized)
+    return {"schema": 1, "environment": "uat", "snapshot_tag": tag, "uat_run_id": run_id,
+            "images": normalized, "upgrade_acceptance": proof}
 
 
 def main() -> int:

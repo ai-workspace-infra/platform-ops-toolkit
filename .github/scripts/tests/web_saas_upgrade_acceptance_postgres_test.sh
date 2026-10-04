@@ -33,6 +33,7 @@ set -euo pipefail
 case "$1" in
   inspect)
     [[ "$3" == *State.Status* && "$4" == web-saas-postgresql && -z "${FAKE_PG_DOWN:-}" ]] && { echo running; exit 0; }
+    [[ "$3" == *Config.Image* && "$4" == web-saas-* ]] && { echo "ghcr.io/fixture/accounts:uat-daily-build-2026.09.29-r1"; exit 0; }
     exit 1 ;;
   exec)
     shift
@@ -117,6 +118,7 @@ run_mode() { # <mode> <run-id>; sets rc and out
   out="$(PATH="${workdir}/bin:${PATH}" FAKE_STATE_ROOT="${workdir}/state" FAKE_TAG=uat-daily-build-2026.10.04-r1 \
     MATRIX_HOST=web-saas-uat CMDB_FILE="${workdir}/cmdb.json" ACCEPTANCE_RUN_ID="$2" \
     DEPLOY_TAG=uat-daily-build-2026.10.04-r1 GITHUB_STEP_SUMMARY="${workdir}/summary.md" \
+    EXPECTED_ACCOUNTS_SCHEMA_VERSION=2026092801 \
     WEB_SAAS_ACCEPTANCE_TIMEOUT_SECONDS=0 WEB_SAAS_ACCEPTANCE_POLL_SECONDS=0 \
     bash "${script}" "$1" 2>&1)" || rc=$?
 }
@@ -147,14 +149,20 @@ expect "the fingerprint directory is root-only" \
 sql "ALTER TABLE users ADD COLUMN subscription_valid_from timestamptz, ADD COLUMN subscription_valid_until timestamptz, ADD COLUMN last_active_at timestamptz"
 sql "UPDATE schema_migrations SET version = 2026092801"
 sql "UPDATE users SET updated_at = now() + interval '1 hour', last_active_at = now()"
-sql "UPDATE subscriptions SET updated_at = now() + interval '1 hour', meta = '{\"webhook\":1}'"
+sql "UPDATE subscriptions SET updated_at = now() + interval '1 hour'"
 sql "INSERT INTO users (uuid, username, password) VALUES ('66666666-6666-6666-6666-666666666666', 'carol', 'x')"
 run_mode verify run-1
-expect "a lossless upgrade is accepted" bash -c '[ "$0" = 0 ]' "${rc}"
+expect "a lossless SQL upgrade still blocks without business execution" bash -c '[ "$0" = 1 ]' "${rc}"
+expect "lossless structural checks are reported" has "Structural SQL/image/health checks passed"
 expect "summary shows subscriptions preserved" grep -Fq '| subscriptions | 2 | 2 | 0 | 0 |' "${workdir}/summary.md"
 expect "summary shows the post-upgrade signup" grep -Fq '| users | 2 | 3 | 0 | 0 |' "${workdir}/summary.md"
 expect "migration progression is reported" has "post_migration=2026092801:false"
-expect "login stays a manual gate" has "login with an original account is not exercised"
+expect "missing original-user login blocks the job" has "BLOCKED: login with an original account is not exercised"
+
+sql "UPDATE subscriptions SET meta = '{\"entitlements\":{\"quota\":0}}' WHERE external_id = 'sub_A'"
+run_mode verify run-1
+expect "subscription metadata carrying rights cannot be silently reset" has "subscriptions: 1 of 2 pre-upgrade rows changed"
+sql "UPDATE subscriptions SET meta = '{}' WHERE external_id = 'sub_A'"
 
 run_mode baseline run-1
 expect "re-running baseline keeps the pre-upgrade capture" has "baseline=kept"
@@ -188,14 +196,19 @@ run_mode baseline run-2
 expect "a host without an account database records state=absent" has "state=absent"
 seed_old_release
 run_mode verify run-2
-expect "a fresh host is accepted with an explicit note" bash -c '[ "$0" = 0 ]' "${rc}"
-expect "the fresh-host note is printed" has "fresh host: no account database existed before this run"
+expect "a fresh host cannot prove an old-version upgrade" bash -c '[ "$0" = 1 ]' "${rc}"
+expect "the fresh-host blocker is printed" has "BLOCKED: fresh host has no old-version account baseline"
 
-# Vacuous subscription preservation is accepted but loudly flagged.
+# An empty subscription sample is blocked, never treated as preservation.
 sql "DELETE FROM subscriptions"
 run_mode baseline run-3
 run_mode verify run-3
-expect "zero baseline subscriptions passes" bash -c '[ "$0" = 0 ]' "${rc}"
-expect "zero baseline subscriptions raises a warning" has "::warning::Subscription preservation not demonstrated"
+expect "zero baseline subscriptions fails closed" bash -c '[ "$0" = 1 ]' "${rc}"
+expect "zero baseline subscriptions raises a blocker" has "BLOCKED: subscription preservation requires a non-empty pre-upgrade sample"
+
+sql "DROP TABLE schema_migrations"
+run_mode baseline run-4
+run_mode verify run-4
+expect "absent migration tracking before and after is not accepted" has "a missing, dirty or empty migration state is never accepted"
 
 echo "web_saas_upgrade_acceptance_postgres_test: ${pass} checks passed"

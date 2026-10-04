@@ -31,6 +31,8 @@ write_manifest() {
       {service:"accounts", image:$ia, tag:$tag, digest:$digest, source_repository:"ai-workspace-services/accounts", source_sha:$sha},
       {service:"billing-service", image:$ib, tag:$tag, digest:$digest, source_repository:"ai-workspace-services/billing-service", source_sha:$sha},
       {service:"content-service", image:$ic, tag:$tag, digest:$digest, source_repository:"ai-workspace-services/content-service", source_sha:$sha}]}' > "$1"
+  jq -f "${repo_root}/.github/scripts/tests/fixtures/uat-upgrade-acceptance.jq" "$1" > "$1.proof"
+  mv "$1.proof" "$1"
 }
 # A Daily run record. The run as a whole may have failed (in promote-prod).
 write_daily_run() {
@@ -52,7 +54,7 @@ write_jobs() {
 }
 write_hybrid_run() {
   jq -n --argjson id "${hybrid_run}" --arg conclusion "${2:-success}" \
-    '{id:$id, path:".github/workflows/hybrid-orchestrator.yml@refs/heads/main", status:"completed", conclusion:$conclusion}' > "$1"
+    '{id:$id, path:".github/workflows/hybrid-orchestrator.yml@refs/heads/main", head_branch:"main", event:"workflow_dispatch", status:"completed", conclusion:$conclusion}' > "$1"
 }
 
 write_manifest "${work}/promotion.json"
@@ -120,7 +122,8 @@ resolve || { cat "${work}/resolve.out" >&2; fail "an accepted UAT run must be pr
 grep -Fxq "uat_snapshot_tag=${uat_tag}" "${work}/output" || fail "uat_snapshot_tag output missing"
 grep -Fxq "release_tag=${release_tag}" "${work}/output" || fail "release_tag output missing"
 grep -Fxq "uat_hybrid_run_id=${hybrid_run}" "${work}/output" || fail "uat_hybrid_run_id output missing"
-cmp -s "${work}/promotion.json" "${work}/out-manifest.json" || fail "the Daily run's own manifest must be handed on unchanged"
+[[ "$(jq -Sc . "${work}/promotion.json")" == "$(jq -Sc . "${work}/out-manifest.json")" ]] \
+  || fail "the Daily run's validated evidence must be handed on without semantic changes"
 grep -Fq "| accounts | \`${digest_a}\` | \`${sha}\` |" "${work}/summary" || fail "the summary must list the promoted digests"
 grep -Fq "actions/runs/${daily_run}" "${work}/summary" || fail "the summary must link the accepted Daily run"
 grep -Fq "run download ${hybrid_run} --repo ${repository} --name uat-artifact-manifest" "${work}/gh.log" \
@@ -189,43 +192,24 @@ document = yaml.safe_load(Path(sys.argv[1]).read_text(encoding="utf-8"))
 resolver = Path(sys.argv[2]).read_text(encoding="utf-8")
 jobs = document["jobs"]
 inputs = document[True]["workflow_dispatch"]["inputs"]
-assert "uat_daily_run_id" in inputs and len(inputs) <= 25
+assert len(inputs) <= 25
+assert "prod" not in inputs["deploy_env"]["options"]
+assert "uat_daily_run_id" not in inputs
+assert "resolve-accepted-uat" not in jobs and "promote-prod" not in jobs
 
 # PROD never tags or builds from source.
-assert jobs["resolve-snapshot-tag"]["if"] == "${{ (inputs.deploy_env || 'uat') != 'prod' }}"
 summary = jobs["snapshot-summary"]
 assert "environment" not in summary, "the UAT job must not wait for the production approval"
 assert not any("dispatch-prod-combined" in str(step.get("run", "")) for step in summary["steps"])
 
-# The read-only gate runs before the approval and holds no deployment credential.
-accepted = jobs["resolve-accepted-uat"]
-assert accepted["if"] == "${{ (inputs.deploy_env || 'uat') == 'prod' }}"
-assert "environment" not in accepted
-assert accepted["permissions"] == {"contents": "read", "actions": "read"}
-uses = [step.get("uses", "") for step in accepted["steps"]]
-assert not any("vault-action" in use or "create-github-app-token" in use for use in uses)
-gate = next(step for step in accepted["steps"] if step.get("id") == "accepted")
-assert gate["run"] == "./.github/scripts/snapshots/resolve-accepted-uat-promotion.sh"
-assert gate["env"]["GH_TOKEN"] == "${{ github.token }}"
-assert gate["env"]["UAT_DAILY_RUN_ID"] == "${{ inputs.uat_daily_run_id }}"
-upload = next(step for step in accepted["steps"] if "upload-artifact" in step.get("uses", ""))
-assert upload["with"]["name"] == "uat-promotion-manifest" and upload["with"]["if-no-files-found"] == "error"
-assert upload["with"]["path"] == gate["env"]["MANIFEST_OUTPUT"]
-
-promote = jobs["promote-prod"]
-assert "resolve-accepted-uat" in promote["needs"]
-assert promote["environment"] == "production"
-assert promote["concurrency"] == {"group": "daily-main-snapshot-promote-prod", "cancel-in-progress": False}
-tag = "${{ (inputs.deploy_env || 'uat') == 'prod' && needs.resolve-accepted-uat.outputs.uat_snapshot_tag || needs.snapshot-summary.outputs.uat_snapshot_tag }}"
-steps = {step.get("name"): step for step in promote["steps"]}
-assert steps["Promote verified UAT tag to PROD release tag"]["env"]["UAT_TAG"] == tag
-assert steps["Dispatch promoted PROD serverless and selfhost deployment"]["env"]["UAT_SNAPSHOT_TAG"] == tag
-
 # The resolver reads the UAT verdict by job and step name; keep them in sync.
 names = {"job": summary["name"]} | {f"step{i}": step.get("name") for i, step in enumerate(summary["steps"])}
-for variable in ("uat_job_name", "uat_dispatch_step", "manifest_upload_step"):
+for variable in ("uat_job_name", "uat_dispatch_step"):
     value = re.search(rf'^{variable}="([^"]+)"$', resolver, re.M).group(1)
     assert value in names.values(), f"{variable}={value!r} is not in the Daily UAT job"
+# A current Daily run cannot satisfy the legacy resolver: the executable
+# negative tests above require its absent promotion-manifest upload.
+assert not any(step.get("name") == "Upload the verified UAT promotion manifest" for step in summary["steps"])
 PY
 
 echo "prod_accepted_uat_promotion_test: PASS"
