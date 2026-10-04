@@ -4,6 +4,11 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 workflow="${repo_root}/.github/workflows/xconnect-zero-cloud.yaml"
 grep -Fq "default: 'a0185e61fc2b41ac4dbd40c8037016aaef1b3973'" "${workflow}"
+grep -Fq "default: 'v0.1.8'" "${workflow}"
+if grep -Fq "gateway_release_tag || 'v0.1.11'" "${workflow}"; then
+  echo 'Gateway release default must match the immutable GitOps UAT declaration' >&2
+  exit 1
+fi
 grep -Fq "DNS_ENVIRONMENT: uat" "${workflow}"
 grep -Fq 'DNS_ZONE: svc.plus' "${workflow}"
 grep -Fq 'DNS_RECORD_NAME: ${{ env.EXTERNAL_GATEWAY_SERVER_NAME }}' "${workflow}"
