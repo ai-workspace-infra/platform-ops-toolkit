@@ -169,12 +169,12 @@ jobs:
           EXPECTED_HOSTNAME: ${{ inputs.target_domain }}
         run: ${{ github.workspace }}/.github/scripts/resize/resize-instance_preflight.sh
 
-      - name: Checkout reviewed Vultr snapshot executor
+      - name: Checkout reviewed resize provider executors
         if: steps.preflight.outputs.direction == 'downgrade'
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: 80076438ffa268d10ed3bbe32235a3d7c52f457e
+          ref: 65cd4b6f28df667bd7df3614557b4ff41dfc1dd5
           path: iac_modules
           persist-credentials: false
 
@@ -228,7 +228,7 @@ jobs:
           CLOUDFLARE_ZONE_ID: ${{ inputs.cloudflare_zone_id }}
           TARGET_DOMAIN: ${{ inputs.target_domain }}
           REPLACEMENT_IP: ${{ steps.terraform.outputs.replacement_ip }}
-        run: ${{ github.workspace }}/.github/scripts/resize/resize-instance_switch-dns.sh
+        run: ${{ github.workspace }}/iac_modules/scripts/pipeline/cloudflare-dns-cutover.sh
 
       - name: Observation window
         if: steps.preflight.outputs.direction == 'downgrade'
@@ -242,4 +242,5 @@ jobs:
           VULTR_API_KEY: ${{ steps.vault.outputs.VULTR_API_KEY }}
           INSTANCE_ID: ${{ inputs.instance_id }}
           REPLACEMENT_IP: ${{ steps.terraform.outputs.replacement_ip }}
-        run: ${{ github.workspace }}/.github/scripts/resize/resize-instance_destroy-old.sh
+          CONFIRM_DESTROY: ${{ inputs.destroy_old_instance }}
+        run: ${{ github.workspace }}/iac_modules/scripts/pipeline/vultr-destroy-source-instance.sh
