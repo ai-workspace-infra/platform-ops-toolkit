@@ -78,6 +78,7 @@ jobs:
         repository: ai-workspace-infra/playbooks
         ref: main
         path: pipeline-contract/playbooks
+        sparse-checkout-cone-mode: false
         sparse-checkout: |
           scripts/pipeline
           .github/scripts
@@ -87,6 +88,7 @@ jobs:
           roles/vhosts/agent_proxy_post_dns_readiness
           observability_operations.yml
           roles/docker/observability_server_operations
+          tests/test_observability_post_dns_cutover.py
 
     - name: Verify every script a workflow calls exists
       run: >-
@@ -106,6 +108,17 @@ jobs:
 
     - name: Verify Observability Vault jobs request OIDC tokens
       run: python3 .github/scripts/tests/observability_oidc_permissions_contract_test.py
+
+    - name: Install Ansible for non-mutating DNS ownership rehearsal
+      uses: ./.github/actions/setup-deployment-runner
+      with:
+        install_ansible: 'true'
+
+    - name: Verify DNS provider, host acceptance and recovery owner sequence
+      env:
+        IAC_DNS_TEST_ROOT: ${{ github.workspace }}/pipeline-contract/iac_modules
+        PLAYBOOKS_DNS_TEST_ROOT: ${{ github.workspace }}/pipeline-contract/playbooks
+      run: python3 scripts/tests/test_observability_dns_owner_route.py
 
     # Over 25 workflow_dispatch inputs and the file stops being a workflow at
     # all -- callers included. Cheap to assert here, expensive to discover on

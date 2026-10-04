@@ -93,9 +93,12 @@ plan maps to `g6-standard-2` (4 GB RAM, 2 vCPUs, 80 GB disk).
    source. The GitHub `uat` environment can add required reviewers.
    The DNS job changes only the `observability.svc.plus` A record, and refuses
    to proceed unless its current value still matches `source_ip`. It preserves
-   TTL/proxy settings, verifies Cloudflare's record and public DNS response,
-   and automatically restores the previous value if DNS propagation
-   verification fails. `dns_action=rollback` is available with
+   the original record in a mode-0600 runner checkpoint, then selects TTL 60
+   and DNS-only routing. IaC Modules changes and verifies that record; the
+   Playbooks Observability Role refreshes Caddy where requested and verifies
+   HTTPS on the exact target. Toolkit restores the checkpoint through IaC if
+   service acceptance fails, while keeping the workflow failed.
+   `dns_action=rollback` is available with
    `deployment_action=skip`; when supplied, `target_ip_override` is also used
    as the expected current value before restoring the source IP.
 
@@ -133,6 +136,16 @@ an operator attestation.
 The known source Grafana DB had zero dashboard rows, so panels are sourced from
 Git and compared by checksum. Dashboard rows saved only in SQLite would require
 export to Git before they can be treated as durable provisioning assets.
+
+The DNS phase pins reviewed IaC and Playbooks commit SHAs independently of
+`source_ref`. The IaC executor is `scripts/pipeline/cloudflare-dns-record.py`;
+host/service execution is `observability_operations.yml` with
+`observability_operation=post_dns_cutover`. The executor preserves original
+address, TTL, proxy state, comment, tags and settings, and verifies that the
+environment, record identity and expected current state still match before
+recovery. Concurrent external changes stop recovery for operator review.
+Checkpoints contain DNS state only; Vault values remain in step-scoped runtime
+inputs. Both execution repos must merge before changing their pinned caller refs.
 
 ## Primary references
 

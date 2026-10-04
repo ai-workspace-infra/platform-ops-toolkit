@@ -1088,7 +1088,8 @@ jobs:
       ((needs.historical_data.result == 'success' && needs.verify_stores.result == 'success') ||
       (inputs.migration_mode == 'none' && inputs.confirm_history_omission && needs.historical_data.result == 'skipped' && needs.verify_stores.result == 'skipped')))) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Reserve time for bounded DNS convergence, host acceptance, and recovery.
+    timeout-minutes: 60
     environment: ${{ inputs.deploy_env }}
     permissions:
       contents: read
@@ -1096,9 +1097,36 @@ jobs:
     env:
       VAULT_ADDR: https://vault.svc.plus
       VAULT_ROLE: github-actions-platform-ops-toolkit-uat-observability
+      DNS_ENVIRONMENT: ${{ inputs.deploy_env }}
+      DNS_ZONE: svc.plus
+      DNS_RECORD_NAME: observability.svc.plus
+      DNS_ACTION: ${{ inputs.dns_action }}
+      SOURCE_IP: ${{ inputs.source_ip }}
+      TARGET_IP: ${{ needs.resolve_target.outputs.target_ip || inputs.target_ip_override }}
+      DNS_CHECKPOINT_PATH: ${{ github.workspace }}/.runtime/observability-dns-checkpoint.json
     steps:
       - name: Checkout toolkit
         uses: actions/checkout@v4
+      - name: Checkout reviewed IaC DNS executor
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: 155f5e26fe19c41c3753b3ee9293e2e4326ec427
+          path: iac_modules
+          persist-credentials: false
+      - name: Checkout reviewed Playbooks post-cutover role
+        if: inputs.dns_action == 'cutover'
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: f12798496a283fe7b6dc21c8db1a5f71daded15c
+          path: playbooks
+          persist-credentials: false
+      - name: Install Ansible runtime
+        if: inputs.dns_action == 'cutover'
+        uses: ./.github/actions/setup-deployment-runner
+        with:
+          install_ansible: 'true'
       - name: Load Cloudflare DNS token from Vault
         id: vault
         uses: hashicorp/vault-action@v4
@@ -1107,10 +1135,11 @@ jobs:
           method: jwt
           role: ${{ env.VAULT_ROLE }}
           jwtGithubAudience: vault
+          exportEnv: false
           secrets: |
             kv/data/CICD CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN
       - name: Load SSH deployment key from Vault
-        if: inputs.target_platform == 'legacy-akamai'
+        if: inputs.dns_action == 'cutover' && inputs.target_platform == 'legacy-akamai'
         id: ssh-vault
         uses: hashicorp/vault-action@v4
         with:
@@ -1118,10 +1147,11 @@ jobs:
           method: jwt
           role: ${{ env.VAULT_ROLE }}
           jwtGithubAudience: vault
+          exportEnv: false
           secrets: |
             kv/data/CICD SSH_PRIVATE_DEPLOY_KEY_B64 | SSH_PRIVATE_DEPLOY_KEY_B64
       - name: Configure SSH key for Caddy certificate refresh
-        if: inputs.target_platform == 'legacy-akamai'
+        if: inputs.dns_action == 'cutover' && inputs.target_platform == 'legacy-akamai'
         env:
           SSH_PRIVATE_DEPLOY_KEY_B64: ${{ steps.ssh-vault.outputs.SSH_PRIVATE_DEPLOY_KEY_B64 }}
         run: |
@@ -1130,11 +1160,32 @@ jobs:
           printf '%s' "${SSH_PRIVATE_DEPLOY_KEY_B64}" | base64 --decode > "${RUNNER_TEMP}/observability-ssh/id_deploy"
           chmod 600 "${RUNNER_TEMP}/observability-ssh/id_deploy"
       - name: Change only the observability.svc.plus A record
+        id: dns_change
+        # Includes the executor's recovery if DNS propagation itself fails.
+        timeout-minutes: 28
+        env:
+          CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
+        run: python3 iac_modules/scripts/pipeline/cloudflare-dns-record.py
+      - name: Refresh Caddy and verify service after DNS cutover
+        id: service_acceptance
+        timeout-minutes: 12
+        if: inputs.dns_action == 'cutover'
         env:
           SSH_PRIVATE_KEY_PATH: ${{ runner.temp }}/observability-ssh/id_deploy
+          RESTART_CADDY: ${{ inputs.target_platform == 'legacy-akamai' && 'true' || 'false' }}
+          POST_DNS_SSH_USER: root
+          POST_DNS_HEALTH_PATH: /grafana/api/health
+        working-directory: playbooks
+        run: >-
+          ansible-playbook -i 'localhost,' -c local observability_operations.yml
+          -e observability_operations_environment=uat
+          -e observability_operation=post_dns_cutover
+      - name: Restore DNS checkpoint after failed service acceptance
+        timeout-minutes: 14
+        if: >-
+          ${{ failure() && inputs.dns_action == 'cutover' &&
+          steps.dns_change.outcome == 'success' && steps.service_acceptance.outcome == 'failure' }}
+        env:
           CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
-          DNS_ACTION: ${{ inputs.dns_action }}
-          SOURCE_IP: ${{ inputs.source_ip }}
-          TARGET_IP: ${{ needs.resolve_target.outputs.target_ip || inputs.target_ip_override }}
-          TARGET_PLATFORM: ${{ inputs.target_platform }}
-        run: .github/scripts/observability/observability_dns_switch.sh
+          DNS_ACTION: restore
+        run: python3 iac_modules/scripts/pipeline/cloudflare-dns-record.py
