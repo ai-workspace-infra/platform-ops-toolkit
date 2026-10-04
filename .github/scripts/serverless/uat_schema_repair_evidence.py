@@ -171,6 +171,8 @@ def main():
             json.dump({"key": key.hex(), "observation": observation, "identity": identity}, f)
         print("UAT serving digest/database/health verified; private retained-data baseline captured.")
         return
+    if os.environ.get("OFFICIAL_MIGRATOR_REPEAT_VERIFIED") != "true":
+        raise Blocked("official_migrator_repeat_evidence_missing")
     before = json.loads(state_path.read_text())
     after = capture(bytes.fromhex(before["key"]))
     compare(before["observation"], after)
@@ -183,7 +185,8 @@ def main():
         "retained_table_count": len(before["observation"]["rows"]),
         "users": after["rows"]["users"]["count"], "identities": after["rows"]["identities"]["count"],
         "subscriptions": after["rows"]["subscriptions"]["count"],
-        "finance_protections_verified": True, "eligible_for_prod": False,
+        "finance_protections_verified": True, "official_migrator_repeat_verified": True,
+        "eligible_for_prod": False,
         "business_acceptance": "blocked_pending_old_release_baseline_nonempty_subscription_and_manual_logins"}
     Path(args.report).write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report))

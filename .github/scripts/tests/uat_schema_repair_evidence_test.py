@@ -67,7 +67,7 @@ class RepairTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             state, report = Path(directory) / "private", Path(directory) / "report"
             state.write_text(json.dumps({"key": "ab" * 32, "observation": self.baseline(), "identity": {"digest": "expected"}}))
-            with patch.dict(os.environ, {"VAULT_ENV_PATH": "uat"}), patch("sys.argv", ["probe", "after", "--state", str(state), "--report", str(report)]), patch.object(repair, "observe_serving", return_value={"digest": "expected"}), patch.object(repair, "capture", return_value=self.after()), patch.object(repair, "verify_finance"), patch("builtins.print"):
+            with patch.dict(os.environ, {"VAULT_ENV_PATH": "uat", "OFFICIAL_MIGRATOR_REPEAT_VERIFIED": "true"}), patch("sys.argv", ["probe", "after", "--state", str(state), "--report", str(report)]), patch.object(repair, "observe_serving", return_value={"digest": "expected"}), patch.object(repair, "capture", return_value=self.after()), patch.object(repair, "verify_finance"), patch("builtins.print"):
                 repair.main()
             value = json.loads(report.read_text())
             self.assertFalse(value["eligible_for_prod"])

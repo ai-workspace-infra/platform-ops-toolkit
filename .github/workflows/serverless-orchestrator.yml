@@ -519,6 +519,7 @@ jobs:
           GCP_REGION: ${{ steps.repair_target.outputs.region }}
 
       - name: Apply reviewed UAT Accounts schema migration
+        id: migration_apply
         run: ./.github/scripts/serverless/apply_accounts_incremental_schema.sh
         env:
           VAULT_ENV_PATH: uat
@@ -540,6 +541,7 @@ jobs:
           PROJECT_REF: ${{ steps.vault.outputs.PROJECT_REF }}
           GCP_PROJECT_ID: ${{ steps.repair_target.outputs.project_id }}
           GCP_REGION: ${{ steps.repair_target.outputs.region }}
+          OFFICIAL_MIGRATOR_REPEAT_VERIFIED: ${{ steps.migration_apply.outputs.official_migrator_repeat_verified }}
 
       - name: Upload aggregate schema repair evidence only
         if: ${{ inputs.operation == 'repair-schema' && success() }}

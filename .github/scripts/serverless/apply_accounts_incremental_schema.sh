@@ -106,6 +106,9 @@ sentinel_repeat="$(data_sentinel)"
 users_count="$(sed -n 's/^users:\([0-9][0-9]*\):.*/\1/p' <<<"${sentinel_before}")"
 subscriptions_count="$(sed -n 's/^subscriptions:\([0-9][0-9]*\):.*/\1/p' <<<"${sentinel_before}")"
 echo "Verified UAT migration version, repeated official migration, required schema probes, and unchanged user/subscription sentinel (${users_count} users, ${subscriptions_count} subscriptions)."
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  printf 'official_migrator_repeat_verified=true\n' >>"${GITHUB_OUTPUT}"
+fi
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   printf 'Accounts UAT schema migration: `%s` → `%s`, snapshot `%s`, migration SHA-256 `%s`; required schema probes passed and user/subscription sentinel was unchanged (%s users, %s subscriptions).\n' "${expected}" "${target}" "${snapshot_tag}" "${actual_sha}" "${users_count}" "${subscriptions_count}" >>"${GITHUB_STEP_SUMMARY}"
 fi
