@@ -92,13 +92,6 @@
       "owner": "iac_modules",
       "sha256": "d987d3b09e873402965e356f51c8559461268aae321694d63d3f6e89bbedc3a5"
     },
-    ".github/scripts/resize/resize-instance_vultr-vps_create-backup.sh": {
-      "markers": [
-        "provider_execution"
-      ],
-      "owner": "iac_modules",
-      "sha256": "c612a548ad8e78ab77a0839ff1034f62b88deea17c96a59a92aca7b2ca485239"
-    },
     ".github/scripts/serverless/promote_image_by_digest.sh": {
       "markers": [
         "provider_execution"
