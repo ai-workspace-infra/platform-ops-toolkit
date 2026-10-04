@@ -43,20 +43,6 @@
       "owner": "playbooks",
       "sha256": "50892cb22347e4e6cfaf024f1812a1cbfc968091d05441062d775818ee9ebbcc"
     },
-    ".github/scripts/platform-ops/deploy/platform-ops_deploy_base_assert-caddy-uses-restored-cert.sh": {
-      "markers": [
-        "host_execution"
-      ],
-      "owner": "playbooks",
-      "sha256": "69b12986716fdef1cc41ae98602ba66fbcc05528b002e89aa3fe0378fdbf123c"
-    },
-    ".github/scripts/platform-ops/deploy/platform-ops_deploy_base_wait-for-web-saas-postgres.sh": {
-      "markers": [
-        "host_execution"
-      ],
-      "owner": "playbooks",
-      "sha256": "54e195bdf0f085d5aac8b5a15db9cd2c4ff9d2fb14affca06907cbd4b3733f3a"
-    },
     ".github/scripts/platform-ops/observe/platform-ops_observe-agent-proxy.sh": {
       "markers": [
         "host_execution"
@@ -77,13 +63,6 @@
       ],
       "owner": "playbooks",
       "sha256": "14774506d6cb46bb7ba31e0862fb48c4c3d8c68cb09ea983f8a9cc30510ab1c2"
-    },
-    ".github/scripts/platform-ops/observe/platform-ops_observe_backup-caddy-certs.sh": {
-      "markers": [
-        "host_execution"
-      ],
-      "owner": "playbooks",
-      "sha256": "e45bf1046cfb8c18cf9283c989d935cb808ce9800e267cfa240984787ee493f8"
     },
     ".github/scripts/platform-ops/provision/platform-ops_provision_initialize-agent-proxy-credentials.sh": {
       "markers": [

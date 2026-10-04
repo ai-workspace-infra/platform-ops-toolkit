@@ -180,9 +180,7 @@ jobs:
     - name: Verify Web SaaS host scripts use the CMDB SSH user
       run: |
         bash .github/scripts/tests/web_saas_rootless_ssh_test.sh
-        bash .github/scripts/tests/doco_cd_postgres_readiness_test.sh
         bash .github/scripts/tests/web_saas_container_readiness_test.sh
-        bash .github/scripts/tests/caddy_restored_cert_diagnostic_test.sh
 
     - name: Verify Agent Proxy controller registration contract
       run: bash .github/scripts/tests/platform_ops_agent_proxy_controller_contract_test.sh
