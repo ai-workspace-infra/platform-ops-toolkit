@@ -1,48 +1,5 @@
 {
   "legacy_execution": {
-    ".github/scripts/observability/observability_data_migrate.sh": {
-      "markers": [
-        "host_execution"
-      ],
-      "owner": "playbooks",
-      "sha256": "970b0d8005c46c1f5cf6a2ce45b7caa0b3e1bd2d6486538182e014ebee3d6466"
-    },
-    ".github/scripts/observability/observability_data_source_stage.sh": {
-      "markers": [
-        "host_execution",
-        "provider_execution"
-      ],
-      "owner": "playbooks",
-      "sha256": "c94e42c5d9def8bd32182fd9c429c6b5a88736941014bb8676782cdf023d1686"
-    },
-    ".github/scripts/observability/observability_data_target_restore.sh": {
-      "markers": [
-        "host_execution"
-      ],
-      "owner": "playbooks",
-      "sha256": "04142c16bb160f14c0d193fd6ef9d402749ef2c2479804abbe31ed23097e3903"
-    },
-    ".github/scripts/observability/observability_verify_mcp.sh": {
-      "markers": [
-        "host_execution"
-      ],
-      "owner": "playbooks",
-      "sha256": "500109c6b74b5373c2f4475c763a5e239e02c0fbd35c009fc92e4c1efed9e606"
-    },
-    ".github/scripts/observability/observability_verify_store.sh": {
-      "markers": [
-        "host_execution"
-      ],
-      "owner": "playbooks",
-      "sha256": "c862d1bbffac559c9e7de83eb73746fac14632cb60651a432cc29ea1a9d7204a"
-    },
-    ".github/scripts/observability/observability_verify_target.sh": {
-      "markers": [
-        "host_execution"
-      ],
-      "owner": "playbooks",
-      "sha256": "50892cb22347e4e6cfaf024f1812a1cbfc968091d05441062d775818ee9ebbcc"
-    },
     ".github/scripts/platform-ops/provision/platform-ops_provision_initialize-agent-proxy-credentials.sh": {
       "markers": [
         "provider_execution"
