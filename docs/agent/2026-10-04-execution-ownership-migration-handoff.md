@@ -151,7 +151,8 @@ Toolkit `ec7bc9b1` 下 `git ls-tree -r --name-only HEAD .github/scripts` 为 **1
   - **IaC Modules**：接管 Terraform 资源操作、租约对象存储 CRUD 与 Terraform 异常诊断（`terraform-diagnostics.py`）；`lease.sh` 的过期 cleanup dispatch 与阶段审批保留 Toolkit，不能整体搬移混合脚本。
   - **Playbooks Roles**：承接主机层 WireGuard/XRay 容器部署、节点注册、桌面配置与节点可观测性探测。
   - **Toolkit**：保留实验网生命周期阶段编排（plan -> lease -> apply -> enroll -> verify -> teardown）与审批门禁。
-  - **本轮细化**：优先复用现有 One/Gateway/Observability Roles；invite-only、观察 SUMMARY_ONLY 与主机验收分别记录。详见 [下一批合同草案](2026-10-05-next-execution-batches-contract.md)。P3 尚未实现。
+  - **本轮细化**：优先复用现有 One/Gateway/Observability Roles；invite-only、观察 SUMMARY_ONLY 与主机验收分别记录。详见 [下一批合同草案](2026-10-05-next-execution-batches-contract.md)。P3 部署/Provider 拆分仍未完成。
+  - **远端观察 owner 子批次**：[Playbooks #572](https://github.com/ai-workspace-infra/playbooks/pull/572) 已于 `2026-10-04T16:54:47Z` 合并，固定 owner `1308c585bbb3806b69279be678dad2feb8099699`。Observability operations Role 新增 `xconnect_remote_observation`，13 项 tests + syntax passed，remote role-contract/observability role-contract/gitleaks CI SUCCESS。当前进入 Toolkit caller 设计，lease/window/expiry/验收控制留 Toolkit，远端只读观察委托 Playbooks；旧 remote observation 副本保留，caller 路线 UAT 后才单独 cleanup。无真实主机观察验收。
 
 ### 后续批次 P4：SMTP 凭据同步拆分
 - **涉及脚本**：`.github/scripts/serverless/sync_smtp_secrets.sh`（145 行）。

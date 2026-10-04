@@ -57,4 +57,4 @@ GCP access 先盘点所有直接/间接 caller 的 VM ensure、OS Login key、Ru
 
 ## 当前门禁
 
-P3/P4/扫描器/GCP 的以上细化属于已评估、尚未实现；没有新增 owner/caller/cleanup PR，也没有真实 UAT。先提交各子批次 owner 合同/实现及 owner-local tests，再等评审后的 immutable owner ref，不能因为独立 P2a PR 等待合并而提前删除或切换任何 legacy。
+以上合同最初形成时 P3/P4/扫描器/GCP 均为已评估、尚未实现。后续独立进展：Playbooks #572 远端观察 owner 已合并，SHA `1308c585bbb3806b69279be678dad2feb8099699`，caller 设计中；Toolkit #1279 scanner 修正已提出且 PR checks SUCCESS，尚未合并。P3 其它部署/Provider 子批次、P4 SMTP 与 GCP access 仍未完成；没有真实新路线 UAT 或这些 legacy cleanup。各子批次继续按 immutable owner → caller → 验证 → cleanup 推进，不用独立 PR/CI 替代环境验收。动态进展以交接文档和 #1269 的实际 SHA/证据为准。
