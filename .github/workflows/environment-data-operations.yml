@@ -135,7 +135,7 @@ jobs:
     name: Playbooks / explicit one-time UAT import
     needs: request_gate
     if: ${{ inputs.mode == 'legacy_import' }}
-    uses: ai-workspace-infra/playbooks/.github/workflows/uat-data-import.yaml@__PLAYBOOKS_SHA__
+    uses: ai-workspace-infra/playbooks/.github/workflows/uat-data-import.yaml@8c29d8cd40e73fdc43dcdf540dc06f2be2aff402
     with:
       environment: ${{ inputs.environment }}
       config_json: ${{ needs.request_gate.outputs.config_json }}
@@ -157,7 +157,7 @@ jobs:
   serverless_database:
     needs: request_gate
     if: ${{ contains(fromJSON('["checkpoint","probe","baseline","migrate"]'), inputs.mode) }}
-    uses: ai-workspace-infra/playbooks/.github/workflows/serverless-database-operations.yml@__PLAYBOOKS_SHA__
+    uses: ai-workspace-infra/playbooks/.github/workflows/serverless-database-operations.yml@8c29d8cd40e73fdc43dcdf540dc06f2be2aff402
     with:
       environment: ${{ inputs.environment }}
       operation: ${{ inputs.mode }}
@@ -169,7 +169,7 @@ jobs:
   selfhost_database:
     needs: request_gate
     if: ${{ contains(fromJSON('["selfhost_probe","selfhost_init","selfhost_verify"]'), inputs.mode) }}
-    uses: ai-workspace-infra/playbooks/.github/workflows/selfhost-database-operations.yml@__PLAYBOOKS_SHA__
+    uses: ai-workspace-infra/playbooks/.github/workflows/selfhost-database-operations.yml@8c29d8cd40e73fdc43dcdf540dc06f2be2aff402
     with:
       environment: ${{ inputs.environment }}
       operation: ${{ inputs.mode }}

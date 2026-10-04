@@ -55,6 +55,8 @@ gh workflow run environment-data-operations.yml -R ai-workspace-infra/platform-o
 ```
 
 主机目标以审核的环境 GitOps/CMDB 为准，不接受任意目标替代身份核验。
+Selfhost 基线／验收当前限定每环境一个 `web-saas-<environment>` 主机；多主机请求停止，
+避免 matrix 共享输出把不同主机的基线回执覆盖或串用。扩展多主机需显式的逐主机回执映射。
 
 ## Vault 迁移顺序
 

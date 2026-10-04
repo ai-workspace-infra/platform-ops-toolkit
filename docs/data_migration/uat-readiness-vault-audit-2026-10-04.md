@@ -26,7 +26,7 @@
 
 ## 可复用只读诊断
 
-新增 `.github/scripts/serverless/probe_uat_upgrade_readiness.py`：要求 UAT、与 PROJECT_REF 匹配的 Session Pooler 5432、postgres database、TLS 和明确 expected-version。凭据通过环境传递，不放入 psql argv；每条查询在显式只读事务中执行，错误不转发连接身份。
+新增的只读实现现归属 Playbooks 的 `scripts/data_operations/serverless/probe_uat_upgrade_readiness.py`：要求 UAT、与 PROJECT_REF 匹配的 Session Pooler 5432、postgres database、TLS 和明确 expected-version。凭据通过环境传递，不放入 psql argv；每条查询在显式只读事务中执行，错误不转发连接身份。Toolkit 不再保留该执行脚本及其 PostgreSQL 实现级测试。
 
 检查用户/订阅计数、唯一且 clean 的版本记录和精确目标。缺表、空样本、多条/dirty 迁移记录、不完整迁移都有阻塞理由。工具始终标记三个业务 gates=blocked、eligible_for_prod=false，退出 1；结构符合也不能替代实际登录/权限/权益/额度/无重复扣款/迁移幂等。它不产生可放行的 upgrade_acceptance artifact，未改变部署工作流或迁移范围。
 

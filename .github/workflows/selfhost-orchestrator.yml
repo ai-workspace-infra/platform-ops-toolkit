@@ -1362,7 +1362,15 @@ jobs:
         RELEASE_TAG: ${{ needs.provision.outputs.deploy_tag }}
         ACCOUNTS_REF: ${{ needs.provision.outputs.deploy_tag || 'main' }}
         DATA_WORKFLOW_REF: main
-      run: python3 .github/scripts/environment-upgrade/dispatch.py
+        WEB_SAAS_HOSTS_JSON: ${{ needs.provision.outputs.hosts_web_saas }}
+      run: |
+        python3 - <<'PY'
+        import json, os
+        expected = ['web-saas-' + os.environ['DATA_ENVIRONMENT']]
+        if json.loads(os.environ['WEB_SAAS_HOSTS_JSON']) != expected:
+            raise SystemExit('baseline dispatch requires one canonical environment host; multi-host receipts need a separate reviewed mapping')
+        PY
+        python3 .github/scripts/environment-upgrade/dispatch.py
 
     - name: Download baseline receipt from the correlated child run
       uses: actions/download-artifact@v8
