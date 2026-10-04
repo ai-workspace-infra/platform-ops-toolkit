@@ -254,6 +254,18 @@ skip_shared_service_release() {
   return 1
 }
 
+skip_default_all_deploy() {
+  local row="$1" namespace deploy_on_all
+  [[ "${OPERATION}" == deploy ]] || return 1
+  namespace="$(jq -r '.namespace' <<<"${row}")"
+  deploy_on_all="$(jq -r 'if has("deploy_on_all") then .deploy_on_all else true end' <<<"${row}")"
+  if [[ "${deploy_on_all}" == false ]]; then
+    echo "${namespace}: deploy_on_all=false; skipping default all deployment"
+    return 0
+  fi
+  return 1
+}
+
 if [[ "${OPERATION}" == deploy ]]; then
   # A deploy has a network prerequisite that cannot be satisfied by the
   # historical single-pass matrix: all new Terraform hosts must exist before
@@ -265,6 +277,9 @@ if [[ "${OPERATION}" == deploy ]]; then
     namespace="$(jq -r '.namespace' <<<"${row}")"
     mode="$(jq -r '.management_mode' <<<"${row}")"
     if skip_shared_service_release "${row}"; then
+      continue
+    fi
+    if skip_default_all_deploy "${row}"; then
       continue
     fi
     [[ "${mode}" == terraform ]] || continue
@@ -300,6 +315,9 @@ if [[ "${OPERATION}" == deploy ]]; then
     namespace="$(jq -r '.namespace' <<<"${row}")"
     mode="$(jq -r '.management_mode' <<<"${row}")"
     if skip_shared_service_release "${row}"; then
+      continue
+    fi
+    if skip_default_all_deploy "${row}"; then
       continue
     fi
     provider="$(jq -r '.provider' <<<"${row}")"

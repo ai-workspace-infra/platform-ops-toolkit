@@ -50,6 +50,7 @@ jq -e '
   .spec.resources[2].profile == "4C8G" and
   .spec.resources[2].region == "asia-east1" and
   .spec.resources[2].capacity_type == "spot" and
+  .spec.resources[2].deploy_on_all == false and
   (.spec.resources[2].existing_host == null) and
   .spec.xconnect_network.id == "net_uat" and
   .spec.xconnect_network.gateway_ref == "tw-xconnect.svc.plus" and
@@ -159,18 +160,21 @@ jp_line="$(line_for 'DRY-RUN agent-proxy-jp (aws-cloud, 2C2G')"
 us_line="$(line_for 'DRY-RUN agent-proxy-us (gcp-cloud, 2C2G')"
 sg_line="$(line_for 'DRY-RUN agent-proxy-sg (akamai-cloud, 2C2G')"
 web_line="$(line_for 'DRY-RUN web-saas serverless')"
-ai_line="$(line_for 'DRY-RUN ai-workspace (gcp-cloud, 4C8G')"
 tw_line="$(line_for 'DRY-RUN agent-proxy-tw (existing inventory)')"
 ph_line="$(line_for 'DRY-RUN agent-proxy-ph (existing inventory)')"
-[[ -n "${jp_line}${us_line}${sg_line}${web_line}${ai_line}${tw_line}${ph_line}" ]] || {
+[[ -n "${jp_line}${us_line}${sg_line}${web_line}${tw_line}${ph_line}" ]] || {
   echo "hybrid deploy dry-run is missing a required business lane" >&2
   exit 1
 }
+if grep -Fq 'DRY-RUN ai-workspace (gcp-cloud, 4C8G' "${dry_run}"; then
+  echo "ai-workspace must be skipped by the default all deploy" >&2
+  exit 1
+fi
 if grep -Fq 'DRY-RUN open-platform' "${dry_run}"; then
   echo "Hybrid deploy must not dispatch the shared-infrastructure open-platform row" >&2
   exit 1
 fi
-(( ai_line < jp_line && jp_line < us_line && us_line < sg_line && sg_line < web_line && web_line < tw_line && tw_line < ph_line )) || {
+(( jp_line < us_line && us_line < sg_line && sg_line < web_line && web_line < tw_line && tw_line < ph_line )) || {
   echo "hybrid deploy must preserve the business-lane order" >&2
   exit 1
 }
@@ -201,6 +205,10 @@ for operation in plan apply destroy; do
     echo "Hybrid ${operation} must not touch shared open-platform resources" >&2
     exit 1
   fi
+  grep -Fq 'DRY-RUN ai-workspace (gcp-cloud, 4C8G' <<<"${non_deploy_output}" || {
+    echo "Hybrid ${operation} must retain ai-workspace for explicit planning/apply/destroy operations" >&2
+    exit 1
+  }
 done
 
 xc_line="$(line_for 'DRY-RUN XConnect Zero UAT (tw-xconnect.svc.plus)')"
