@@ -2,6 +2,8 @@
 
 核实日期：2026-10-04。本记录补充 #1239/#1240 合约与 fixture 结果，不是 PROD 放行记录。此前只凭代码推断的 Vault 字段，以本轮实际字段核实为准。
 
+主线核实：#1239 已进入 main（ea754fcc67326dfc667a4c473bc01c3ffce78daf）；#1240 合并进原 stacked topic branch，并未进入 main。merged 状态不能替代 main 可达性证明，本增量不依赖 composite refactor。
+
 ## 真实 UAT 数据库
 
 使用 `kv/uat/serverless/supabase` Session Pooler，只执行 SELECT，没有 DDL/DML、同步或密码修改。2026-10-04 14:32:55 Asia/Shanghai 的显式 `BEGIN READ ONLY` 复核确认 transaction_read_only=on；default_transaction_read_only=off，不能只依赖启动 PGOPTIONS。
