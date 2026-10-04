@@ -16,7 +16,7 @@ on:
         description: Advanced override - reviewed iac_modules commit SHA
         type: string
         required: false
-        default: '2ba98f30c3e4199e01eb940bb1951549fca0ae3e'
+        default: 'a0185e61fc2b41ac4dbd40c8037016aaef1b3973'
       gitops_ref:
         description: Advanced override - reviewed gitops commit SHA
         type: string
@@ -472,9 +472,14 @@ jobs:
       - name: Reconcile stable Gateway DNS in Cloudflare
         if: inputs.mode == 'apply' && inputs.gateway_provider == 'external'
         env:
-          XCONNECT_GATEWAY_DNS_NAME: ${{ env.EXTERNAL_GATEWAY_SERVER_NAME }}
-          XCONNECT_GATEWAY_DNS_TARGET: ${{ env.EXTERNAL_GATEWAY_HOST }}
-        run: bash .github/scripts/xconnect-lab/reconcile-gateway-dns.sh
+          DNS_ENVIRONMENT: uat
+          DNS_ZONE: svc.plus
+          DNS_RECORD_NAME: ${{ env.EXTERNAL_GATEWAY_SERVER_NAME }}
+          DNS_TARGET_IP: ${{ env.EXTERNAL_GATEWAY_HOST }}
+          DNS_CHECKPOINT_PATH: ${{ runner.temp }}/xconnect-gateway-dns-checkpoint.json
+          DNS_WAIT_FOR_RESOLVER: 'true'
+          CLOUDFLARE_DNS_API_TOKEN: ${{ env.CLOUDFLARE_API_TOKEN }}
+        run: python3 iac_modules/scripts/pipeline/cloudflare-gateway-dns-upsert.py
       - name: AWS short-lived OIDC credentials
         if: inputs.mode != 'dry-run'
         uses: aws-actions/configure-aws-credentials@v4
