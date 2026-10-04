@@ -21,13 +21,15 @@ This is an **orchestration repository**, not the home of every configuration fil
 
 | Repository | Responsibility | When to change it |
 | --- | --- | --- |
-| [`platform-ops-toolkit`](https://github.com/ai-workspace-infra/platform-ops-toolkit) | GitHub Actions entry points, orchestration, inputs, and shared operations scripts | Start a task or change workflow behavior |
+| [`platform-ops-toolkit`](https://github.com/ai-workspace-infra/platform-ops-toolkit) | GitHub Actions control plane, orchestration, GitOps reader/validator, release evidence, and indispensable workflow adapters | Start a task or change workflow behavior |
 | [`playbooks`](https://github.com/ai-workspace-infra/playbooks) | Ansible Playbooks, OS initialization, and reusable domain CD workflows | Change host configuration, application installation, or deployment logic |
-| [`iac_modules`](https://github.com/ai-workspace-infra/iac_modules) | Terraform modules, cloud resources, hosts, and environment resource declarations | Create or change cloud resources, VPSs, networks, or Terraform |
-| [`gitops`](https://github.com/ai-workspace-infra/gitops) | Environment runtime configuration and GitOps desired state | Change domains, service settings, image tags, or environment configuration |
+| [`iac_modules`](https://github.com/ai-workspace-infra/iac_modules) | Terraform modules, provider rendering/execution, and CMDB outputs | Change reusable cloud-resource behavior, rendering, or Terraform execution |
+| [`gitops`](https://github.com/ai-workspace-infra/gitops) | Non-secret provider/environment resource declarations and runtime desired state | Change topology, domains, service settings, image tags, or environment configuration |
 | [`artifacts`](https://github.com/ai-workspace-infra/artifacts) | Optional images, archives, build artifacts, and release manifests | Use only when a release needs to reuse or trace artifacts |
 
 The short version is: `platform-ops-toolkit` is the button, `iac_modules` builds resources, `playbooks` installs and configures applications, and `gitops` declares the desired environment state.
+
+For script ownership and safe cross-repository cutover, follow the [execution ownership migration standard](https://github.com/ai-workspace-lab/xworkspace-core-skills/blob/main/skills/engineering-standards/execution-ownership-migration/SKILL.md). Toolkit retains only current-workflow control-plane helpers; generic execution moves to its owner before callers are switched and old copies removed.
 
 ## First-time setup
 
