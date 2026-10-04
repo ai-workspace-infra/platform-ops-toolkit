@@ -29,14 +29,6 @@
       "owner": "playbooks",
       "sha256": "ce6edd9fb072c61260d63b1ff325103eab396eef8791264e817ef92ca1a536d6"
     },
-    ".github/scripts/service-deploy/zitadel.sh": {
-      "markers": [
-        "host_execution",
-        "provider_execution"
-      ],
-      "owner": "playbooks",
-      "sha256": "3bfbc2fd3282518d42682a59447af1966c79e7eab96f9b7e5a0ea8130dcb152e"
-    },
     ".github/scripts/xconnect-existing-one-uat/deploy.sh": {
       "markers": [
         "host_execution"
