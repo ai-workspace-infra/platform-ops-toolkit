@@ -108,15 +108,35 @@ on:
         required: true
         default: false
         type: boolean
-      data_operation:
-        description: 'Optional explicit data operation delegated to unified control plane; none for normal deployments'
-        type: choice
-        default: none
-        options: [none, preflight, backup, rehearsal, upgrade, rollback, legacy_import, akamai_preflight, probe, migrate]
       data_config_json:
-        description: 'Non-secret reviewed data operation parameters; legacy_import requires explicit confirmation'
+        description: 'Optional explicit data operation JSON with mode; empty for normal deploys; never include secrets'
         type: string
         default: '{}'
+      adopt_accounts_baseline:
+        description: 'UAT-only: adopt the reviewed expand-only Accounts baseline before the web-saas deployment'
+        required: false
+        default: false
+        type: boolean
+      apply_accounts_schema_migration:
+        description: 'UAT-only: apply one reviewed Accounts migration before the web-saas deployment'
+        required: false
+        default: false
+        type: boolean
+      accounts_schema_expected_version:
+        description: 'UAT schema_migrations version before the reviewed migration'
+        required: false
+        default: ''
+        type: string
+      accounts_schema_target_version:
+        description: 'Exact target version of the reviewed Accounts migration'
+        required: false
+        default: ''
+        type: string
+      accounts_schema_sha256:
+        description: 'SHA-256 of the reviewed Accounts migration file'
+        required: false
+        default: ''
+        type: string
 
 concurrency:
   group: hybrid-uat-${{ inputs.target_domains || 'all' }}-${{ inputs.operation || 'plan' }}
@@ -167,7 +187,7 @@ jobs:
   data_operations:
     name: '[1] Delegate | environment data operation'
     needs: preflight
-    if: ${{ inputs.data_operation != 'none' }}
+    if: ${{ fromJSON(inputs.data_config_json).mode }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -176,7 +196,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           DATA_ENVIRONMENT: ${{ inputs.vault_env_path }}
-          DATA_OPERATION: ${{ inputs.data_operation }}
+          DATA_OPERATION: ${{ fromJSON(inputs.data_config_json).mode }}
           DATA_CONFIG_JSON: ${{ inputs.data_config_json }}
           RELEASE_TAG: ${{ inputs.deploy_tag }}
           ACCOUNTS_REF: ${{ inputs.deploy_tag || 'main' }}
@@ -227,6 +247,11 @@ jobs:
           VAULT_ADDR: ${{ inputs.vault_addr }}
           XCONNECT_GATEWAY_REF: ${{ inputs.xconnect_gateway_ref }}
           XCONNECT_MIGRATION: ${{ inputs.xconnect_migration }}
+          ADOPT_ACCOUNTS_BASELINE: ${{ inputs.adopt_accounts_baseline }}
+          APPLY_ACCOUNTS_SCHEMA_MIGRATION: ${{ inputs.apply_accounts_schema_migration }}
+          ACCOUNTS_SCHEMA_EXPECTED_VERSION: ${{ inputs.accounts_schema_expected_version }}
+          ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
+          ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}
           UAT_ARTIFACT_DIR: ${{ runner.temp }}/uat-artifacts
         run: ./.github/scripts/platform-ops/provision/platform-ops_dispatch-hybrid-uat-matrix.sh
       # The UAT verdict and the exact images it accepted travel together; a

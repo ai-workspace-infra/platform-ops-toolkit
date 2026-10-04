@@ -35,6 +35,14 @@ Selfhost 是最后兜底运行路径和备份节点，不因此成为日常 sche
 `.github/scripts/environment-upgrade/adapters.json` 中两个环境目前均为空；这是启动前
 阻断门禁，不是跳过后标记成功。现有 UAT 制品清单缺少完整业务验收和迁移 checksum
 时，PROD 候选校验也会失败。
+
+Daily UAT 的 schema-only 请求现在会沿着 `Daily → Hybrid → Serverless web-saas`
+显式透传：`APPLY_ACCOUNTS_SCHEMA_MIGRATION`、起止版本和 SQL checksum 不再在
+Hybrid 入口被丢弃或提前阻断。Serverless 仍先完成持久 checkpoint，再执行 Accounts
+官方 migrator，最后才允许 Cloud Run 部署；数据合并迁移和 XConnect release override
+仍在 Daily 入口 fail closed。以 `2026092703 → 2026092801` 为例，这只解除“迁移请求
+无法抵达实际迁移 job”的编排阻塞，不构成旧账号登录、权限或非空订阅权益验收通过。
+
 2026-10-04 查询到 `prod` Environment 尚无审核规则；候选校验会因此阻断 PROD。
 现有受审环境名 `production` 不等同于本流水线使用的 `prod`，不能混用。
 最新 UAT selfhost 构建的 CMDB 将 `web-saas-uat` 标记为 GCP Spot；对应 GitOps
