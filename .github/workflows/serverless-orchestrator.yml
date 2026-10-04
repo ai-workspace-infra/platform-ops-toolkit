@@ -1494,6 +1494,7 @@ jobs:
     # Observe every terminal outcome; this job uploads metadata only.
     if: >-
       ${{ always() && needs.preflight.result != '' && needs.cloud_run.result != '' &&
+      needs.supabase.result != '' && needs.uat_accounts_schema_migration.result != '' &&
       needs.cloudflare_ssr.result != '' && needs.frontend_router.result != '' &&
       needs.edge_gateway.result != '' && needs.static_pages.result != '' &&
       needs.serverless_domains.result != '' && needs.verify.result != '' }}
