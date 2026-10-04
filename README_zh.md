@@ -21,13 +21,15 @@
 
 | 仓库 | 职责 | 什么时候修改 |
 | --- | --- | --- |
-| [`platform-ops-toolkit`](https://github.com/ai-workspace-infra/platform-ops-toolkit) | GitHub Actions 入口、流程编排、参数和通用运维脚本 | 想启动任务，或修改流水线行为 |
+| [`platform-ops-toolkit`](https://github.com/ai-workspace-infra/platform-ops-toolkit) | GitHub Actions 控制面、流程编排、GitOps reader/validator、发布证据和当前工作流必需的薄适配脚本 | 想启动任务，或修改流水线行为 |
 | [`playbooks`](https://github.com/ai-workspace-infra/playbooks) | Ansible Playbook、OS 初始化和可复用的业务域 CD workflow | 想修改主机配置、应用安装或部署逻辑 |
-| [`iac_modules`](https://github.com/ai-workspace-infra/iac_modules) | Terraform 模块、云资源、主机和环境资源声明 | 想创建或调整云资源、VPS、网络或 Terraform |
-| [`gitops`](https://github.com/ai-workspace-infra/gitops) | 环境运行配置和 GitOps desired state | 想修改域名、服务参数、镜像 tag 或环境配置 |
+| [`iac_modules`](https://github.com/ai-workspace-infra/iac_modules) | Terraform 模块、云资源渲染与执行、CMDB 输出 | 想修改可复用云资源、渲染器或 Terraform 执行逻辑 |
+| [`gitops`](https://github.com/ai-workspace-infra/gitops) | 非敏感环境资源声明和运行时 desired state | 想修改拓扑、域名、服务参数、镜像 tag 或环境配置 |
 | [`artifacts`](https://github.com/ai-workspace-infra/artifacts) | 可选的镜像、压缩包、构建产物和发布清单 | 只有发布流程需要复用或追溯产物时才使用 |
 
 记忆方法：`platform-ops-toolkit` 负责“按按钮”，`iac_modules` 负责“建资源”，`playbooks` 负责“装和配应用”，`gitops` 负责“声明环境最终状态”。
+
+跨仓库脚本迁移遵循[执行逻辑归属迁移规范](https://github.com/ai-workspace-lab/xworkspace-core-skills/blob/main/skills/engineering-standards/execution-ownership-migration/SKILL.md)：先在归属仓库新增通用实现，再切换 Toolkit 调用并验证，最后删除旧副本。
 
 ## 第一次使用：完整向导
 
