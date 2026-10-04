@@ -54,3 +54,9 @@ jobs:
 
       - name: Verify convention checker failure cases
         run: bash scripts/ci/tests/repository-conventions-verify-test.sh
+
+      - name: Freeze legacy execution debt and reject new Toolkit execution
+        run: python3 scripts/ci/script_ownership_verify.py
+
+      - name: Falsify ownership guard with new and changed execution fixtures
+        run: python3 scripts/ci/tests/test_script_ownership.py

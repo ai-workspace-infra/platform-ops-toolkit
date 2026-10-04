@@ -7,7 +7,9 @@ repository that owns the thing it operates on:
 |-----------|----------|-----------|
 | runs `terraform`, or is part of the provision phase inside the IaC checkout | `iac_modules/scripts/pipeline/` | `${{ github.workspace }}/infra/iac_modules/scripts/pipeline/<name>` (or `iac_modules/…`, matching the job's checkout `path`) |
 | runs `ansible` / `ansible-playbook` inside the playbooks checkout | `playbooks/scripts/pipeline/` | `${{ github.workspace }}/playbooks/scripts/pipeline/<name>` |
-| orchestrates: routing, dispatch and wait, snapshots, serverless, DNS through an API, SSH observers, reading GitOps data | here | `${{ github.workspace }}/.github/scripts/<area>/<name>` |
+| orchestrates: routing, dispatch and wait, immutable snapshots, sanitized receipts, reading GitOps data | here | `${{ github.workspace }}/.github/scripts/<area>/<name>` |
+| changes a host, deploys services, exports/restores a database, or executes reviewed SQL | `playbooks` reusable roles | pinned owner workflow called by `environment-data-operations.yml` |
+| executes provider/state changes or creates storage/network resources | `iac_modules` | pinned provider execution workflow; GitOps holds only desired state |
 
 `gitops` stays data only: the scripts that read or validate it are in `gitops/` below.
 
@@ -16,7 +18,9 @@ repository that owns the thing it operates on:
 | `lib/` | sourced helpers: `require-env.sh` (`require_env`), `cmdb-ssh-login.sh` |
 | `gitops/` | readers and validators for GitOps manifests and routing config |
 | `platform-ops/` | selfhost orchestration: `provision/` (routing, dispatch, OIDC, key derivation), `deploy/`, `dns/`, `observe/` |
-| `serverless/`, `snapshots/`, `data-migration/`, `resize/`, `release/`, … | one directory per workflow family |
+| `environment-upgrade/` | data-operation dispatch and release evidence validation only |
+| `snapshots/`, `release/` | immutable artifact/tag orchestration |
+| `serverless/`, `resize/`, `observability/`, `platform-ops/`, … | mixed-generation legacy areas; execution files are migration debt, not an approved boundary |
 | `tests/` | contract tests; run by `validate-release-pr.yml` |
 
 Composite actions stay in `.github/actions/` of this repository: `uses: ./…` resolves
@@ -28,6 +32,15 @@ against the workspace, and some pipelines pin `iac_modules` to a fixed SHA.
   and a call into `iac_modules` / `playbooks` is preceded by that checkout in the same job.
 - `scripts/ci/workflow_gating_verify.py` — job gating, and the exec bit of scripts called bare.
 - `scripts/ci/script_exec_bit_verify.sh` — every tracked `*.sh` is mode 100755.
+- `scripts/ci/script_ownership_verify.py` — rejects new execution logic or changes to frozen legacy execution copies; deletion is allowed after callers migrate.
+
+`scripts/ci/legacy-execution-inventory.json` records existing migration debt by
+owner and checksum. It is not a claim that those files are control-plane-only,
+nor a license to add another exception. CI locks each legacy copy; behavior
+changes must first migrate to Playbooks/IaC with caller, Vault, tests and docs
+updated. Never put imperative execution in GitOps. The obsolete, unreferenced
+Supabase initialization wrapper has been removed rather than preserved as a
+hidden schema reset path.
 
 A workflow that pins `infra_ref` / `playbooks_ref` to a tag older than the
 `scripts/pipeline/` directories will not find these scripts; pin to a ref that has them.
@@ -42,8 +55,9 @@ The four repositories form one delivery boundary and are changed in dependency o
    under `scripts/pipeline/`.
 3. [`gitops`](https://github.com/ai-workspace-infra/gitops) — YAML/Markdown desired-state
    data only; it must not contain deployment scripts.
-4. `platform-ops-toolkit` — orchestration, dispatch, wait, snapshot, serverless,
-   API-based DNS, SSH observation, and GitOps readers.
+4. `platform-ops-toolkit` — orchestration, dispatch, wait, immutable snapshots,
+   receipt validation, and GitOps readers. Provider API writes and host probes
+   belong to the resource/execution owner, even when a legacy copy remains.
 
 For a cross-repository change, merge the `iac_modules` and `playbooks` additions first,
 then update the toolkit call sites. The toolkit PR description records the dependency PRs

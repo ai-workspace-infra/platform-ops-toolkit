@@ -39,6 +39,10 @@ def main():
     require(mode in MODES, "unsupported data operation")
     config = json.loads(os.environ.get("DATA_CONFIG_JSON", "{}"))
     validate_config(config)
+    if 'execution_path' in config:
+        require(config['execution_path'] == 'selfhost_roles', 'unknown execution_path')
+        require(environment == 'uat' and mode in {'preflight', 'backup'},
+                'Selfhost component roles are UAT-only preflight/backup, not full release acceptance')
     if 'account' in config:
         require(isinstance(config['account'], str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,62}", config['account']),
                 "account must be a plain identifier")

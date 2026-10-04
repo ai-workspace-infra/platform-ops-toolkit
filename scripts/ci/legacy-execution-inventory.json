@@ -1,0 +1,198 @@
+{
+  "legacy_execution": {
+    ".github/scripts/observability/observability_data_migrate.sh": {
+      "markers": [
+        "host_execution"
+      ],
+      "owner": "playbooks",
+      "sha256": "970b0d8005c46c1f5cf6a2ce45b7caa0b3e1bd2d6486538182e014ebee3d6466"
+    },
+    ".github/scripts/observability/observability_data_source_stage.sh": {
+      "markers": [
+        "host_execution",
+        "provider_execution"
+      ],
+      "owner": "playbooks",
+      "sha256": "c94e42c5d9def8bd32182fd9c429c6b5a88736941014bb8676782cdf023d1686"
+    },
+    ".github/scripts/observability/observability_data_target_restore.sh": {
+      "markers": [
+        "host_execution"
+      ],
+      "owner": "playbooks",
+      "sha256": "04142c16bb160f14c0d193fd6ef9d402749ef2c2479804abbe31ed23097e3903"
+    },
+    ".github/scripts/observability/observability_verify_mcp.sh": {
+      "markers": [
+        "host_execution"
+      ],
+      "owner": "playbooks",
+      "sha256": "500109c6b74b5373c2f4475c763a5e239e02c0fbd35c009fc92e4c1efed9e606"
+    },
+    ".github/scripts/observability/observability_verify_store.sh": {
+      "markers": [
+        "host_execution"
+      ],
+      "owner": "playbooks",
+      "sha256": "c862d1bbffac559c9e7de83eb73746fac14632cb60651a432cc29ea1a9d7204a"
+    },
+    ".github/scripts/observability/observability_verify_target.sh": {
+      "markers": [
+        "host_execution"
+      ],
+      "owner": "playbooks",
+      "sha256": "50892cb22347e4e6cfaf024f1812a1cbfc968091d05441062d775818ee9ebbcc"
+    },
+    ".github/scripts/platform-ops/deploy/platform-ops_deploy_base_assert-caddy-uses-restored-cert.sh": {
+      "markers": [
+        "host_execution"
+      ],
+      "owner": "playbooks",
+      "sha256": "69b12986716fdef1cc41ae98602ba66fbcc05528b002e89aa3fe0378fdbf123c"
+    },
+    ".github/scripts/platform-ops/deploy/platform-ops_deploy_base_wait-for-web-saas-postgres.sh": {
+      "markers": [
+        "host_execution"
+      ],
+      "owner": "playbooks",
+      "sha256": "54e195bdf0f085d5aac8b5a15db9cd2c4ff9d2fb14affca06907cbd4b3733f3a"
+    },
+    ".github/scripts/platform-ops/observe/platform-ops_observe-agent-proxy.sh": {
+      "markers": [
+        "host_execution"
+      ],
+      "owner": "playbooks",
+      "sha256": "74c9a71a61f707cb770b5a1011f72cca253af00c3616caf80df1a28c5d570b09"
+    },
+    ".github/scripts/platform-ops/observe/platform-ops_observe-web-saas-containers.sh": {
+      "markers": [
+        "host_execution"
+      ],
+      "owner": "playbooks",
+      "sha256": "b31377bc7e41b7bb40ef1a6ac4100f3fc71d7935a064d3db071d5ba03da38f25"
+    },
+    ".github/scripts/platform-ops/observe/platform-ops_observe-web-saas-ingress.sh": {
+      "markers": [
+        "host_execution"
+      ],
+      "owner": "playbooks",
+      "sha256": "14774506d6cb46bb7ba31e0862fb48c4c3d8c68cb09ea983f8a9cc30510ab1c2"
+    },
+    ".github/scripts/platform-ops/observe/platform-ops_observe_backup-caddy-certs.sh": {
+      "markers": [
+        "host_execution"
+      ],
+      "owner": "playbooks",
+      "sha256": "e45bf1046cfb8c18cf9283c989d935cb808ce9800e267cfa240984787ee493f8"
+    },
+    ".github/scripts/platform-ops/provision/platform-ops_provision_initialize-agent-proxy-credentials.sh": {
+      "markers": [
+        "provider_execution"
+      ],
+      "owner": "iac_modules",
+      "sha256": "28329ab8e65634509d9024397da5aa853744bd33248c84d91f7d364cfe31bf53"
+    },
+    ".github/scripts/platform-ops/provision/platform-ops_provision_initialize-databases-credentials.sh": {
+      "markers": [
+        "provider_execution"
+      ],
+      "owner": "iac_modules",
+      "sha256": "ca8370e275d20ed1599d957e68e96c953f94412f0a51316d83b49e5e8de6a044"
+    },
+    ".github/scripts/resize/resize-instance_destroy-old.sh": {
+      "markers": [
+        "provider_execution"
+      ],
+      "owner": "iac_modules",
+      "sha256": "832bbdfd35425584967e104361c0dcce058ece24dbb8db8de5fbb858765a995a"
+    },
+    ".github/scripts/resize/resize-instance_switch-dns.sh": {
+      "markers": [
+        "provider_execution"
+      ],
+      "owner": "iac_modules",
+      "sha256": "d987d3b09e873402965e356f51c8559461268aae321694d63d3f6e89bbedc3a5"
+    },
+    ".github/scripts/resize/resize-instance_vultr-vps_create-backup.sh": {
+      "markers": [
+        "provider_execution"
+      ],
+      "owner": "iac_modules",
+      "sha256": "c612a548ad8e78ab77a0839ff1034f62b88deea17c96a59a92aca7b2ca485239"
+    },
+    ".github/scripts/serverless/promote_image_by_digest.sh": {
+      "markers": [
+        "provider_execution"
+      ],
+      "owner": "playbooks",
+      "sha256": "445a7cba136ccc261b959f262ae8e3dc50264fbc9f7c4ce6158620b009988ddd"
+    },
+    ".github/scripts/serverless/sync_smtp_secrets.sh": {
+      "markers": [
+        "provider_execution"
+      ],
+      "owner": "playbooks",
+      "sha256": "5f38decf009777e1ab3904365ed2574b523a597c0ec9b85e8da8540e543a618b"
+    },
+    ".github/scripts/serverless/verify_cloud_run_image_digest.sh": {
+      "markers": [
+        "host_execution",
+        "provider_execution"
+      ],
+      "owner": "playbooks",
+      "sha256": "ce6edd9fb072c61260d63b1ff325103eab396eef8791264e817ef92ca1a536d6"
+    },
+    ".github/scripts/serverless/wait_for_artifact_image.sh": {
+      "markers": [
+        "provider_execution"
+      ],
+      "owner": "playbooks",
+      "sha256": "7c4fb3c06a8567953433fd619b851f2c9ea2b3bd526ca4473029de3890573cca"
+    },
+    ".github/scripts/service-deploy/ensure-declared-vm-running.sh": {
+      "markers": [
+        "provider_execution"
+      ],
+      "owner": "iac_modules",
+      "sha256": "da8abb31f423a7681dd80770c8b5b7a098b39a7cc218c9f809abde70e1c03fd1"
+    },
+    ".github/scripts/service-deploy/zitadel.sh": {
+      "markers": [
+        "host_execution",
+        "provider_execution"
+      ],
+      "owner": "playbooks",
+      "sha256": "48f421ce7c4d85e51383eb16b8e6c21772fd533810583ab652166901fd1ec06c"
+    },
+    ".github/scripts/xconnect-existing-one-uat/deploy.sh": {
+      "markers": [
+        "host_execution"
+      ],
+      "owner": "playbooks",
+      "sha256": "24f4202a24baba3005908be2a5b981ef210984e352d59fd4266945afdde45417"
+    },
+    ".github/scripts/xconnect-lab/deploy.sh": {
+      "markers": [
+        "host_execution"
+      ],
+      "owner": "playbooks",
+      "sha256": "ac5fbd4a66a2c3ffb318bb31186dcfd658adecf47ddd495340bd7885647cb043"
+    },
+    ".github/scripts/xconnect-lab/enroll-node.sh": {
+      "markers": [
+        "host_execution"
+      ],
+      "owner": "playbooks",
+      "sha256": "0f1b7619713c3a1ff578008ed20ae87876cbb51493f8bf1bb309d323b85c5b1e"
+    },
+    ".github/scripts/xconnect-lab/run.sh": {
+      "markers": [
+        "provider_execution"
+      ],
+      "owner": "iac_modules",
+      "sha256": "e94473433845a0ec82015e9985048838fcccb435e850fbfd2397b3bc490b2a3a"
+    }
+  },
+  "policy": "frozen-legacy-debt-not-an-exemption-for-new-code",
+  "schema": 1
+}

@@ -62,6 +62,15 @@ class DataControlPlaneTests(unittest.TestCase):
         self.assertEqual(self.guard('akamai_preflight', {'account': 'reviewed-account'}).returncode, 0)
         self.assertNotEqual(self.guard('akamai_preflight', {'account': '../escape'}).returncode, 0)
 
+    def test_selfhost_roles_cannot_bypass_release_or_prod_gates(self):
+        config = {'execution_path': 'selfhost_roles'}
+        for mode in ('preflight', 'backup'):
+            self.assertEqual(self.guard(mode, config).returncode, 0)
+        for mode in ('migrate', 'probe', 'upgrade', 'rollback', 'rehearsal'):
+            self.assertNotEqual(self.guard(mode, config).returncode, 0)
+        self.assertNotEqual(self.guard('preflight', config, 'prod').returncode, 0)
+        self.assertNotEqual(self.guard('preflight', {'execution_path': 'unknown'}).returncode, 0)
+
     def test_single_entry_and_fixed_execution_owners(self):
         for name in ('data-migration.yaml', 'migration.yaml', 'rollback-orchestrator.yml',
                      'akamai-uat-migration-preflight.yml', 'environment-application-rollback.yml', 'environment-upgrade.yml'):
@@ -73,7 +82,8 @@ class DataControlPlaneTests(unittest.TestCase):
         self.assertEqual(entry['concurrency']['cancel-in-progress'], 'false')
         self.assertEqual(entry['jobs']['request_gate']['environment'], '${{ inputs.environment }}')
         for job, owner in (('legacy_import', 'playbooks'), ('serverless_database', 'playbooks'),
-                           ('selfhost_database', 'playbooks'), ('akamai_preflight', 'iac_modules')):
+                           ('selfhost_database', 'playbooks'), ('selfhost_components', 'playbooks'),
+                           ('akamai_preflight', 'iac_modules')):
             uses = entry['jobs'][job]['uses']
             self.assertRegex(uses, rf'^ai-workspace-infra/{owner}/.github/workflows/[^@]+@[0-9a-f]{{40}}$')
         self.assertLessEqual(len(entry['on']['workflow_dispatch']['inputs']), 25)
