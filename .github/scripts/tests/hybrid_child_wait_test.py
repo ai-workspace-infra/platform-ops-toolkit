@@ -26,9 +26,10 @@ class HybridChildWaitTest(unittest.TestCase):
             fake.write_text('''#!/usr/bin/env python3
 import json, os, pathlib, sys
 p = pathlib.Path(os.environ['FAKE_STATE'])
-s = json.loads(p.read_text()) if p.exists() else {'dispatch': 0, 'reads': 0}
+s = json.loads(p.read_text()) if p.exists() else {'dispatch': 0, 'reads': 0, 'lists': 0}
 a = sys.argv[1:]
 if a[:2] == ['run', 'list']:
+    s['lists'] += 1
     rows = [{'databaseId': s['dispatch'], 'headBranch': 'main', 'createdAt': '2099-01-01T00:00:00Z'}]
     if os.environ['FAKE_MODE'] == 'ambiguous':
         rows.append(dict(rows[0], databaseId=999))
@@ -37,6 +38,8 @@ elif a[0] == 'api' and '--method' in a:
     s['dispatch'] += 1
     s['reads'] = 0
     sys.stdin.read()
+    assert 'X-GitHub-Api-Version: 2026-03-10' in a
+    print(json.dumps({} if os.environ['FAKE_MODE'] == 'missing' else {'workflow_run_id': s['dispatch']}))
 elif a[0] == 'api' and '/actions/runs/' in a[1]:
     s['reads'] += 1
     p.write_text(json.dumps(s))
@@ -76,12 +79,19 @@ p.write_text(json.dumps(s))
         self.assertIn('completed with failure', result.stderr)
         self.assertEqual(state['dispatch'], 1)
 
-    def test_ambiguous_runs_cannot_supply_acceptance_evidence(self):
+    def test_concurrent_runs_cannot_replace_the_dispatch_response(self):
         result, state = self.run_case('ambiguous')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(state['dispatch'], 7)
+        self.assertEqual(state['lists'], 0)
+
+    def test_missing_dispatch_identity_fails_without_redispatch(self):
+        result, state = self.run_case('missing')
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('Multiple selfhost-orchestrator.yml runs match', result.stderr)
+        self.assertIn('dispatch returned no exact run ID', result.stderr)
         self.assertEqual(state['dispatch'], 1)
         self.assertEqual(state['reads'], 0)
+        self.assertEqual(state['lists'], 0)
 
 
 if __name__ == '__main__':

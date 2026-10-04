@@ -91,23 +91,7 @@ validate_matrix_provider() {
 }
 
 wait_for_run() {
-  local workflow="$1" started="$2" label="$3" run_id="" candidates="" runs=""
-  for _ in $(seq 1 10); do
-    if runs="$(gh run list --repo "${GH_REPO}" --workflow "${workflow}" --event workflow_dispatch --limit 50 --json databaseId,createdAt,headBranch)"; then
-      candidates="$(jq -ce --arg ref "${CHILD_REF}" --arg started "${started}" \
-        '[.[] | select(.headBranch == $ref and .createdAt >= $started)]' <<<"${runs}")" || return 1
-      if [[ "$(jq 'length' <<<"${candidates}")" -gt 1 ]]; then
-        echo "::error::Multiple ${workflow} runs match ${label}; refusing to accept another dispatch as this lane's evidence." >&2
-        return 1
-      fi
-      run_id="$(jq -r '.[0].databaseId // empty' <<<"${candidates}")"
-    else
-      echo "::warning::Could not discover ${workflow} run for ${label}; retrying observation without dispatching again." >&2
-    fi
-    [[ -n "${run_id}" ]] && break
-    sleep "${WAIT_INTERVAL_SECONDS}"
-  done
-  [[ -n "${run_id}" ]] || { echo "::error::Could not locate ${workflow} run for ${label}" >&2; return 1; }
+  local workflow="$1" run_id="$2" label="$3"
   echo "${label}: dispatched ${workflow} run ${run_id}"
   if ! RUN_REPOSITORY="${GH_REPO}" RUN_POLL_INTERVAL_SECONDS="${WAIT_INTERVAL_SECONDS}" \
     bash "$(dirname "${BASH_SOURCE[0]}")/../../snapshots/wait-for-workflow-run.sh" \
@@ -125,10 +109,18 @@ dispatch_and_wait() {
     echo "DRY-RUN ${label}: ${workflow} ${payload}"
     return 0
   fi
-  local started
-  started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  gh api --method POST "repos/${GH_REPO}/actions/workflows/${workflow}/dispatches" --input - <<<"${payload}" >/dev/null
-  wait_for_run "${workflow}" "${started}" "${label}"
+  local response run_id
+  # GitHub returns the exact run created by this request. Timestamp discovery
+  # can select a concurrent migration or another release before our run appears.
+  # Never redispatch or guess a run if the response cannot identify it.
+  response="$(gh api --method POST -H 'X-GitHub-Api-Version: 2026-03-10' \
+    "repos/${GH_REPO}/actions/workflows/${workflow}/dispatches" --input - <<<"${payload}")"
+  run_id="$(jq -er '.workflow_run_id | select(type == "number" and . > 0 and floor == .)' <<<"${response}")" || {
+    echo "::error::${label}: dispatch returned no exact run ID; refusing timestamp discovery or redispatch." >&2
+    return 1
+  }
+  [[ "${run_id}" =~ ^[1-9][0-9]*$ ]] || return 1
+  wait_for_run "${workflow}" "${run_id}" "${label}"
 }
 
 dispatch_selfhost() {
