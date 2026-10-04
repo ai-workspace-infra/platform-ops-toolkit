@@ -56,31 +56,96 @@ if [[ "$window" != until-expiry ]]; then
   (( candidate < end )) && end="$candidate"
 fi
 
-SSH=(-i "$LAB_DIR/id_ed25519" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$LAB_DIR/known_hosts")
-ssh_with_deadline() {
-  local remaining=$((end - $(date +%s)))
-  (( remaining > 60 )) && remaining=60
-  (( remaining > 0 )) || return 124
-  timeout "${remaining}s" ssh "${SSH[@]}" "$@"
-}
-
 echo "NODE_OBSERVATION_OPEN run=$run_id minutes=$window lease_expires_at=$expires_at"
 if (( end <= now )); then
   echo 'NODE_OBSERVATION_RESULT=UNVERIFIED reason=lease_expired local_independent_acceptance_required=true'
   exit 0
 fi
 
+playbooks_root="$ROOT/playbooks"
+observation_dir="$LAB_DIR/node-observation"
+inventory="$observation_dir/inventory.ini"
+variables="$observation_dir/variables.json"
+mkdir -p "$observation_dir"
+chmod 700 "$observation_dir"
+trap 'rm -rf -- "$observation_dir"' EXIT
+test -f "$playbooks_root/observability_operations.yml" || {
+  echo 'NODE_OBSERVATION_RESULT=UNVERIFIED reason=playbooks_observability_entrypoint_missing local_independent_acceptance_required=true'
+  exit 0
+}
+command -v ansible-playbook >/dev/null 2>&1 || {
+  echo 'NODE_OBSERVATION_RESULT=UNVERIFIED reason=ansible_controller_missing local_independent_acceptance_required=true'
+  exit 0
+}
+[[ "$gateway" =~ ^[0-9]+(\.[0-9]+){3}$ && "$client" =~ ^[0-9]+(\.[0-9]+){3}$ ]] || {
+  echo 'NODE_OBSERVATION_RESULT=UNVERIFIED reason=invalid_observation_address local_independent_acceptance_required=true'
+  exit 0
+}
+[[ "$gateway_user" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ && "$client_user" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || {
+  echo 'NODE_OBSERVATION_RESULT=UNVERIFIED reason=invalid_observation_user local_independent_acceptance_required=true'
+  exit 0
+}
+[[ "$gateway_public_key" =~ ^[A-Za-z0-9+/]{43}=$ ]] || {
+  echo 'NODE_OBSERVATION_RESULT=UNVERIFIED reason=invalid_gateway_public_key local_independent_acceptance_required=true'
+  exit 0
+}
+
+# The inventory and extra-vars file contain only public topology, explicit
+# host selectors and paths. The SSH private key remains a runner-local file
+# and is passed to Ansible by path; it is never serialized into either file.
+printf '[xconnect_gateway]\n' > "$inventory"
+printf "xconnect-gateway ansible_host=%s ansible_user=%s ansible_ssh_common_args='%s'\n\n" \
+  "$gateway" "$gateway_user" "-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$LAB_DIR/known_hosts" >> "$inventory"
+printf '[xconnect_client]\n' >> "$inventory"
+printf "xconnect-one ansible_host=%s ansible_user=%s ansible_ssh_common_args='%s'\n" \
+  "$client" "$client_user" "-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$LAB_DIR/known_hosts" >> "$inventory"
+chmod 600 "$inventory"
+jq -n \
+  --arg environment uat \
+  --arg operation xconnect_remote_observation \
+  --arg gateway_host xconnect-gateway \
+  --arg client_host xconnect-one \
+  --arg run "$run_id" \
+  --arg gateway_id "$gateway_id" \
+  --arg client_id "$client_id" \
+  --arg network_id "$network_id" \
+  --arg gateway_public_key "$gateway_public_key" \
+  '{observability_operations_environment:$environment,observability_operation:$operation,
+    xconnect_remote_observation_gateway_host:$gateway_host,
+    xconnect_remote_observation_client_host:$client_host,
+    xconnect_remote_observation_run_id:$run,
+    xconnect_remote_observation_gateway_id:$gateway_id,
+    xconnect_remote_observation_client_id:$client_id,
+    xconnect_remote_observation_network_id:$network_id,
+    xconnect_remote_observation_gateway_public_key:$gateway_public_key,
+    xconnect_remote_observation_gateway_state_dir:"/var/lib/xconnect-gateway",
+    xconnect_remote_observation_client_state_dir:"/var/lib/xconnect-one",
+    xconnect_remote_observation_become:true}' > "$variables"
+chmod 600 "$variables"
+
+observe_with_playbooks() {
+  local remaining output summary
+  remaining=$((end - $(date +%s)))
+  (( remaining > 90 )) && remaining=90
+  (( remaining > 0 )) || return 0
+  if output=$(timeout "${remaining}s" ansible-playbook \
+      -i "$inventory" \
+      --private-key "$LAB_DIR/id_ed25519" \
+      "$playbooks_root/observability_operations.yml" \
+      -e "@$variables" 2>/dev/null); then
+    summary=$(sed -n 's/.*\(NODE_OBSERVATION run=[^"]*SUMMARY_ONLY\).*/\1/p' <<<"$output" | tail -1 || true)
+  else
+    summary=''
+  fi
+  if [[ "$summary" =~ ^NODE_OBSERVATION\ run= ]]; then
+    echo "$summary"
+  else
+    echo "NODE_OBSERVATION run=$run_id refresh=UNVERIFIED sync=UNVERIFIED gateway_peer=UNVERIFIED client_peer=UNVERIFIED SUMMARY_ONLY"
+  fi
+}
+
 observe_nodes() {
-  local gateway_output client_output gateway_refresh=UNVERIFIED client_sync=UNVERIFIED gateway_peer=UNVERIFIED client_peer=UNVERIFIED
-  if gateway_output=$(ssh_with_deadline "$gateway_user@$gateway" sudo bash -s -- "$run_id" "$gateway_id" "$network_id" "$client_id" < "$ROOT/.github/scripts/xconnect-lab/remote-gateway-observation.sh" 2>/dev/null); then
-    gateway_refresh=$(awk -F= '$1 == "refresh" {print $2}' <<<"$gateway_output" | tail -1)
-    gateway_peer=$(awk -F= '$1 == "gateway_peer" {print $2}' <<<"$gateway_output" | tail -1)
-  fi
-  if client_output=$(ssh_with_deadline "$client_user@$client" sudo bash -s -- "$client_id" "$network_id" "$gateway_public_key" < "$ROOT/.github/scripts/xconnect-lab/remote-client-observation.sh" 2>/dev/null); then
-    client_sync=$(awk -F= '$1 == "sync" {print $2}' <<<"$client_output" | tail -1)
-    client_peer=$(awk -F= '$1 == "client_peer" {print $2}' <<<"$client_output" | tail -1)
-  fi
-  echo "NODE_OBSERVATION run=$run_id refresh=${gateway_refresh:-UNVERIFIED} sync=${client_sync:-UNVERIFIED} gateway_peer=${gateway_peer:-UNVERIFIED} client_peer=${client_peer:-UNVERIFIED} SUMMARY_ONLY"
+  observe_with_playbooks
 }
 
 while (( $(date +%s) < end )); do
