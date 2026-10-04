@@ -1,5 +1,9 @@
 # 核心落地成果概览与可观测性集成指南
 
+> 历史方案（2026-10-04 后被统一入口取代）：旧 migration/rollback/Akamai Actions 名称和 hard restore 示例不再可执行。
+> 当前入口为 `environment-data-operations.yml`；仅显式 UAT legacy_import 可做一次性 PROD→UAT 导入。
+> 普通发布不复制数据、禁止自动破坏性恢复。执行边界及未注册能力见 docs/data_migration/environment-data-operations.md。
+
 > **文档定位**：本文档系统梳理了平台 GitOps 数据迁移与流水线触发优化、生产版本化数据库检查点（Release Checkpoint）与原子化回滚引擎的落地成果，并详细阐述了如何关联自建监控系统（Prometheus / VictoriaMetrics / Grafana）以及如何接入观测云（Guance Cloud）等 SaaS 可观测性平台。
 
 ---

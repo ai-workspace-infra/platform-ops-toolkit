@@ -1,6 +1,7 @@
 # 独立 UAT / PROD 升级流水线
 
-入口：`.github/workflows/environment-upgrade.yml`，仅 `workflow_dispatch`。
+入口已统一为 `.github/workflows/environment-data-operations.yml`，支持 dispatch/call。
+入口、执行归属、明确受限模式及 Vault 迁移请以 [统一数据操作说明](environment-data-operations.md) 为准。
 **所有实际演练只在 UAT；PROD 不允许 rehearsal、故障注入或应用回滚演练。**
 
 ## Selfhost web-saas 的兜底与备份职责

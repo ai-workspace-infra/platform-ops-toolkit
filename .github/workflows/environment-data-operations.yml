@@ -1,0 +1,246 @@
+name: Environment Data Operations
+run-name: 'data:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.mode }} / ${{ inputs.environment }}'
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Explicit target environment"
+        required: true
+        type: "choice"
+        options: ["uat","prod"]
+        default: "uat"
+      mode:
+        description: "Single data control plane; imports explicit UAT-only"
+        required: true
+        type: "choice"
+        options: ["preflight","backup","rehearsal","upgrade","rollback","legacy_import","akamai_preflight","checkpoint","probe","baseline","migrate","selfhost_probe","selfhost_init","selfhost_verify"]
+        default: "preflight"
+      release_tag:
+        description: "Immutable release tag"
+        type: "string"
+        default: ""
+      candidate_run_id:
+        description: "Accepted UAT Hybrid run"
+        type: "string"
+        default: ""
+      expected_schema_version:
+        description: "Exact clean starting version"
+        type: "string"
+        default: ""
+      target_schema_version:
+        description: "Exact reviewed target version"
+        type: "string"
+        default: ""
+      migration_sha256:
+        description: "Reviewed SQL checksum"
+        type: "string"
+        default: ""
+      accounts_ref:
+        description: "Reviewed Accounts source ref"
+        type: "string"
+        default: "main"
+      config_json:
+        description: "Non-secret JSON operation config; import requires confirm_legacy_import:true"
+        type: "string"
+        default: "{}"
+      correlation_id:
+        description: "Caller correlation ID"
+        type: "string"
+        default: ""
+  workflow_call:
+    inputs:
+      environment:
+        description: "Explicit target environment"
+        required: true
+        type: "string"
+        default: "uat"
+      mode:
+        description: "Single data control plane; imports explicit UAT-only"
+        required: true
+        type: "string"
+        default: "preflight"
+      release_tag:
+        description: "Immutable release tag"
+        type: "string"
+        default: ""
+      candidate_run_id:
+        description: "Accepted UAT Hybrid run"
+        type: "string"
+        default: ""
+      expected_schema_version:
+        description: "Exact clean starting version"
+        type: "string"
+        default: ""
+      target_schema_version:
+        description: "Exact reviewed target version"
+        type: "string"
+        default: ""
+      migration_sha256:
+        description: "Reviewed SQL checksum"
+        type: "string"
+        default: ""
+      accounts_ref:
+        description: "Reviewed Accounts source ref"
+        type: "string"
+        default: "main"
+      config_json:
+        description: "Non-secret JSON operation config; import requires confirm_legacy_import:true"
+        type: "string"
+        default: "{}"
+      correlation_id:
+        description: "Caller correlation ID"
+        type: "string"
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+concurrency:
+  group: environment-data-operations-${{ inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  DEPLOY_ENV: ${{ inputs.environment }}
+  OPERATION_MODE: ${{ inputs.mode }}
+  UPGRADE_MODE: ${{ inputs.mode }}
+  RELEASE_TAG: ${{ inputs.release_tag }}
+  CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+  EXPECTED_SCHEMA_VERSION: ${{ inputs.expected_schema_version }}
+  TARGET_SCHEMA_VERSION: ${{ inputs.target_schema_version }}
+  MIGRATION_SHA256: ${{ inputs.migration_sha256 }}
+
+jobs:
+  request_gate:
+    name: Validate request and approval before credentials
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    outputs:
+      config_json: ${{ steps.gate.outputs.config_json }}
+      account: ${{ steps.gate.outputs.account }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - id: gate
+        run: python3 .github/scripts/environment-upgrade/validate_operation.py
+        env:
+          DATA_CONFIG_JSON: ${{ inputs.config_json }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+  legacy_import:
+    name: Playbooks / explicit one-time UAT import
+    needs: request_gate
+    if: ${{ inputs.mode == 'legacy_import' }}
+    uses: ai-workspace-infra/playbooks/.github/workflows/uat-data-import.yaml@__PLAYBOOKS_SHA__
+    with:
+      environment: ${{ inputs.environment }}
+      config_json: ${{ needs.request_gate.outputs.config_json }}
+      accounts_ref: ${{ inputs.accounts_ref }}
+      dry_run: ${{ fromJSON(needs.request_gate.outputs.config_json).dry_run }}
+      correlation_id: ${{ inputs.correlation_id || github.run_id }}
+
+  akamai_preflight:
+    name: IaC / read-only Akamai inventory
+    needs: request_gate
+    if: ${{ inputs.mode == 'akamai_preflight' }}
+    uses: ai-workspace-infra/iac_modules/.github/workflows/akamai-state-preflight.yml@f8b3d52e4f2b6528fcf4fa762ea7bf83f8145d06
+    with:
+      environment: ${{ inputs.environment }}
+      account: ${{ needs.request_gate.outputs.account }}
+      gitops_ref: main
+      correlation_id: ${{ inputs.correlation_id || github.run_id }}
+
+  serverless_database:
+    needs: request_gate
+    if: ${{ contains(fromJSON('["checkpoint","probe","baseline","migrate"]'), inputs.mode) }}
+    uses: ai-workspace-infra/playbooks/.github/workflows/serverless-database-operations.yml@__PLAYBOOKS_SHA__
+    with:
+      environment: ${{ inputs.environment }}
+      operation: ${{ inputs.mode }}
+      config_json: ${{ needs.request_gate.outputs.config_json }}
+      release_tag: ${{ inputs.release_tag }}
+      accounts_ref: ${{ inputs.accounts_ref }}
+      correlation_id: ${{ inputs.correlation_id || github.run_id }}
+
+  selfhost_database:
+    needs: request_gate
+    if: ${{ contains(fromJSON('["selfhost_probe","selfhost_init","selfhost_verify"]'), inputs.mode) }}
+    uses: ai-workspace-infra/playbooks/.github/workflows/selfhost-database-operations.yml@__PLAYBOOKS_SHA__
+    with:
+      environment: ${{ inputs.environment }}
+      operation: ${{ inputs.mode }}
+      config_json: ${{ needs.request_gate.outputs.config_json }}
+      release_tag: ${{ inputs.release_tag }}
+      accounts_ref: ${{ inputs.accounts_ref }}
+      correlation_id: ${{ inputs.correlation_id || github.run_id }}
+
+  release_controller:
+    name: Validate accepted release and reviewed execution capability
+    needs: request_gate
+    if: ${{ contains(fromJSON('["preflight","backup","rehearsal","upgrade","rollback"]'), inputs.mode) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Resolve accepted immutable candidate
+        run: python3 .github/scripts/environment-upgrade/pipeline.py candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Refuse incomplete execution adapters
+        run: python3 .github/scripts/environment-upgrade/pipeline.py capabilities
+      - name: Run reviewed delegated phases
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/environment-upgrade/pipeline.py phase preflight
+          if [[ "$OPERATION_MODE" == "backup" ]]; then
+            python3 .github/scripts/environment-upgrade/pipeline.py phase backup
+          elif [[ "$OPERATION_MODE" == "upgrade" || "$OPERATION_MODE" == "rehearsal" ]]; then
+            for phase in backup migration promotion verification; do
+              python3 .github/scripts/environment-upgrade/pipeline.py phase "$phase"
+            done
+            if [[ "$OPERATION_MODE" == "rehearsal" ]]; then
+              for phase in rollback repromotion final_verification; do
+                python3 .github/scripts/environment-upgrade/pipeline.py phase "$phase"
+              done
+            fi
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Publish sanitized release evidence only
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: environment-data-evidence-${{ inputs.environment }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/environment-upgrade/public
+          if-no-files-found: warn
+          retention-days: 30
+
+  verdict:
+    name: Selected executor must succeed (dispatch is not acceptance)
+    if: ${{ always() && needs.request_gate.result != '' && needs.legacy_import.result != '' && needs.akamai_preflight.result != '' && needs.serverless_database.result != '' && needs.selfhost_database.result != '' && needs.release_controller.result != '' }}
+    needs: [request_gate, legacy_import, akamai_preflight, serverless_database, selfhost_database, release_controller]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          mode = os.environ["MODE"]
+          target = ("legacy_import" if mode == "legacy_import" else
+                    "akamai_preflight" if mode == "akamai_preflight" else
+                    "serverless_database" if mode in {"checkpoint","probe","baseline","migrate"} else
+                    "selfhost_database" if mode in {"selfhost_probe","selfhost_init","selfhost_verify"} else
+                    "release_controller")
+          if any(needs[job]["result"] != "success" for job in ("request_gate", target)):
+              raise SystemExit("Selected data operation did not pass; downstream blocked")
+          print("Selected executor completed; consult scoped evidence for live acceptance")
+          PY

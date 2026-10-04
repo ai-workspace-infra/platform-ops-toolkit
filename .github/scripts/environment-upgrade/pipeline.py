@@ -63,7 +63,7 @@ def inputs(env):
     target = env.get("DEPLOY_ENV")
     mode = env.get("UPGRADE_MODE")
     require(target in ("uat", "prod"), "explicit environment must be uat or prod")
-    require(mode in ("preflight", "rehearsal", "upgrade"), "invalid operation mode")
+    require(mode in ("preflight", "backup", "rehearsal", "upgrade"), "invalid operation mode")
     require(mode != "rehearsal" or target == "uat", "rehearsal is UAT-only; PROD rehearsal is forbidden")
     tag = env.get("RELEASE_TAG", "")
     pattern = GATE.RELEASE_TAG if target == "prod" else GATE.SNAPSHOT_TAG
@@ -178,7 +178,7 @@ def registered_adapters(candidate, registry=None):
     expected_path = ".github/scripts/environment-upgrade/delegate.sh"
     require(item.get("path") == expected_path, "delegate must use its fixed control-plane path")
     path = ROOT / expected_path
-    require(path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(ROOT),
+    require(path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(ROOT.resolve()),
             "reviewed delegate missing or symlinked outside repository")
     require(SHA.fullmatch(item.get("sha256", "")) is not None
             and hashlib.sha256(path.read_bytes()).hexdigest() == item["sha256"],
@@ -191,6 +191,8 @@ def digests(candidate):
 
 
 def phase_sequence(candidate):
+    if candidate["mode"] == "backup":
+        return ("preflight", "backup")
     return REHEARSAL_PHASES if candidate["mode"] == "rehearsal" else PHASES
 
 
@@ -272,7 +274,7 @@ def validate_receipt(candidate, phase, receipt, previous):
 
 
 def execute_phase(candidate, phase, public, runner=None):
-    require(candidate["mode"] in ("upgrade", "rehearsal") or phase == "preflight", "preflight cannot mutate")
+    require(candidate["mode"] in ("upgrade", "rehearsal", "backup") or phase == "preflight", "preflight cannot mutate")
     require(phase in phase_sequence(candidate), "phase is not allowed in requested mode")
     adapters = registered_adapters(candidate)
     previous = {}
@@ -294,11 +296,13 @@ def execute_phase(candidate, phase, public, runner=None):
 
 def verdict(mode, results):
     required = ["candidate"] + {"rehearsal": ["preflight", "upgrade"], "preflight": ["preflight"],
+                                "backup": ["preflight", "backup_only"],
                                 "upgrade": ["preflight", "upgrade"]}[mode]
     require(all(results.get(job, {}).get("result") == "success" for job in required),
             "requested stages failed, were cancelled, or were skipped; no release acceptance")
     return {"rehearsal": "UAT upgrade, application rollback and re-promotion rehearsal passed — NOT a PROD deployment.",
             "preflight": "Read-only preflight passed — database/applications were not upgraded.",
+            "backup": "Encrypted checkpoint and isolated restore verification passed; no migration or deployment occurred.",
             "upgrade": "Selected environment upgrade and post-release verification passed."}[mode]
 
 

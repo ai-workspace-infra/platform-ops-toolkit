@@ -54,6 +54,29 @@ def main() -> int:
         fail("the three require-env.sh copies are not byte-identical")
 
     toolkit_scripts = toolkit / ".github/scripts"
+    # Data execution was migrated to pinned Playbooks/IaC workflows. Do not
+    # allow a new control-plane feature to quietly restore mutation owners.
+    retired_data_paths = [
+        '.github/workflows/data-migration.yaml',
+        '.github/workflows/migration.yaml',
+        '.github/workflows/rollback-orchestrator.yml',
+        '.github/workflows/akamai-uat-migration-preflight.yml',
+        '.github/workflows/environment-application-rollback.yml',
+        '.github/workflows/environment-upgrade.yml',
+        '.github/scripts/database',
+        '.github/scripts/data-migration',
+        '.github/scripts/serverless/apply_accounts_incremental_schema.sh',
+        '.github/scripts/serverless/adopt_accounts_uat_baseline.sh',
+        '.github/scripts/platform-ops/provision/akamai-uat-migration-preflight.py',
+        '.github/scripts/platform-ops/observe/platform-ops_web-saas-upgrade-acceptance.sh',
+    ]
+    restored = []
+    for relative in retired_data_paths:
+        path = toolkit / relative
+        if path.is_file() or (path.is_dir() and any(p.is_file() and '__pycache__' not in p.parts for p in path.rglob('*'))):
+            restored.append(relative)
+    if restored:
+        fail('data execution belongs to Playbooks/IaC, not Toolkit: ' + ', '.join(restored))
     forbidden_pipeline_paths = [
         path
         for path in toolkit_scripts.rglob("*")

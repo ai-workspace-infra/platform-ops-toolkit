@@ -1,5 +1,9 @@
 # PROD 至 UAT Accounts 账号数据单向增量迁移方案与操作指南
 
+> 历史方案（2026-10-04 后被统一入口取代）：旧 migration/rollback/Akamai Actions 名称和 hard restore 示例不再可执行。
+> 当前入口为 `environment-data-operations.yml`；仅显式 UAT legacy_import 可做一次性 PROD→UAT 导入。
+> 普通发布不复制数据、禁止自动破坏性恢复。执行边界及未注册能力见 docs/data_migration/environment-data-operations.md。
+
 本文档记录 PROD 环境至 UAT 环境仅针对 `accounts` 账号中心模块的单向增量迁移方案、安全防呆设计及具体执行步骤。
 
 ---

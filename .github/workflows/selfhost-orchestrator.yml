@@ -1328,6 +1328,8 @@ jobs:
   # ---------------------------------------------------------------------------
   capture_web_saas_baseline:
     name: "[1] Web SaaS baseline | ${{ matrix.host }}"
+    outputs:
+      baseline_data_run_id: ${{ steps.dispatch.outputs.data_run_id }}
     needs: [provision]
     if: >-
       ${{ !cancelled() &&
@@ -1339,47 +1341,61 @@ jobs:
       contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
       needs.provision.outputs.hosts_web_saas != '[]' &&
       needs.provision.outputs.hosts_web_saas != '' }}
-    runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         host: ${{ fromJSON(needs.provision.outputs.hosts_web_saas) }}
-    env:
-      MATRIX_HOST: ${{ matrix.host }}
     steps:
-    - name: Checkout repository
+    - name: Check out the toolkit dispatcher
       uses: actions/checkout@v7
       with:
         ref: ${{ github.sha }}
 
-    - name: Download CMDB
+    - name: Dispatch owned read-only baseline and wait for its receipt
+      id: dispatch
+      env:
+        GH_TOKEN: ${{ github.token }}
+        DATA_OPERATION: selfhost_probe
+        DATA_ENVIRONMENT: ${{ needs.provision.outputs.deployment_env }}
+        DATA_CONFIG_JSON: '{"action":"baseline","target_host":"${{ matrix.host }}","acceptance_run_id":"${{ github.run_id }}","caller_run_id":"${{ github.run_id }}"}'
+        RELEASE_TAG: ${{ needs.provision.outputs.deploy_tag }}
+        ACCOUNTS_REF: ${{ needs.provision.outputs.deploy_tag || 'main' }}
+        DATA_WORKFLOW_REF: main
+      run: python3 .github/scripts/environment-upgrade/dispatch.py
+
+    - name: Download baseline receipt from the correlated child run
       uses: actions/download-artifact@v8
       with:
-        name: platform-ops-toolkit-cmdb
-        path: cmdb
+        name: selfhost-baseline-${{ matrix.host }}
+        repository: ai-workspace-infra/platform-ops-toolkit
+        run-id: ${{ steps.dispatch.outputs.data_run_id }}
+        github-token: ${{ github.token }}
+        path: ${{ runner.temp }}/selfhost-baseline
 
-    - name: Load deployment SSH key from Vault
-      id: vault
-      uses: hashicorp/vault-action@v4
-      with:
-        url: ${{ env.VAULT_ADDR }}
-        method: jwt
-        role: ${{ env.VAULT_ROLE }}
-        jwtGithubAudience: vault
-        secrets: |
-          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64
-
-    - name: Setup deployment runner
-      uses: ./.github/actions/setup-deployment-runner
-      with:
-        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
-        matrix_host: ${{ matrix.host }}
-        wait_for_ssh: 'true'
-
-    - name: Capture pre-upgrade Accounts data fingerprint
+    - name: Verify receipt is real and bound to this parent, child, and host
       env:
-        CMDB_FILE: cmdb/cmdb.json
-      run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_web-saas-upgrade-acceptance.sh baseline
+        RECEIPT_PATH: ${{ runner.temp }}/selfhost-baseline/baseline.json
+        EXPECTED_PARENT_RUN_ID: ${{ github.run_id }}
+        EXPECTED_BASELINE_RUN_ID: ${{ steps.dispatch.outputs.data_run_id }}
+        EXPECTED_HOST: ${{ matrix.host }}
+        EXPECTED_ACCEPTANCE_RUN_ID: ${{ github.run_id }}
+      run: |
+        python3 - <<'PY'
+        import json, os
+        with open(os.environ['RECEIPT_PATH'], encoding='utf-8') as f:
+            receipt = json.load(f)
+        expected = {
+            'parent_workflow_run_id': os.environ['EXPECTED_PARENT_RUN_ID'],
+            'baseline_workflow_run_id': os.environ['EXPECTED_BASELINE_RUN_ID'],
+            'target_host': os.environ['EXPECTED_HOST'],
+            'acceptance_run_id': os.environ['EXPECTED_ACCEPTANCE_RUN_ID'],
+        }
+        if receipt.get('schema') != 1 or any(receipt.get(k) != v for k, v in expected.items()):
+            raise SystemExit('baseline receipt is missing or not bound to this parent/child/host')
+        if receipt.get('captured_state') not in ('present', 'absent') or not isinstance(receipt.get('row_counts'), dict):
+            raise SystemExit('baseline receipt lacks captured database evidence')
+        PY
 
   # ---------------------------------------------------------------------------
   # 步骤 2.5: 自动推进 GitOps 版本
@@ -1501,141 +1517,9 @@ jobs:
   # 这个耦合(见 run 30358343199, Bootstrap 成功但 Deploy Web SaaS Services
   # 报 "no HTTP response" / "HTTP 502" 全部 fail)。
   # 把建库挪到 observe 检查之前修复, 不是撤销任何一个 fix。
-  initialize_web_saas_databases:
-    name: "[2] DB Init | ${{ matrix.host }}"
-    needs: [provision, deploy_base, update_gitops_tags]
-    if: >-
-      ${{ !cancelled() &&
-      needs.provision.result == 'success' &&
-      needs.deploy_base.result == 'success' &&
-      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
-      needs.provision.outputs.run_application_deploy == 'true' &&
-      needs.provision.outputs.terraform_action == 'apply' &&
-      needs.provision.outputs.count != '0' &&
-      contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
-      needs.provision.outputs.hosts_web_saas != '[]' &&
-      needs.provision.outputs.hosts_web_saas != '' }}
-    runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        host: ${{ fromJSON(needs.provision.outputs.hosts_web_saas) }}
-    env:
-      MATRIX_HOST: ${{ matrix.host }}
-      ANSIBLE_HOST_KEY_CHECKING: "False"
-      ANSIBLE_PIPELINING: "True"
-      ANSIBLE_SSH_ARGS: "-o ControlMaster=auto -o ControlPersist=60s -o IdentityFile=~/.ssh/id_deploy -o StrictHostKeyChecking=no"
-      VAULT_ENV_PATH: ${{ needs.provision.outputs.vault_env_path }}
-      OBSERVABILITY_ENDPOINT: ${{ github.event.inputs.observability_endpoint || 'https://observability.svc.plus' }}
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        # The helper script is part of the workflow commit. The deployment tag
-        # may predate the helper and must not control this checkout.
-        ref: ${{ github.sha }}
-
-    - name: Checkout playbooks
-      uses: actions/checkout@v7
-      with:
-        repository: ai-workspace-infra/playbooks
-        ref: ${{ needs.provision.outputs.playbooks_ref }}
-        path: playbooks
-
-    - name: Download CMDB
-      uses: actions/download-artifact@v8
-      with:
-        name: platform-ops-toolkit-cmdb
-        path: cmdb
-
-    - name: Load Vault secrets
-      id: vault
-      uses: hashicorp/vault-action@v4
-      with:
-        url: ${{ env.VAULT_ADDR }}
-        method: jwt
-        role: ${{ env.VAULT_ROLE }}
-        jwtGithubAudience: vault
-        exportToken: true
-        secrets: |
-          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
-          ${{ env.VAULT_KV }} ROOT_BOOTSTRAP_PASSWORD | ROOT_BOOTSTRAP_PASSWORD ;
-
-    # The readiness probe below uses ~/.ssh/id_deploy directly. Configure the
-    # runner before probing PostgreSQL; placing this after the probe causes a
-    # misleading "container not ready" failure on a perfectly reachable host.
-    - name: Setup deployment runner
-      uses: ./.github/actions/setup-deployment-runner
-      with:
-        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
-        matrix_host: ${{ matrix.host }}
-        wait_for_ssh: 'true'
-        install_ansible: 'true'
-        assert_ansible_target: 'true'
-        ansible_inventory: cmdb/inventory.ini
-
-    # Doco-CD owns the Compose stack. Before DB Init starts to create roles,
-    # require the pull-only reconciler to have actually started PostgreSQL.
-    # The external helper emits read-only Doco-CD/Compose diagnostics on
-    # timeout, avoiding a second opaque four-minute container probe.
-    - name: Wait for Doco-CD Web SaaS PostgreSQL readiness
-      run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_base_wait-for-web-saas-postgres.sh
-
-    - name: Cache pip packages
-      uses: actions/cache@v6
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-ansible-v1
-        restore-keys: |
-          ${{ runner.os }}-pip-
-
-    # 这一步此前跑的是 deploy_accounts_svc_plus.yml —— 那是"部署 accounts
-    # 服务"的 playbook, 与步骤名(建库建角色)对不上, 而且容器栈本就该由
-    # Doco-CD 拉 gitops 来部署, 这里再部署一遍是重复的第二条路径。
-    #
-    # 更要命的是它的 hosts 默认值是 accounts 组, 而 CMDB 给 web-saas 主机打
-    # 的组是 web_saas/debian/database, 根本没有 accounts 组 —— --limit 与
-    # hosts 求交为空, ansible 打印 "skipping: no hosts matched" 后 exit 0。
-    # 于是 account/billing 两个库从没被创建, accounts 容器起来就报
-    # 'database "account" does not exist' 反复重启, Caddy 对外表现成 502。
-    #
-    # create_databases_and_users.yml 才是建库的那个(hosts: all, 与 --limit
-    # 求交正好命中本机), 它自己会探测 web-saas-postgresql 容器, 探测不到会
-    # 显式 fail 而不是静默跳过。
-    - name: Create Web SaaS databases and roles
-      working-directory: playbooks
-      env:
-        ROOT_BOOTSTRAP_PASSWORD: ${{ steps.vault.outputs.ROOT_BOOTSTRAP_PASSWORD }}
-        # Pass the exact credentials used by the application deployment into
-        # the idempotent role reconciliation. This removes the implicit
-        # database-Vault fallback and makes the DB-init/app contract explicit.
-        ACCOUNT_PG_PASSWORD: ${{ steps.vault.outputs.ACCOUNT_PG_PASSWORD }}
-        VAULT_ENV_PATH: ${{ needs.provision.outputs.vault_env_path }}
-        POSTGRESQL_DEPLOY_MODE: compose
-      run: >-
-        ansible-playbook -i ../cmdb/inventory.ini create_databases_and_users.yml
-        --limit "${MATRIX_HOST}"
-
-    # 建库只建库和角色, 不建表。accounts 自己只会自动建 7 张表, users /
-    # sessions / identities / rbac_* 这套 baseline 必须外部灌入, 否则 accounts
-    # 起来就是 relation "users" does not exist 无限重启, 对外 502 ——
-    # 2026-07-28 每一台新主机都栽在这一步的缺失上。
-    # 幂等: users 表在就跳过, 所以每次部署都跑是安全的。
-    - name: Initialize Web SaaS baseline schemas
-      working-directory: playbooks
-      env:
-        # schema 跟着部署的版本走, 不跟 main 走 —— 用 main 的表结构配一个旧
-        # tag 的镜像, 是"表比代码新"的经典事故。
-        ACCOUNTS_SCHEMA_REF: ${{ needs.provision.outputs.deploy_tag || needs.provision.outputs.deploy_ref || 'main' }}
-      run: >-
-        ansible-playbook -i ../cmdb/inventory.ini initialize-web-saas-schemas.yml
-        --limit "${MATRIX_HOST}"
-
-  # deploy_web_saas (stateless containers) 和 initialize_web_saas_databases (DB init)
-  # 并行运行。两者都必须等 GitOps tag 更新完成，随后 DB Init 由 playbook
-  # 等待 Doco-CD 拉起 PostgreSQL，避免在旧版本尚未收敛时提前探测容器。
-  # switch_dns 负责 DNS 更新；更新完成后，Web SaaS 与 Agent Proxy 的最终
-  # 状态检查以两个并列 matrix job 运行，最后由 deployment_summary 汇总结果。
+  # Application deployment remains independent of explicit schema initialization.
+  # A schema init is routed through the unified data control plane only when
+  # specifically requested there; ordinary deploys never create schema.
   deploy_web_saas:
     name: "[2] Web SaaS | ${{ matrix.host }}"
     needs: [provision, deploy_base, update_gitops_tags]
@@ -1667,86 +1551,42 @@ jobs:
   # DNS-independent upgrade acceptance.
   #
   # observe_web_saas_after_dns only runs after switch_dns, so a dns_mode=none
-  # upgrade (UAT repair run 37171674829) finished green with no proof that the
-  # new Accounts/Console served, which images ran, or that existing users and
-  # subscriptions survived. This job always runs once the deploy and DB Init
+  # upgrade can otherwise finish without proof that the new Accounts/Console
+  # served or that existing users and subscriptions survived. This job runs after the deploy
   # succeed, reaching services by CMDB address from inside the host. It does
   # not gate switch_dns; a failure here fails the run and the summary.
   # ---------------------------------------------------------------------------
   accept_web_saas_upgrade:
     name: "[3] Web SaaS acceptance | ${{ matrix.host }}"
-    needs: [provision, capture_web_saas_baseline, deploy_web_saas, initialize_web_saas_databases]
+    needs: [provision, capture_web_saas_baseline, deploy_web_saas]
     if: >-
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
       needs.capture_web_saas_baseline.result == 'success' &&
       needs.deploy_web_saas.result == 'success' &&
-      needs.initialize_web_saas_databases.result == 'success' &&
       needs.provision.outputs.hosts_web_saas != '[]' &&
       needs.provision.outputs.hosts_web_saas != '' }}
-    runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         host: ${{ fromJSON(needs.provision.outputs.hosts_web_saas) }}
-    env:
-      MATRIX_HOST: ${{ matrix.host }}
     steps:
-    - name: Checkout repository
+    - name: Check out the toolkit dispatcher
       uses: actions/checkout@v7
       with:
         ref: ${{ github.sha }}
 
-    - name: Download CMDB
-      uses: actions/download-artifact@v8
-      with:
-        name: platform-ops-toolkit-cmdb
-        path: cmdb
-
-    - name: Load deployment SSH key from Vault
-      id: vault
-      uses: hashicorp/vault-action@v4
-      with:
-        url: ${{ env.VAULT_ADDR }}
-        method: jwt
-        role: ${{ env.VAULT_ROLE }}
-        jwtGithubAudience: vault
-        secrets: |
-          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64
-
-    - name: Setup deployment runner
-      uses: ./.github/actions/setup-deployment-runner
-      with:
-        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
-        matrix_host: ${{ matrix.host }}
-        wait_for_ssh: 'true'
-
-    - name: Verify Web SaaS containers are running
+    - name: Dispatch read-only selfhost verification and wait for completion
       env:
-        CMDB_FILE: cmdb/cmdb.json
-      run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_observe-web-saas-containers.sh
-
-    - name: Checkout immutable Accounts upgrade source
-      uses: actions/checkout@v7
-      with:
-        repository: ai-workspace-services/accounts
-        ref: ${{ needs.provision.outputs.deploy_tag }}
-        path: upgrade-accounts-source
-        sparse-checkout: sql/migrations
-        persist-credentials: false
-
-    - name: Resolve exact schema target from the Accounts artifact source
-      env:
-        DEPLOY_TAG: ${{ needs.provision.outputs.deploy_tag }}
-      run: >-
-        python3 .github/scripts/platform-ops/observe/resolve-accounts-upgrade-target.py
-        --source upgrade-accounts-source --tag "$DEPLOY_TAG" >> "$GITHUB_ENV"
-
-    - name: Verify Accounts/Console, running images, schema and data preservation
-      env:
-        CMDB_FILE: cmdb/cmdb.json
-        DEPLOY_TAG: ${{ needs.provision.outputs.deploy_tag }}
-      run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_web-saas-upgrade-acceptance.sh verify
+        GH_TOKEN: ${{ github.token }}
+        DATA_OPERATION: selfhost_verify
+        DATA_ENVIRONMENT: ${{ needs.provision.outputs.deployment_env }}
+        DATA_CONFIG_JSON: '{"target_host":"${{ matrix.host }}","acceptance_run_id":"${{ github.run_id }}","caller_run_id":"${{ github.run_id }}","baseline_data_run_id":"${{ needs.capture_web_saas_baseline.outputs.baseline_data_run_id }}"}'
+        RELEASE_TAG: ${{ needs.provision.outputs.deploy_tag }}
+        ACCOUNTS_REF: ${{ needs.provision.outputs.deploy_tag || 'main' }}
+        DATA_WORKFLOW_REF: main
+      run: python3 .github/scripts/environment-upgrade/dispatch.py
 
   switch_dns:
     name: "[3] DNS Update"
@@ -1914,11 +1754,10 @@ jobs:
 
   bootstrap_stripe_catalog:
     name: "[4] Stripe catalog"
-    needs: [provision, initialize_web_saas_databases, switch_dns]
+    needs: [provision, switch_dns]
     if: >-
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
-      needs.initialize_web_saas_databases.result == 'success' &&
       needs.switch_dns.result == 'success' &&
       inputs.skip_stripe_catalog != true &&
       contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) }}
@@ -2113,7 +1952,6 @@ jobs:
     needs: [
       provision,
       deploy_web_saas,
-      initialize_web_saas_databases,
       capture_web_saas_baseline,
       accept_web_saas_upgrade,
       deploy_agent_proxy,
@@ -2136,7 +1974,6 @@ jobs:
       ${{ always() && !cancelled() &&
       needs.provision.result != '' &&
       needs.deploy_web_saas.result != '' &&
-      needs.initialize_web_saas_databases.result != '' &&
       needs.capture_web_saas_baseline.result != '' &&
       needs.accept_web_saas_upgrade.result != '' &&
       needs.deploy_agent_proxy.result != '' &&
@@ -2162,7 +1999,7 @@ jobs:
       env:
         PROVISION_RESULT: ${{ needs.provision.result }}
         WEB_SAAS_DEPLOY_RESULT: ${{ needs.deploy_web_saas.result }}
-        DB_INIT_RESULT: ${{ needs.initialize_web_saas_databases.result }}
+        DB_INIT_RESULT: not-requested
         WEB_SAAS_BASELINE_RESULT: ${{ needs.capture_web_saas_baseline.result }}
         WEB_SAAS_ACCEPTANCE_RESULT: ${{ needs.accept_web_saas_upgrade.result }}
         RUN_APPLICATION_DEPLOY: ${{ needs.provision.outputs.run_application_deploy }}
@@ -2803,28 +2640,28 @@ jobs:
     # The toolkit operation selects whether this execution includes migration.
     # GitOps supplies the declarative runtime topology only; its migration
     # capability flag is not a control-plane authorization for this run.
-    # Data migration uses the CMDB address and the local PostgreSQL container.
-    # It is independent of Agent Proxy and observability, and can begin as
-    # soon as the database bootstrap/schema job completes.
-    # DB Init is the only preceding stage required for migration. The base
-    # job is already in DB Init's dependency chain.
-    needs: [provision, initialize_web_saas_databases]
+    # Import is explicit and gated by confirm_legacy_import in the unified
+    # control plane. Older migrate/deploy+migrate callers fail closed.
+    needs: [provision]
     if: >-
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
       (needs.provision.outputs.toolkit_action == 'migrate' ||
-      (needs.provision.outputs.toolkit_action == 'deploy+migrate' &&
-      needs.initialize_web_saas_databases.result == 'success')) }}
-    uses: ./.github/workflows/data-migration.yaml
-    with:
-      vault_env_path: ${{ needs.provision.outputs.vault_env_path }}
-      runner_type: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
-      toolkit_ref: ${{ needs.provision.outputs.toolkit_ref }}
-      infra_ref: ${{ needs.provision.outputs.playbooks_ref }}
-      toolkit_action: "migrate"
-      migration_scope: "accounts"
-      accounts_dry_run: false
-      accounts_ref: ${{ needs.provision.outputs.deploy_tag }}
-      accounts_transport: "ssh"
-      accounts_source_host: ${{ needs.provision.outputs.source_host }}
-      accounts_target_host: ${{ needs.provision.outputs.migration_target_host }}
+      needs.provision.outputs.toolkit_action == 'deploy+migrate') }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out the toolkit dispatcher
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ github.sha }}
+
+    - name: Dispatch explicitly gated legacy import and wait for its verdict
+      env:
+        GH_TOKEN: ${{ github.token }}
+        DATA_OPERATION: legacy_import
+        DATA_ENVIRONMENT: ${{ needs.provision.outputs.deployment_env }}
+        DATA_CONFIG_JSON: '{"confirm_legacy_import":false,"caller_run_id":"${{ github.run_id }}","accounts_source_host":"${{ needs.provision.outputs.source_host }}","accounts_target_host":"${{ needs.provision.outputs.migration_target_host }}","accounts_transport":"ssh","accounts_source_backend":"vps","accounts_target_backend":"vps","accounts_migration_mode":"data","accounts_dry_run":false}'
+        RELEASE_TAG: ${{ needs.provision.outputs.deploy_tag }}
+        ACCOUNTS_REF: ${{ needs.provision.outputs.deploy_tag || 'main' }}
+        DATA_WORKFLOW_REF: main
+      run: python3 .github/scripts/environment-upgrade/dispatch.py

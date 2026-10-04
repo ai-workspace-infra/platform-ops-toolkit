@@ -1,5 +1,9 @@
 # VPS 数据迁移模式
 
+> 历史方案（2026-10-04 后被统一入口取代）：旧 migration/rollback/Akamai Actions 名称和 hard restore 示例不再可执行。
+> 当前入口为 `environment-data-operations.yml`；仅显式 UAT legacy_import 可做一次性 PROD→UAT 导入。
+> 普通发布不复制数据、禁止自动破坏性恢复。执行边界及未注册能力见 docs/data_migration/environment-data-operations.md。
+
 `.github/workflows/data-migration.yaml` 支持两种互斥的目标模式：
 
 | 目标配置 | 行为 |

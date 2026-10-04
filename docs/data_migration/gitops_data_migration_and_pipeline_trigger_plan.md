@@ -1,5 +1,9 @@
 # GitOps 数据迁移拓扑与流水线触发机制优化方案 (Implementation Plan)
 
+> 历史方案（2026-10-04 后被统一入口取代）：旧 migration/rollback/Akamai Actions 名称和 hard restore 示例不再可执行。
+> 当前入口为 `environment-data-operations.yml`；仅显式 UAT legacy_import 可做一次性 PROD→UAT 导入。
+> 普通发布不复制数据、禁止自动破坏性恢复。执行边界及未注册能力见 docs/data_migration/environment-data-operations.md。
+
 ## 1. 架构目标与背景
 
 随着平台数据库逐步由传统单机 VPS PostgreSQL 演进为云原生 Serverless 架构（Supabase Cloud DB），现有基于 VPS 容器 SSH 隧道的迁移链路已无法满足纯云上数据库之间的同步需求。

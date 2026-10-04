@@ -108,6 +108,15 @@ on:
         required: true
         default: false
         type: boolean
+      data_operation:
+        description: 'Optional explicit data operation delegated to unified control plane; none for normal deployments'
+        type: choice
+        default: none
+        options: [none, preflight, backup, rehearsal, upgrade, rollback, legacy_import, akamai_preflight, probe, migrate]
+      data_config_json:
+        description: 'Non-secret reviewed data operation parameters; legacy_import requires explicit confirmation'
+        type: string
+        default: '{}'
 
 concurrency:
   group: hybrid-uat-${{ inputs.target_domains || 'all' }}-${{ inputs.operation || 'plan' }}
@@ -155,10 +164,27 @@ jobs:
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/hybrid-routing.json
           REQUIRED_RUNTIME_MODE: hybrid
 
+  data_operations:
+    name: '[1] Delegate | environment data operation'
+    needs: preflight
+    if: ${{ inputs.data_operation != 'none' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Dispatch and wait for data result
+        run: python3 .github/scripts/environment-upgrade/dispatch.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DATA_ENVIRONMENT: ${{ inputs.vault_env_path }}
+          DATA_OPERATION: ${{ inputs.data_operation }}
+          DATA_CONFIG_JSON: ${{ inputs.data_config_json }}
+          RELEASE_TAG: ${{ inputs.deploy_tag }}
+          ACCOUNTS_REF: ${{ inputs.deploy_tag || 'main' }}
+
   resource_orchestration:
     name: '[1] Execute | eight ordered resource lanes'
-    needs: preflight
-    if: ${{ needs.preflight.result == 'success' }}
+    needs: [preflight, data_operations]
+    if: ${{ always() && needs.preflight.result == 'success' && (needs.data_operations.result == 'success' || needs.data_operations.result == 'skipped') }}
     runs-on: ${{ inputs.runner_type || 'ubuntu-latest' }}
     environment: uat
     steps:
@@ -217,7 +243,7 @@ jobs:
   edge_gateway:
     name: '[2] Edge handoff | ${{ matrix.boundary }} | delegated to Serverless child'
     needs: resource_orchestration
-    if: ${{ needs.resource_orchestration.result == 'success' }}
+    if: ${{ always() && needs.resource_orchestration.result == 'success' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

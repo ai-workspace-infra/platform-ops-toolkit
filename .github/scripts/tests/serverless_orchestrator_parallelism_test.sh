@@ -122,7 +122,7 @@ for gate in (
 ):
     if gate not in jobs["serverless_domains"].get("if", ""):
         raise SystemExit(f"serverless_domains must be blocked when a requested schema step fails: {gate}")
-for downstream in ("trigger_data_migration", "stripe_catalog"):
+for downstream in ("stripe_catalog",):
     needs = set(jobs[downstream].get("needs", []))
     if not {"uat_accounts_baseline", "uat_accounts_schema_migration"}.issubset(needs):
         raise SystemExit(f"{downstream} must depend on requested Accounts schema steps")
@@ -133,6 +133,12 @@ for downstream in ("trigger_data_migration", "stripe_catalog"):
     ):
         if gate not in condition:
             raise SystemExit(f"{downstream} must be blocked when a requested schema step fails: {gate}")
+
+legacy = jobs["trigger_data_migration"]
+if 'environment-upgrade/dispatch.py' not in yaml.safe_dump(legacy):
+    raise SystemExit('Legacy import must dispatch the unified explicit opt-in gate')
+if '"confirm_legacy_import":false' not in yaml.safe_dump(legacy):
+    raise SystemExit('Ordinary Serverless dispatch must never opt into production data copying')
 
 if jobs["serverless_domains"].get("concurrency", {}).get("group") != "public-dns-${{ inputs.vault_env_path || 'uat' }}":
     raise SystemExit("serverless_domains must serialize public DNS ownership per environment")

@@ -4,7 +4,7 @@ permissions:
   id-token: write
   contents: read
   # Read the UAT Hybrid run a PROD promotion manifest names.
-  actions: read
+  actions: write
 
 on:
   workflow_dispatch:
@@ -139,16 +139,14 @@ on:
         default: 'console.svc.plus'
         type: string
       supabase_target_existing_strategy:
-        description: 'Supabase UAT public 非空时的策略：reject、replace_public 或 accounts_merge'
+        description: 'Legacy compatibility input; explicit import uses unified entry, never replace_public'
         required: false
-        # UAT is refreshed continuously and already contains the initialized
-        # public schema. Preserve those rows by default; destructive replacement
-        # remains opt-in and requires the explicit confirmation below.
+        # No ordinary deployment refreshes UAT from production.
         default: 'accounts_merge'
         type: choice
-        options: [reject, replace_public, accounts_merge]
+        options: [reject, accounts_merge]
       supabase_target_confirm_replace:
-        description: 'replace_public 清空 Supabase UAT public 前的显式确认'
+        description: 'Retired destructive compatibility flag; ignored, replacement remains disabled'
         required: false
         default: false
         type: boolean
@@ -240,317 +238,100 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag_ref }}
 
   supabase:
-    name: Supabase / xworktech
+    name: Data Operations / checkpoint
     needs: preflight
-    outputs:
-      durable_checkpoint_verified: ${{ steps.checkpoint.outputs.durable_checkpoint_verified }}
-    # Deployment paths verify the existing Supabase service before Cloud Run
-    # and migration start. Schema initialization is a separate manual workflow.
     if: ${{ contains(fromJSON('["deploy","upgrade","deploy+migrate","repair-schema"]'), inputs.operation) }}
     runs-on: ubuntu-latest
+    outputs:
+      data_run_id: ${{ steps.data.outputs.data_run_id }}
     steps:
-      - name: Checkout platform toolkit
-        uses: actions/checkout@v7
-
-      - name: Install Vault CLI
-        run: ./.github/scripts/serverless/install_vault_cli.sh
-
-      - name: Authenticate to Vault with GitHub OIDC
-        uses: hashicorp/vault-action@v4
+      - uses: actions/checkout@v7
         with:
-          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
-          method: jwt
-          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
-          jwtGithubAudience: vault
-          exportToken: true
-
-      - name: Run Supabase task
-        run: ./.github/scripts/serverless/run_supabase_task.sh
+          persist-credentials: false
+      - id: data
+        name: Dispatch unified entry and require child success
+        run: python3 .github/scripts/environment-upgrade/dispatch.py
         env:
-          VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
-          VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
-          INITIALIZE_SUPABASE: 'false'
-          VERIFY_SUPABASE: 'true'
-
-      - name: Load Supabase credentials from Vault for checkpoint
-        id: vault_checkpoint
-        uses: hashicorp/vault-action@v4
-        with:
-          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
-          method: jwt
-          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
-          jwtGithubAudience: vault
-          secrets: |
-            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/supabase DATABASE_SESSION_POOLER_URL | TARGET_DSN ;
-
-      - name: Load UAT-only durable checkpoint credentials
-        id: vault_uat_checkpoint
-        if: ${{ inputs.apply_accounts_schema_migration == true && inputs.vault_env_path == 'uat' }}
-        uses: hashicorp/vault-action@v4
-        with:
-          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
-          method: jwt
-          role: github-actions-platform-ops-toolkit-uat
-          jwtGithubAudience: vault
-          ignoreNotFound: true
-          secrets: |
-            kv/data/CICD/uat/iac_state TF_STATE_BUCKET | S3_BUCKET ;
-            kv/data/CICD/uat/iac_state TF_STATE_ACCESS_KEY | AWS_ACCESS_KEY_ID ;
-            kv/data/CICD/uat/iac_state TF_STATE_SECRET_KEY | AWS_SECRET_ACCESS_KEY ;
-            kv/data/CICD/uat/iac_state TF_STATE_REGION | S3_REGION ;
-            kv/data/CICD/uat/iac_state TF_STATE_ENDPOINT | S3_ENDPOINT ;
-            kv/data/uat/serverless/database-backup BACKUP_ENCRYPTION_PASS | BACKUP_ENCRYPTION_PASS
-
-      - name: Create release checkpoint before deployment
-        id: checkpoint
-        run: ./.github/scripts/database/create_release_checkpoint.sh
-        env:
-          RELEASE_TAG: ${{ inputs.tag_ref || github.sha }}
-          DATABASE_BACKEND: supabase
-          DATABASE_ENV: ${{ inputs.vault_env_path || 'uat' }}
-          TARGET_DSN: ${{ steps.vault_checkpoint.outputs.TARGET_DSN }}
-          GIT_SHA: ${{ github.sha }}
-          REQUIRE_DURABLE_CHECKPOINT: ${{ inputs.apply_accounts_schema_migration || false }}
-          S3_BUCKET: ${{ steps.vault_uat_checkpoint.outputs.S3_BUCKET }}
-          AWS_ACCESS_KEY_ID: ${{ steps.vault_uat_checkpoint.outputs.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ steps.vault_uat_checkpoint.outputs.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ steps.vault_uat_checkpoint.outputs.S3_REGION }}
-          S3_REGION: ${{ steps.vault_uat_checkpoint.outputs.S3_REGION }}
-          S3_ENDPOINT: ${{ steps.vault_uat_checkpoint.outputs.S3_ENDPOINT }}
-          S3_PREFIX: database-checkpoints
-          BACKUP_ENCRYPTION_PASS: ${{ steps.vault_uat_checkpoint.outputs.BACKUP_ENCRYPTION_PASS }}
-
-      - name: Upload non-sensitive checkpoint manifest
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: database-checkpoint-manifest-${{ inputs.vault_env_path || 'uat' }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/database-checkpoints/**/manifest.json
-          if-no-files-found: ignore
-          retention-days: 7
+          GH_TOKEN: ${{ github.token }}
+          DATA_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}
+          DATA_OPERATION: checkpoint
+          RELEASE_TAG: ${{ inputs.tag_ref }}
+          ACCOUNTS_REF: ${{ inputs.tag_ref || 'main' }}
+          DATA_CONFIG_JSON: >-
+            {"require_durable_checkpoint":${{ inputs.apply_accounts_schema_migration || false }}}
 
   init_schema:
-    name: Supabase / xworktech schema initialization
+    name: Initialization is not an upgrade
     needs: preflight
     if: ${{ inputs.operation == 'init-schema' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout platform toolkit
-        uses: actions/checkout@v7
-
-      - name: Checkout Accounts schema
-        uses: actions/checkout@v7
-        with:
-          repository: ai-workspace-services/accounts
-          ref: ${{ inputs.accounts_schema_ref || 'main' }}
-          path: accounts
-          sparse-checkout: |
-            sql/schema.sql
-
-      - name: Install Vault CLI
-        run: ./.github/scripts/serverless/install_vault_cli.sh
-
-      - name: Authenticate to Vault with GitHub OIDC
-        uses: hashicorp/vault-action@v4
-        with:
-          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
-          method: jwt
-          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
-          jwtGithubAudience: vault
-          exportToken: true
-
-      - name: Initialize and verify Supabase account schema
-        run: ./.github/scripts/serverless/run_supabase_task.sh
-        env:
-          VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
-          VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
-          INITIALIZE_SUPABASE: 'true'
-          VERIFY_SUPABASE: 'true'
-          ACCOUNT_SCHEMA_FILE: ${{ github.workspace }}/accounts/sql/schema.sql
+      - run: |
+          echo "::error::Destructive init-schema retired from orchestrators. Use reviewed Playbooks bootstrap only for a new empty database; existing databases require unified data operations."
+          exit 1
 
   uat_accounts_schema_probe:
-    name: Supabase / Accounts schema read-only probe
+    name: Data Operations / probe
     needs: preflight
     if: ${{ inputs.probe_accounts_schema == true && inputs.operation == 'plan' && inputs.vault_env_path == 'uat' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout platform toolkit
-        uses: actions/checkout@v7
-
-      - name: Load UAT Supabase database identity and connection
-        id: vault
-        uses: hashicorp/vault-action@v4
+      - uses: actions/checkout@v7
         with:
-          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
-          method: jwt
-          role: github-actions-platform-ops-toolkit-uat
-          jwtGithubAudience: vault
-          secrets: |
-            kv/data/uat/serverless/supabase DATABASE_SESSION_POOLER_URL | TARGET_DSN ;
-            kv/data/uat/serverless/supabase PROJECT_REF | PROJECT_REF ;
-
-      - name: Inspect UAT Accounts schema without writes
-        run: ./.github/scripts/serverless/probe_accounts_schema.sh
+          persist-credentials: false
+      - id: data
+        name: Dispatch unified entry and require child success
+        run: python3 .github/scripts/environment-upgrade/dispatch.py
         env:
-          VAULT_ENV_PATH: uat
-          TARGET_DSN: ${{ steps.vault.outputs.TARGET_DSN }}
-          PROJECT_REF: ${{ steps.vault.outputs.PROJECT_REF }}
+          GH_TOKEN: ${{ github.token }}
+          DATA_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}
+          DATA_OPERATION: probe
+          RELEASE_TAG: ${{ inputs.tag_ref }}
+          ACCOUNTS_REF: ${{ inputs.tag_ref || 'main' }}
+          DATA_CONFIG_JSON: >-
+            {}
 
   uat_accounts_baseline:
-    name: Supabase / Accounts expand-only baseline
+    name: Data Operations / baseline
     needs: [preflight, supabase]
     if: ${{ always() && needs.preflight.result == 'success' && needs.supabase.result == 'success' && inputs.adopt_accounts_baseline == true && inputs.vault_env_path == 'uat' && inputs.operation == 'deploy' }}
     runs-on: ubuntu-latest
-    concurrency:
-      group: uat-accounts-schema
-      cancel-in-progress: false
     steps:
-      - name: Checkout platform toolkit
-        uses: actions/checkout@v7
-
-      - name: Load UAT Supabase database identity and connection
-        id: vault
-        uses: hashicorp/vault-action@v4
+      - uses: actions/checkout@v7
         with:
-          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
-          method: jwt
-          role: github-actions-platform-ops-toolkit-uat
-          jwtGithubAudience: vault
-          secrets: |
-            kv/data/uat/serverless/supabase DATABASE_SESSION_POOLER_URL | TARGET_DSN ;
-            kv/data/uat/serverless/supabase PROJECT_REF | PROJECT_REF ;
-
-      - name: Adopt reviewed UAT Accounts baseline
-        run: ./.github/scripts/serverless/adopt_accounts_uat_baseline.sh
+          persist-credentials: false
+      - id: data
+        name: Dispatch unified entry and require child success
+        run: python3 .github/scripts/environment-upgrade/dispatch.py
         env:
-          VAULT_ENV_PATH: uat
-          TARGET_DSN: ${{ steps.vault.outputs.TARGET_DSN }}
-          PROJECT_REF: ${{ steps.vault.outputs.PROJECT_REF }}
+          GH_TOKEN: ${{ github.token }}
+          DATA_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}
+          DATA_OPERATION: baseline
+          RELEASE_TAG: ${{ inputs.tag_ref }}
+          ACCOUNTS_REF: ${{ inputs.tag_ref || 'main' }}
+          DATA_CONFIG_JSON: >-
+            {"checkpoint_run_id":"${{ needs.supabase.outputs.data_run_id }}"}
 
   uat_accounts_schema_migration:
-    name: Supabase / Accounts additive schema migration
-    concurrency:
-      group: uat-accounts-schema
-      cancel-in-progress: false
+    name: Data Operations / migrate
     needs: [preflight, supabase]
     if: ${{ always() && needs.preflight.result == 'success' && needs.supabase.result == 'success' && inputs.apply_accounts_schema_migration == true && inputs.vault_env_path == 'uat' && contains(fromJSON('["deploy","repair-schema"]'), inputs.operation) }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout platform toolkit
-        uses: actions/checkout@v7
-
-      - name: Checkout immutable Accounts migration source
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
-          repository: ai-workspace-services/accounts
-          ref: ${{ inputs.tag_ref }}
-          path: accounts
-
-      - name: Set up Go for migratectl
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: accounts/go.mod
-
-      - name: Verify immutable repair source
-        if: ${{ inputs.operation == 'repair-schema' }}
-        run: test "$(git -C accounts rev-parse HEAD)" = c2c343fe2c91bb31e7f7f9b4fa60512a66e2b4c9
-
-      - name: Checkout GitOps repair target
-        if: ${{ inputs.operation == 'repair-schema' }}
-        uses: actions/checkout@v7
-        with:
-          repository: ai-workspace-infra/gitops
-          ref: main
-          path: gitops
-          sparse-checkout-cone-mode: false
-          sparse-checkout: resources/xworktech.com/uat/gcp/open-platform-uat.yaml
-
-      - name: Read GitOps repair target
-        id: repair_target
-        if: ${{ inputs.operation == 'repair-schema' }}
-        run: ruby ./.github/scripts/gitops/read_gcp_gitops_target.rb
+          persist-credentials: false
+      - id: data
+        name: Dispatch unified entry and require child success
+        run: python3 .github/scripts/environment-upgrade/dispatch.py
         env:
-          GCP_GITOPS_MANIFEST: ${{ github.workspace }}/gitops/resources/xworktech.com/uat/gcp/open-platform-uat.yaml
-
-      - name: Load UAT serving identity credentials
-        id: repair_gcp
-        if: ${{ inputs.operation == 'repair-schema' }}
-        uses: hashicorp/vault-action@v4
-        with:
-          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
-          method: jwt
-          role: github-actions-platform-ops-toolkit-uat
-          jwtGithubAudience: vault
-          secrets: |
-            kv/data/uat/serverless/gcp GCP_WORKLOAD_IDENTITY_PROVIDER | GCP_WORKLOAD_IDENTITY_PROVIDER ;
-            kv/data/uat/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL ;
-
-      - name: Authenticate for read-only Cloud Run verification
-        if: ${{ inputs.operation == 'repair-schema' }}
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ steps.repair_gcp.outputs.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ steps.repair_gcp.outputs.GCP_SERVICE_ACCOUNT_EMAIL }}
-
-      - name: Set up SDK for read-only serving verification
-        if: ${{ inputs.operation == 'repair-schema' }}
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Load UAT Supabase database identity and connection
-        id: vault
-        uses: hashicorp/vault-action@v4
-        with:
-          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
-          method: jwt
-          role: github-actions-platform-ops-toolkit-uat
-          jwtGithubAudience: vault
-          secrets: |
-            kv/data/uat/serverless/supabase DATABASE_SESSION_POOLER_URL | TARGET_DSN ;
-            kv/data/uat/serverless/supabase PROJECT_REF | PROJECT_REF ;
-
-      - name: Verify serving identity and capture private repair baseline
-        if: ${{ inputs.operation == 'repair-schema' }}
-        run: python3 .github/scripts/serverless/uat_schema_repair_evidence.py before --state "$RUNNER_TEMP/uat-repair-private.json" --report "$RUNNER_TEMP/uat-schema-repair-report.json"
-        env:
-          VAULT_ENV_PATH: uat
-          TARGET_DSN: ${{ steps.vault.outputs.TARGET_DSN }}
-          PROJECT_REF: ${{ steps.vault.outputs.PROJECT_REF }}
-          GCP_PROJECT_ID: ${{ steps.repair_target.outputs.project_id }}
-          GCP_REGION: ${{ steps.repair_target.outputs.region }}
-
-      - name: Apply reviewed UAT Accounts schema migration
-        id: migration_apply
-        run: ./.github/scripts/serverless/apply_accounts_incremental_schema.sh
-        env:
-          VAULT_ENV_PATH: uat
-          SNAPSHOT_TAG: ${{ inputs.tag_ref }}
-          ACCOUNTS_DIR: ${{ github.workspace }}/accounts
-          TARGET_DSN: ${{ steps.vault.outputs.TARGET_DSN }}
-          PROJECT_REF: ${{ steps.vault.outputs.PROJECT_REF }}
-          ACCOUNTS_SCHEMA_EXPECTED_VERSION: ${{ inputs.accounts_schema_expected_version }}
-          ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
-          ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}
-          RELEASE_CHECKPOINT_VERIFIED: ${{ needs.supabase.outputs.durable_checkpoint_verified || 'false' }}
-
-      - name: Verify retained data and serving health after repair
-        if: ${{ inputs.operation == 'repair-schema' }}
-        run: python3 .github/scripts/serverless/uat_schema_repair_evidence.py after --state "$RUNNER_TEMP/uat-repair-private.json" --report "$RUNNER_TEMP/uat-schema-repair-report.json"
-        env:
-          VAULT_ENV_PATH: uat
-          TARGET_DSN: ${{ steps.vault.outputs.TARGET_DSN }}
-          PROJECT_REF: ${{ steps.vault.outputs.PROJECT_REF }}
-          GCP_PROJECT_ID: ${{ steps.repair_target.outputs.project_id }}
-          GCP_REGION: ${{ steps.repair_target.outputs.region }}
-          OFFICIAL_MIGRATOR_REPEAT_VERIFIED: ${{ steps.migration_apply.outputs.official_migrator_repeat_verified }}
-
-      - name: Upload aggregate schema repair evidence only
-        if: ${{ inputs.operation == 'repair-schema' && success() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: uat-schema-repair-${{ github.run_id }}
-          path: ${{ runner.temp }}/uat-schema-repair-report.json
-          if-no-files-found: error
-          retention-days: 7
+          GH_TOKEN: ${{ github.token }}
+          DATA_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}
+          DATA_OPERATION: migrate
+          RELEASE_TAG: ${{ inputs.tag_ref }}
+          ACCOUNTS_REF: ${{ inputs.tag_ref || 'main' }}
+          DATA_CONFIG_JSON: >-
+            {"repair_schema":${{ inputs.operation == 'repair-schema' }}, "expected_schema_version":"${{ inputs.accounts_schema_expected_version }}", "target_schema_version":"${{ inputs.accounts_schema_target_version }}", "migration_sha256":"${{ inputs.accounts_schema_sha256 }}", "checkpoint_run_id":"${{ needs.supabase.outputs.data_run_id }}"}
 
   cloud_run:
     name: Cloud Run / ${{ matrix.service }}
@@ -1250,40 +1031,21 @@ jobs:
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
 
   trigger_data_migration:
-    name: Data Migration / Supabase
-    needs: [preflight, supabase, uat_accounts_baseline, uat_accounts_schema_migration, cloud_run, cloudflare_ssr, frontend_router, edge_gateway, static_pages, serverless_domains]
-    if: >-
-      ${{ always() && !cancelled() &&
-      needs.preflight.result == 'success' &&
-      contains(fromJSON('["migrate","deploy+migrate"]'), inputs.operation) &&
-      (!inputs.adopt_accounts_baseline || needs.uat_accounts_baseline.result == 'success') &&
-      (!inputs.apply_accounts_schema_migration || needs.uat_accounts_schema_migration.result == 'success') &&
-      (needs.supabase.result == 'success' || needs.supabase.result == 'skipped') &&
-      (needs.cloud_run.result == 'success' || needs.cloud_run.result == 'skipped') &&
-      (needs.cloudflare_ssr.result == 'success' || needs.cloudflare_ssr.result == 'skipped') &&
-      (needs.frontend_router.result == 'success' || needs.frontend_router.result == 'skipped') &&
-      (needs.edge_gateway.result == 'success' || needs.edge_gateway.result == 'skipped') &&
-      (needs.static_pages.result == 'success' || needs.static_pages.result == 'skipped') &&
-      (needs.serverless_domains.result == 'success' || needs.serverless_domains.result == 'skipped') }}
-    uses: ./.github/workflows/data-migration.yaml
-    with:
-      vault_env_path: ${{ inputs.vault_env_path || 'uat' }}
-      runner_type: ${{ inputs.runner_type || 'ubuntu-latest' }}
-      toolkit_ref: ${{ github.sha }}
-      infra_ref: main
-      toolkit_action: migrate
-      migration_scope: accounts
-      accounts_dry_run: false
-      accounts_ref: ${{ inputs.tag_ref || 'main' }}
-      accounts_source_backend: ${{ inputs.accounts_source_backend || 'supabase' }}
-      accounts_target_backend: supabase
-      accounts_migration_mode: metadata_and_data
-      supabase_metadata_dry_run: false
-      supabase_source_tunnel_host: ${{ inputs.supabase_source_tunnel_host }}
-      # Automatic UAT deploy+migrate runs must not fall back to the reusable
-      # workflow's safety default (reject) when the input is omitted.
-      supabase_target_existing_strategy: ${{ inputs.supabase_target_existing_strategy || 'accounts_merge' }}
-      supabase_target_confirm_replace: ${{ inputs.supabase_target_confirm_replace || false }}
+    name: Legacy import requires explicit opt-in
+    needs: preflight
+    if: ${{ contains(fromJSON('["migrate","deploy+migrate"]'), inputs.operation) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Dispatch explicit import gate (automatic copy remains disabled)
+        run: python3 .github/scripts/environment-upgrade/dispatch.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DATA_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}
+          DATA_OPERATION: legacy_import
+          DATA_CONFIG_JSON: '{"confirm_legacy_import":false}'
+          RELEASE_TAG: ${{ inputs.tag_ref }}
+          ACCOUNTS_REF: ${{ inputs.tag_ref || 'main' }}
 
   stripe_catalog:
     name: Stripe / Catalog Bootstrap
