@@ -73,7 +73,26 @@ nonempty pre-upgrade sample are still required for full business acceptance.
 
 ## Verification status
 
-Local guard/contract tests and nine repair evidence unit tests pass. The PR also
-runs the actual pinned official migration twice on PostgreSQL 17 with a disposable
-nonempty subscription fixture. CI/run outcomes will be recorded after execution;
-these fixtures never count as live UAT acceptance.
+Local guard/contract tests and nine repair evidence unit tests pass. The actual
+pinned official migration ran twice successfully on PostgreSQL 17 with actual
+Users/Identities/Subscriptions table definitions and a disposable nonempty
+subscription fixture. RLS, eleven triggers, validated financial PK/unique/FK
+protections, and unchanged original fixture rows passed; mutations/missing
+constraints were correctly rejected. These fixtures are NOT live UAT acceptance.
+
+- Repair PR: https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1243
+- Successful code CI (commit `98dcd58fe34306c3d34abb1380b9754b959eff2c`):
+  https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37185105008
+- Real UAT repair attempt at 2026-10-04 15:14 Asia/Shanghai:
+  https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37185179428
+- Runtime outcome: **BLOCKED** before database credentials/checkpoint/migration.
+  Vault returned HTTP 400: `claim "ref" does not match any associated bound claim values`.
+  The attempted ref was `refs/heads/codex/uat-schema-2026092801`.
+
+The existing UAT role declaration allows main and selected release/bugfix/daily
+refs. No Vault policy or role changes, alternate-ref authentication workaround,
+or personal-token migration were performed. This run did not fix the real UAT
+schema version. The PR must follow the approved merge/release path before retry;
+main merge authorization is still required. Release metadata now includes both
+the checkpoint and schema-migration job results so this failure cannot disappear
+behind all-skipped application lanes.

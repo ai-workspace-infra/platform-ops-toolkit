@@ -135,6 +135,9 @@ class RepairTests(unittest.TestCase):
         self.assertLess(names.index("Verify serving identity and capture private repair baseline"), names.index("Apply reviewed UAT Accounts schema migration"))
         artifact = next(s for s in steps if s["name"] == "Upload aggregate schema repair evidence only")
         self.assertEqual(artifact["with"]["path"], "${{ runner.temp }}/uat-schema-repair-report.json")
+        metadata = next(j for j in jobs.values() if j.get("name") == "Record release identity for Operations Console")
+        self.assertIn("supabase", metadata["needs"])
+        self.assertIn("uat_accounts_schema_migration", metadata["needs"])
 
 
 if __name__ == "__main__":

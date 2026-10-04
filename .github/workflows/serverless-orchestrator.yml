@@ -1490,7 +1490,7 @@ jobs:
 
   console_release_metadata:
     name: Record release identity for Operations Console
-    needs: [preflight, cloud_run, cloudflare_ssr, frontend_router, edge_gateway, static_pages, serverless_domains, verify]
+    needs: [preflight, supabase, uat_accounts_schema_migration, cloud_run, cloudflare_ssr, frontend_router, edge_gateway, static_pages, serverless_domains, verify]
     # Observe every terminal outcome; this job uploads metadata only.
     if: >-
       ${{ always() && needs.preflight.result != '' && needs.cloud_run.result != '' &&
