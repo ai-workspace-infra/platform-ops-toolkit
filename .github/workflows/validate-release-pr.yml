@@ -53,6 +53,14 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: postgres
 
+      - name: Verify explicit read-only UAT readiness queries against PostgreSQL 17
+        run: python3 .github/scripts/tests/uat_upgrade_readiness_postgres17_test.py
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
   sec-qa-gate:
     name: Sec QA Gate (gitleaks)
     runs-on: ubuntu-latest
@@ -141,6 +149,9 @@ jobs:
 
     - name: Verify UAT business evidence is required for PROD promotion
       run: python3 .github/scripts/tests/uat_business_promotion_gate_test.py
+
+    - name: Verify read-only UAT readiness never substitutes for acceptance
+      run: python3 .github/scripts/tests/uat_upgrade_readiness_probe_test.py
 
     - name: Verify Observability Vault jobs request OIDC tokens
       run: python3 .github/scripts/tests/observability_oidc_permissions_contract_test.py
