@@ -96,6 +96,18 @@ jobs:
         --iac-root pipeline-contract/iac_modules
         --playbooks-root pipeline-contract/playbooks
 
+    # Registry readiness and digest promotion run from iac_modules; these
+    # drills use fake gcloud/gh only and never touch a registry.
+    - name: Verify Artifact Registry readiness wiring against the IaC executor
+      env:
+        IAC_REGISTRY_TEST_ROOT: ${{ github.workspace }}/pipeline-contract/iac_modules
+      run: bash .github/scripts/tests/serverless_artifact_image_wait_test.sh
+
+    - name: Verify PROD same-digest promotion without rebuilding
+      env:
+        IAC_REGISTRY_TEST_ROOT: ${{ github.workspace }}/pipeline-contract/iac_modules
+      run: bash .github/scripts/tests/prod_same_digest_promotion_test.sh
+
     - name: Verify Hybrid UAT child failures cannot report green
       env:
         GITOPS_MATRIX_FILE: ${{ github.workspace }}/gitops-hybrid-contract/topology/uat/hybrid/resource-matrix.json

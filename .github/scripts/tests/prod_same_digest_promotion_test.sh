@@ -7,13 +7,17 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 verifier="${repo_root}/.github/scripts/snapshots/verify-promotion-manifest.py"
 prod_dispatcher="${repo_root}/.github/scripts/snapshots/dispatch-prod-combined.sh"
-promote="${repo_root}/.github/scripts/serverless/promote_image_by_digest.sh"
+# Promotion is an IaC Modules operation; IAC_REGISTRY_TEST_ROOT is an iac_modules
+# tree with scripts/pipeline (CI: the pipeline-contract/iac_modules checkout).
+iac_root="${IAC_REGISTRY_TEST_ROOT:-${repo_root}/pipeline-contract/iac_modules}"
+promote="${iac_root}/scripts/pipeline/artifact-registry-promote.sh"
 verify_revision="${repo_root}/.github/scripts/serverless/verify_cloud_run_image_digest.sh"
 preflight="${repo_root}/.github/scripts/serverless/validate_promotion_manifest.sh"
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
+[[ -x "${promote}" ]] || fail "artifact-registry-promote.sh must exist and be executable under IAC_REGISTRY_TEST_ROOT (${iac_root})"
 
 digest_a="sha256:$(printf 'a%.0s' {1..64})"
 digest_b="sha256:$(printf 'b%.0s' {1..64})"
@@ -222,6 +226,21 @@ printf '%s\n' "${digest_b}" > "${work}/target-digest"; : > "${work}/gcloud.log"
 promote_run FAKE_COPIED_DIGEST="${digest_a}" && fail "an existing release tag with another digest must not be overwritten"
 ! grep -q 'add-tag' "${work}/gcloud.log" || fail "an occupied release tag must not be re-pointed"
 
+# The promote executor trusts only a single, well-formed accepted entry: it
+# must refuse before any registry write when the manifest cannot name exactly
+# one sha256 image for the service.
+rm -f "${work}/target-digest"
+refuse_promote() { # <why> <manifest json>
+  : > "${work}/gcloud.log"
+  promote_run PROMOTION_MANIFEST="$2" FAKE_COPIED_DIGEST="${digest_a}" && fail "$1 must be refused by the promote executor"
+  ! grep -q 'add-tag' "${work}/gcloud.log" || fail "$1 must not reach a registry write"
+}
+refuse_promote "a malformed digest" "$(jq '.images[0].digest = "sha256:abc"' <<<"${normalized}")"
+refuse_promote "a digest without the sha256 prefix" "$(jq '.images[0].digest |= sub("^sha256:"; "")' <<<"${normalized}")"
+refuse_promote "a manifest without the service" "$(jq '.images |= map(select(.service != "accounts"))' <<<"${normalized}")"
+refuse_promote "a duplicated service entry" "$(jq '.images += [.images[0]]' <<<"${normalized}")"
+refuse_promote "an entry without a source image" "$(jq 'del(.images[0].image)' <<<"${normalized}")"
+
 revision_run() {
   env PATH="${work}/bin:${PATH}" GCLOUD_LOG="${work}/gcloud.log" GCP_PROJECT_ID=open-platform-prod GCP_REGION=asia-east1 \
     CLOUD_RUN_SERVICE_NAME=prod-accounts EXPECTED_DIGEST="${digest_a}" "$@" bash "${verify_revision}" >/dev/null 2>&1
@@ -261,7 +280,11 @@ load = lambda name: yaml.safe_load((root / name).read_text(encoding="utf-8"))
 
 serverless = load("serverless-orchestrator.yml")
 assert "promotion_manifest" in serverless[True]["workflow_dispatch"]["inputs"]
-assert serverless["permissions"].get("actions") == "read"
+# The workflow dispatches the unified data-operations entry and requires its
+# child to succeed (dispatch.py), which needs actions: write; this is no longer
+# a read-only workflow. It must still never grant more than that.
+assert serverless["permissions"].get("actions") == "write"
+assert set(serverless["permissions"]) == {"id-token", "contents", "actions"}
 preflight = [s.get("run", "") for s in serverless["jobs"]["preflight"]["steps"]]
 assert "./.github/scripts/serverless/validate_promotion_manifest.sh" in preflight
 steps = serverless["jobs"]["cloud_run"]["steps"]
@@ -271,6 +294,11 @@ build = by_name["Build and publish target Cloud Run image"]
 assert build.get("id") == "build" and build.get("if") == "${{ inputs.vault_env_path != 'prod' }}", "PROD must not build"
 promote = by_name["Promote the UAT-accepted image by digest"]
 assert promote.get("if") == "${{ inputs.vault_env_path == 'prod' }}" and promote.get("id") == "promoted"
+assert promote["run"] == "./iac_modules/scripts/pipeline/artifact-registry-promote.sh"
+assert {"PROMOTION_MANIFEST", "SERVICE", "TARGET_IMAGE", "IMAGE_TAG"} <= set(promote["env"])
+iac_checkout = by_name["Checkout IaC Modules registry operations"]
+assert iac_checkout["with"]["repository"] == "ai-workspace-infra/iac_modules" and iac_checkout["with"]["path"] == "iac_modules"
+assert names.index("Checkout IaC Modules registry operations") < names.index("Promote the UAT-accepted image by digest")
 order = [names.index(n) for n in (
     "Build and publish target Cloud Run image", "Promote the UAT-accepted image by digest",
     "Wait for service image in Artifact Registry", "Deploy Cloud Run service",
