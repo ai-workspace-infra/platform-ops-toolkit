@@ -57,7 +57,7 @@ class SelfhostDispatchContractTests(unittest.TestCase):
             self.inputs["cloud_provider"]["options"],
             ["aws-cloud", "gcp-cloud", "azure-cloud", "vultr-vps", "akamai-cloud", "ucloud"],
         )
-        self.assertEqual(self.inputs["cloud_provider"]["default"], "akamai-cloud")
+        self.assertEqual(self.inputs["cloud_provider"]["default"], "gcp-cloud")
         self.assertEqual(self.inputs["akamai_account"]["default"], "")
         self.assertEqual(self.inputs["target_domain_base"]["default"], "onwalk.net")
         self.assertIn("all", self.inputs["target_domains"]["options"])
