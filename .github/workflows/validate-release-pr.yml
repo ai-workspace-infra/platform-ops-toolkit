@@ -53,11 +53,19 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: postgres
 
+      - name: Verify explicit read-only UAT readiness queries against PostgreSQL 17
+        run: python3 .github/scripts/tests/uat_upgrade_readiness_postgres17_test.py
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
       - name: Checkout immutable Accounts r3 finance migration
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-services/accounts
-          ref: c2c343fe2c91bb31e7f7f9b4fa60512a66e2b4c9
+          ref: c2c343fe2c91bb31e7f7f9b4fa60512e66e2b4c9
           path: accounts-repair
 
       - name: Set up Go for official migration integration
@@ -162,6 +170,9 @@ jobs:
 
     - name: Verify UAT business evidence is required for PROD promotion
       run: python3 .github/scripts/tests/uat_business_promotion_gate_test.py
+
+    - name: Verify read-only UAT readiness never substitutes for acceptance
+      run: python3 .github/scripts/tests/uat_upgrade_readiness_probe_test.py
 
     - name: Verify Observability Vault jobs request OIDC tokens
       run: python3 .github/scripts/tests/observability_oidc_permissions_contract_test.py
