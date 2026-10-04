@@ -416,6 +416,20 @@ jobs:
           token: ${{ steps.source_token.outputs.token }}
           path: service-source
 
+      # Registry readiness and digest promotion are IaC Modules operations
+      # (ai-workspace-infra/iac_modules#389). The pin is a merge commit, so a
+      # later change to those scripts cannot alter a release without a reviewed
+      # Toolkit change; this job still chooses the target, holds the OIDC
+      # identity and verifies what Cloud Run actually serves.
+      - name: Checkout IaC Modules registry operations
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: 1a7d2e000314207d2f13901da8e15a98a9bf252b
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: scripts/pipeline
+
       - name: Verify Vault GCP target matches GitOps project declaration
         run: ruby ./.github/scripts/gitops/validate_gcp_gitops_contract.rb
         env:
@@ -465,7 +479,7 @@ jobs:
       - name: Promote the UAT-accepted image by digest
         id: promoted
         if: ${{ inputs.vault_env_path == 'prod' }}
-        run: ./.github/scripts/serverless/promote_image_by_digest.sh
+        run: ./iac_modules/scripts/pipeline/artifact-registry-promote.sh
         env:
           PROMOTION_MANIFEST: ${{ inputs.promotion_manifest }}
           SERVICE: ${{ matrix.service }}
@@ -473,11 +487,9 @@ jobs:
           IMAGE_TAG: ${{ inputs.tag_ref }}
 
       - name: Wait for service image in Artifact Registry
-        run: ./.github/scripts/serverless/wait_for_artifact_image.sh
+        run: ./iac_modules/scripts/pipeline/artifact-registry-wait.sh
         env:
-          GCP_PROJECT_ID: ${{ steps.gitops_gcp.outputs.project_id }}
-          GCP_ARTIFACT_REGISTRY_REGION: ${{ steps.gitops_gcp.outputs.region }}
-          CLOUD_RUN_SERVICE: ${{ matrix.service }}
+          ARTIFACT_IMAGE_REPOSITORY: ${{ steps.gitops_gcp.outputs.region }}-docker.pkg.dev/${{ steps.gitops_gcp.outputs.project_id }}/serverless/${{ matrix.service }}
           IMAGE_TAG: ${{ inputs.tag_ref }}
 
       # accounts is the only service that sends mail today. Its Cloud Run
