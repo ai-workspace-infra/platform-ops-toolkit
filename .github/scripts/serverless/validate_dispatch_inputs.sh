@@ -46,7 +46,8 @@ case "${apply_schema}" in
     fi
     ;;
   true)
-    if [[ "${environment}" != "uat" || "${operation}" != "deploy" || "${deploy_cloud_run}" != "true" || "${adopt_baseline}" != "false" ]]; then
+    if [[ "${environment}" != "uat" || "${adopt_baseline}" != "false" ]] ||
+       { [[ "${operation}" != "deploy" || "${deploy_cloud_run}" != "true" ]] && [[ "${operation}" != "repair-schema" ]]; }; then
       echo "Accounts schema migration requires UAT operation=deploy with Cloud Run enabled" >&2
       exit 2
     fi
@@ -57,6 +58,16 @@ case "${apply_schema}" in
     ;;
   *) echo "APPLY_ACCOUNTS_SCHEMA_MIGRATION must be true or false" >&2; exit 2 ;;
 esac
+
+if [[ "${operation}" == "repair-schema" ]]; then
+  if [[ "${environment}" != uat || "${apply_schema}" != true || "${deploy_cloud_run}" != false ||
+        "${DEPLOY_CLOUDFLARE:-true}" != false || "${serverless_dns_mode}" != none ||
+        "${tag_ref}" != daily-build-2026.10.04-r3 || "${schema_expected}" != 2026092703 ||
+        "${schema_target}" != 2026092801 || "${schema_sha256}" != d066e223641b4eccbb65a00dce70f717b6dce02491d1d54edc1099baf2071433 ]]; then
+    echo 'repair-schema requires the reviewed r3 UAT migration with application deployment and DNS changes disabled' >&2
+    exit 2
+  fi
+fi
 
 # The serverless workflow owns only the complete web-saas control plane. `all`
 # remains the UI-compatible full-domain selection, but its serverless segment
@@ -105,7 +116,7 @@ case "${serverless_dns_mode}" in
 esac
 
 case "${operation}" in
-  plan|init-schema|migrate|destroy)
+  plan|init-schema|migrate|destroy|repair-schema)
     ;;
   deploy|upgrade|deploy+migrate)
     if [[ -z "${tag_ref}" ]]; then
