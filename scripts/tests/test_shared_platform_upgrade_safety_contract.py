@@ -1,4 +1,5 @@
 """Shared open-platform upgrades must never silently destroy persistent state."""
+import json
 import os
 import subprocess
 import sys
@@ -122,8 +123,14 @@ class SpotVmRuntimeReconcileTests(unittest.TestCase):
         zitadel = load("zitadel-server.yml")["jobs"]["dns"]["steps"]
         names = [step.get("name") for step in zitadel]
         self.assertLess(names.index("Start the declared IAM VM if GCP stopped it"), names.index("Point IAM DNS to declared VM"))
-        service = (ROOT / ".github/scripts/service-deploy/zitadel.sh").read_text()
-        self.assertLess(service.index("iac_modules/scripts/pipeline/ensure-gcp-vm-running.py"), service.index("IAM VM is not RUNNING"))
+        service = load("zitadel-server.yml")["jobs"]["service"]["steps"]
+        service_names = [step.get("name") for step in service]
+        # The IaC access executor reconciles the VM to RUNNING before it opens SSH.
+        access = service[service_names.index("Open temporary SSH access to the IAM VM")]
+        self.assertEqual(access["run"], "./iac_modules/scripts/pipeline/gcp-temporary-ssh-access.sh open")
+        self.assertNotIn("ENSURE_RUNNING", access["env"])
+        self.assertLess(service_names.index("Open temporary SSH access to the IAM VM"),
+                        service_names.index("Deploy ZITADEL with Playbooks"))
         observability = next(
             step for step in load("observability-server.yml")["jobs"]["deploy_shared_target"]["steps"]
             if step.get("name") == "Resolve declared shared GCP node and public address"
@@ -168,16 +175,49 @@ class ZitadelUnbootstrappedRecoveryTests(unittest.TestCase):
         self.assertNotEqual(self.validation(self.TOKEN, action="apply"), 0)
         self.assertNotEqual(self.validation(self.TOKEN, dns="update"), 0)
 
-    def test_playbook_flag_is_set_only_for_the_exact_token(self):
-        script = (ROOT / ".github/scripts/service-deploy/zitadel.sh").read_text()
-        self.assertIn('== "RESET-ZITADEL-DATABASE":', script)
-        self.assertIn('extra["zitadel_reset_unbootstrapped_instance"] = True', script)
-        deploy = next(
+    def render(self, confirmation, instance="iam-shared-0"):
+        step = next(
             step for step in self.workflow["jobs"]["service"]["steps"]
-            if step.get("name") == "Deploy or verify ZITADEL"
+            if step.get("name") == "Render the IAM inventory and deploy inputs"
         )
-        self.assertEqual(deploy["env"]["RESET_UNBOOTSTRAPPED_CONFIRMATION"],
+        self.assertEqual(step["shell"], "python")
+        self.assertEqual(step["env"]["RESET_UNBOOTSTRAPPED_CONFIRMATION"],
                          "${{ inputs.reset_unbootstrapped_confirmation }}")
+        with tempfile.TemporaryDirectory() as tmp:
+            access = Path(tmp) / "access.json"
+            access.write_text(json.dumps({
+                "instance": instance, "target_ip": "34.80.12.34", "ssh_user": "sa_1",
+                "private_key": f"{tmp}/id_ed25519", "known_hosts": f"{tmp}/known_hosts"}))
+            env = dict(os.environ, ACCESS_FILE=str(access), NODE_NAME="iam-shared-0", DOMAIN="iam.svc.plus",
+                       ZITADEL_MASTERKEY="m" * 32, ZITADEL_ADMIN_PASSWORD="Adm1n!pass",
+                       RESET_UNBOOTSTRAPPED_CONFIRMATION=confirmation)
+            result = subprocess.run([sys.executable, "-c", step["run"]], env=env, capture_output=True, text=True)
+            if result.returncode:
+                return result.returncode, None, None, None
+            extra_file = Path(tmp) / "extra.json"
+            return (0, json.loads(extra_file.read_text()), json.loads((Path(tmp) / "inventory.json").read_text()),
+                    extra_file.stat().st_mode & 0o777)
+
+    def test_playbook_flag_is_set_only_for_the_exact_token(self):
+        _, extra, _, mode = self.render(self.TOKEN)
+        self.assertIs(extra["zitadel_reset_unbootstrapped_instance"], True)
+        self.assertEqual(extra["zitadel_reset_confirmation"], self.TOKEN)
+        self.assertEqual(mode, 0o600)
+        for other in ("", "reset", self.TOKEN.lower()):
+            _, extra, _, _ = self.render(other)
+            self.assertNotIn("zitadel_reset_unbootstrapped_instance", extra)
+            self.assertNotIn("zitadel_reset_confirmation", extra)
+
+    def test_inventory_uses_the_iac_access_facts_for_the_declared_host_only(self):
+        _, extra, inventory, _ = self.render("")
+        self.assertEqual(extra["zitadel_deployment_mode"], "doco-cd")
+        host = inventory["all"]["hosts"]["iam-shared-0"]
+        self.assertEqual(host["ansible_host"], "34.80.12.34")
+        self.assertEqual(host["ansible_user"], "sa_1")
+        self.assertTrue(host["ansible_ssh_private_key_file"].endswith("/id_ed25519"))
+        self.assertIn("StrictHostKeyChecking=accept-new", host["ansible_ssh_common_args"])
+        returncode, _, _, _ = self.render("", instance="another-vm")
+        self.assertNotEqual(returncode, 0)
 
     def test_orchestrator_never_requests_the_reset(self):
         orchestrator = (WORKFLOWS / "open-platform-orchestrator.yml").read_text()
@@ -186,77 +226,104 @@ class ZitadelUnbootstrappedRecoveryTests(unittest.TestCase):
 
 
 class ZitadelServiceOperationsTests(unittest.TestCase):
-    """ZITADEL service health and failure evidence belong to the Playbooks
-    operations role; Toolkit calls it at a reviewed SHA and judges the result."""
+    """Toolkit selects targets, holds credentials and orders the steps; IaC
+    Modules opens and revokes host access and Playbooks deploys and verifies."""
 
-    SCRIPT = ROOT / ".github/scripts/service-deploy/zitadel.sh"
+    def setUp(self):
+        self.steps = load("zitadel-server.yml")["jobs"]["service"]["steps"]
+        self.names = [step.get("name") for step in self.steps]
 
-    def verify_stage(self, ansible_rc=0, with_entry=True):
+    def step(self, name):
+        return self.steps[self.names.index(name)]
+
+    def verify_stage(self, ansible_rc=0):
+        run = self.step("Verify ZITADEL public OIDC discovery")["run"]
         with tempfile.TemporaryDirectory() as tmp:
-            workspace = Path(tmp) / "workspace"
-            operations = workspace / "playbooks-operations"
-            operations.mkdir(parents=True)
-            if with_entry:
-                (operations / "zitadel_operations.yml").write_text("---\n")
             stubs = Path(tmp) / "bin"
             stubs.mkdir()
             log = Path(tmp) / "calls.log"
             (stubs / "ansible-playbook").write_text(
-                f'#!/usr/bin/env bash\nprintf "%s|%s\\n" "$PWD" "$*" >> "{log}"\nexit {ansible_rc}\n')
+                f'#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "{log}"\nexit {ansible_rc}\n')
             (stubs / "python3").write_text(
                 f'#!/usr/bin/env bash\nif [[ "$1 $2" == "-m pip" ]]; then printf "pip %s\\n" "$*" >> "{log}"; exit 0; fi\n'
                 f'exec {sys.executable} "$@"\n')
             for stub in stubs.iterdir():
                 stub.chmod(0o755)
-            env = dict(os.environ, PATH=f"{stubs}:{os.environ['PATH']}", GITHUB_WORKSPACE=str(workspace),
-                       DOMAIN="iam.svc.plus", SERVICE_STAGE="verify")
-            result = subprocess.run(["bash", str(self.SCRIPT)], env=env, cwd=workspace,
-                                    capture_output=True, text=True)
-            return result, (log.read_text() if log.exists() else ""), str(operations)
+            env = dict(os.environ, PATH=f"{stubs}:{os.environ['PATH']}", DOMAIN="iam.svc.plus")
+            result = subprocess.run(["bash", "-e", "-c", run], env=env, cwd=tmp, capture_output=True, text=True)
+            return result, (log.read_text() if log.exists() else "")
 
     def test_verify_stage_runs_the_reviewed_public_operation(self):
-        result, calls, operations = self.verify_stage()
+        step = self.step("Verify ZITADEL public OIDC discovery")
+        self.assertEqual(step["if"], "${{ inputs.service_stage == 'verify' }}")
+        self.assertEqual(step["working-directory"], "playbooks-operations")
+        result, calls = self.verify_stage()
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = calls.splitlines()
         self.assertTrue(lines[0].startswith("pip -m pip install") and "ansible-core" in lines[0])
-        self.assertEqual(lines[1], f"{operations}|-i localhost, zitadel_operations.yml "
-                                   "-e zitadel_operation=verify_public -e zitadel_operations_target=localhost "
-                                   "-e zitadel_operations_domain=iam.svc.plus -c local")
+        self.assertEqual(lines[1], "-i localhost, -c local zitadel_operations.yml -e zitadel_operation=verify_public "
+                                   "-e zitadel_operations_target=localhost -e zitadel_operations_domain=iam.svc.plus")
 
     def test_a_failed_operation_fails_the_stage(self):
-        result, _, _ = self.verify_stage(ansible_rc=2)
+        result, _ = self.verify_stage(ansible_rc=2)
         self.assertNotEqual(result.returncode, 0)
 
-    def test_a_missing_operations_entry_fails_before_any_check(self):
-        result, calls, _ = self.verify_stage(with_entry=False)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(calls, "")
+    def test_deploy_order_and_access_is_always_closed(self):
+        order = [self.names.index(name) for name in (
+            "Check the Vault identity and IAM secrets before host access",
+            "Open temporary SSH access to the IAM VM",
+            "Require IAM DNS to point only at the IAM VM",
+            "Render the IAM inventory and deploy inputs",
+            "Deploy ZITADEL with Playbooks",
+            "Verify ZITADEL on the IAM host",
+            "Close temporary SSH access to the IAM VM",
+        )]
+        self.assertEqual(order, sorted(order))
+        opened = self.step("Open temporary SSH access to the IAM VM")
+        closed = self.step("Close temporary SSH access to the IAM VM")
+        self.assertEqual(opened["id"], "access")
+        self.assertEqual(closed["run"], "./iac_modules/scripts/pipeline/gcp-temporary-ssh-access.sh close")
+        self.assertIn("always()", closed["if"])
+        self.assertIn("steps.access.outcome != 'skipped'", closed["if"])
+        for key in ("GCP_PROJECT_ID", "ACCESS_RULE_NAME", "ACCESS_DIR"):
+            self.assertEqual(opened["env"][key], closed["env"][key])
+        self.assertIn("${{ github.run_id }}-${{ github.run_attempt }}", opened["env"]["ACCESS_RULE_NAME"])
+        deploy = self.step("Deploy ZITADEL with Playbooks")
+        self.assertEqual(deploy["working-directory"], "playbooks")
+        self.assertIn('deploy_iam_domain.yml \\\n  --limit "${NODE_NAME}"', deploy["run"])
+        verify = self.step("Verify ZITADEL on the IAM host")
+        self.assertEqual(verify["working-directory"], "playbooks-operations")
+        self.assertIn("-e zitadel_operation=verify_host", verify["run"])
+        self.assertIn('-e "zitadel_operations_target=${NODE_NAME}"', verify["run"])
+        self.assertLess(verify["run"].index("ansible-playbook"), verify["run"].index("### ZITADEL server"))
 
-    def test_deploy_verifies_the_same_single_host_then_reports(self):
-        text = self.SCRIPT.read_text()
-        call = 'run_operation "${access_dir}/inventory.json" "${NODE_NAME}" verify_host'
-        self.assertLess(text.index("deploy_iam_domain.yml"), text.index(call))
-        self.assertLess(text.index(call), text.index("### ZITADEL server"))
-        failure = text[text.index(call):text.index("### ZITADEL server")]
-        self.assertIn("exit 1", failure)
-        # No second copy of the service checks or host diagnostics in Toolkit.
-        for owned_by_playbooks in ("openid-configuration", "verify()", "journalctl", "ss -ltnp", "systemctl"):
-            self.assertNotIn(owned_by_playbooks, text)
+    def test_dns_precondition_requires_exactly_the_vm_address(self):
+        run = self.step("Require IAM DNS to point only at the IAM VM")["run"]
+        def check(target):
+            env = dict(os.environ, DOMAIN="localhost", TARGET_IP=target)
+            return subprocess.run([sys.executable, "-c", run], env=env, capture_output=True, text=True).returncode
+        self.assertEqual(check("127.0.0.1"), 0)
+        self.assertNotEqual(check("127.0.0.2"), 0)
 
-    def test_operations_checkout_is_pinned_unconditional_and_credential_free(self):
-        steps = load("zitadel-server.yml")["jobs"]["service"]["steps"]
-        names = [step.get("name") for step in steps]
-        checkout = steps[names.index("Checkout reviewed Playbooks ZITADEL operations")]
-        options = checkout["with"]
-        self.assertEqual(options["repository"], "ai-workspace-infra/playbooks")
-        self.assertRegex(options["ref"], r"^[0-9a-f]{40}$")
-        self.assertEqual(options["path"], "playbooks-operations")
-        self.assertIs(options["persist-credentials"], False)
-        self.assertEqual(set(options["sparse-checkout"].split()),
+    def test_owner_checkouts_are_pinned_and_credential_free(self):
+        for name, repository, path in (
+            ("Checkout reviewed Playbooks ZITADEL operations", "ai-workspace-infra/playbooks", "playbooks-operations"),
+            ("Checkout reviewed IaC temporary SSH access executor", "ai-workspace-infra/iac_modules", "iac_modules"),
+        ):
+            options = self.step(name)["with"]
+            self.assertEqual(options["repository"], repository)
+            self.assertRegex(options["ref"], r"^[0-9a-f]{40}$")
+            self.assertEqual(options["path"], path)
+            self.assertIs(options["persist-credentials"], False)
+        self.assertNotIn("if", self.step("Checkout reviewed Playbooks ZITADEL operations"))
+        self.assertEqual(set(self.step("Checkout reviewed Playbooks ZITADEL operations")["with"]["sparse-checkout"].split()),
                          {"zitadel_operations.yml", "roles/docker/zitadel_server_operations"})
-        self.assertNotIn("if", checkout)
-        self.assertLess(names.index("Checkout reviewed Playbooks ZITADEL operations"),
-                        names.index("Deploy or verify ZITADEL"))
+
+    def test_toolkit_keeps_no_provider_or_service_execution(self):
+        runs = "\n".join(step.get("run", "") for step in self.steps)
+        for owned_elsewhere in ("os-login", "firewall-rules", "ssh-keygen", "compute instances", "openid-configuration",
+                                "journalctl", "systemctl", "service-deploy/zitadel.sh"):
+            self.assertNotIn(owned_elsewhere, runs)
 
 
 if __name__ == "__main__":
