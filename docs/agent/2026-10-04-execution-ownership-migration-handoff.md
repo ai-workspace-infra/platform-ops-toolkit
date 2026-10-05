@@ -207,3 +207,94 @@ Toolkit `ec7bc9b1` 下 `git ls-tree -r --name-only HEAD .github/scripts` 为 **1
 3. **行为测试跟随执行者**：执行入口及其行为测试放在归属仓库（IaC `scripts/pipeline/tests/`、Playbooks `tests/`），其 CI 会在脚本变更时直接测到；Toolkit 只保留接线、顺序和固定 SHA 的契约测试。
 4. **固定 SHA 使归属仓库可以安全重排**：Toolkit 固定合并提交后，IaC/Playbooks 之后调整目录结构不会影响已固定的调用方；但未固定的调用方（如 `selfhost-orchestrator.yml` 的动态 `infra_ref`）不能先移动路径。
 5. **Projects 看板**：当前会话无 GitHub Projects v2 接口，进度记录在 Issue #1269，需在看板中手动添加。
+
+---
+
+## 8. 2026-10-05 交接快照（最新批次与当前统计）
+
+### 8.1 最新合入批次与固定 SHA 审计（截至 2026-10-05 08:26 UTC+8）
+
+在 2026-10-04 基线之后，主线继续推进了 XConnect 运行时委托、网关 DNS 路由与扫描器行为升级等关键批次，相关 PR 均已合入各仓库 `main`：
+
+1. **Playbooks #574（UAT XConnect 运行时 Owner）**:
+   - 合并提交：`94b9ca010efb1eeb62469f791a910dd361f1abae`
+   - 实现内容：新增 `xconnect-lab-runtime.yml` 与 `roles/vhosts/xconnect_lab_runtime`，将 Gateway 与 One 节点的 WireGuard/XRay 运行时验证与系统服务操作收敛至 Playbooks。
+   - 包含前期 Playbooks #572 / #573（`1308c58`, `b6fc23c`），新增 XConnect 远端观察角色与运行时契约测试。
+2. **Toolkit #1283（UAT XConnect 运行时控制面 Caller）**:
+   - 合并提交：`8fd8693a`
+   - 实现内容：新增 `.github/workflows/xconnect-runtime-control.yml`，默认固定引用 Playbooks #574（`94b9ca0`）。遵循控制面边界，仅负责参数校验、从 Vault 获取临时 SSH 身份、目标选择与 Ansible 调度；首期暴露只读 `gateway_verify` 与 `one_verify`。
+3. **IaC Modules #393（网关 Single-A DNS Owner）**:
+   - 合并提交：`a0185e6`（实现 `55add6a`）
+   - 实现内容：在 IaC Modules 新增受保护的 `cloudflare-gateway-single-a.sh` 脚本与契约测试，接管网关 DNS 记录维护。
+4. **Toolkit #1278（网关 DNS 路由 Caller 切换）**:
+   - 合并提交：`62ea91b6`
+   - 实现内容：将 XConnect 网关 DNS 对账切换至 IaC Modules #393 固定入口。
+5. **Toolkit #1279（扫描器分类器升级与真实债务冻结）**:
+   - 合并提交：`f9d89561`
+   - 实现内容：重构 `scripts/ci/script_ownership_verify.py`，彻底修复间接变量与数组调用（如 `"${ssh_command[@]}"`、`curl "${curl_args[@]}"`）的漏检缺陷；剔除控制面 Vault 凭据初始化误报与只读镜像验证误报；将真实遗留执行清单精确更新为 15 项。
+6. **Toolkit #1280 & #1281（网关配置与远端观察委托）**:
+   - #1280 对齐 UAT GitOps 网关 release 默认配置；#1281 将节点观察委托给 Playbooks 远端观察角色。
+
+---
+
+### 8.2 当前资产与债务统计（2026-10-05 盘点）
+
+- **`.github/scripts` 文件总数**：**190 个**（包含环境升级测试与委托骨架）。
+  - `tests/`: 91 个
+  - `platform-ops/`: 28 个
+  - `xconnect-lab/`: 21 个
+  - `snapshots/`: 16 个
+  - `serverless/`: 11 个
+  - `gitops/`: 6 个
+  - `environment-upgrade/`: 5 个
+  - `xconnect-network/`: 3 个
+  - `resize/`: 3 个
+  - `lib/`: 2 个
+  - `xconnect-existing-one-uat/`: 1 个
+  - `service-deploy/`: 1 个
+  - `release/`: 1 个
+  - `maintenance/`: 1 个
+  - `README.md`: 1 个
+- **冻结遗留执行清单（`scripts/ci/legacy-execution-inventory.json`）**：共 **15 个候选**（全部处于冻结状态，杜绝新增债务）：
+  1. `.github/scripts/platform-ops/deploy/platform-ops_deploy_base_restore-caddy-certs.sh` (playbooks)
+  2. `.github/scripts/platform-ops/dns/platform-ops_sit_all_in_one_dns_reconcile.sh` (iac_modules)
+  3. `.github/scripts/platform-ops/dns/platform-ops_uat_dns_reconcile.sh` (iac_modules)
+  4. `.github/scripts/serverless/sync_smtp_secrets.sh` (iac_modules)
+  5. `.github/scripts/xconnect-existing-one-uat/deploy.sh` (playbooks)
+  6. `.github/scripts/xconnect-lab/deploy.sh` (playbooks)
+  7. `.github/scripts/xconnect-lab/desktop.sh` (playbooks)
+  8. `.github/scripts/xconnect-lab/enroll-node.sh` (playbooks)
+  9. `.github/scripts/xconnect-lab/gateway.sh` (playbooks)
+  10. `.github/scripts/xconnect-lab/lease.sh` (iac_modules)
+  11. `.github/scripts/xconnect-lab/prepare.py` (iac_modules)
+  12. `.github/scripts/xconnect-lab/reconcile-gateway-dns.sh` (iac_modules)
+  13. `.github/scripts/xconnect-lab/remote-client-observation.sh` (playbooks)
+  14. `.github/scripts/xconnect-lab/remote-gateway-observation.sh` (playbooks)
+  15. `.github/scripts/xconnect-lab/run.sh` (iac_modules)
+
+---
+
+### 8.3 未完成项状态判定（明确标注：未验收 / 未删除）
+
+根据四步迁移规则（“新增通用 Role/Workflow → 切换 Toolkit 调用方 → 验证 → 删除旧副本”），未经过真实环境端到端验证的链路，一律不得删除旧脚本：
+
+| 迁移领域 / 批次 | 当前 Owner 状态 | 当前 Caller 状态 | 当前验收与清理状态 | 遗留副本处理决策 |
+| --- | --- | --- | --- | --- |
+| **XConnect 运行时操作（P3）** | **已完成**：Playbooks #574 已合入（SHA `94b9ca0`）。 | **已完成**：Toolkit #1283 已合入（工作流 `xconnect-runtime-control.yml`）。 | **未验收 / 未删除**：尚未在真实 UAT 环境执行带有真实 CMDB/主机参数的验收演练，无通过收据。 | **全部保留**：`.github/scripts/xconnect-lab/`（`deploy.sh`, `desktop.sh`, `enroll-node.sh`, `gateway.sh`, `lease.sh`, `prepare.py`, `remote-*.sh`, `run.sh`）及 `xconnect-existing-one-uat/deploy.sh` 严禁提前删除。 |
+| **XConnect 网关 DNS（P2/P3）** | **已完成**：IaC Modules #393 已合入（SHA `a0185e6`）。 | **已完成**：Toolkit #1278 已切换。 | **未验收 / 未删除**：缺少基于真实 Cloudflare 解析对账的 UAT 证据。 | **保留**：`xconnect-lab/reconcile-gateway-dns.sh` 继续保留。 |
+| **Caddy 证书恢复（P1b）** | **已完成**：Playbooks #570（`roles/docker/caddy_certificate_restore`）已合入。 | **进行中**：Toolkit caller 处于 PR #1284，正进行 fail-closed 合同与测试完善。 | **未验收 / 未删除**：UAT 运行与验收证据尚未产出。 | **保留**：`platform-ops_deploy_base_restore-caddy-certs.sh`（299 行）必须保留，待新链路实测通过后再提清理 PR。 |
+| **SIT/UAT 规范 DNS 对账（P2b）** | **规划中**：待扩展 IaC Modules DNS 执行器。 | **未切换**：仍使用 Toolkit 旧脚本。 | **未验收 / 未删除**。 | **保留**：`platform-ops_uat_dns_reconcile.sh` 与 `platform-ops_sit_all_in_one_dns_reconcile.sh` 保持现状。 |
+| **SMTP 凭据同步拆分（P4）** | **规划中**：Vault 读留 Toolkit，GCP Secret Manager 写归 IaC Modules。 | **未切换**：仍使用混合脚本。 | **未拆分 / 未验收 / 未删除**。 | **保留**：`serverless/sync_smtp_secrets.sh` 保持现状。 |
+
+---
+
+### 8.4 下一步核心行动指令
+
+1. **UAT 部署验证推进（Sub Agent 2 负责）**：
+   - 针对 Toolkit #1283 的 `xconnect-runtime-control.yml` 及相关 UAT 编排，设计受控的只读验证与演练。
+   - 收集真实运行时健康证据与日志，输出明确的验收判定。
+2. **进度持续同步（Sub Agent 3 负责）**：
+   - 持续将 #574/#1283 合入、15 项遗留资产状态、“未验收/未删除”审计结果同步回 Issue #1269。
+3. **主线迁移继续推进**：
+   - 修复并推进 PR #1284（完善执行权限位与 fail-closed 契约测试），打通 Caddy 证书恢复调用方。
+   - 保持“新增通用 Role → 切换 Caller → 验证 → 删除旧副本”铁律，严禁单纯为了削减文件计数而静默删除未经验收的脚本。
