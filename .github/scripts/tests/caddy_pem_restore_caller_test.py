@@ -1,12 +1,16 @@
 """Control-plane input/cleanup and immutable owner wiring; no host execution."""
 import base64
+import contextlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
 import tempfile
+import textwrap
 import time
 import unittest
+from urllib.error import HTTPError
 from unittest.mock import patch, MagicMock
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -59,6 +63,37 @@ class TLSCallerTest(unittest.TestCase):
         for target, directory in [('all', '/etc/xcontrol/tls/../escape'), ('host:*', '/etc/xcontrol/tls/example')]:
             with self.assertRaises(ValueError):
                 prepare.material_vars(self.record(), {'MATRIX_HOST': target, 'DOMAIN_TLS_DIR': directory})
+
+    def test_line_wrapped_base64_records_still_restore(self):
+        # The legacy shell restore decoded with `base64 -d`, which ignores line
+        # wrapping; records written without -w0 must keep restoring.
+        record = {field: '\n'.join(textwrap.wrap(value, 16)) + '\n' for field, value in self.record().items()}
+        variables, reason = prepare.material_vars(record, self.environment())
+        self.assertEqual('ready', reason)
+        self.assertEqual('synthetic PEM tls_key_pem_b64',
+                         variables['caddy_certificate_restore_material']['key'])
+        record['tls_key_pem_b64'] = '!!not-base64!!'
+        with self.assertRaises(ValueError):
+            prepare.material_vars(record, self.environment())
+
+    def test_failure_names_stage_without_leaking_secrets(self):
+        env = dict(self.environment(), VAULT_ADDR='https://vault.example.test',
+                   VAULT_CADDY_PATH='kv/data/uat/domains/example.test', VAULT_ROLE='uat-role',
+                   ACTIONS_ID_TOKEN_REQUEST_URL='https://oidc.example.test/token?test=1',
+                   ACTIONS_ID_TOKEN_REQUEST_TOKEN='synthetic-request')
+        denied = HTTPError('https://vault.example.test/v1/x', 403, 'synthetic-secret-body', {}, None)
+        calls = [{'value': 'synthetic-jwt'}, denied]
+        stdout = io.StringIO()
+        with patch.dict(os.environ, env), patch.object(prepare, 'request', side_effect=calls), \
+                patch.object(prepare, 'urlopen'), contextlib.redirect_stdout(stdout), \
+                self.assertRaises(SystemExit) as raised:
+            prepare.run()
+        self.assertEqual(1, raised.exception.code)
+        message = stdout.getvalue()
+        self.assertIn('stage=vault-login', message)
+        self.assertIn('HTTPError HTTP 403', message)
+        for secret in ['synthetic-jwt', 'synthetic-secret-body', 'synthetic-request']:
+            self.assertNotIn(secret, message)
 
     def test_runtime_file_is_private_and_token_revoked(self):
         with tempfile.TemporaryDirectory() as temporary:
