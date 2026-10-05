@@ -12,6 +12,9 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 
+STAGE = 'init'
+
+
 def request(url, headers=None, body=None):
     payload = None if body is None else json.dumps(body).encode()
     req = Request(url, data=payload, headers=headers or {})
@@ -37,7 +40,9 @@ def material_vars(record, environment):
     expiry = record.get('not_after_epoch')
     if expiry not in (None, '') and int(expiry) - time.time() < margin * 86400:
         return None, 'renewal-margin'
-    material = {key: base64.b64decode(record[field], validate=True).decode()
+    # The legacy shell restore used `base64 -d`, which ignores line wrapping.
+    # Keep accepting wrapped records, but stay strict about everything else.
+    material = {key: base64.b64decode(''.join(str(record[field]).split()), validate=True).decode()
                 for key, field in fields.items()}
     return {'caddy_certificate_restore_target': target,
             'caddy_certificate_restore_directory': directory,
@@ -52,23 +57,27 @@ def output(values):
 
 
 def main():
+    global STAGE
     env = os.environ
     vault = env['VAULT_ADDR'].rstrip('/')
     path = env['VAULT_CADDY_PATH']
     # Preserve the current managed Vault workflow identity and record path.
     if not path.startswith('kv/data/') or '..' in path.split('/'):
         raise ValueError('unsafe Vault record path')
+    STAGE = 'github-oidc'
     split = urlsplit(env['ACTIONS_ID_TOKEN_REQUEST_URL'])
     query = dict(parse_qsl(split.query))
     query['audience'] = 'vault'
     oidc_url = urlunsplit((split.scheme, split.netloc, split.path, urlencode(query), split.fragment))
     jwt = request(oidc_url, {'Authorization': 'bearer ' + env['ACTIONS_ID_TOKEN_REQUEST_TOKEN']})['value']
+    STAGE = 'vault-login'
     token = request(vault + '/v1/auth/jwt/login', {'Content-Type': 'application/json'},
                     {'role': env['VAULT_ROLE'], 'jwt': jwt})['auth']['client_token']
     headers = {'X-Vault-Token': token, 'Content-Type': 'application/json'}
     runtime_file = None
     delivered = False
     try:
+        STAGE = 'vault-read'
         try:
             record = request(vault + '/v1/' + path, headers)['data']['data']
         except HTTPError as error:
@@ -76,6 +85,7 @@ def main():
                 raise
             output({'restore_required': 'false', 'reason': 'no-backup'})
             return
+        STAGE = 'validate-material'
         variables, reason = material_vars(record, env)
         if variables is None:
             output({'restore_required': 'false', 'reason': reason})
@@ -90,6 +100,7 @@ def main():
         if runtime_file is not None and not delivered:
             runtime_file.unlink(missing_ok=True)
         # A failure to revoke is a failing security gate, not a silent success.
+        STAGE = 'vault-revoke'
         req = Request(vault + '/v1/auth/token/revoke-self', data=b'{}', headers=headers, method='POST')
         try:
             with urlopen(req, timeout=30):
@@ -100,10 +111,20 @@ def main():
             raise
 
 
-if __name__ == '__main__':
+def run():
     try:
         main()
-    except Exception:
-        # Never expose HTTP response bodies, JWTs, tokens or PEM material.
-        print('::error::TLS preparation failed at the Vault/input boundary; refusing restoration.')
+    except Exception as error:
+        # Never expose HTTP response bodies, JWTs, tokens, PEM material or the
+        # exception message (decoders can echo input). The stage, exception
+        # class and HTTP status are enough to locate the failing boundary.
+        detail = type(error).__name__
+        if isinstance(error, HTTPError):
+            detail += f' HTTP {error.code}'
+        print(f'::error::TLS preparation failed at the Vault/input boundary '
+              f'(stage={STAGE}, {detail}); refusing restoration.')
         raise SystemExit(1)
+
+
+if __name__ == '__main__':
+    run()
