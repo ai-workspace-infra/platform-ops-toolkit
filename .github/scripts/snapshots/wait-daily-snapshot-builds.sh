@@ -6,7 +6,7 @@ require_env GH_TOKEN SNAPSHOT_TAG SNAPSHOT_REPOS SNAPSHOT_STATUS_FILE
 
 workflow_for_repo() {
   case "$1" in
-    ai-workspace-services/accounts|ai-workspace-services/billing-service|ai-workspace-services/content-service|ai-workspace-services/portal|ai-workspace-services/postgresql.svc.plus)
+    ai-workspace-services/accounts|ai-workspace-services/billing-service|ai-workspace-services/content-service|ai-workspace-services/portal|ai-workspace-services/postgresql)
       printf '%s\n' ci-pipeline.yml ;;
     ai-workspace-services/edge-gateway) printf '%s\n' deploy.yml ;;
     ai-workspace-services/frontend-router) printf '%s\n' release.yml ;;
