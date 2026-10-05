@@ -11,7 +11,7 @@ import textwrap
 import time
 import unittest
 from urllib.error import HTTPError
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[3]
 ADAPTER = ROOT / '.github/scripts/platform-ops/deploy/prepare-domain-tls-restore.py'
@@ -95,7 +95,7 @@ class TLSCallerTest(unittest.TestCase):
         for secret in ['synthetic-jwt', 'synthetic-secret-body', 'synthetic-request']:
             self.assertNotIn(secret, message)
 
-    def test_runtime_file_is_private_and_token_revoked(self):
+    def test_runtime_file_is_private_and_batch_token_uses_role_ttl(self):
         with tempfile.TemporaryDirectory() as temporary:
             env = dict(self.environment(), RUNNER_TEMP=temporary, GITHUB_OUTPUT=temporary + '/outputs',
                        VAULT_ADDR='https://vault.example.test', VAULT_CADDY_PATH='kv/data/uat/domains/example.test',
@@ -103,15 +103,16 @@ class TLSCallerTest(unittest.TestCase):
                        ACTIONS_ID_TOKEN_REQUEST_TOKEN='synthetic-request')
             calls = [{'value': 'synthetic-jwt'}, {'auth': {'client_token': 'synthetic-vault-token'}},
                      {'data': {'data': self.record()}}]
-            with patch.dict(os.environ, env), patch.object(prepare, 'request', side_effect=calls), patch.object(prepare, 'urlopen') as revoke:
-                revoke.return_value.__enter__.return_value = MagicMock()
+            with patch.dict(os.environ, env), \
+                    patch.object(prepare, 'request', side_effect=calls), \
+                    patch.object(prepare, 'urlopen') as unexpected_http:
                 prepare.main()
             output = Path(env['GITHUB_OUTPUT']).read_text()
             self.assertIn('restore_required=true', output)
             filename = output.split('vars_file=', 1)[1].splitlines()[0]
             self.assertEqual(0o600, Path(filename).stat().st_mode & 0o777)
             self.assertEqual('agent-proxy-uat', json.loads(Path(filename).read_text())['caddy_certificate_restore_target'])
-            self.assertEqual('https://vault.example.test/v1/auth/token/revoke-self', revoke.call_args.args[0].full_url)
+            unexpected_http.assert_not_called()
             self.assertNotIn('synthetic PEM', output)
 
 
