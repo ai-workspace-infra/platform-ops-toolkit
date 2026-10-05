@@ -20,7 +20,7 @@ spec = importlib.util.spec_from_file_location('guard', sys.argv[1])
 guard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guard)
 config = json.loads(os.environ.get('DATA_IMPORT_CONFIG_JSON') or '{}')
-guard.validate_config(config)
+guard.validate_config(config, 'legacy_import')
 guard.require(type(config.get('dry_run', True)) is bool, 'dry_run must be a JSON boolean')
 guard.require(config.get('confirm_legacy_import', True) is True, 'explicit import confirmation cannot be false')
 PY

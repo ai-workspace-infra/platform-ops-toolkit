@@ -8,18 +8,33 @@ import subprocess
 MODES = {"preflight", "backup", "rehearsal", "upgrade", "rollback", "legacy_import", "akamai_preflight",
          "checkpoint", "probe", "baseline", "migrate", "selfhost_probe", "selfhost_init", "selfhost_verify"}
 
+IMPORT_FIELDS = {
+    "confirm_legacy_import", "dry_run", "environment", "vault_env_path", "target_environment",
+    "migration_scope", "toolkit_action", "caller_run_id", "accounts_transport",
+    "accounts_source_backend", "accounts_target_backend", "accounts_migration_mode",
+    "accounts_source_host", "accounts_target_host", "accounts_email_filter",
+    "supabase_target_connection_mode", "supabase_target_existing_strategy",
+    "supabase_target_confirm_replace", "supabase_metadata_dry_run", "supabase_project_ref",
+    "supabase_vault_path", "supabase_source_vault_path", "supabase_target_dsn_key",
+    "supabase_source_tunnel_host",
+}
+
 
 def require(condition, message):
     if not condition:
         raise SystemExit(message)
 
 
-def validate_config(config):
+def validate_config(config, mode=None):
     require(isinstance(config, dict), "config_json must be an object")
+    if mode == 'legacy_import':
+        require(set(config).issubset(IMPORT_FIELDS), 'unsupported import config field')
+        require(all(isinstance(value, (str, bool, int)) for value in config.values()),
+                'import config fields must be supported scalar values')
     def inspect(value):
         if isinstance(value, dict):
             for key, item in value.items():
-                require(not re.search(r"(?i)(password|passphrase|private_?key|access_?token|secret_?key|credentials|command|script|sql|_dsn|_pass)$", key),
+                require(not re.search(r"(?i)(password|passphrase|private_?key|access_?token|bearer_?token|api_?key|secret_?key|credentials|command|script|sql|_dsn|_pass)$", key),
                         "credentials, SQL and commands are not workflow inputs")
                 require(key not in {"dsn", "source_dsn", "target_dsn", "token", "secret"},
                         "credentials must be resolved by execution owners through Vault")
@@ -28,7 +43,7 @@ def validate_config(config):
             for item in value:
                 inspect(item)
         elif isinstance(value, str):
-            require(not re.search(r"(?i)(postgres(?:ql)?://|-----BEGIN .*PRIVATE KEY)", value),
+            require(not re.search(r"(?i)(postgres(?:ql)?://|-----BEGIN .*PRIVATE KEY|\bbearer\s+\S+)", value),
                     "connection strings and private keys are prohibited")
     inspect(config)
 
@@ -40,7 +55,7 @@ def main():
     require(mode != "rehearsal" or os.environ.get("GITHUB_RUN_ATTEMPT", "1") == "1",
             "rehearsal reruns are refused; investigate and dispatch a new complete run")
     config = json.loads(os.environ.get("DATA_CONFIG_JSON", "{}"))
-    validate_config(config)
+    validate_config(config, mode)
     if 'execution_path' in config:
         require(config['execution_path'] == 'selfhost_roles', 'unknown execution_path')
         require(environment == 'uat' and mode in {'preflight', 'backup'},
