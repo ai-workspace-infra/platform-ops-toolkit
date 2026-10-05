@@ -8,10 +8,15 @@ import signal
 import subprocess
 import time
 import uuid
-from validate_operation import validate_config
+
+from importlib.util import module_from_spec, spec_from_file_location
 
 WORKFLOW = "environment-data-operations.yml"
 REPOSITORY = "ai-workspace-infra/platform-ops-toolkit"
+_validator_spec = spec_from_file_location("validate_operation", Path(__file__).with_name("validate_operation.py"))
+_validator_module = module_from_spec(_validator_spec)
+_validator_spec.loader.exec_module(_validator_module)
+validate_config = _validator_module.validate_config
 
 
 def gh(*arguments, payload=None, timeout=30):
