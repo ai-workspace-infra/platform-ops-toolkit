@@ -3,10 +3,23 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 dispatcher="${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
+request_guard="${repo_root}/.github/scripts/snapshots/validate-uat-schema-migration-request.sh"
 workdir="$(mktemp -d)"
 trap 'rm -rf "${workdir}"' EXIT
 
 grep -Fq 'selfhost_wait_timeout_seconds="${UAT_SELFHOST_WAIT_TIMEOUT_SECONDS:-10800}"' "${dispatcher}"
+
+env DEPLOY_ENV=uat ENABLE_MIGRATION=true DATA_IMPORT_CONFIG_JSON='{}' bash "$request_guard"
+if env DEPLOY_ENV=uat ENABLE_MIGRATION=true \
+  DATA_IMPORT_CONFIG_JSON='{"dsn":"postgres://synthetic-sensitive.invalid"}' \
+  bash "$request_guard" >"$workdir/guard-out" 2>"$workdir/guard-err"; then
+  echo 'Sensitive migration config must fail before Vault and builds.' >&2
+  exit 1
+fi
+if grep -Fq 'synthetic-sensitive' "$workdir/guard-out" "$workdir/guard-err"; then
+  echo 'Rejected migration credentials must not be echoed.' >&2
+  exit 1
+fi
 
 cat > "${workdir}/gh" <<'EOF'
 #!/usr/bin/env bash
