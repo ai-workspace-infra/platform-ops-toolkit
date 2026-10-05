@@ -20,7 +20,7 @@ def request(environment="uat", mode="upgrade"):
     tag = "daily-build-2026.10.04-r3" if environment == "uat" else "v2026.10.04-r3"
     return {"DEPLOY_ENV": environment, "UPGRADE_MODE": mode, "RELEASE_TAG": tag,
             "EXPECTED_SCHEMA_VERSION": "2026092801", "TARGET_SCHEMA_VERSION": "2026100401",
-            "MIGRATION_SHA256": "a" * 64, "CANDIDATE_RUN_ID": "1234",
+            "MIGRATION_SHA256": "a" * 64, "CANDIDATE_RUN_ID": "1234", "REHEARSAL_RUN_ID": "5678",
             "GITHUB_REF": "refs/heads/main" if environment == "uat" else "refs/tags/" + tag,
             "GITHUB_RUN_ID": "5678"}
 
@@ -64,6 +64,10 @@ def receipts(value):
     }
     stages["rollback"] = dict(application_only=True, no_database_restore=True, schema_retained=True,
                               healthy=True, old_application_compatible=True,
+                              original_password_login=True, permissions_preserved=True,
+                              subscription_entitlements_preserved=True, quota_preserved=True,
+                              financial_ledger_preserved=True, usage_ledger_preserved=True,
+                              no_real_payment_or_refund=True, runtime_digest_verified=True,
                               running_digests=old, schema_version=value["target_schema_version"], dirty=False)
     stages["repromotion"] = dict(stages["promotion"])
     stages["final_verification"] = dict(stages["verification"])
@@ -71,7 +75,8 @@ def receipts(value):
 
 
 class EnvironmentUpgradeTests(unittest.TestCase):
-    def resolved(self, environment, mutate=None, annotated=True, actual_sha="f" * 40, mode="upgrade"):
+    def resolved(self, environment, mutate=None, annotated=True, actual_sha="f" * 40, mode="upgrade",
+                 mutate_rehearsal=None, mutate_rehearsal_run=None):
         env = request(environment, mode)
         env.update(GITHUB_REPOSITORY="ai-workspace-infra/platform-ops-toolkit", GITHUB_SHA="f" * 40)
         snapshot = "daily-build-2026.10.04-r3"
@@ -94,6 +99,15 @@ class EnvironmentUpgradeTests(unittest.TestCase):
                "repository": {"full_name": env["GITHUB_REPOSITORY"]}}
         def fake_command(args):
             if args[1:3] == ["run", "download"]:
+                if args[-3].startswith("environment-data-evidence"):
+                    value = candidate(mode="rehearsal")
+                    value["images"] = manifest["images"]
+                    proof = {"schema": 1, "status": "passed", "candidate": value,
+                             "candidate_sha256": pipeline.identity(value), "receipts": receipts(value)}
+                    if mutate_rehearsal:
+                        mutate_rehearsal(proof)
+                    Path(args[-1], "uat-rehearsal-qualification.json").write_text(json.dumps(proof))
+                    return ""
                 Path(args[-1], "uat-artifact-manifest.json").write_text(json.dumps(manifest))
                 return ""
             endpoint = args[-1]
@@ -102,6 +116,11 @@ class EnvironmentUpgradeTests(unittest.TestCase):
                                                           "prevent_self_review": True,
                                                           "reviewers": [{"reviewer": {"login": "reviewer"}}]}]})
             if "/actions/runs/" in endpoint:
+                if endpoint.endswith("/5678"):
+                    record = dict(run, id=5678, path=".github/workflows/environment-data-operations.yml")
+                    if mutate_rehearsal_run:
+                        mutate_rehearsal_run(record)
+                    return json.dumps(record)
                 return json.dumps(run)
             if "/git/ref/tags/" in endpoint:
                 return json.dumps({"object": {"type": "tag" if annotated else "commit", "sha": "a" * 40}})
@@ -205,6 +224,110 @@ class EnvironmentUpgradeTests(unittest.TestCase):
                 raw = receipts(value)
                 raw["rollback"][field] = bad
                 self.chain(value, raw)
+
+    def test_rollback_requires_full_business_revalidation(self):
+        for field in ("original_password_login", "permissions_preserved", "subscription_entitlements_preserved",
+                      "quota_preserved", "financial_ledger_preserved", "usage_ledger_preserved",
+                      "no_real_payment_or_refund", "runtime_digest_verified"):
+            with self.subTest(field=field), self.assertRaises(pipeline.Blocked):
+                value = candidate(mode="rehearsal")
+                raw = receipts(value)
+                raw["rollback"].pop(field)
+                self.chain(value, raw)
+
+    def test_prod_requires_full_rehearsal_run_before_network(self):
+        env = request("prod")
+        env.pop("REHEARSAL_RUN_ID")
+        with patch.object(pipeline, "command", side_effect=AssertionError("network contacted")):
+            with self.assertRaisesRegex(pipeline.Blocked, "full UAT rehearsal"):
+                pipeline.resolve_candidate(env)
+
+    def test_prod_refuses_incomplete_tampered_and_failed_rehearsals(self):
+        for mutate in (lambda p: p["receipts"].pop("rollback"),
+                       lambda p: p["receipts"].pop("repromotion"),
+                       lambda p: p["receipts"].pop("final_verification"),
+                       lambda p: p["receipts"]["rollback"].update(original_password_login=False),
+                       lambda p: p["candidate"].update(migration_sha256="f" * 64),
+                       lambda p: p["candidate"].update(password="PRIVATE")):
+            with self.assertRaises(pipeline.Blocked):
+                self.resolved("prod", mutate_rehearsal=mutate)
+        for field, bad in (("status", "in_progress"), ("conclusion", "failure"),
+                           ("head_branch", "feature/test"), ("path", ".github/workflows/selfhost-orchestrator.yml")):
+            with self.subTest(field=field), self.assertRaises(pipeline.Blocked):
+                self.resolved("prod", mutate_rehearsal_run=lambda r: r.update({field: bad}))
+
+    def test_same_digest_redeployment_is_not_an_upgrade_rehearsal(self):
+        value = candidate(mode="rehearsal")
+        raw = receipts(value)
+        raw["preflight"]["rollback_digests"] = pipeline.digests(value)
+        with self.assertRaisesRegex(pipeline.Blocked, "different application digest"):
+            self.chain(value, raw)
+
+    def test_same_digest_standalone_preflight_and_backup_remain_valid(self):
+        for mode in ("preflight", "backup", "upgrade"):
+            value = candidate(mode=mode)
+            raw = receipts(value)
+            raw["preflight"]["rollback_digests"] = pipeline.digests(value)
+            self.assertEqual(pipeline.validate_receipt(value, "preflight", raw["preflight"], {})["status"], "passed")
+
+    def test_rehearsal_rerun_is_rejected_before_network(self):
+        env = request("uat", "rehearsal") | {"GITHUB_RUN_ATTEMPT": "2"}
+        with patch.object(pipeline, "command", side_effect=AssertionError("network contacted")):
+            with self.assertRaisesRegex(pipeline.Blocked, "rehearsal reruns"):
+                pipeline.resolve_candidate(env)
+
+    def test_qualification_requires_every_stage_and_same_candidate(self):
+        value = candidate(mode="rehearsal")
+        for missing in pipeline.REHEARSAL_PHASES:
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as directory:
+                public = Path(directory)
+                for phase, receipt in receipts(value).items():
+                    if phase != missing:
+                        pipeline.write_json(public / (phase + ".json"), receipt)
+                with self.assertRaises(pipeline.Blocked):
+                    pipeline.qualify_rehearsal(value, public)
+                self.assertFalse((public / "uat-rehearsal-qualification.json").exists())
+        with tempfile.TemporaryDirectory() as directory:
+            public = Path(directory)
+            for phase, receipt in receipts(value).items():
+                pipeline.write_json(public / (phase + ".json"), receipt)
+            self.assertEqual(pipeline.qualify_rehearsal(value, public)["status"], "passed")
+            wrong = receipts(value)["rollback"] | {"candidate_sha256": "a" * 64}
+            pipeline.write_json(public / "rollback.json", wrong)
+            with self.assertRaises(pipeline.Blocked):
+                pipeline.qualify_rehearsal(value, public)
+
+    def test_failed_attempt_blocks_rerun_and_qualification(self):
+        value = candidate(mode="rehearsal")
+        with tempfile.TemporaryDirectory() as directory:
+            public = Path(directory)
+            with patch.object(pipeline, "registered_adapters", return_value={"preflight": Path("preflight.sh")}):
+                with self.assertRaises(pipeline.Blocked):
+                    pipeline.execute_phase(value, "preflight", public,
+                                           runner=lambda *a, **k: subprocess.CompletedProcess(a, 1))
+                self.assertEqual(pipeline.read_json(public / "attempt-failed.json")["status"], "stopped")
+                with self.assertRaisesRegex(pipeline.Blocked, "failed attempt"):
+                    pipeline.execute_phase(value, "preflight", public,
+                                           runner=lambda *a, **k: self.fail("same attempt resumed"))
+            with self.assertRaisesRegex(pipeline.Blocked, "failed attempt"):
+                pipeline.qualify_rehearsal(value, public)
+
+    def test_failed_timeout_invalid_receipt_and_missing_receipt_stop_attempt(self):
+        value = candidate(mode="rehearsal")
+        def timeout(*args, **kwargs):
+            raise subprocess.TimeoutExpired("delegate", 1, stderr="PRIVATE")
+        def invalid(args, **kwargs):
+            Path(kwargs["env"]["UPGRADE_RECEIPT_FILE"]).write_text('{"status":"failed"}')
+            return subprocess.CompletedProcess(args, 0)
+        for runner in (timeout, invalid, lambda *a, **k: subprocess.CompletedProcess(a, 0)):
+            with tempfile.TemporaryDirectory() as directory:
+                public = Path(directory)
+                with patch.object(pipeline, "registered_adapters", return_value={"preflight": Path("preflight.sh")}):
+                    with self.assertRaises((pipeline.Blocked, subprocess.TimeoutExpired)):
+                        pipeline.execute_phase(value, "preflight", public, runner=runner)
+                marker = pipeline.read_json(public / "attempt-failed.json")
+                self.assertNotIn("PRIVATE", json.dumps(marker))
+                self.assertEqual(marker["restart_policy"], "investigate_then_full_rehearsal")
 
     def test_upgrade_cannot_execute_rehearsal_rollback(self):
         with self.assertRaisesRegex(pipeline.Blocked, "not allowed"):

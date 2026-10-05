@@ -65,6 +65,8 @@ def inputs(env):
     require(target in ("uat", "prod"), "explicit environment must be uat or prod")
     require(mode in ("preflight", "backup", "rehearsal", "upgrade"), "invalid operation mode")
     require(mode != "rehearsal" or target == "uat", "rehearsal is UAT-only; PROD rehearsal is forbidden")
+    require(mode != "rehearsal" or env.get("GITHUB_RUN_ATTEMPT", "1") == "1",
+            "rehearsal reruns are refused; investigate then dispatch a new complete run")
     tag = env.get("RELEASE_TAG", "")
     pattern = GATE.RELEASE_TAG if target == "prod" else GATE.SNAPSHOT_TAG
     require(pattern.fullmatch(tag) is not None, "immutable environment-compatible tag required")
@@ -80,6 +82,8 @@ def inputs(env):
     ref = env.get("GITHUB_REF", "")
     if target == "prod":
         require(ref == "refs/tags/" + tag, "PROD must dispatch from its release tag")
+        require(re.fullmatch(r"[1-9][0-9]*", env.get("REHEARSAL_RUN_ID", "")) is not None,
+                "PROD requires a successful full UAT rehearsal run")
     else:
         require(ref == "refs/heads/main", "live UAT must dispatch reviewed workflow on main")
     return {"schema": 1, "environment": target, "mode": mode, "release_tag": tag,
@@ -159,7 +163,70 @@ def resolve_candidate(env):
                           ("service", "image", "digest", "source_repository", "source_sha", "tag")})
     candidate.update({"evidence_kind": "live_candidate", "uat_run_id": run_id,
                       "run_id": env["GITHUB_RUN_ID"], "images": sorted(sanitized, key=lambda i: i["service"])})
+    if candidate["environment"] == "prod":
+        verify_rehearsal_run(candidate, env["REHEARSAL_RUN_ID"])
+        candidate["rehearsal_run_id"] = env["REHEARSAL_RUN_ID"]
     return candidate
+
+
+def verify_rehearsal_run(candidate, run_id):
+    repository = "ai-workspace-infra/platform-ops-toolkit"
+    run = json.loads(command(["gh", "api", f"repos/{repository}/actions/runs/{run_id}"]))
+    require(str(run.get("id")) == run_id
+            and run.get("repository", {}).get("full_name") == repository
+            and run.get("path", "").split("@", 1)[0] == ".github/workflows/environment-data-operations.yml"
+            and run.get("head_branch") == "main" and run.get("event") == "workflow_dispatch"
+            and run.get("status") == "completed" and run.get("conclusion") == "success",
+            "UAT rehearsal provenance must be a completed successful main dispatch")
+    with tempfile.TemporaryDirectory() as directory:
+        command(["gh", "run", "download", run_id, "--repo", repository,
+                 "--name", f"environment-data-evidence-uat-{run_id}", "--dir", directory])
+        proof = read_json(Path(directory) / "uat-rehearsal-qualification.json")
+    validated = validate_qualification(proof)
+    source = validated["candidate"]
+    require(source["run_id"] == run_id and source["uat_run_id"] == candidate["uat_run_id"],
+            "rehearsal run or Hybrid candidate identity differs")
+    require("v" + re.sub(r"^(uat-)?daily-build-", "", source["release_tag"]) == candidate["release_tag"],
+            "rehearsal covered a different release tag")
+    for key in ("images", "expected_schema_version", "target_schema_version", "migration_sha256"):
+        require(source[key] == candidate[key], "rehearsal artifact or migration identity differs")
+
+
+def validate_qualification(proof):
+    require(proof.get("schema") == 1 and proof.get("status") == "passed",
+            "full UAT rehearsal qualification missing")
+    candidate = proof.get("candidate", {})
+    require(isinstance(candidate, dict) and set(candidate) == {
+        "schema", "environment", "mode", "release_tag", "expected_schema_version", "target_schema_version",
+        "migration_sha256", "backup_backend", "backup_environment", "evidence_kind", "uat_run_id", "run_id", "images"},
+        "qualification candidate fields differ from the public contract")
+    require(candidate.get("environment") == "uat" and candidate.get("mode") == "rehearsal"
+            and candidate.get("evidence_kind") == "live_candidate",
+            "qualification must cover a live UAT rehearsal")
+    require(re.fullmatch(r"[1-9][0-9]*", candidate.get("run_id", "")) is not None
+            and re.fullmatch(r"[1-9][0-9]*", candidate.get("uat_run_id", "")) is not None,
+            "qualification requires run identities")
+    require(GATE.SNAPSHOT_TAG.fullmatch(candidate.get("release_tag", "")) is not None,
+            "qualification requires an immutable UAT tag")
+    require(proof.get("candidate_sha256") == identity(candidate), "qualification candidate binding differs")
+    previous = {}
+    for phase in REHEARSAL_PHASES:
+        receipt = proof.get("receipts", {}).get(phase)
+        require(isinstance(receipt, dict), "full rehearsal phase missing: " + phase)
+        previous[phase] = validate_receipt(candidate, phase, receipt, previous)
+    return {"schema": 1, "status": "passed", "candidate_sha256": identity(candidate),
+            "candidate": candidate, "receipts": previous}
+
+
+def qualify_rehearsal(candidate, public):
+    require(not (public / "attempt-failed.json").exists(),
+            "failed attempt cannot qualify; investigate then start a new complete rehearsal")
+    proof = {"schema": 1, "status": "passed", "candidate": candidate,
+             "candidate_sha256": identity(candidate),
+             "receipts": {phase: read_json(public / (phase + ".json")) for phase in REHEARSAL_PHASES}}
+    validated = validate_qualification(proof)
+    write_json(public / "uat-rehearsal-qualification.json", validated)
+    return validated
 
 
 def registered_adapters(candidate, registry=None):
@@ -211,7 +278,10 @@ def validate_receipt(candidate, phase, receipt, previous):
         "verification": ("original_password_login", "permissions_preserved", "subscription_entitlements_preserved",
                          "quota_preserved", "financial_ledger_preserved", "usage_ledger_preserved",
                          "no_real_payment_or_refund", "healthy", "runtime_digest_verified"),
-        "rollback": ("application_only", "no_database_restore", "schema_retained", "healthy", "old_application_compatible"),
+        "rollback": ("application_only", "no_database_restore", "schema_retained", "healthy", "old_application_compatible",
+                     "original_password_login", "permissions_preserved", "subscription_entitlements_preserved",
+                     "quota_preserved", "financial_ledger_preserved", "usage_ledger_preserved",
+                     "no_real_payment_or_refund", "runtime_digest_verified"),
         "repromotion": ("same_digest", "no_rebuild", "no_shared_bootstrap", "no_data_sync", "fallback_preserved"),
         "final_verification": ("original_password_login", "permissions_preserved", "subscription_entitlements_preserved",
                                "quota_preserved", "financial_ledger_preserved", "usage_ledger_preserved",
@@ -232,6 +302,8 @@ def validate_receipt(candidate, phase, receipt, previous):
         old = receipt.get("rollback_digests", {})
         require(set(old) == set(SERVICES) and all(DIGEST.fullmatch(v) for v in old.values()),
                 "complete previous image digests required")
+        require(candidate["mode"] != "rehearsal" or old["accounts"] != digests(candidate)["accounts"],
+                "Accounts rehearsal must upgrade from a different application digest")
         safe.update(schema_version=expected, rollback_digests=old)
     if phase == "backup":
         require(receipt.get("backup_backend") == "selfhost-web-saas"
@@ -274,6 +346,8 @@ def validate_receipt(candidate, phase, receipt, previous):
 
 
 def execute_phase(candidate, phase, public, runner=None):
+    require(not (public / "attempt-failed.json").exists(),
+            "failed attempt is stopped; investigate then start a new complete rehearsal")
     require(candidate["mode"] in ("upgrade", "rehearsal", "backup") or phase == "preflight", "preflight cannot mutate")
     require(phase in phase_sequence(candidate), "phase is not allowed in requested mode")
     adapters = registered_adapters(candidate)
@@ -288,10 +362,17 @@ def execute_phase(candidate, phase, public, runner=None):
                    UPGRADE_RECEIPT_FILE=str(output), UPGRADE_EVIDENCE_DIR=str(public),
                    UPGRADE_PHASE=phase)
         run = runner or subprocess.run
-        result = run(["bash", str(adapters[phase])], env=env, capture_output=True, timeout=7200)
-        require(result.returncode == 0, f"{phase} adapter failed; downstream stages blocked (raw output withheld)")
-        receipt = validate_receipt(candidate, phase, read_json(output), previous)
-        write_json(public / (phase + ".json"), receipt)
+        try:
+            result = run(["bash", str(adapters[phase])], env=env, capture_output=True, timeout=7200)
+            require(result.returncode == 0, f"{phase} adapter failed; downstream stages blocked (raw output withheld)")
+            receipt = validate_receipt(candidate, phase, read_json(output), previous)
+            write_json(public / (phase + ".json"), receipt)
+        except (Blocked, ValueError, KeyError, TypeError, OSError, subprocess.TimeoutExpired):
+            write_json(public / "attempt-failed.json", {
+                "schema": 1, "status": "stopped", "phase": phase,
+                "candidate_sha256": identity(candidate), "environment": candidate["environment"],
+                "run_id": candidate["run_id"], "restart_policy": "investigate_then_full_rehearsal"})
+            raise
 
 
 def verdict(mode, results):
@@ -308,7 +389,7 @@ def verdict(mode, results):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("operation", choices=("candidate", "capabilities", "phase", "verdict"))
+    parser.add_argument("operation", choices=("candidate", "capabilities", "phase", "qualify", "verdict"))
     parser.add_argument("phase", nargs="?", choices=REHEARSAL_PHASES)
     args = parser.parse_args()
     public = Path(os.environ["RUNNER_TEMP"]) / "environment-upgrade/public"
@@ -323,7 +404,10 @@ def main():
             require(inputs(os.environ) == {key: candidate[key] for key in inputs(os.environ)},
                     "downloaded candidate differs from current request")
             require(candidate.get("run_id") == os.environ.get("GITHUB_RUN_ID"), "candidate belongs to another workflow run")
-            if args.operation == "capabilities":
+            if args.operation == "qualify":
+                qualify_rehearsal(candidate, public)
+                message = "Full UAT upgrade, rollback and same-artifact re-upgrade evidence verified."
+            elif args.operation == "capabilities":
                 registered_adapters(candidate)
                 message = "All requested execution adapters verified."
             else:

@@ -57,6 +57,12 @@ class DataControlPlaneTests(unittest.TestCase):
         self.assertNotEqual(self.guard('rollback', {'rollback_mode': 'hard'}).returncode, 0)
         self.assertNotEqual(self.guard('rollback').returncode, 0)  # no fabricated adapter
 
+    def test_rehearsal_rerun_is_rejected_before_credentials(self):
+        with patch.dict(os.environ, {'GITHUB_RUN_ATTEMPT': '2'}):
+            result = self.guard('rehearsal')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('dispatch a new complete run', result.stderr)
+
     def test_akamai_account_is_explicit(self):
         self.assertNotEqual(self.guard('akamai_preflight').returncode, 0)
         self.assertEqual(self.guard('akamai_preflight', {'account': 'reviewed-account'}).returncode, 0)

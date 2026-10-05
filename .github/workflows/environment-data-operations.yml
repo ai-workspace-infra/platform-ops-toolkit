@@ -24,6 +24,10 @@ on:
         description: "Accepted UAT Hybrid run"
         type: "string"
         default: ""
+      rehearsal_run_id:
+        description: "PROD: successful full UAT upgrade/rollback/re-upgrade run"
+        type: "string"
+        default: ""
       expected_schema_version:
         description: "Exact clean starting version"
         type: "string"
@@ -68,6 +72,10 @@ on:
         description: "Accepted UAT Hybrid run"
         type: "string"
         default: ""
+      rehearsal_run_id:
+        description: "PROD: successful full UAT upgrade/rollback/re-upgrade run"
+        type: "string"
+        default: ""
       expected_schema_version:
         description: "Exact clean starting version"
         type: "string"
@@ -108,6 +116,7 @@ env:
   UPGRADE_MODE: ${{ inputs.mode }}
   RELEASE_TAG: ${{ inputs.release_tag }}
   CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+  REHEARSAL_RUN_ID: ${{ inputs.rehearsal_run_id }}
   EXPECTED_SCHEMA_VERSION: ${{ inputs.expected_schema_version }}
   TARGET_SCHEMA_VERSION: ${{ inputs.target_schema_version }}
   MIGRATION_SHA256: ${{ inputs.migration_sha256 }}
@@ -220,6 +229,7 @@ jobs:
               for phase in rollback repromotion final_verification; do
                 python3 .github/scripts/environment-upgrade/pipeline.py phase "$phase"
               done
+              python3 .github/scripts/environment-upgrade/pipeline.py qualify
             fi
           fi
         env:

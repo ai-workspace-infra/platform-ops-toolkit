@@ -30,14 +30,14 @@ def main():
         "release_tag": os.environ.get("RELEASE_TAG", ""),
         "accounts_ref": os.environ.get("ACCOUNTS_REF", "main"),
     }
-    for field in ("candidate_run_id", "expected_schema_version", "target_schema_version", "migration_sha256"):
+    for field in ("candidate_run_id", "rehearsal_run_id", "expected_schema_version", "target_schema_version", "migration_sha256"):
         if os.environ.get(field.upper()):
             inputs[field] = os.environ[field.upper()]
     # Validate JSON before dispatch; never echo its potentially private contents.
     config = json.loads(inputs["config_json"])
     if not isinstance(config, dict):
         raise SystemExit("Data configuration must be an object")
-    for field in ("candidate_run_id", "expected_schema_version", "target_schema_version", "migration_sha256"):
+    for field in ("candidate_run_id", "rehearsal_run_id", "expected_schema_version", "target_schema_version", "migration_sha256"):
         if field not in inputs and config.get(field):
             inputs[field] = str(config[field])
     created = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())

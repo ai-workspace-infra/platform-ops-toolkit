@@ -37,6 +37,8 @@ def main():
     mode, environment = os.environ.get("OPERATION_MODE", ""), os.environ.get("DEPLOY_ENV", "")
     require(environment in {"uat", "prod"}, "explicit UAT or PROD environment required")
     require(mode in MODES, "unsupported data operation")
+    require(mode != "rehearsal" or os.environ.get("GITHUB_RUN_ATTEMPT", "1") == "1",
+            "rehearsal reruns are refused; investigate and dispatch a new complete run")
     config = json.loads(os.environ.get("DATA_CONFIG_JSON", "{}"))
     validate_config(config)
     if 'execution_path' in config:
