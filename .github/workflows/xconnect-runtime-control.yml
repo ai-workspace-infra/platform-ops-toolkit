@@ -1,0 +1,131 @@
+name: XConnect UAT Runtime Control
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: UAT host/service operation owned by Playbooks
+        type: choice
+        options: [gateway_verify, one_verify]
+        required: true
+        default: gateway_verify
+      target_host:
+        description: Exact UAT host address from the approved CMDB artifact
+        type: string
+        required: true
+      target_user:
+        description: SSH user from the approved UAT CMDB artifact
+        type: string
+        required: true
+        default: root
+      state_dir:
+        description: Existing runtime state directory on the selected host
+        type: string
+        required: true
+      playbooks_ref:
+        description: Immutable Playbooks owner revision
+        type: string
+        required: true
+        default: 94b9ca010efb1eeb62469f791a910dd361f1abae
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: xconnect-uat-runtime-${{ inputs.target_host }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate UAT runtime caller
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Validate immutable owner ref and exact runtime inputs
+        env:
+          TARGET_HOST: ${{ inputs.target_host }}
+          TARGET_USER: ${{ inputs.target_user }}
+          STATE_DIR: ${{ inputs.state_dir }}
+          PLAYBOOKS_REF: ${{ inputs.playbooks_ref }}
+        run: |
+          set -euo pipefail
+          [[ "$PLAYBOOKS_REF" =~ ^[0-9a-f]{40}$ ]] || { echo 'playbooks_ref must be a full immutable SHA' >&2; exit 1; }
+          [[ "$TARGET_HOST" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]] || { echo 'target_host has an unsafe shape' >&2; exit 1; }
+          [[ "$TARGET_HOST" != localhost && "$TARGET_HOST" != 127.0.0.1 && "$TARGET_HOST" != ::1 && "$TARGET_HOST" != *..* ]] || { echo 'loopback or ambiguous target is forbidden' >&2; exit 1; }
+          [[ "$TARGET_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || { echo 'target_user has an unsafe shape' >&2; exit 1; }
+          [[ "$STATE_DIR" =~ ^/[A-Za-z0-9][A-Za-z0-9_./-]*$ && "$STATE_DIR" != *..* ]] || { echo 'state_dir has an unsafe shape' >&2; exit 1; }
+          grep -Fq 'xconnect-lab-runtime.yml' .github/workflows/xconnect-runtime-control.yml
+
+  runtime:
+    name: Execute UAT runtime verification
+    needs: validate
+    runs-on: ubuntu-24.04
+    environment: uat
+    timeout-minutes: 20
+    env:
+      TARGET_HOST: ${{ inputs.target_host }}
+      TARGET_USER: ${{ inputs.target_user }}
+      STATE_DIR: ${{ inputs.state_dir }}
+      PLAYBOOKS_REF: ${{ inputs.playbooks_ref }}
+      VAULT_ADDR: https://vault.svc.plus
+      VAULT_ROLE: github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab
+      ANSIBLE_HOST_KEY_CHECKING: 'True'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ inputs.playbooks_ref }}
+          path: playbooks
+          persist-credentials: false
+      - name: Install Ansible controller
+        run: python3 -m pip install --disable-pip-version-check 'ansible-core==2.18.12'
+      - id: ssh
+        name: Read temporary UAT SSH identity from Vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ env.VAULT_ADDR }}
+          role: ${{ env.VAULT_ROLE }}
+          method: jwt
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD/uat SSH_PRIVATE_DEPLOY_KEY_B64 | SSH_PRIVATE_DEPLOY_KEY_B64 ;
+      - name: Install runner-private SSH identity
+        env:
+          DEPLOY_KEY_B64: ${{ steps.ssh.outputs.SSH_PRIVATE_DEPLOY_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$RUNNER_TEMP/xconnect-runtime"
+          printf '%s' "$DEPLOY_KEY_B64" | base64 --decode > "$RUNNER_TEMP/xconnect-runtime/id_deploy"
+          chmod 600 "$RUNNER_TEMP/xconnect-runtime/id_deploy"
+      - name: Invoke Playbooks host/service owner
+        env:
+          OPERATION: ${{ inputs.operation }}
+        run: |
+          set -euo pipefail
+          extra_vars="$(jq -cn \
+            --arg operation "$OPERATION" \
+            --arg environment uat \
+            --arg target "$TARGET_HOST" \
+            --arg state "$STATE_DIR" \
+            '{xconnect_lab_runtime_operation:$operation,
+              xconnect_lab_runtime_environment:$environment,
+              xconnect_lab_runtime_target:$target,
+              xconnect_lab_runtime_hosts:$target,
+              xconnect_gateway_state_dir:(if $operation | startswith("gateway_") then $state else "/var/lib/xconnect-gateway/uat" end),
+              xconnect_one_state_dir:(if $operation | startswith("one_") then $state else "/var/lib/xconnect-one/uat" end)}')"
+          ansible-playbook -i "${TARGET_HOST}," playbooks/xconnect-lab-runtime.yml \
+            --limit "$TARGET_HOST" \
+            --user "$TARGET_USER" \
+            --private-key "$RUNNER_TEMP/xconnect-runtime/id_deploy" \
+            --ssh-common-args='-o StrictHostKeyChecking=accept-new' \
+            --extra-vars "$extra_vars"
+      - name: Remove runner-private SSH identity
+        if: ${{ always() }}
+        run: rm -f "$RUNNER_TEMP/xconnect-runtime/id_deploy"
+
