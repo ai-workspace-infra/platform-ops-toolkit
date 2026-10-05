@@ -99,16 +99,10 @@ def main():
     finally:
         if runtime_file is not None and not delivered:
             runtime_file.unlink(missing_ok=True)
-        # A failure to revoke is a failing security gate, not a silent success.
-        STAGE = 'vault-revoke'
-        req = Request(vault + '/v1/auth/token/revoke-self', data=b'{}', headers=headers, method='POST')
-        try:
-            with urlopen(req, timeout=30):
-                pass
-        except Exception:
-            if runtime_file is not None:
-                runtime_file.unlink(missing_ok=True)
-            raise
+        # This JWT role deliberately issues a short-lived batch token. Vault
+        # batch tokens cannot be manually revoked, so rely on the role's
+        # one-hour TTL rather than making successful restoration impossible
+        # with an unsupported revoke-self request.
 
 
 def run():
