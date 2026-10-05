@@ -21,7 +21,7 @@
 
 | 项目 | 当前值 | 证据/说明 |
 | --- | --- | --- |
-| Toolkit `origin/main` | `8fd8693ad47d3262274367e8c0a28e44968d6732` | 已合入 XConnect UAT caller #1283 |
+| Toolkit `origin/main` | `13b24acc9d9e2d638b398ab857c0598375d3e58f` | 已合入 XConnect caller #1283、fail-closed upgrade delegate #1284 和本交接快照 #1286 |
 | Playbooks `origin/main` | `94b9ca010efb1eeb62469f791a910dd361f1abae` | 已合入 XConnect runtime owner #574 |
 | `.github/scripts` tracked 文件 | **190** | `git ls-tree -r --name-only origin/main .github/scripts | wc -l` |
 | `find .github/scripts | wc -l` | **210** | 包含目录项，不等于文件数 |
@@ -99,6 +99,12 @@ owner/caller 合并不等于 cleanup。旧 `xconnect-lab` 与 existing-One 脚�
 
 `run.sh`、`lease.sh`、`prepare.py` 的 Terraform/provider/state 逻辑和 `reconcile-gateway-dns.sh` 的 DNS Provider 操作，应分别迁移至 IaC Modules；不能放入本批 Playbooks Role，也不能把 GitOps 变成 CMDB。
 
+### 4.5 Caddy fail-closed caller 状态
+
+- Toolkit PR [#1284](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1284) 已合并，merge SHA：`ec4c5316392c48947ebf2949a6652988b2182ccc`。
+- 该 caller 固定调用已合并的 Playbooks Caddy owner，并在缺少执行器、目标或证据时 fail-closed；这只证明调用契约已进入 main。
+- Caddy 旧副本仍不得删除：尚缺真实 UAT 运行、失败/幂等回执和删除后的完整 CI 证据。
+
 ## 5. 数据迁移、隔离恢复和升级门禁
 
 Playbooks 现有 `web_saas_data_backup` 与 `web_saas_data_restore_verify` 已有 disposable PostgreSQL round-trip CI 证据：加密备份、checksum、隔离库恢复、schema/data fingerprint、错误密钥和占用库失败路径均有覆盖。
@@ -108,10 +114,31 @@ Playbooks 现有 `web_saas_data_backup` 与 `web_saas_data_restore_verify` 已�
 - disposable PostgreSQL CI 通过 ≠ UAT 主机实际恢复通过；
 - UAT 实际恢复通过 ≠ 真实数据库升级已授权；
 - PR/CI green ≠ UAT 业务验收；
-- 当前 `web_saas_data_migration` 仍以 `UNSUPPORTED_SELFHOST_MIGRATOR_CONTRACT` 阻断真实迁移；
+- 当前 `web_saas_data_migration` 仍以 `UNSUPPORTED_SELFHOST_MIGRATOR_CONTRACT` 阻断真实迁移；统一数据操作入口的 `adapters.json` 当前 UAT/PROD 均为空，升级演练执行器尚未注册；
 - 备份实际恢复证据通过前，不得注册或 dispatch 真实升级；
 - 数据库问题优先向前修复，不执行破坏性 down migration；
 - 本交接周期不执行 PROD。
+
+### 5.1 UAT→PROD 平滑升级状态机评估
+
+设计闭环是正确的：**UAT 产生晋级资格，PROD 根据实时生产条件重新预检并消费同一构件**。UAT 演练应固定为：
+
+`准备 → 升级验收 → 回滚验收 → 同一构件再升级重验 → 具备 PROD 晋级资格`
+
+统一入口已经具备对应的控制顺序：
+
+`preflight → backup → migration → promotion → verification → rollback → repromotion → final_verification`
+
+其中 backup 必须绑定同环境 `/data/backups/web-saas/<environment>/<release-tag>/<run-id>/` 检查点和隔离恢复证据；migration 必须绑定精确版本/checksum、`dirty=false`、锁/超时、向前兼容和幂等；rollback 只回退应用并保留扩展 schema；repromotion 必须证明同一 digest、无重建、无共享服务 bootstrap、无 PROD→UAT 数据同步。
+
+当前评估为 **控制面已具备，真实演练不具备执行条件**：
+
+- `.github/scripts/environment-upgrade/adapters.json` 为 `{"schema":2,"uat":{},"prod":{}}`，八个真实阶段没有已审核执行器；
+- disposable PostgreSQL 备份/隔离恢复 CI 不能替代 UAT selfhost web-saas 实际恢复；
+- 还缺本次候选的 UAT Hybrid run、immutable tag、schema 起止版本、迁移 SHA-256、环境本地备份主机身份及脱敏业务基线；
+- 因此不得 dispatch 真实 upgrade/rehearsal，不得把 fail-closed 阻断或 PR/CI green 记录为 UAT 通过，也不得触碰 PROD。
+
+执行顺序必须是：先落 Playbooks backup/isolated-restore owner 并真实验证，再注册 UAT 执行器，完整跑通上述闭环；任何阶段异常均停止、核实实际状态后从明确失败阶段重入，不能跳过或复用不匹配 receipt。
 
 ## 6. 下一位执行者操作顺序
 
@@ -158,6 +185,8 @@ Playbooks 现有 `web_saas_data_backup` 与 `web_saas_data_restore_verify` 已�
 - 总跟踪 Issue：[platform-ops-toolkit#1269](https://github.com/ai-workspace-infra/platform-ops-toolkit/issues/1269)
 - Owner PR：[playbooks#574](https://github.com/ai-workspace-infra/playbooks/pull/574)
 - Caller PR：[platform-ops-toolkit#1283](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1283)
+- Upgrade delegate PR：[platform-ops-toolkit#1284](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1284)
+- Handoff snapshot PR：[platform-ops-toolkit#1285](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1285)、后续合并快照 [#1286](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1286)
 - 历史详细交接：[2026-10-04-execution-ownership-migration-handoff.md](2026-10-04-execution-ownership-migration-handoff.md)
 - 下一批合同：[2026-10-05-next-execution-batches-contract.md](2026-10-05-next-execution-batches-contract.md)
 - Scanner 合同：[2026-10-05-ownership-scanner-contract.md](2026-10-05-ownership-scanner-contract.md)
