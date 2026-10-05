@@ -138,7 +138,7 @@ Playbooks 现有 `web_saas_data_backup` 与 `web_saas_data_restore_verify` 已�
 - 还缺本次候选的 UAT Hybrid run、immutable tag、schema 起止版本、迁移 SHA-256、环境本地备份主机身份及脱敏业务基线；
 - 因此不得 dispatch 真实 upgrade/rehearsal，不得把 fail-closed 阻断或 PR/CI green 记录为 UAT 通过，也不得触碰 PROD。
 
-执行顺序必须是：先落 Playbooks backup/isolated-restore owner 并真实验证，再注册 UAT 执行器，完整跑通上述闭环；任何阶段异常均停止、核实实际状态后从明确失败阶段重入，不能跳过或复用不匹配 receipt。
+执行顺序必须是：先落 Playbooks backup/isolated-restore owner 并真实验证，再注册 UAT 执行器，完整跑通上述闭环；任何阶段异常均停止、核实实际状态并修复后，开启新 run 从准备开始重走完整演练，不能跳过或复用不匹配 receipt。
 
 ## 6. 下一位执行者操作顺序
 

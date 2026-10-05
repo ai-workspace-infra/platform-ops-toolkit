@@ -4,6 +4,23 @@
 入口、执行归属、明确受限模式及 Vault 迁移请以 [统一数据操作说明](environment-data-operations.md) 为准。
 **所有实际演练只在 UAT；PROD 不允许 rehearsal、故障注入或应用回滚演练。**
 
+UAT 演练必须完成 **准备 → 升级验收 → 回滚验收 → 同一构件再升级重验 → 可晋级**。
+回滚验收与升级验收一样要求原密码登录、权限、订阅权益、额度、财务及用量账本保持，
+并核对实际运行的旧 digest；只检查旧容器健康不够。Accounts 的旧 digest 必须与候选不同。
+
+任一执行阶段失败、超时或回执无效时，控制面保存脱敏 `attempt-failed.json`，停止该
+attempt 的所有后续动作。核实现场、修复后新开一次 run，从准备开始重走完整演练；
+`GITHUB_RUN_ATTEMPT > 1` 的 rehearsal 在读取凭据前拒绝，必须重新 dispatch，
+不能在同一失败 attempt 中仅重跑后半段。迁移已执行时先核实版本/dirty 和旧应用兼容，
+再确定新演练的起点，禁止退回 schema 版本或 force 清脏。
+
+八阶段回执全部匹配同一 candidate/run/environment 后，才生成
+`uat-rehearsal-qualification.json`。PROD 统一升级入口增加必填 `rehearsal_run_id`，
+从该成功 main dispatch 的 `environment-data-evidence-uat-<run-id>` artifact 读取资格，
+逐阶段复核，再比对 Hybrid run、release tag、完整 images/source SHA/digest、SQL checksum
+和迁移起止版本。缺回滚/再升级/最终验收或 run 未成功时停止晋级。
+这些控制面测试仍是离线契约验证，真实执行器 registry 在实际恢复验收前保持关闭。
+
 ## Selfhost web-saas 的兜底与备份职责
 
 UAT 备份保存到 UAT selfhost web-saas 主机，PROD 备份保存到 PROD selfhost web-saas 主机。
