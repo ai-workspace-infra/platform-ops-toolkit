@@ -13,6 +13,7 @@ from unittest.mock import patch
 import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
+REVIEWED_PLAYBOOKS_HEAD = '5a1f68c6de22010b20771ea7583f892c2c899da3'
 
 
 def load_module(name):
@@ -92,6 +93,8 @@ class DataControlPlaneTests(unittest.TestCase):
                            ('akamai_preflight', 'iac_modules')):
             uses = entry['jobs'][job]['uses']
             self.assertRegex(uses, rf'^ai-workspace-infra/{owner}/.github/workflows/[^@]+@[0-9a-f]{{40}}$')
+            if owner == 'playbooks':
+                self.assertEqual(uses.rsplit('@', 1)[1], REVIEWED_PLAYBOOKS_HEAD)
         self.assertLessEqual(len(entry['on']['workflow_dispatch']['inputs']), 25)
 
     def test_parent_orchestrators_dispatch_and_wait(self):
