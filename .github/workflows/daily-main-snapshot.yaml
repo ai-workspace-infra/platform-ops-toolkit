@@ -43,10 +43,15 @@ on:
         default: ''
         type: string
       enable_migration:
-        description: "可选：是否显式触发 PROD→UAT 单向数据迁移；默认 false，不随日常发版同步"
+        description: "显式派发统一数据入口；默认 false。需提供迁移配置，默认只预览且不部署"
         required: false
         default: false
         type: boolean
+      migration_config_json:
+        description: "一次性 legacy_import 的非敏感配置；confirm_legacy_import=true；dry_run 默认 true，实际导入须显式 false。禁止 DSN/密码/SQL"
+        required: false
+        default: '{}'
+        type: string
       adopt_accounts_baseline:
         description: "仅 UAT 一次性：原地补齐旧版订阅字段并接入迁移版本表；必须关闭数据迁移"
         required: false
@@ -122,6 +127,7 @@ jobs:
           APPLY_ACCOUNTS_SCHEMA_MIGRATION: ${{ inputs.apply_accounts_schema_migration || false }}
           ADOPT_ACCOUNTS_BASELINE: ${{ inputs.adopt_accounts_baseline || false }}
           ENABLE_MIGRATION: ${{ inputs.enable_migration }}
+          DATA_IMPORT_CONFIG_JSON: ${{ inputs.migration_config_json }}
           ACCOUNTS_SCHEMA_EXPECTED_VERSION: ${{ inputs.accounts_schema_expected_version }}
           ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
           ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}
@@ -365,6 +371,7 @@ jobs:
           XCONNECT_ONE_RELEASE_TAG: ${{ inputs.xconnect_one_release_tag }}
           XCONNECT_GATEWAY_RELEASE_TAG: ${{ inputs.xconnect_gateway_release_tag }}
           ENABLE_MIGRATION: ${{ inputs.enable_migration }}
+          DATA_IMPORT_CONFIG_JSON: ${{ inputs.migration_config_json }}
           APPLY_ACCOUNTS_SCHEMA_MIGRATION: ${{ inputs.apply_accounts_schema_migration || false }}
           ADOPT_ACCOUNTS_BASELINE: ${{ inputs.adopt_accounts_baseline || false }}
           ACCOUNTS_SCHEMA_EXPECTED_VERSION: ${{ inputs.accounts_schema_expected_version }}

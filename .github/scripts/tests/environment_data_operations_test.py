@@ -144,6 +144,25 @@ class DataControlPlaneTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, 'reviewers'):
                 gate.main()
 
+    def test_dispatch_timeout_does_not_claim_success(self):
+        dispatch = load_module('dispatch')
+        env = {'DATA_ENVIRONMENT': 'uat', 'DATA_OPERATION': 'legacy_import',
+               'DATA_CONFIG_JSON': '{"confirm_legacy_import":true}', 'DATA_WAIT_SECONDS': '1'}
+        with patch.dict(os.environ, env, clear=True), patch.object(dispatch, 'gh', return_value={}), \
+             patch.object(dispatch.time, 'monotonic', side_effect=[0, 2]):
+            with self.assertRaisesRegex(SystemExit, r'timeout \(not acceptance\)'):
+                dispatch.main()
+
+    def test_dispatch_separates_dispatch_and_long_lived_read_token(self):
+        dispatch = load_module('dispatch')
+        with patch.dict(os.environ, {'GH_TOKEN': 'synthetic-app', 'RUN_STATUS_TOKEN': 'synthetic-job'}, clear=True), \
+             patch.object(dispatch.subprocess, 'run') as run:
+            run.return_value.stdout = '{}'
+            dispatch.gh('api', '--method', 'POST', 'dispatches', payload={'ref': 'main'})
+            self.assertEqual(run.call_args.kwargs['env']['GH_TOKEN'], 'synthetic-app')
+            dispatch.gh('api', 'runs')
+            self.assertEqual(run.call_args.kwargs['env']['GH_TOKEN'], 'synthetic-job')
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

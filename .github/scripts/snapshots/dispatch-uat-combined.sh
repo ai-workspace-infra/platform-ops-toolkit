@@ -26,6 +26,7 @@ enable_migration="${ENABLE_MIGRATION:-false}"
 apply_accounts_schema_migration="${APPLY_ACCOUNTS_SCHEMA_MIGRATION:-false}"
 adopt_accounts_baseline="${ADOPT_ACCOUNTS_BASELINE:-false}"
 accounts_source_backend="${ACCOUNTS_SOURCE_BACKEND:-supabase}"
+data_config_json="${DATA_IMPORT_CONFIG_JSON:-}"
 serverless_operation="${SERVERLESS_OPERATION:-}"
 wait_timeout_seconds="${UAT_SERVERLESS_WAIT_TIMEOUT_SECONDS:-3600}"
 wait_interval_seconds="${UAT_SERVERLESS_WAIT_INTERVAL_SECONDS:-30}"
@@ -55,6 +56,34 @@ selfhost_wait_timeout_seconds="${UAT_SELFHOST_WAIT_TIMEOUT_SECONDS:-10800}"
   exit 2
 }
 
+[[ "${enable_migration}" == "true" || "${enable_migration}" == "false" ]] || {
+  echo "::error::ENABLE_MIGRATION must be true or false." >&2
+  exit 2
+}
+if [[ "${enable_migration}" == "true" ]]; then
+  [[ "${DEPLOY_ENV:-uat}" == uat && "${apply_accounts_schema_migration}" == false && "${adopt_accounts_baseline}" == false ]] || {
+    echo "::error::One-time import is UAT-only and cannot be combined with schema migration or baseline adoption." >&2
+    exit 2
+  }
+  # Missing config retains the execution owner's safe preview default. Never
+  # infer database endpoints, credentials, replacement or a write confirmation.
+  [[ -n "${data_config_json}" ]] || data_config_json='{}'
+  data_config_json="$(DATA_IMPORT_CONFIG_JSON="${data_config_json}" python3 - <<'PY'
+import json, os
+config = json.loads(os.environ['DATA_IMPORT_CONFIG_JSON'])
+if not isinstance(config, dict):
+    raise SystemExit('::error::migration_config_json must be a JSON object')
+config.setdefault('confirm_legacy_import', True)
+config.setdefault('dry_run', True)
+config.setdefault('accounts_transport', 'direct')
+print(json.dumps(config, separators=(',', ':')))
+PY
+  )"
+  export DATA_CONFIG_JSON="${data_config_json}"
+  DEPLOY_ENV=uat OPERATION_MODE=legacy_import DATA_CONFIG_JSON="${data_config_json}" \
+    GITHUB_OUTPUT= python3 "$(dirname "${BASH_SOURCE[0]}")/../environment-upgrade/validate_operation.py"
+fi
+
 [[ "${wait_timeout_seconds}" =~ ^[1-9][0-9]*$ && "${selfhost_wait_timeout_seconds}" =~ ^[1-9][0-9]*$ && "${wait_interval_seconds}" =~ ^[1-9][0-9]*$ ]] || {
   echo "::error::UAT workflow wait timeout and interval must be positive integers." >&2
   exit 2
@@ -67,11 +96,10 @@ for release_tag in "${xconnect_one_release_override}" "${xconnect_gateway_releas
   fi
 done
 
-# The Hybrid Orchestrator is the only UAT dispatch target. Schema migration and
+# The Hybrid Orchestrator is the only application dispatch target. Schema migration and
 # baseline adoption are passed through explicitly to its Serverless web-saas
-# child; data migration and XConnect release overrides remain unsupported here.
+# child; explicit data import uses the unified data entry before application dispatch.
 unsupported_requests=()
-[[ "${enable_migration}" == "true" ]] && unsupported_requests+=("enable_migration")
 [[ -n "${xconnect_one_release_override}" ]] && unsupported_requests+=("xconnect_one_release_tag")
 [[ -n "${xconnect_gateway_release_override}" ]] && unsupported_requests+=("xconnect_gateway_release_tag")
 if [[ "${#unsupported_requests[@]}" -gt 0 ]]; then
@@ -84,6 +112,18 @@ if [[ "${skip_stripe_catalog}" != "true" ]]; then
 fi
 
 export GH_TOKEN="${gh_token}"
+
+if [[ "${enable_migration}" == "true" ]]; then
+  DATA_ENVIRONMENT=uat DATA_OPERATION=legacy_import DATA_WORKFLOW_REF=main \
+    RELEASE_TAG="${snapshot_tag}" ACCOUNTS_REF="${snapshot_tag}" \
+    DATA_CONFIG_JSON="${data_config_json}" DATA_WAIT_SECONDS="${wait_timeout_seconds}" \
+    python3 "$(dirname "${BASH_SOURCE[0]}")/../environment-upgrade/dispatch.py"
+  preview_only="$(python3 -c 'import json,os; print("true" if json.loads(os.environ["DATA_CONFIG_JSON"]).get("dry_run", True) else "false")')"
+  if [[ "${preview_only}" == true ]]; then
+    echo "::notice::Explicit UAT import preview completed; no application deployment or DB-upgrade acceptance is claimed. Set dry_run=false only for a reviewed write request."
+    exit 0
+  fi
+fi
 
 hybrid_workflow="${HYBRID_WORKFLOW:-hybrid-orchestrator.yml}"
 hybrid_run_url="$(gh workflow run "${hybrid_workflow}" \
