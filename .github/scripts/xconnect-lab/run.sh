@@ -202,6 +202,7 @@ case "${1:?command}" in
       test -f "$TF/expiry_timer_test.sh" || die 'Apply requires an IaC revision with independent absolute-expiry protection'
       bash "$TF/contract_test.sh"
       test -f "$ROOT/playbooks/deploy_xconnect_observability.yml" || die 'The reviewed playbooks revision is missing the XConnect observability entrypoint'
+      test -f "$ROOT/playbooks/roles/docker/observability_server_operations/tasks/xconnect_runtime_contract.yml" || die 'The reviewed playbooks revision is missing the XConnect runtime contract role'
     fi
     terraform -chdir="$TF" fmt -check
     tf init -backend=false -input=false

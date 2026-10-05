@@ -405,10 +405,10 @@ GATEWAY_EARLY_FAILURE_DIAGNOSTICS
   exit 1
 fi
 echo 'Verify: Gateway XHTTP runtime contract'
-if ! ssh "${GATEWAY_SSH[@]}" "$gateway_user@$gateway" sudo bash -s -- \
-  gateway /var/lib/xconnect-gateway/runtime/xray.json - "$transport_server_name" "$xhttp_path" "$xhttp_mode" "$xhttp_host" \
-  < "$ROOT/.github/scripts/xconnect-lab/verify-xhttp-runtime.sh"; then
-  echo 'Gateway XHTTP runtime contract verification failed.' >&2
+gateway_key="$LAB_DIR/id_ed25519"
+if [[ "$gateway_provider" == external ]]; then gateway_key="${EXTERNAL_GATEWAY_SSH_KEY:?EXTERNAL_GATEWAY_SSH_KEY is required}"; fi
+if ! verify_xconnect_runtime_contract gateway "$gateway" "$gateway_user" "$gateway_key" \
+  /var/lib/xconnect-gateway/runtime/xray.json "$transport_server_name" "$transport_server_name"; then
   exit 1
 fi
 echo 'gateway_xhttp_runtime=valid'
@@ -639,10 +639,8 @@ fi
 echo 'linux_one_data_plane=valid'
 
 echo 'Verify: Linux One XHTTP runtime contract'
-if ! ssh "${CLIENT_SSH[@]}" "$client_user@$client" sudo bash -s -- \
-  one /var/lib/xconnect-one "$client_xhttp_contract_endpoint" "$transport_server_name" "$xhttp_path" "$xhttp_mode" "$xhttp_host" \
-  < "$ROOT/.github/scripts/xconnect-lab/verify-xhttp-runtime.sh"; then
-  echo 'Linux One XHTTP runtime contract verification failed.' >&2
+if ! verify_xconnect_runtime_contract one "$client" "$client_user" "$LAB_DIR/id_ed25519" \
+  /var/lib/xconnect-one "$client_xhttp_contract_endpoint" "$transport_server_name"; then
   exit 1
 fi
 echo 'linux_one_xhttp_runtime=valid'
@@ -710,6 +708,53 @@ write_desktop_handoff() {
   [[ -z "$unexpected" ]] || { echo 'Public desktop handoff directory contains an unexpected entry'; exit 1; }
   [[ "$(find "$public_dir" -mindepth 1 -maxdepth 1 -print | wc -l)" -eq 2 ]] || { echo 'Public desktop handoff directory must contain exactly ca.crt and desktop-handoff.json'; exit 1; }
   echo "PUBLIC_DESKTOP_HANDOFF_READY run=$run_id expires_at=$expires"
+}
+
+verify_xconnect_runtime_contract() {
+  local role="$1" host="$2" user="$3" key="$4" path="$5" remote_address="$6" server_name="$7"
+  local inventory_file="$LAB_DIR/xconnect-runtime-contract-inventory.ini"
+  local variables_file="$LAB_DIR/xconnect-runtime-contract-vars.json"
+  install -m 600 /dev/null "$inventory_file"
+  install -m 600 /dev/null "$variables_file"
+  {
+    printf '%s\n' '[all]'
+    printf '%s\n' 'localhost ansible_connection=local'
+    printf '%s\n' '' '[xconnect_runtime]'
+    printf 'runtime_%s ansible_host=%s ansible_user=%s ansible_ssh_private_key_file=%s\n' \
+      "$role" "$host" "$user" "$key"
+  } > "$inventory_file"
+  jq -n \
+    --arg delegate "runtime_${role}" \
+    --arg role "$role" \
+    --arg path "$path" \
+    --arg remote_address "$remote_address" \
+    --arg server_name "$server_name" \
+    --arg xhttp_path "$xhttp_path" \
+    --arg xhttp_mode "$xhttp_mode" \
+    --arg xhttp_host "$xhttp_host" \
+    '{observability_operations_environment:"uat",
+      observability_operation:"xconnect_runtime_contract",
+      xconnect_runtime_contract_delegate_host:$delegate,
+      xconnect_runtime_contract_role:$role,
+      xconnect_runtime_contract_path:$path,
+      xconnect_runtime_contract_remote_address:$remote_address,
+      xconnect_runtime_contract_server_name:$server_name,
+      xconnect_runtime_contract_xhttp_path:$xhttp_path,
+      xconnect_runtime_contract_xhttp_mode:$xhttp_mode,
+      xconnect_runtime_contract_xhttp_host:$xhttp_host,
+      xconnect_runtime_contract_become:true}' > "$variables_file"
+
+  local ansible_status=0
+  ANSIBLE_HOST_KEY_CHECKING=True \
+    ansible-playbook -i "$inventory_file" "$ROOT/playbooks/observability_operations.yml" \
+      --extra-vars "@$variables_file" \
+      --ssh-common-args="-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$LAB_DIR/known_hosts" \
+      || ansible_status=$?
+  rm -f "$inventory_file" "$variables_file"
+  if (( ansible_status != 0 )); then
+    echo "${role^} XHTTP runtime contract verification failed via Playbooks role." >&2
+    return "$ansible_status"
+  fi
 }
 
 stage="${1:-all}"

@@ -26,6 +26,14 @@ grep -Fq 'gateway_address=' "${deploy}"
 grep -Fq '.spec.overlay.gateway_address | type == "string"' "${repo_root}/.github/scripts/xconnect-lab/validate-topology.jq"
 grep -Fq 'xconnect-gateway join' "${deploy}"
 grep -Fq 'deploy_xconnect_one.yml' "${deploy}"
+grep -Fq 'observability_operations.yml' "${deploy}"
+grep -Fq 'xconnect_runtime_contract' "${deploy}"
+grep -Fq 'xconnect_runtime_contract.yml' "${runner}"
+if grep -Fq 'verify-xhttp-runtime.sh' "${deploy}"; then
+  echo 'XHTTP runtime contract execution must be delegated to the reviewed Playbooks role' >&2
+  exit 1
+fi
+grep -Fq "b6fc23c14d4a4b7a571c0188e032bb19c8828189" "${workflow}"
 grep -Fq "default: 'net_uat'" "${workflow}"
 grep -Fq 'External Gateway identity is not bound to the requested Zero network' "${deploy}"
 grep -Fq 'kv/data/CICD/domains/svc.plus tls_trust_bundle_pem_b64' "${workflow}"
