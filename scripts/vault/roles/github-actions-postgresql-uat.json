@@ -8,8 +8,8 @@
   ],
   "bound_claims_type": "glob",
   "bound_claims": {
-    "repository": "ai-workspace-services/postgresql.svc.plus",
-    "job_workflow_ref": "ai-workspace-services/postgresql.svc.plus/.github/workflows/*pipeline.ym*@*",
+    "repository": "ai-workspace-services/postgresql",
+    "job_workflow_ref": "ai-workspace-services/postgresql/.github/workflows/*pipeline.ym*@*",
     "ref": [
       "refs/heads/main",
       "refs/heads/release/*",

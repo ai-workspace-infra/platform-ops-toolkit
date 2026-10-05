@@ -21,7 +21,7 @@ SNAPSHOT_ORGS=(
 
 workflow_for_repo() {
   case "$1" in
-    ai-workspace-services/accounts|ai-workspace-services/billing-service|ai-workspace-services/content-service|ai-workspace-services/portal|ai-workspace-services/postgresql.svc.plus)
+    ai-workspace-services/accounts|ai-workspace-services/billing-service|ai-workspace-services/content-service|ai-workspace-services/portal|ai-workspace-services/postgresql)
       printf '%s\n' ci-pipeline.yml ;;
     ai-workspace-services/edge-gateway) printf '%s\n' deploy.yml ;;
     ai-workspace-lab/xworkmate-bridge) printf '%s\n' pipeline.yml ;;
@@ -137,7 +137,7 @@ dispatch_build_workflow() {
         -f "run_apply=false" \
         >/dev/null
       ;;
-    ai-workspace-services/postgresql.svc.plus)
+    ai-workspace-services/postgresql)
       gh workflow run "${workflow}" --repo "${repo}" --ref "${tag}" \
         -f "image_tag=${tag}" \
         -f "deployment_environment=${deploy_env}" \
