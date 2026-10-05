@@ -2,6 +2,7 @@
 """Offline contract rehearsal. Uses synthetic receipts; never contacts a DB/cloud."""
 import importlib.util
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -348,6 +349,32 @@ class EnvironmentUpgradeTests(unittest.TestCase):
                     pipeline.execute_phase(candidate(), "preflight", public,
                                            runner=lambda *a, **k: subprocess.CompletedProcess(a, 1))
             self.assertFalse((public / "preflight.json").exists())
+
+    def test_fixed_delegate_fails_closed_without_writing_receipt(self):
+        delegate = ROOT / ".github/scripts/environment-upgrade/delegate.sh"
+        with tempfile.TemporaryDirectory() as directory:
+            receipt = Path(directory) / "receipt.json"
+            env = dict(os.environ, DEPLOY_ENV="uat", UPGRADE_PHASE="migration",
+                       UPGRADE_OPERATION="migration",
+                       UPGRADE_PLAYBOOKS_REPOSITORY="ai-workspace-infra/playbooks",
+                       UPGRADE_PLAYBOOKS_REF="a" * 40,
+                       UPGRADE_PLAYBOOKS_WORKFLOW=".github/workflows/selfhost-data-lifecycle.yml",
+                       UPGRADE_RECEIPT_FILE=str(receipt))
+            result = subprocess.run(["bash", str(delegate)], env=env, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("not registered", result.stderr)
+            self.assertFalse(receipt.exists())
+
+    def test_fixed_delegate_rejects_rollback_before_any_dispatch(self):
+        delegate = ROOT / ".github/scripts/environment-upgrade/delegate.sh"
+        env = dict(os.environ, DEPLOY_ENV="uat", UPGRADE_PHASE="rollback",
+                   UPGRADE_OPERATION="rollback",
+                   UPGRADE_PLAYBOOKS_REPOSITORY="ai-workspace-infra/playbooks",
+                   UPGRADE_PLAYBOOKS_REF="a" * 40,
+                   UPGRADE_PLAYBOOKS_WORKFLOW=".github/workflows/selfhost-data-lifecycle.yml")
+        result = subprocess.run(["bash", str(delegate)], env=env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("rollback rehearsal adapter is not registered", result.stderr)
 
     def test_requested_mode_verdict_never_accepts_skipped_or_failed_jobs(self):
         for mode, final in (("preflight", "preflight"), ("rehearsal", "upgrade"), ("upgrade", "upgrade")):
