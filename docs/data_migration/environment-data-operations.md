@@ -36,7 +36,30 @@ Actions 并发锁按环境统一；数据库实现仍须取得数据库迁移锁
 
 `config_json` 只接受非敏感配置，禁止 DSN、密码、私钥、任意命令/SQL；凭据由执行仓库 OIDC→Vault 取得。
 普通发布永远不自动复制 PROD→UAT。旧 migrate/deploy+migrate 的自动导入路径被阻断，管理员
-必须另行从统一入口明确启动 legacy_import；这不是平滑 schema 升级。
+必须明确启动 legacy_import；这不是平滑 schema 升级。
+
+### Daily 的显式一次性导入
+
+`daily-main-snapshot.yaml` 的 `enable_migration=true` 不传给 Hybrid，而是先派发
+本统一入口的 `mode=legacy_import`，绑定本次不可变 tag 为 `release_tag` 和
+`accounts_ref`，使用唯一关联 ID 等待最终成功；失败、取消、超时均停止，不能进入 Hybrid。
+`enable_migration=false`（默认）不派发任何导入。导入与 schema migration／baseline adoption
+互斥，只能目标 UAT；不会新增 PROD 导入或重新 bootstrap 共享服务。
+
+`migration_config_json` 仅传非敏感配置。显式 enable 开关会补充
+`confirm_legacy_import=true`；默认 `dry_run=true`、`accounts_transport=direct`。
+预览成功也不部署应用，不能冒充实际迁移或升级验收。审核写入请求须显式
+`dry_run=false`，并提供执行 owner 所需的来源、目标、身份及备份条件；不推断 IP、
+数据库或替换策略。配置中的 DSN、密码、SQL 和命令会在派发前拒绝。
+
+直接连接的凭据沿用 Vault `kv/uat/accounts-migration`：
+`MIGRATION_SOURCE_DSN`、`MIGRATION_TARGET_DSN`；SSH 源访问使用
+`MIGRATION_SOURCE_SSH_PRIVATE_KEY_B64`，仅执行 owner 在运行时读取。
+源凭据不符合只读身份／环境守卫时停止，不为完成导入而降级安全门禁。
+
+注意：当前 `legacy_import` 是用户／身份域的合并，不是完整业务库复制；其成功不证明
+订阅、账本、schema 基线或 UAT Selfhost 两跳初始化已完成。完整 DB 基线需要单独的
+已审核执行契约和证据，不能由 Daily 的派发开关暗中实现。
 
 例：只读 UAT Akamai 预检：
 

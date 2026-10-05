@@ -12,8 +12,11 @@ REPOSITORY = "ai-workspace-infra/platform-ops-toolkit"
 
 
 def gh(*arguments, payload=None):
+    environment = os.environ.copy()
+    if payload is None and environment.get("RUN_STATUS_TOKEN"):
+        environment["GH_TOKEN"] = environment["RUN_STATUS_TOKEN"]
     result = subprocess.run(["gh", *arguments], input=json.dumps(payload) if payload else None,
-                            text=True, capture_output=True, check=True)
+                            text=True, capture_output=True, check=True, env=environment)
     return json.loads(result.stdout) if result.stdout.strip() else {}
 
 

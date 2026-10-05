@@ -17,6 +17,20 @@ if [[ "$1 $2" == "workflow run" ]]; then
   printf '%s\n' 'https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/1001'
 elif [[ "$1" == api && "$*" == *"/actions/runs/1001"* ]]; then
   printf '%s\n' $'completed\tsuccess'
+elif [[ "$1" == api && "$*" == *"--method POST"* ]]; then
+  tee "${GH_LOG}.payload" >/dev/null
+  printf '{}\n'
+elif [[ "$1" == api && "$*" == *"/environment-data-operations.yml/runs?"* ]]; then
+  python3 - <<'PY'
+import json, os
+payload = json.load(open(os.environ['GH_LOG'] + '.payload'))
+inputs = payload['inputs']
+print(json.dumps({'workflow_runs': [{
+    'id': 1002, 'display_title': 'data:' + inputs['correlation_id'] + ' / legacy_import / uat',
+    'status': 'completed', 'conclusion': os.environ.get('DATA_CONCLUSION', 'success'),
+    'html_url': 'https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/1002'
+}]}))
+PY
 fi
 EOF
 chmod +x "${workdir}/gh"
@@ -69,9 +83,66 @@ grep -Fq -- '-f accounts_schema_expected_version=2026092703' "${workdir}/gh.log"
 grep -Fq -- '-f accounts_schema_target_version=2026092801' "${workdir}/gh.log"
 grep -Fq -- '-f accounts_schema_sha256=d066e223641b4eccbb65a00dce70f717b6dce02491d1d54edc1099baf2071433' "${workdir}/gh.log"
 
-# Data merge and unimplemented release overrides still fail before dispatch
-# instead of being dropped while the run reports success.
-for unsupported in ENABLE_MIGRATION=true XCONNECT_ONE_RELEASE_TAG=v1.2.3 \
+# One-time import dispatches the unified data entry and must finish before Hybrid.
+: > "${workdir}/gh.log"
+env ENABLE_MIGRATION=true DATA_IMPORT_CONFIG_JSON='{"dry_run":false}' \
+  GH_LOG="${workdir}/gh.log" PATH="${workdir}:${PATH}" GH_TOKEN=test-token \
+  RUN_STATUS_TOKEN=job-token SNAPSHOT_TAG=uat-daily-build-2026.09.28-r2 \
+  bash "${dispatcher}" >/dev/null
+python3 - "${workdir}/gh.log" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+calls = path.read_text()
+assert calls.index('environment-data-operations.yml/dispatches') < calls.index('workflow run hybrid-orchestrator.yml')
+payload = json.loads(path.with_suffix('.log.payload').read_text())
+assert payload['ref'] == 'main'
+inputs = payload['inputs']
+assert inputs['environment'] == 'uat' and inputs['mode'] == 'legacy_import'
+assert inputs['release_tag'] == inputs['accounts_ref'] == 'uat-daily-build-2026.09.28-r2'
+assert json.loads(inputs['config_json']) == {'confirm_legacy_import': True, 'dry_run': False, 'accounts_transport': 'direct'}
+tokens = path.with_suffix('.log.tokens').read_text()
+assert 'test-token api --method' in tokens
+assert 'job-token api repos/' in tokens
+PY
+
+# Default preview never deploys applications or masquerades as an applied import.
+: > "${workdir}/gh.log"
+env ENABLE_MIGRATION=true \
+  GH_LOG="${workdir}/gh.log" PATH="${workdir}:${PATH}" GH_TOKEN=test-token \
+  SNAPSHOT_TAG=uat-daily-build-2026.09.28-r2 \
+  bash "${dispatcher}" >/dev/null
+grep -Fq 'environment-data-operations.yml/dispatches' "${workdir}/gh.log"
+if grep -Fq 'workflow run hybrid-orchestrator.yml' "${workdir}/gh.log"; then
+  echo 'Import preview must not authorize an application deployment.' >&2
+  exit 1
+fi
+
+# Failure/cancellation, unsafe config and mixed schema/import requests stop deployment.
+for scenario in failure cancelled bad-config mixed-schema prod bad-boolean; do
+  : > "${workdir}/gh.log"
+  extra=()
+  case "$scenario" in
+    failure|cancelled) extra+=("DATA_CONCLUSION=$scenario");;
+    bad-config) extra+=('DATA_IMPORT_CONFIG_JSON={"dry_run":false,"dsn":"postgres://sensitive.invalid"}');;
+    mixed-schema) extra+=(APPLY_ACCOUNTS_SCHEMA_MIGRATION=true);;
+    prod) extra+=(DEPLOY_ENV=prod);;
+    bad-boolean) extra+=(ENABLE_MIGRATION=invalid);;
+  esac
+  if env ENABLE_MIGRATION=true DATA_IMPORT_CONFIG_JSON='{"dry_run":false}' "${extra[@]}" \
+    GH_LOG="${workdir}/gh.log" PATH="${workdir}:${PATH}" GH_TOKEN=test-token \
+    SNAPSHOT_TAG=uat-daily-build-2026.09.28-r2 \
+    bash "${dispatcher}" >"${workdir}/out" 2>"${workdir}/err"; then
+    echo "Unsafe import scenario $scenario must fail." >&2
+    exit 1
+  fi
+  if grep -Fq 'workflow run hybrid-orchestrator.yml' "${workdir}/gh.log"; then
+    echo "Unsafe import scenario $scenario must not deploy." >&2
+    exit 1
+  fi
+done
+
+# Unimplemented release overrides still fail before any dispatch.
+for unsupported in XCONNECT_ONE_RELEASE_TAG=v1.2.3 \
     XCONNECT_GATEWAY_RELEASE_TAG=v1.2.3; do
   : > "${workdir}/gh.log"
   if env "${unsupported}" \
