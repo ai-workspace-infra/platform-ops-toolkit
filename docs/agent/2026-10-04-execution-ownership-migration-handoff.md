@@ -1,4 +1,6 @@
-# Toolkit 执行职责迁移交接与评估（2026-10-04 15:31 UTC 更新）
+# Toolkit 执行职责迁移交接与评估（2026-10-05 更新）
+
+本次核对基线：Toolkit `ec7bc9b1`（#1276）、Playbooks `14f6196b`（#570）、IaC Modules `71746d06`（#391）。下文历史批次保留其 PR 证据；代码合并、合同/模拟演练通过与真实环境验收分别记录，不以文件数量或自动 owner 标签判断迁移完成。
 
 ## 1. 架构目标与四个边界重排原则
 
@@ -20,9 +22,9 @@
 
 ---
 
-## 2. 已完成且已合入批次与固定 SHA 审计（15:31 UTC 基线）
+## 2. 已合入批次与固定 SHA 审计
 
-截至 2026-10-04 15:31 UTC，已完成的批次及其 CI 运行状态已全量复查完毕，相关 PR 均已合入各仓库 `main` 并取得绿色通过状态：
+以下历史批次的代码已合入各仓库 `main`。合同与 CI 证据不代表真实云端/主机 UAT 验收；多数 PR 明确没有执行真实环境操作。
 
 ### B0: Artifact Registry 镜像发布与晋级批次
 - **IaC Modules 归属实现**: [PR #389](https://github.com/ai-workspace-infra/iac_modules/pull/389)，固定提交 `1a7d2e000314207d2f13901da8e15a98a9bf252b`。
@@ -52,12 +54,29 @@
 - **主机就绪度与快照/调整规格批次**: Playbooks #565; IaC #386, #387, #388; Toolkit #1250–#1259。
 - **全局任务跟踪 Issue**: Toolkit [#1269](https://github.com/ai-workspace-infra/platform-ops-toolkit/issues/1269)。
 
+### P0a：Observability local Grafana health
+
+- Playbooks owner [#569](https://github.com/ai-workspace-infra/playbooks/pull/569)：`49b37d3a7d35610282f5986367c3853158660457`。
+- Toolkit caller #1271：`a4d3217e5558bf03798c1e79457f1f72164f1e26`；cleanup #1272 已合并。
+- owner、caller 与 cleanup CI，以及真实 Role 对 loopback fixture 的非变更演练通过；没有真实主机/云操作。详见 [独立记录](2026-10-04-observability-local-health-migration.md)。
+
+### P1b：Caddy PEM restore（owner/caller 已合并，UAT 待验收）
+
+- Playbooks owner [#570](https://github.com/ai-workspace-infra/playbooks/pull/570)：`14f6196bbf69b78d07f1adb9fb8c97bc816a485b`，9 项本地测试、Ansible syntax 和 owner CI 通过。
+- Toolkit caller [#1273](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1273)：`9d9d7129b82324d02f4de93fcadb95fa9934436e`，两处 Selfhost 调用使用独立 owner checkout，不修改 release deployment playbooks ref。4 项 caller 合同与完整 PR checks 通过。
+- Role 只验证/落盘 PEM、保护密钥权限与原子 generation；不重启/重载 Caddy，不声称 served TLS 已启用。
+- UAT `37215201217` 与 `37215988175` 均在 Services GitHub App installation token 仓库查找阶段失败，未到 tag validator、resolver/build 或 child deployment。Observed failure 不是 tag 格式错误。
+- main push `37216013410` success，但实际 deployment/acceptance jobs 全 skipped，Role 未执行。独立 HTTP 200/readiness 现状未绑定本批 tag/commit/digest，不作为本批验收。
+- 主线已由 #1276（`ec7bc9b1eea38e6fdb05abb72589426c55f8c118`）将 Services 仓库错名 `postgresql.svc.plus` 修为 `postgresql`。新 UAT parent `37217324603` 最终 FAILURE（metadata `2026-10-04T16:48:51Z`）：四组 snapshot/build SUCCESS，但 summary 的 dispatch-and-wait step FAILURE；Hybrid `37217650094` ordered resource lanes FAILURE，routing verification SKIPPED。Selfhost `37217833619` success 仍仅 Prepare/summary、执行 jobs SKIPPED。不据此声称固定 Role 已运行或完整 UAT 通过；具体 lane 根因由主线继续诊断。
+- 对应 Selfhost `37217892945` Bootstrap web-saas-uat 的 `Restore domain TLS state from Vault before Caddy can issue` step FAILURE；主线诊断为 TLS preparation generic failure。只记录脱敏阶段，不推测敏感字段根因、不扩大为固定 Role 已执行的验收。
+- cleanup 跟踪 [#1275](https://github.com/ai-workspace-infra/platform-ops-toolkit/issues/1275) 仍 OPEN；旧 Toolkit 证书恢复脚本保留。需实际运行固定 Role、记录精确目标/证书权限/幂等与失败边界/runtime vars cleanup 后，才能单独提出删除 PR。管理员 App 权限与 Vault 凭据变更需授权操作人处理。
+
 ---
 
 ## 3. `.github/scripts` 深度盘点与扫描器评估
 
 ### 当前文件结构统计
-当前 Toolkit `main` 分支下 `.github/scripts` 共有 **186 个文件**（对比最初 189 个，已删除 3 个）：
+Toolkit `ec7bc9b1` 下 `git ls-tree -r --name-only HEAD .github/scripts` 为 **189 个 tracked 文件**。下列分类数字保留 15:31 UTC 的 186 文件历史快照，不作为当前精确统计或迁移完成依据：
 - `tests/`: 87 个（契约测试与模拟用例）
 - `platform-ops/`: 28 个（涵盖 deploy, dns, observe, provision 适配器）
 - `xconnect-lab/`: 21 个（XConnect 实验网与网关脚本）
@@ -93,7 +112,7 @@
 1. **漏检动态包装的 SSH 调用**：例如 `.github/scripts/platform-ops/deploy/platform-ops_deploy_base_restore-caddy-certs.sh`（299 行）将命令包装在 `ssh_command=(ssh)`，并通过 `"${ssh_command[@]}"` 动态执行，绕过了正则 `(?:exec|sudo|command|run_gcloud)\s+)?(?:ssh|...)\s`。该脚本包含真实的远程主机文件写入与权限变更，属于 Playbooks 债务。
 2. **漏检变量与数组形式的 Provider 调用**：例如 `platform-ops_uat_dns_reconcile.sh`（347 行）、`platform-ops_sit_all_in_one_dns_reconcile.sh` 与 `xconnect-lab/reconcile-gateway-dns.sh` 使用 `curl --request "${method}"` 或 `curl "${curl_args[@]}"` 调用 Cloudflare API 修改 DNS，未匹配硬编码的 `(?:-X|--request)\s+(?:POST|PUT|PATCH|DELETE)`。这些脚本属于 IaC Modules DNS 执行债务。
 3. **目录粗暴判定**：现脚本对 `/serverless/` 路径一律赋予 `playbooks` 所有者，与实际边界不符。
-- **后续优化计划**：在完成 P1b 后，提专用 PR 修正扫描器规则：放行 Toolkit 原生的 Vault/HTTP 只读探测与只读验收；捕获动态 SSH 与变量 curl 修改；按行为属性精确归类。
+- **本轮独立修正 PR**：[Toolkit #1279](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1279) 已补动态 SSH/Provider 数组、变量 curl、本地主机操作及 marker-removal SHA 负例；精确区分控制面行为与执行债务，不改 executor 字节。15 项本地测试、完整 PR checks 全部 SUCCESS，尚未合并。该 PR 提议冻结登记为 15 个（原 8 减 3 个误报、补 10 个旧漏检），不是 main 已合并状态或 cleanup 完成；混合 owner 提示仅为 review aid。
 
 ---
 
@@ -104,9 +123,9 @@
 ### 优先批次 P1b：Caddy 证书恢复（先落 Playbooks Role，再切 Toolkit 调用）
 - **涉及脚本**：`.github/scripts/platform-ops/deploy/platform-ops_deploy_base_restore-caddy-certs.sh`（299 行）。
 - **边界划分**：
-  - **Toolkit**：通过 OIDC 向 Vault 读取泛域名证书 PEM 数据（fullchain, privkey），校验证书有效期与域名匹配度。
-  - **Playbooks Roles**：在 `roles/docker/caddy` 或新增 `roles/docker/caddy_certificate_restore` 中实现通用任务，接收证书内容，安全写入主机目录（严格设置 `0600` 权限），更新 Caddy TLS 配置并执行热重载或服务健康检查。
-  - **Toolkit**：通过固定 Playbooks SHA 调用该 Role，验证各环境证书恢复，最终删除旧脚本。
+  - **Toolkit**：通过 OIDC/Vault 读取 PEM，选择环境和 inventory，生成 mode-0600 runtime vars，及时撤销临时 Token，并在 always 路径清理 vars。
+  - **Playbooks Roles**：已由 #570 实现 host-only PEM restore；验证 leaf/key 配对与有效期、目录/密钥权限、原子 current generation 及幂等，保留 previous generation。Caddy 配置变更、reload 和 served TLS 验收是另一操作，不纳入落盘恢复的成功声明。
+  - **Toolkit**：#1273 已固定上述 SHA 切换两处调用。当前下一门禁是 #1275 的真实 UAT 路线验收；旧脚本仍保留，禁止用 skip/独立端点健康替代验收后删除。
 
 ### 后续批次 P2：Cloudflare DNS 对账（IaC Modules 承接，Toolkit 控制）
 - **涉及脚本**：
@@ -114,25 +133,34 @@
   - `platform-ops_sit_all_in_one_dns_reconcile.sh`
   - `xconnect-lab/reconcile-gateway-dns.sh`
 - **边界划分**：
-  - **GitOps**：提供声明式的 `EdgeRoutingConfig`（模式、权重、TTL、规范域名）。
-  - **IaC Modules**：复用并扩展 IaC #388 的 `cloudflare-dns-record` 执行入口，接收规范记录列表，执行 Cloudflare DNS API 对账与 upsert。
-  - **Toolkit**：读取 GitOps 路由配置，调用 IaC Modules 进行对账，校验公网解析一致性。验证后清理 Toolkit 内重复对账脚本。
+  - **GitOps**：只提供 record intent（环境、account/zone、name/type/TTL/proxy/canonical ownership policy），不保存 realized IP 或 CMDB。
+  - **Toolkit**：从 intent 与当前 run 的 CMDB 生成 explicit runtime plan，取得 Vault credentials、分发、收集 receipt 并控制服务验收顺序。
+  - **IaC Modules**：#388 仅支持 UAT/PROD existing-single-A cutover/rollback/restore；不能直接替换三个 reconcile 脚本。新 P2a owner 独立提供 gateway single-A plan/apply/restore，绑定 account/zone/精确 record ID，提供 provider checkpoint/readback 与 resolver convergence。
+  - **Playbooks**：需要时负责 Caddy refresh 与主机/服务健康，DNS executor 不包含 SSH/host probes。
+  - **分期**：先 gateway UAT single-A upsert；随后独立合同加入 CNAME/canonical adopt-yield、SIT/multi-record。旧 UAT/SIT 隐式删除冲突重复记录不复制为默认行为；清理需冲突计划、精确 record ID 与单独授权。
+  - **完成门禁**：owner 合并且固定 SHA → 逐个 caller 切换 → 合同/负例/实际 UAT → 对应旧副本删除；未覆盖的 legacy caller 保留。
+  - **主线 owner PR**：[IaC #393](https://github.com/ai-workspace-infra/iac_modules/pull/393) 已合并，固定 owner SHA `a0185e61fc2b41ac4dbd40c8037016aaef1b3973`；owner-contract 与 pipeline-scripts SUCCESS。
+  - **主线 caller PR**：[Toolkit #1278](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1278) 已于 `2026-10-04T16:53:21Z` 合并，merge `62ea91b6e53da44552579841aa57d35de02c1852`、head `a8e6e7f0152de76504c20ae041c76b8a867043e8`，PR checks SUCCESS。main 中 `xconnect-zero-cloud` UAT gateway DNS 已调用固定 IaC owner；旧 `.github/scripts/xconnect-lab/reconcile-gateway-dns.sh` 保留。专门新路线 UAT 与 cleanup 尚未完成，失败 Snapshot/Hybrid 的 `ec7bc9b1` head 早于该 caller，不能当作新路线验收。
+  - **并行候选**：[IaC #392](https://github.com/ai-workspace-infra/iac_modules/pull/392)（ready for review，head `bbfc3aecca28c127af0c63b81657c40fdd798d0e`），新增 `scripts/pipeline/dns-reconcile.py` 和独立契约，26 项新增测试、48 项 pipeline Python 测试与 CI 37217448148 通过。仍未合并，不作为主线当前 cutover 依赖，后续需审查与 #393 的能力重叠，不再并列声称主线需等待它合并。
 
 ### 后续批次 P3：XConnect 实验室与 existing-One 架构拆解
 - **涉及脚本**：
   - `xconnect-lab/`（`deploy.sh` 729 行, `run.sh` 270 行, `enroll-node.sh` 176 行, `desktop.sh`, `node-observation.sh`, `lease.sh`, `terraform-diagnostics.py`）
   - `xconnect-existing-one-uat/deploy.sh`（527 行）
 - **边界划分**：
-  - **IaC Modules**：接管 Terraform 资源操作、租约生命周期（`lease.sh`）与 Terraform 异常诊断（`terraform-diagnostics.py`）。
+  - **IaC Modules**：接管 Terraform 资源操作、租约对象存储 CRUD 与 Terraform 异常诊断（`terraform-diagnostics.py`）；`lease.sh` 的过期 cleanup dispatch 与阶段审批保留 Toolkit，不能整体搬移混合脚本。
   - **Playbooks Roles**：承接主机层 WireGuard/XRay 容器部署、节点注册、桌面配置与节点可观测性探测。
   - **Toolkit**：保留实验网生命周期阶段编排（plan -> lease -> apply -> enroll -> verify -> teardown）与审批门禁。
+  - **本轮细化**：优先复用现有 One/Gateway/Observability Roles；invite-only、观察 SUMMARY_ONLY 与主机验收分别记录。详见 [下一批合同草案](2026-10-05-next-execution-batches-contract.md)。P3 部署/Provider 拆分仍未完成。
+  - **远端观察 owner 子批次**：[Playbooks #572](https://github.com/ai-workspace-infra/playbooks/pull/572) 已于 `2026-10-04T16:54:47Z` 合并，固定 owner `1308c585bbb3806b69279be678dad2feb8099699`。Observability operations Role 新增 `xconnect_remote_observation`，13 项 tests + syntax passed，remote role-contract/observability role-contract/gitleaks CI SUCCESS。当前进入 Toolkit caller 设计，lease/window/expiry/验收控制留 Toolkit，远端只读观察委托 Playbooks；旧 remote observation 副本保留，caller 路线 UAT 后才单独 cleanup。无真实主机观察验收。
 
 ### 后续批次 P4：SMTP 凭据同步拆分
 - **涉及脚本**：`.github/scripts/serverless/sync_smtp_secrets.sh`（145 行）。
 - **边界划分**：
-  - **Toolkit**：负责 Vault Token/OIDC 认证，读取 `kv/data/<env>/platform/smtp/google`，执行版本比对。
-  - **IaC Modules**：提供通用的 GCP Secret Manager 写入入口（包含 API 启用安全探测、`gcloud secrets versions add / create` 幂等写入）。
+  - **Toolkit**：负责 Vault Token/OIDC 认证，读取 `kv/data/<env>/platform/smtp/google`，生成 private runtime payload、控制降级 policy 与 always cleanup。
+  - **IaC Modules**：提供通用的 GCP Secret Manager 读写/比对入口（API 状态探测、`gcloud secrets versions add / create` 幂等写入与明确 receipt），默认不擅自 enable API 或改 IAM。
   - **Toolkit**：调用 IaC 脚本完成写入，并验证 Accounts 服务的降级/就绪状态。
+  - **本轮细化**：不得继承 legacy 的 warning/exit0 为 synced；partial failure 与 invitation/readiness 等独立门禁详见 [下一批合同草案](2026-10-05-next-execution-batches-contract.md)。P4 尚未实现。
 
 ### 横向优化批次：GCP 管道脚本归整至 `iac_modules/scripts/pipeline/gcp/`
 - 将 IaC Modules 现有的 `ensure-gcp-vm-running.py`、`register-gcp-oslogin-key.sh` 与 `gcp-temporary-ssh-access.sh` 统一规整至 `iac_modules/scripts/pipeline/gcp/`。
@@ -162,13 +190,13 @@
 ## 6. 当前结论与后续行动路线
 
 1. **基线状态确认**：
-   - B0（Artifact Registry）与 P1（ZITADEL）的全部 4 个阶段（归属实现、调用方切换、验证、清理）已全部走完，相关 PR 全部合并，`main` CI 均为绿色。
+   - B0（Artifact Registry）、P1（ZITADEL）、P0a（Grafana local health）的 owner/caller/cleanup 已合并且合同/非变更演练通过；不扩大为真实环境 UAT 验收。
    - `docs/agent/2026-10-04-execution-ownership-migration-handoff.md` 已全面重构，明确四个架构边界与后续顺序。
 2. **后续推进路线**：
    - **Step 1**：（已完成）本文档更新已由 #1270 合入，本次仅做事实纠正与经验补充。
-   - **Step 2**：进入 **P1b 批次**，在 `playbooks` 仓库新增 Caddy 证书恢复通用 Role 及语法/本地测试；合并后固定 SHA。
-   - **Step 3**：Toolkit 切换调用方至 Playbooks 新 Role，验证无误后删除旧版 `platform-ops_deploy_base_restore-caddy-certs.sh`。
-   - **Step 4**：推进 P2（Cloudflare DNS 对账）及后续批次。
+   - **Step 2**：（owner/caller 已完成）P1b #570/#1273 已合并；#1276 已修复 Services repo 错名，但 run `37217324603` 最终 FAILURE。真实 Role UAT 与 cleanup 仍未验收，在 #1275 跟进固定 Role 实际执行证据，旧副本保留。
+   - **Step 3**：（owner/caller 已合并）#393/#1278 已完成 gateway single-A 固定 owner 接线。下一门禁为专门新路线 UAT/receipt；未验收不得 cleanup，未覆盖的 DNS legacy 均保留。
+   - **Step 4**：按 P2b canonical/SIT、P3 XConnect、P4 SMTP 和横向 GCP access/扫描器任务分批推进。每一批先核对实际执行与全部 caller，不直接复制混合脚本。
 
 ---
 
