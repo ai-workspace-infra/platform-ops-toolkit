@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "source": "github-actions",
-  "updatedAt": "2026-10-06T07:21:25.994767+00:00",
+  "updatedAt": "2026-10-06T07:50:10.620438+00:00",
   "timezone": "Asia/Shanghai",
   "coverage": {
     "since": "2026-09-04T02:53:34Z",
@@ -644,7 +644,8 @@
     "37408965741": "1:2026-10-06T03:40:52Z",
     "37423848519": "1:2026-10-06T06:27:51Z",
     "37424100741": "1:2026-10-06T06:37:22Z",
-    "37428523713": "1:2026-10-06T07:21:18Z"
+    "37428523713": "1:2026-10-06T07:21:18Z",
+    "37431731012": "1:2026-10-06T07:50:03Z"
   },
   "gaps": [
     {
@@ -2148,12 +2149,6 @@
       "reason": "No immutable release evidence"
     },
     {
-      "runId": 34019323674,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
       "runId": 36393389514,
       "workflow": "serverless-orchestrator.yml",
       "status": "completed",
@@ -2431,6 +2426,28 @@
     }
   ],
   "releases": [
+    {
+      "id": "37431731012:1:uat:daily-build-2026.10.06-r4",
+      "runId": 37431731012,
+      "attempt": 1,
+      "environment": "uat",
+      "tag": "daily-build-2026.10.06-r4",
+      "scope": "full-uat",
+      "status": "unknown",
+      "workflow": "daily-main-snapshot.yaml",
+      "url": "https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37431731012",
+      "startedAt": "2026-10-06T07:46:06Z",
+      "completedAt": "2026-10-06T07:50:03Z",
+      "repositories": [
+        {
+          "repository": "ai-workspace-services/accounts",
+          "tag": "daily-build-2026.10.06-r4",
+          "sha": "92729574802c21fbfaa6fae62d4bb168ea8a2d2a",
+          "build": "success",
+          "deployment": "unknown"
+        }
+      ]
+    },
     {
       "id": "37428523713:1:uat:daily-build-2026.10.06-r3",
       "runId": 37428523713,
