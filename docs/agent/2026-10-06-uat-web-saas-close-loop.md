@@ -35,8 +35,10 @@ Caddy's public TCP ports. GitOps PR #389 adds only `[80, 443]`, merge
 [Plan 37406125053](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37406125053)
 confirmed `1 add / 0 change / 0 destroy`; [infra apply 37406218452](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37406218452)
 succeeded. External HTTPS now returns Console Selfhost `200` and Bridge ping
-`401`. Parent attempt 2 reruns only the failed public verification, preserving
-successful empty-host initialization and child receipts.
+`401`. Parent attempt 2 reran only the failed public verification and completed with
+overall `success`, preserving successful empty-host initialization and child
+receipts. The job verified both Console roots `200`, canonical Accounts root
+`404`, and Bridge ping `401` according to its routing/authentication contract.
 
 ## Legacy retirement and scope
 
