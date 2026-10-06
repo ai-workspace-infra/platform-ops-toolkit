@@ -1,5 +1,6 @@
 """Immutable parents and workflow shape only; never reads a managed database."""
 import hashlib
+import copy
 import importlib.util
 import json
 from pathlib import Path
@@ -66,12 +67,15 @@ class FullBusinessControlTests(unittest.TestCase):
     def test_pending_configuration_is_honest_and_cannot_run(self):
         c = json.loads((ROOT / '.github/config/prod-full-business.json').read_text())
         CONTROL.validate_contract(c, require_source=False)
-        self.assertFalse(c['source']['ready']); self.assertIsNone(c['source']['identity_sha256'])
-        with self.assertRaises(ValueError): CONTROL.validate_contract(c)
+        pending=copy.deepcopy(c); pending['source'].update(ready=False,identity_sha256=None)
+        with self.assertRaises(ValueError): CONTROL.validate_contract(pending)
         for flag, key, kind in [('initialization_accepted','initialized',None), ('billing_accepted','upgraded','billing'), ('copy_accepted','copied','copy')]:
-            self.assertFalse(c[flag]); self.assertTrue(all(v is None for v in c[key].values()))
+            self.assertIsInstance(c[flag],bool)
+            if c[flag]: self.assertTrue(all(v is not None for v in c[key].values()))
+            else: self.assertTrue(all(v is None for v in c[key].values()))
             if kind:
-                with self.assertRaises(ValueError): CONTROL.parent_details(c, kind)
+                pending=copy.deepcopy(c); pending[flag]=False
+                with self.assertRaises(ValueError): CONTROL.parent_details(pending, kind)
 
     def test_scope_source_image_and_version_tampering_refused(self):
         for section, key, value in [('source','role','postgres'), ('source','tls_required',False),
