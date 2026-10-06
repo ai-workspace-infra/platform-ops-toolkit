@@ -116,6 +116,7 @@ jobs:
       run: |
         bash .github/scripts/tests/hybrid_uat_matrix_contract_test.sh
         python3 -m unittest discover -s .github/scripts/tests -p selfhost_orchestrator_dispatch_contract_test.py
+        python3 .github/scripts/tests/prod_native_standby_control_test.py
 
     - name: Verify UAT business evidence is required for PROD promotion
       run: python3 .github/scripts/tests/uat_business_promotion_gate_test.py
