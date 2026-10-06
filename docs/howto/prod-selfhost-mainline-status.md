@@ -55,4 +55,6 @@ GitOps [#391](https://github.com/ai-workspace-infra/gitops/pull/391) 已合并�
 
 冻结的旧 DNS executor 暂时保留，仅供现有回归检查；真实 UAT owner → caller 验证后再删除。激活新 GitOps 之前须停止或等待使用旧 owner/Edge source 的既有 run 结束，避免旧调用方覆盖入口。新 reusable workflow 的 Vault job/workflow claims 和环境保护须实际核对；PR/local CI 不证明授权可用。
 
+SIT/UAT/PROD 现有 Vault role 源码已增加上述唯一固定 IaC workflow SHA；repository、既有 ref 限制和 token policy 未扩大。合并后按既有 Vault role apply 流程同步，再做真实 owner/caller 验证。源码 allowlist 不代表 live Vault 已应用，PROD 仍只允许版本 tag/release 分支。
+
 合并顺序为 IaC owner → Toolkit caller 与 Edge guarded 发布入口 → GitOps 声明激活。实际主库切换继续等待完整业务一致性和单写者回执，身份复制、路由 plan 或 DNS 收敛均不能替代它。

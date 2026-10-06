@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import unittest
 import yaml
@@ -34,6 +35,18 @@ class DomainOwnerTests(unittest.TestCase):
         self.assertTrue(any('verify_brand_site_review_readiness.sh' in step.get('run', '') for step in verification))
         self.assertTrue(any('verify_serverless_public_chain.sh' in step.get('run', '') for step in verification))
         self.assertNotIn('run: ./scripts/serverless_uat/reconcile_cloudflare_domains.sh', text)
+
+    def test_vault_claims_allow_only_the_exact_provider_workflow(self):
+        jobs = yaml.safe_load((ROOT / '.github/workflows/serverless-orchestrator.yml').read_text())['jobs']
+        ref = jobs['serverless_domains_provider']['uses']
+        for environment in ('sit', 'uat', 'prod'):
+            role = json.loads((ROOT / f'scripts/vault/roles/github-actions-platform-ops-toolkit-{environment}.json').read_text())
+            claims = role['bound_claims']
+            self.assertEqual(claims['repository'], 'ai-workspace-infra/platform-ops-toolkit')
+            refs = [value for value in claims['job_workflow_ref'] if 'cloudflare-serverless-domains.yml' in value]
+            self.assertEqual(refs, [ref])
+        production = json.loads((ROOT / 'scripts/vault/roles/github-actions-platform-ops-toolkit-prod.json').read_text())
+        self.assertEqual(production['bound_claims']['ref'], ['refs/tags/v*', 'refs/heads/release/v*'])
 
 
 if __name__ == '__main__': unittest.main()
