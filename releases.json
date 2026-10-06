@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "source": "github-actions",
-  "updatedAt": "2026-10-06T08:58:47.946233+00:00",
+  "updatedAt": "2026-10-06T09:18:08.797368+00:00",
   "timezone": "Asia/Shanghai",
   "coverage": {
     "since": "2026-09-04T02:53:34Z",
@@ -649,7 +649,8 @@
     "37432489452": "1:2026-10-06T08:01:07Z",
     "37434267594": "1:2026-10-06T08:16:34Z",
     "37436337861": "1:2026-10-06T08:36:25Z",
-    "37438046388": "1:2026-10-06T08:56:35Z"
+    "37438046388": "1:2026-10-06T08:56:35Z",
+    "37441932293": "1:2026-10-06T09:17:55Z"
   },
   "gaps": [
     {
@@ -2424,6 +2425,63 @@
     }
   ],
   "releases": [
+    {
+      "id": "37441932293:1:uat:v2026.10.06-daily-build-geo-r1",
+      "runId": 37441932293,
+      "attempt": 1,
+      "environment": "uat",
+      "tag": "v2026.10.06-daily-build-geo-r1",
+      "scope": "serverless",
+      "status": "failed",
+      "workflow": "serverless-orchestrator.yml",
+      "url": "https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37441932293",
+      "startedAt": "2026-10-06T09:17:29Z",
+      "completedAt": "2026-10-06T09:17:47Z",
+      "repositories": [
+        {
+          "repository": "ai-workspace-services/accounts",
+          "tag": "v2026.10.06-daily-build-geo-r1",
+          "sha": "",
+          "build": "unknown",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/billing-service",
+          "tag": "v2026.10.06-daily-build-geo-r1",
+          "sha": "",
+          "build": "unknown",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/content-service",
+          "tag": "v2026.10.06-daily-build-geo-r1",
+          "sha": "",
+          "build": "unknown",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/portal",
+          "tag": "v2026.10.06-daily-build-geo-r1",
+          "sha": "",
+          "build": "unknown",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/frontend-router",
+          "tag": "v2026.10.06-daily-build-geo-r1",
+          "sha": "",
+          "build": "unknown",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/edge-gateway",
+          "tag": "v2026.10.06-daily-build-geo-r1",
+          "sha": "",
+          "build": "unknown",
+          "deployment": "unknown"
+        }
+      ]
+    },
     {
       "id": "37436337861:1:uat:daily-build-2026.10.06-r4",
       "runId": 37436337861,
