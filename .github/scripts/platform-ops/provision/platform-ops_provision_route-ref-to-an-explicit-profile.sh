@@ -352,6 +352,14 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
       run_infrastructure=true; run_application_deploy=true
       terraform_action=apply; toolkit_action=deploy
       ;;
+    deploy+init)
+      if [[ "$deployment_env" != uat || "$target_domains" != web-saas ]]; then
+        echo "::error::deploy+init is restricted to the explicit UAT web-saas target." >&2
+        exit 1
+      fi
+      run_infrastructure=true; run_application_deploy=true
+      terraform_action=apply; toolkit_action=deploy
+      ;;
     migrate)
       run_infrastructure=false; run_application_deploy=false
       terraform_action=none; toolkit_action=migrate

@@ -7,7 +7,7 @@ The pre-deploy baseline 37396779666 captured `absent`. PostgreSQL was running
 with only the default postgres database. Accounts/Billing could not authenticate
 as account_user. A read-only probe correctly rejected this state; waiting alone
 cannot create the database. Explicit `selfhost_init` is a separate UAT-only
-operation, guarded against nonempty databases, not a side effect of deployment
+operation (`operation=deploy+init` for the selected UAT Web SaaS host), guarded against nonempty databases, not a side effect of ordinary deployment
 or a legacy data import.
 
 Playbooks owns account initialization and bounded, tag-matching service probes.

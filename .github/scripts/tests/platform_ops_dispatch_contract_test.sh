@@ -190,6 +190,16 @@ assert_contains "${migrate_output}" "run_application_deploy=false"
 assert_contains "${migrate_output}" "terraform_action=none"
 assert_contains "${migrate_output}" "toolkit_action=migrate"
 
+init_output="$(run_route env INPUT_OPERATION=deploy+init INPUT_DNS_MODE=none)"
+assert_contains "$init_output" "run_application_deploy=true"
+assert_contains "$init_output" "toolkit_action=deploy"
+if run_route env INPUT_OPERATION=deploy+init INPUT_TARGET_DOMAINS=agent-proxy INPUT_DNS_MODE=none >/dev/null 2>&1; then
+  echo "initialization unexpectedly allowed a non-Web-SaaS target" >&2; exit 1
+fi
+if run_route env GITHUB_REF=refs/tags/v2026.10.04-r1 INPUT_VAULT_ENV_PATH=prod INPUT_DEPLOY_TAG=v2026.10.04-r1 INPUT_OPERATION=deploy+init INPUT_DNS_MODE=none >/dev/null 2>&1; then
+  echo "initialization unexpectedly allowed PROD" >&2; exit 1
+fi
+
 deploy_migrate_output="$(run_route env INPUT_OPERATION=deploy+migrate INPUT_DNS_MODE=none)"
 assert_contains "${deploy_migrate_output}" "run_infrastructure=true"
 assert_contains "${deploy_migrate_output}" "run_application_deploy=true"
