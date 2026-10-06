@@ -130,12 +130,29 @@ IaC 临时访问撤销成功。Playbooks [#598](https://github.com/ai-workspace-
 尚未执行初始化。现有生产数据脚本要求 `prevent_self_review=true`，当前配置仍为 false、唯一审核人与
 触发人相同；已请求独立审核，未修改环境保护或静默削弱原数据守卫。
 
+第三轮 [37520882685](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37520882685)
+使用 `v2026.10.07-r3`，父目录所有权修正已执行，但容器仍重启、就绪失败；临时访问撤销成功，
+仍无成功待机回执、业务初始化或数据复制。真实 localhost Ansible 已复现另一个凭据渲染缺陷：
+未命名的 `include_vars` 覆盖任务级待机字典，实际得到 32 个公共键、空 PostgreSQL 密码。
+Playbooks [#599](https://github.com/ai-workspace-infra/playbooks/pull/599) 将 tuning defaults 隔离进 namespace，
+真实 renderer 验证恰好两条 PostgreSQL 键和原样口令。只允许已有匹配 owner/GitOps/image、
+容器密码缺失、真实 PGDATA 空目录、无 PG_VERSION 时修复凭据并重建同镜像容器；
+既有集群或无 ownership marker 一律拒绝，无数据文件删除/迁移/reset。
+诊断输出仅固定状态、布尔值和已知错误代码，不含原日志或环境值；实际生产接受须再跑新固定版本。
+
+Billing [#44](https://github.com/ai-workspace-services/billing-service/pull/44) 已合并
+`cloud_vendor_costs` 独立增量 SQL 与 checksum manifest，版本边界 `2026100601 → 2026100701`；
+PR/main PostgreSQL 17 CI 和 main 镜像 Pipeline 均成功，主分支源码 `5b7285bf49af12983027f7624d196ab3f2b1804f`。
+SQL digest `a7133f3ef2ea9013a055cfd1442a7488d2b837f289e0f5d9b61624d4fde9bc53`，
+验证 12 个原生字段、零 seed、索引/唯一键/upsert 与重复 DDL 拒绝。它只增加 Billing 自有表，
+不重放共享 Accounts 表；实际 bounded migratectl owner 集成/执行仍待完成，全业务一致性必须覆盖 52+1 表。
+
 ## 尚待完成的代码与运行门槛
 
 | 项目 | 状态 |
 | --- | --- |
-| PROD `deploy+init` 支持 | GitOps #393 的 PROD Doco-CD 与 `/data/postgresql` bind、Playbooks #592 的独立盘/精确 CMDB/空库 owner 已合并；Linux CI 证明格式化、挂载、幂等恢复与 fail-closed。VM/可信资源 CMDB 已完成；PROD native-standby caller 已集成；两轮主机部署分别在数据盘前与数据库就绪处失败，访问均清理；第三轮待实际成功，当前 UAT-only DB operation 限制保留 |
-| 最新 schema 与容器构件 | Accounts [#194](https://github.com/ai-workspace-services/accounts/pull/194) 提供 52 表最新原生 SQL 与 migratectl init；固定 hash/空库守卫/事务锁/超时、默认预演、零业务行与干净版本回执。本地与最终 PostgreSQL 17 CI 已通过，已合并为 `ddee4b01778fd1d1d644a1bc936624c81ec76093`；合并后的 [CI 37500884987](https://github.com/ai-workspace-services/accounts/actions/runs/37500884987) 已成功发布 full-SHA 镜像，Playbooks #597 owner 已合并；调用方 #1333 草稿及真实执行待完成。Billing cloud_vendor_costs 单独资格尚未完成；非空库禁止重建 |
+| PROD `deploy+init` 支持 | GitOps #393 的 PROD Doco-CD 与 `/data/postgresql` bind、Playbooks #592 的独立盘/精确 CMDB/空库 owner 已合并；Linux CI 证明格式化、挂载、幂等恢复与 fail-closed。VM/可信资源 CMDB 已完成；PROD native-standby caller 已集成；前三轮待机失败，临时访问均已清理；第三轮权限修复后仍重启，Playbooks #599 隔离凭据变量并保护空目录恢复；第四轮 37526370757 待真实验收，当前 UAT-only DB operation 限制保留 |
+| 最新 schema 与容器构件 | Accounts [#194](https://github.com/ai-workspace-services/accounts/pull/194) 提供 52 表最新原生 SQL 与 migratectl init；固定 hash/空库守卫/事务锁/超时、默认预演、零业务行与干净版本回执。本地与最终 PostgreSQL 17 CI 已通过，已合并为 `ddee4b01778fd1d1d644a1bc936624c81ec76093`；合并后的 [CI 37500884987](https://github.com/ai-workspace-services/accounts/actions/runs/37500884987) 已成功发布 full-SHA 镜像，Playbooks #597 owner 已合并；调用方 #1333 草稿及真实执行待完成。Billing #44 cloud_vendor_costs SQL/main CI 资格已完成，实际增量 owner/执行尚待集成；非空库禁止重建 |
 | migratectl + 全业务复制 | migratectl 当前为 Users/Identities/Sessions；订阅、额度、账本与其他业务表的完整 owner 尚待集成 |
 | GTM / CNAME | Edge #28/#29、IaC #398/#400、Toolkit #1326 已合并；Serverless DNS caller 使用固定 IaC reusable workflow，PROD gateway 改走受保护的 Edge 入口。GitOps #392 激活仍待 Vault 合同及真实 UAT/生产入口证据 |
 | 写者保护 | 目标 Accounts/Billing 与 Doco-CD 必须在初始化、复制和一致性验证期间暂停；Accounts 现有 root/sandbox/review bootstrap、Proxy rotator、默认目录/overlay 写入及 Billing 后台写入尚待运行保护，不能只依靠网关无流量 |
