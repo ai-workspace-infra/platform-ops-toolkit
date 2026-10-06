@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "source": "github-actions",
-  "updatedAt": "2026-10-06T08:36:34.127440+00:00",
+  "updatedAt": "2026-10-06T08:56:45.657605+00:00",
   "timezone": "Asia/Shanghai",
   "coverage": {
     "since": "2026-09-04T02:53:34Z",
@@ -648,9 +648,16 @@
     "37431731012": "1:2026-10-06T07:50:03Z",
     "37432489452": "1:2026-10-06T08:01:07Z",
     "37434267594": "1:2026-10-06T08:16:34Z",
-    "37436337861": "1:2026-10-06T08:36:25Z"
+    "37436337861": "1:2026-10-06T08:36:25Z",
+    "37438046388": "1:2026-10-06T08:56:35Z"
   },
   "gaps": [
+    {
+      "runId": 37438046388,
+      "workflow": "daily-main-snapshot.yaml",
+      "status": "completed",
+      "reason": "No immutable release evidence"
+    },
     {
       "runId": 37423848519,
       "workflow": "daily-main-snapshot.yaml",
