@@ -1,0 +1,19 @@
+{
+  "role_name": "github-actions-console-uat-deploy",
+  "description": "Console-only UAT release; exact Portal main workflow and UAT Cloudflare credentials, read-only.",
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": ["vault"],
+  "bound_claims_type": "string",
+  "bound_claims": {
+    "repository": "ai-workspace-services/portal",
+    "job_workflow_ref": "ai-workspace-services/portal/.github/workflows/console-uat-pipeline.yml@refs/heads/main",
+    "ref": "refs/heads/main",
+    "environment": "uat"
+  },
+  "token_policies": ["github-actions-console-uat-deploy"],
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": "1h",
+  "token_max_ttl": "1h"
+}
