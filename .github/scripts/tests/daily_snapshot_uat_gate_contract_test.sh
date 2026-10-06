@@ -36,6 +36,10 @@ for label, step in (("immutable tag resolution", resolve), ("hybrid UAT dispatch
 if dispatch.get("run") != "./.github/scripts/snapshots/dispatch-uat-combined.sh":
     raise SystemExit("UAT must use the Hybrid Orchestrator dispatcher")
 
+upload = next(step for step in summary["steps"] if step.get("name") == "Upload the verified UAT promotion manifest")
+if "steps.dispatch_uat_hybrid.outputs.promotion_manifest_verified == 'true'" not in upload.get("if", ""):
+    raise SystemExit("Preview success must not require a deployment promotion manifest")
+
 workflow_text = workflow_path.read_text(encoding="utf-8")
 for removed in (
     "promote-uat-snapshot-tag.sh",
