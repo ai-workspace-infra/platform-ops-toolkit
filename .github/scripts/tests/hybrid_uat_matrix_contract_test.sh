@@ -304,6 +304,15 @@ acceptance = selfhost["jobs"]["accept_web_saas_upgrade"]
 acceptance_dispatch = next(step for step in acceptance["steps"] if step.get("name") == "Dispatch read-only selfhost verification or first-deploy probe")
 assert "baseline_state == 'absent'" in acceptance_dispatch["env"]["DATA_OPERATION"]
 assert '"action"' in acceptance_dispatch["env"]["DATA_CONFIG_JSON"]
+dns = selfhost["jobs"]["switch_dns"]
+assert "accept_web_saas_upgrade" in dns["needs"]
+assert "needs.accept_web_saas_upgrade.result == 'success'" in dns["if"]
+owner = next(step for step in dns["steps"] if step.get("name") == "Check out reviewed UAT DNS provider owner")
+assert owner["with"]["repository"] == "ai-workspace-infra/iac_modules"
+assert owner["with"]["ref"] == "ed299ac0cbf0d7f3c355b36f2ecbed794ceebd7f"
+reconcile = next(step for step in dns["steps"] if step.get("name") == "Reconcile UAT DNS records")
+assert "iac-dns-owner/scripts/pipeline/cloudflare-uat-dns-reconcile.sh" in reconcile["run"]
+assert not __import__("pathlib").Path(".github/scripts/platform-ops/dns/platform-ops_uat_dns_reconcile.sh").exists()
 observe = selfhost["jobs"]["observe_web_saas_after_dns"]
 observe_step = next(step for step in observe["steps"] if step.get("name") == "Verify Web SaaS public endpoints after DNS")
 assert "https://console-selfhost-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/" in observe_step["env"]["OBSERVE_URLS"]

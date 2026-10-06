@@ -66,7 +66,7 @@ class SelfhostDispatchContractTests(unittest.TestCase):
     def test_operation_and_runtime_choices_are_explicit(self) -> None:
         self.assertEqual(
             self.inputs["operation"]["options"],
-            ["plan", "infra", "deploy", "migrate", "deploy+migrate", "destroy"],
+            ["plan", "infra", "deploy", "deploy+init", "migrate", "deploy+migrate", "destroy"],
         )
         self.assertEqual(self.inputs["offline_mode"]["options"], ["off", "auto", "force"])
         self.assertEqual(self.inputs["dns_mode"]["options"], ["none", "uat-records", "prod-cutover"])
