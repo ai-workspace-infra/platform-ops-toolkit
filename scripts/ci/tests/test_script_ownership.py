@@ -147,13 +147,13 @@ account=$(aws sts get-caller-identity --query Account)
         found = module.inventory(root)
         for relative in (
             'platform-ops/deploy/platform-ops_deploy_base_restore-caddy-certs.sh',
-            'platform-ops/dns/platform-ops_uat_dns_reconcile.sh',
             'platform-ops/dns/platform-ops_sit_all_in_one_dns_reconcile.sh',
             'xconnect-lab/reconcile-gateway-dns.sh',
             'xconnect-lab/lease.sh',
             'xconnect-lab/gateway.sh',
         ):
             self.assertIn('.github/scripts/' + relative, found)
+        self.assertFalse((root / '.github/scripts/platform-ops/dns/platform-ops_uat_dns_reconcile.sh').exists())
         for relative in (
             'platform-ops/provision/platform-ops_provision_initialize-agent-proxy-credentials.sh',
             'platform-ops/provision/platform-ops_provision_initialize-databases-credentials.sh',

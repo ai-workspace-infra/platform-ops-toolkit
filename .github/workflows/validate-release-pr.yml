@@ -113,7 +113,9 @@ jobs:
         GITOPS_MATRIX_FILE: ${{ github.workspace }}/gitops-hybrid-contract/topology/uat/hybrid/resource-matrix.json
         GITOPS_OPEN_PLATFORM_FILE: ${{ github.workspace }}/gitops-hybrid-contract/resources/onwalk.net/uat/gcp/open-platform.yaml
         GITOPS_RESOURCE_ROOTS: ${{ github.workspace }}/gitops-hybrid-contract/resources/onwalk.net/uat/gcp:${{ github.workspace }}/gitops-hybrid-contract/resources/svc.plus/uat/gcp
-      run: bash .github/scripts/tests/hybrid_uat_matrix_contract_test.sh
+      run: |
+        bash .github/scripts/tests/hybrid_uat_matrix_contract_test.sh
+        python3 -m unittest discover -s .github/scripts/tests -p selfhost_orchestrator_dispatch_contract_test.py
 
     - name: Verify UAT business evidence is required for PROD promotion
       run: python3 .github/scripts/tests/uat_business_promotion_gate_test.py
@@ -290,9 +292,6 @@ jobs:
 
     - name: Verify Web SaaS VPS alias contract
       run: bash .github/scripts/tests/platform_ops_web_saas_public_alias_contract_test.sh
-
-    - name: Verify UAT DNS target records
-      run: bash .github/scripts/tests/platform_ops_uat_dns_target_records_test.sh
 
     - name: Verify serverless Cloudflare domain contract
       run: |

@@ -14,13 +14,6 @@
       "owner": "iac_modules",
       "sha256": "a8160b11869a46ec9814849384a153d0cfe904b74aaead0dd2e42277b87c7911"
     },
-    ".github/scripts/platform-ops/dns/platform-ops_uat_dns_reconcile.sh": {
-      "markers": [
-        "provider_execution"
-      ],
-      "owner": "iac_modules",
-      "sha256": "bcc56db2cd31e1f5b237d0eb3d035065a7f5615a1266c81adece6c07e4e4955b"
-    },
     ".github/scripts/serverless/sync_smtp_secrets.sh": {
       "markers": [
         "provider_execution"
