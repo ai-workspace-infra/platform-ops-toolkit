@@ -134,6 +134,7 @@ class NativeInitControlTests(unittest.TestCase):
         gate = next(i for i, step in enumerate(steps) if step.get('id') == 'native_init_control')
         vault = next(i for i, step in enumerate(steps) if step.get('id') == 'native_vault')
         self.assertLess(gate, vault)
+        self.assertIs(steps[vault]['with'].get('exportEnv'), False)
         remote = [step['uses'] for step in steps if '.github/actions/prod-' in step.get('uses', '')]
         self.assertEqual(remote, ['ai-workspace-infra/iac_modules/.github/actions/prod-selfhost-access@' + config['iac_commit'],
             'ai-workspace-infra/playbooks/.github/actions/prod-native-init@' + config['playbooks_commit'],

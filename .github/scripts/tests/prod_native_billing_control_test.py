@@ -118,6 +118,7 @@ class BillingControlTests(unittest.TestCase):
         job=workflow['jobs']['native_prod_billing'];self.assertEqual(job['environment'],'prod')
         steps=job['steps'];gate=next(i for i,s in enumerate(steps) if s.get('id')=='native_billing_control')
         vault=next(i for i,s in enumerate(steps) if s.get('id')=='native_vault');self.assertLess(gate,vault)
+        self.assertIs(steps[vault]['with'].get('exportEnv'),False)
         remote=[s['uses'] for s in steps if '.github/actions/prod-' in s.get('uses','')]
         self.assertEqual(remote,['ai-workspace-infra/iac_modules/.github/actions/prod-selfhost-access@'+c['iac_commit'],
             'ai-workspace-infra/playbooks/.github/actions/prod-native-billing-upgrade@'+c['playbooks_commit'],
