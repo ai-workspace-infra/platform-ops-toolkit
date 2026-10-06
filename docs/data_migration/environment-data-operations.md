@@ -57,6 +57,20 @@ Actions 并发锁按环境统一；数据库实现仍须取得数据库迁移锁
 `MIGRATION_SOURCE_SSH_PRIVATE_KEY_B64`，仅执行 owner 在运行时读取。
 源凭据不符合只读身份／环境守卫时停止，不为完成导入而降级安全门禁。
 
+### 数据子任务闭环
+
+导入完成不能仅凭 dispatch 或 workflow conclusion 放行。Playbooks 发布精确
+run/attempt、correlation、owner SHA、Accounts ref/实际 SHA、UAT 主机和 CMDB
+caller 的脱敏回执；Toolkit 从该精确 child 下载并核验，不按最近一次运行猜测。
+direct 导入的 preview 只接受 `target_preview/not_attempted`；显式实写必须到达
+`target_verify/verified` 且 `convergence_verified=true`，同快照只读重放已收敛。
+缺回执、错误来源/目标、旧 attempt 或仅 apply 成功但验证缺失均停止后续发布。
+
+`unverified` 表示实写或验证阶段尚未证明目标状态，失败、超时和取消不等于回滚。
+恢复前核实现状，不自动重复写入。旧版 token 主键 `sessions` 由 Accounts 导入器
+按实际 schema 兼容，不由导入脚本隐式重建表或替换 public schema；旧 immutable tag
+不移动。修复版导入器与原发布 tag 分别记录，新的 Daily 发布使用包含修复的新快照。
+
 注意：当前 `legacy_import` 是用户／身份域的合并，不是完整业务库复制；其成功不证明
 订阅、账本、schema 基线或 UAT Selfhost 两跳初始化已完成。完整 DB 基线需要单独的
 已审核执行契约和证据，不能由 Daily 的派发开关暗中实现。

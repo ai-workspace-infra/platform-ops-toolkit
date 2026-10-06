@@ -144,7 +144,7 @@ jobs:
     name: Playbooks / explicit one-time UAT import
     needs: request_gate
     if: ${{ inputs.mode == 'legacy_import' }}
-    uses: ai-workspace-infra/playbooks/.github/workflows/uat-data-import.yaml@1f84c847bf1b7be94c2ce796ad07c6a01369eba5
+    uses: ai-workspace-infra/playbooks/.github/workflows/uat-data-import.yaml@d54c533c9867dadc975bafffe5c5022cd1b331e9
     with:
       environment: ${{ inputs.environment }}
       config_json: ${{ needs.request_gate.outputs.config_json }}
