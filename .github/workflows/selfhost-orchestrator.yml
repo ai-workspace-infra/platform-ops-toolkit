@@ -1354,6 +1354,7 @@ jobs:
     name: "[1] Web SaaS baseline | ${{ matrix.host }}"
     outputs:
       baseline_data_run_id: ${{ steps.dispatch.outputs.data_run_id }}
+      baseline_state: ${{ steps.receipt.outputs.captured_state }}
     needs: [provision]
     if: >-
       ${{ !cancelled() &&
@@ -1406,28 +1407,14 @@ jobs:
         path: ${{ runner.temp }}/selfhost-baseline
 
     - name: Verify receipt is real and bound to this parent, child, and host
+      id: receipt
       env:
         RECEIPT_PATH: ${{ runner.temp }}/selfhost-baseline/baseline.json
         EXPECTED_PARENT_RUN_ID: ${{ github.run_id }}
         EXPECTED_BASELINE_RUN_ID: ${{ steps.dispatch.outputs.data_run_id }}
         EXPECTED_HOST: ${{ matrix.host }}
         EXPECTED_ACCEPTANCE_RUN_ID: ${{ github.run_id }}
-      run: |
-        python3 - <<'PY'
-        import json, os
-        with open(os.environ['RECEIPT_PATH'], encoding='utf-8') as f:
-            receipt = json.load(f)
-        expected = {
-            'parent_workflow_run_id': os.environ['EXPECTED_PARENT_RUN_ID'],
-            'baseline_workflow_run_id': os.environ['EXPECTED_BASELINE_RUN_ID'],
-            'target_host': os.environ['EXPECTED_HOST'],
-            'acceptance_run_id': os.environ['EXPECTED_ACCEPTANCE_RUN_ID'],
-        }
-        if receipt.get('schema') != 1 or any(receipt.get(k) != v for k, v in expected.items()):
-            raise SystemExit('baseline receipt is missing or not bound to this parent/child/host')
-        if receipt.get('captured_state') not in ('present', 'absent') or not isinstance(receipt.get('row_counts'), dict):
-            raise SystemExit('baseline receipt lacks captured database evidence')
-        PY
+      run: python3 .github/scripts/environment-upgrade/read-selfhost-baseline-state.py
 
   # ---------------------------------------------------------------------------
   # 步骤 2.5: 自动推进 GitOps 版本
@@ -1580,13 +1567,15 @@ jobs:
       observe_urls: ''
 
   # ---------------------------------------------------------------------------
-  # DNS-independent upgrade acceptance.
+  # DNS-independent Web SaaS acceptance.
   #
   # observe_web_saas_after_dns only runs after switch_dns, so a dns_mode=none
   # upgrade can otherwise finish without proof that the new Accounts/Console
-  # served or that existing users and subscriptions survived. This job runs after the deploy
-  # succeed, reaching services by CMDB address from inside the host. It does
-  # not gate switch_dns; a failure here fails the run and the summary.
+  # served or that existing users and subscriptions survived. Existing-database
+  # baselines use data-preservation verification; a first deploy whose bound
+  # baseline is absent uses the read-only service probe instead. Neither path
+  # initializes schema or mutates data. This job runs after deploy and reaches
+  # services through the exact CMDB host; a failure fails the run and summary.
   # ---------------------------------------------------------------------------
   accept_web_saas_upgrade:
     name: "[3] Web SaaS acceptance | ${{ matrix.host }}"
@@ -1609,12 +1598,13 @@ jobs:
       with:
         ref: ${{ github.sha }}
 
-    - name: Dispatch read-only selfhost verification and wait for completion
+    - name: Dispatch read-only selfhost verification or first-deploy probe
       env:
         GH_TOKEN: ${{ github.token }}
-        DATA_OPERATION: selfhost_verify
+        DATA_OPERATION: ${{ needs.capture_web_saas_baseline.outputs.baseline_state == 'absent' && 'selfhost_probe' || 'selfhost_verify' }}
         DATA_ENVIRONMENT: ${{ needs.provision.outputs.deployment_env }}
-        DATA_CONFIG_JSON: '{"target_host":"${{ matrix.host }}","acceptance_run_id":"${{ github.run_id }}","caller_run_id":"${{ github.run_id }}","baseline_data_run_id":"${{ needs.capture_web_saas_baseline.outputs.baseline_data_run_id }}"}'
+        DATA_CONFIG_JSON: >-
+          {"action":"${{ needs.capture_web_saas_baseline.outputs.baseline_state == 'absent' && 'probe' || 'verify' }}","target_host":"${{ matrix.host }}","acceptance_run_id":"${{ github.run_id }}","caller_run_id":"${{ github.run_id }}","baseline_data_run_id":"${{ needs.capture_web_saas_baseline.outputs.baseline_data_run_id }}"}
         RELEASE_TAG: ${{ needs.provision.outputs.deploy_tag }}
         ACCOUNTS_REF: ${{ needs.provision.outputs.deploy_tag || 'main' }}
         DATA_WORKFLOW_REF: main
@@ -1913,13 +1903,15 @@ jobs:
         DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
         OBSERVE_URLS: >-
           https://console-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
+          https://console-selfhost-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
           https://accounts-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/
           https://bridge-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/api/ping
-        # Console is public, while Accounts and Bridge intentionally require
-        # authentication. Their 404/401 responses prove that the routed
-        # service is alive; the observer still rejects every other code.
-        # OBSERVE_URLS order: console, accounts, bridge.
-        OBSERVE_EXPECTED_CODES: "200,404,401"
+        # Both the canonical Hybrid console route and its mode-qualified
+        # selfhost origin must serve. Accounts and Bridge intentionally require
+        # authentication; their 404/401 responses prove those services are
+        # routed and alive. The observer rejects every other code.
+        # OBSERVE_URLS order: canonical console, selfhost console, accounts, bridge.
+        OBSERVE_EXPECTED_CODES: "200,200,404,401"
       run: bash playbooks/.github/scripts/domain-cd-observe-endpoints.sh
 
   observe_agent_proxy_after_dns:
