@@ -9,7 +9,7 @@
 | 步骤 | 收敛内容 | 后续门槛 |
 | --- | --- | --- |
 | `identity` | 项目内 `compute.securityAdmin`、`orgpolicy.policyViewer`；启用 `orgpolicy.googleapis.com` | 原 WIF/Service Account state 必须存在；不改 issuer、audience 或 subject |
-| `external-ip` | 项目 `compute.vmExternalIpAccess` 仅允许 `web-saas-prod` | 使用原 Web SaaS state；保留已有网络、子网与独立数据盘 |
+| `external-ip` | 接管现有项目策略，保留 `open-platform-prod` 旧许可，只新增 `web-saas-prod` 许可 | 使用原 Web SaaS state 与数字项目父级；保留已有网络、子网与独立数据盘 |
 | 日常部署 | GitHub OIDC → Vault → WIF → 完整资源 plan/apply | bootstrap 两步均收敛；完整 plan 不得删除或替换现有资源 |
 
 每一步都先 plan，再用审查过的 `approved_plan_sha256` apply。IaC 会重新生成
@@ -92,6 +92,15 @@ bootstrap 完成。两份 apply 收敛回执也不等于资源部署、数据库
 私有临时 Terraform 工作区执行后清理；不发布原始 plan/state/provider 日志。
 凭据缺失、403、API 未启用、state 缺失、计划删除/替换或摘要变化都会停止。
 
+### 现有策略接管
+
+2026-10-06 的只读实查发现项目策略早在 2026-09-29 已存在，父级为
+`projects/986070475391`，旧许可为 `asia-east1-a/instances/open-platform-prod`。
+按项目名称 ID 配置会在 import 后触发父级 ForceNew；删除旧许可也超出本次
+修复范围。因此 GitOps #395 明确选择数字项目父级，并保留旧许可，只新增
+同项目同区域的 `web-saas-prod`；IaC #403 在同一 state 受控 import/update。
+不会忽略 parent 管理，不放开整个项目，不重建策略。旧许可退役另行审查。
+
 ## 与主线的连接
 
 2026-10-06 的 [资源 plan 37478158368](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37478158368)
@@ -99,7 +108,10 @@ bootstrap 完成。两份 apply 收敛回执也不等于资源部署、数据库
 [apply 37478514735](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37478514735)
 仍因 `orgpolicy.googleapis.com` 未启用及 `compute.firewalls.create` 缺失而失败。
 该历史失败不能由 plan 成功推断为权限齐备。当前为**待用户执行一次性
-bootstrap**；两步取得真实收敛回执后，再复核日常 OIDC 资源 plan/apply。
+bootstrap**，随后用户完成登录并授权继续。`identity` 已取得真实
+`result=converged` 回执，state serial 为 8 → 8，保护资源一致；三个 IAM/API
+目标均为 no-op。`external-ip` 初次计划被父级替换门禁拒绝，尚未应用策略。
+现已修正接管声明与 owner，须取得该阶段真实收敛回执后再继续 OIDC 资源部署。
 
 两步 bootstrap 收敛后，仍按：资源 → 初始化 → 单向复制 → 全业务一致性
 → 网关/CNAME 切换 → 生产验收。数据库切换前生产继续使用 Serverless。
