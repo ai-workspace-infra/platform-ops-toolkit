@@ -15,7 +15,7 @@ def fail(message: str) -> None:
     raise SystemExit(f"manifest validation failed: {message}")
 
 
-SUPPORTED_UAT_PROVIDERS = {"aws", "gcp", "vps", "vultr-vps", "akamai-cloud"}
+SUPPORTED_TERRAFORM_PROVIDERS = {"aws", "gcp", "vps", "vultr-vps", "akamai-cloud"}
 
 
 def iter_strings(value):
@@ -49,6 +49,8 @@ def main() -> None:
 
     meta = data.get("metadata", {})
     env = meta.get("environment")
+    if not isinstance(env, str) or not re.fullmatch(r"[a-z][a-z0-9-]*", env):
+        fail("metadata.environment must be a lowercase environment name")
     spec = data.get("spec", {})
     entrypoint = spec.get("entrypoint", {})
     expected_env_prefix = f"vault://kv/{env}/ai-aggregator/"
@@ -107,14 +109,13 @@ def main() -> None:
     elif adapter not in {None, "", "none", "apisix", "kong"}:
         fail("direct-new-api mode has an unsupported dormant adapter")
     
-    # Environment to domain binding check:
+    # Domains belong to the selected declaration, independent of environment names.
     domain = entrypoint.get("domain", "")
-    if env == "uat":
-        if domain not in {"ai.onwalk.net", "ai-internal.onwalk.net"}:
-            fail(f"UAT environment has an unsupported AI Gateway domain (got: {domain})")
-    elif env == "prod":
-        if domain != "ai.svc.plus":
-            fail(f"PROD environment must bind to ai.svc.plus (got: {domain})")
+    if not isinstance(domain, str) or not re.fullmatch(
+        r"(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+"
+        r"[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?", domain
+    ):
+        fail("entrypoint.domain must be a DNS hostname")
 
     routes = gateway.get("routes", {})
     if entry_mode == "gateway":
@@ -144,33 +145,34 @@ def main() -> None:
 
     infrastructure = spec.get("infrastructure", {})
     contract = infrastructure.get("resource_contract", {})
-    if env == "uat":
+    lifecycle = infrastructure.get("lifecycle")
+    if lifecycle == "ephemeral":
         provider = infrastructure.get("provider")
-        if provider not in SUPPORTED_UAT_PROVIDERS or infrastructure.get("provisioner") != "terraform":
-            fail("UAT infrastructure must select a supported Terraform provider")
-        if infrastructure.get("lifecycle") != "ephemeral":
-            fail("UAT infrastructure must be ephemeral")
+        if provider not in SUPPORTED_TERRAFORM_PROVIDERS or infrastructure.get("provisioner") != "terraform":
+            fail("ephemeral infrastructure must select a supported Terraform provider")
         if provider == "akamai-cloud" and infrastructure.get("spot_instance"):
-            fail("Akamai UAT does not support the Spot contract; use workflow_dispatch destroy")
+            fail("Akamai ephemeral does not support the Spot contract; use workflow_dispatch destroy")
         if provider != "akamai-cloud" and not infrastructure.get("spot_instance"):
-            fail("AWS/GCP/VPS UAT infrastructure must use Spot resources")
+            fail("AWS/GCP/VPS ephemeral infrastructure must use Spot resources")
         if infrastructure.get("max_runtime_minutes") != 60:
-            fail("UAT infrastructure max_runtime_minutes must be 60")
+            fail("ephemeral infrastructure max_runtime_minutes must be 60")
         if infrastructure.get("destroy_policy") != "always_after_pipeline":
-            fail("UAT infrastructure must always be destroyed after the pipeline")
-    elif env == "prod":
+            fail("ephemeral infrastructure must always be destroyed after the pipeline")
+    elif lifecycle == "persistent":
         if infrastructure.get("provider") != "existing" or infrastructure.get("provisioner") != "ansible":
-            fail("PROD infrastructure must use existing nodes and Ansible")
+            fail("persistent infrastructure must use existing nodes and Ansible")
         if infrastructure.get("lifecycle") != "persistent" or infrastructure.get("terraform_manage_lifecycle"):
-            fail("PROD infrastructure must remain persistent and outside Terraform lifecycle management")
+            fail("persistent infrastructure must remain persistent and outside Terraform lifecycle management")
         if infrastructure.get("destroy_policy") != "never":
-            fail("PROD infrastructure destroy policy must be never")
+            fail("persistent infrastructure destroy policy must be never")
+    else:
+        fail("infrastructure.lifecycle must be ephemeral or persistent")
     if not contract.get("repository") or not contract.get("path") or contract.get("ref") != "main":
         fail("infrastructure.resource_contract must pin repository, path, and ref")
     if infrastructure.get("provider") == "akamai-cloud":
         manifests = contract.get("manifests", [])
         if not isinstance(manifests, list) or not manifests:
-            fail("Akamai UAT must declare one resource manifest per isolated state namespace")
+            fail("Akamai ephemeral must declare one resource manifest per isolated state namespace")
         declared_nodes = {node.get("id") for node in spec.get("nodes", [])}
         declared_manifest_nodes = {item.get("node") for item in manifests}
         if declared_manifest_nodes != declared_nodes:
@@ -245,10 +247,10 @@ def main() -> None:
     if client_profiles["android-studio"].get("base_url") != expected_litellm_url:
         fail(f"Android Studio must use the New API ledger endpoint: {expected_litellm_url}")
 
-    # Testing environment constraints for UAT: AWS Spot t4g 1h rule
+    # Testing constraints follow the declared resource lifecycle.
     test_env = spec.get("testing_environment")
     if test_env:
-        if env == "uat" and test_env.get("provider") != infrastructure.get("provider"):
+        if test_env.get("provider") != infrastructure.get("provider"):
             fail("testing environment provider must match infrastructure.provider")
         if test_env.get("architecture") not in {"arm64", "amd64"}:
             fail("testing environment architecture must be arm64 or amd64")
@@ -340,20 +342,20 @@ def main() -> None:
     if published_by_channels != set(public_models):
         fail("new_api.public_models must equal the union of CPA channel public_models")
 
-    if env == "uat":
+    if lifecycle == "ephemeral":
         for node in node_records:
             if node.get("provider") != infrastructure.get("provider") or node.get("lifecycle") != "ephemeral":
-                fail("UAT aggregator nodes must match the selected provider and be ephemeral")
+                fail("ephemeral aggregator nodes must match the selected provider and be ephemeral")
             if node.get("max_runtime_minutes") != 60:
-                fail("UAT aggregator nodes must use a 60-minute lifecycle")
+                fail("ephemeral aggregator nodes must use a 60-minute lifecycle")
             if infrastructure.get("provider") == "akamai-cloud" and node.get("spot_instance"):
-                fail("Akamai UAT nodes cannot declare spot_instance: true")
+                fail("Akamai ephemeral nodes cannot declare spot_instance: true")
             if infrastructure.get("provider") != "akamai-cloud" and not node.get("spot_instance"):
-                fail("AWS/GCP/VPS UAT nodes must use Spot lifecycle")
-    elif env == "prod":
+                fail("AWS/GCP/VPS ephemeral nodes must use Spot lifecycle")
+    elif lifecycle == "persistent":
         for node in node_records:
             if node.get("lifecycle") != "persistent" or node.get("provider") != "existing":
-                fail("PROD aggregator nodes must be existing persistent nodes")
+                fail("persistent aggregator nodes must be existing persistent nodes")
 
     enabled = bool(spec.get("enabled"))
     cidrs = entrypoint.get("source_cidrs", [])

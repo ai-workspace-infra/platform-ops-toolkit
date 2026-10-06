@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-manifest="${AI_AGGREGATOR_MANIFEST:-gitops/topology/uat/selfhost/ai-aggregator.yaml}"
+manifest="${AI_AGGREGATOR_MANIFEST:?Set AI_AGGREGATOR_MANIFEST to the input-selected GitOps declaration}"
 domain="$(python3 - "$manifest" <<'PY'
 import sys, yaml
 data = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
@@ -29,7 +29,7 @@ direct_status="$(request_status "https://${domain}/litellm/v1/models")"
 if [[ -n "${AI_AGGREGATOR_CLIENT_TOKEN:-}" ]]; then
   authenticated_args=(-H "Authorization: Bearer ${AI_AGGREGATOR_CLIENT_TOKEN}")
   main_auth_status="$(request_status "https://${domain}/v1/models" "${authenticated_args[@]}")"
-  direct_auth_status="$(request_status "https://${direct_domain}/v1/models" "${authenticated_args[@]}")"
+  direct_auth_status="$(request_status "https://${domain}/litellm/v1/models" "${authenticated_args[@]}")"
   [[ "$main_auth_status" =~ ^2[0-9][0-9]$ ]] || { echo "New API token smoke test failed: ${main_auth_status}" >&2; exit 1; }
   [[ "$direct_auth_status" =~ ^2[0-9][0-9]$ ]] || { echo "LiteLLM token smoke test failed: ${direct_auth_status}" >&2; exit 1; }
 fi
