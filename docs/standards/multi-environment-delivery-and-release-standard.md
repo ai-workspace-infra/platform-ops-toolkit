@@ -37,9 +37,11 @@ selector; an existing tag is never moved or overwritten.
 
 The shared tagging script must receive the intended tag explicitly. Stable
 release publication and daily snapshot publication are separate routes: Daily
-creates only `daily-build-*` / `uat-daily-build-*` snapshots for SIT/UAT, while
-PROD is entered only from a protected `v*` tag or `release/v*` branch. Daily
-does not create release tags, dispatch PROD, or request production approval.
+creates `daily-build-*` / `uat-daily-build-*` snapshots for SIT/UAT, while
+PROD is entered from a protected `v*` tag or `release/v*` branch, or through
+the dedicated Daily Main Snapshot release-authoring route after an accepted
+UAT run. That route creates a new immutable `v*` tag only after the production
+Environment approval and dispatches PROD from that tag.
 
 Production deployment is fail-closed to exactly two artifact refs:
 `refs/tags/v*` and `refs/heads/release/v*`. `main`, other `release/*` branches,
@@ -101,7 +103,9 @@ input or tag prefix appears to request `prod`:
 The dedicated Daily Main Snapshot release-authoring workflow on protected
 `main` is the sole exception for verified `daily-build-*` and
 `uat-daily-build-*` source tags; it promotes either source to a new immutable
-`v*` release tag and does not deploy the daily tag directly.
+`v*` release tag and does not deploy the daily tag directly. It must receive a
+completed Daily run whose UAT Hybrid artifact manifest has been verified; an
+arbitrary tag or source ref is not sufficient.
 
 An environment input, deploy tag, Vault role name, or helper-script inference
 must not widen this allowlist. A ref that is not allowlisted must fail closed

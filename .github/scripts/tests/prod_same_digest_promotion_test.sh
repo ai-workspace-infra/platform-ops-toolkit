@@ -321,10 +321,11 @@ assert hsteps[hnames.index("Upload the UAT artifact manifest")]["with"]["name"] 
 daily = load("daily-main-snapshot.yaml")
 summary = {s.get("name"): s for s in daily["jobs"]["snapshot-summary"]["steps"]}
 assert "dispatch-uat-combined.sh" in summary["Dispatch UAT Hybrid Orchestrator"]["run"]
-# Daily was restricted to SIT/UAT in #1235. Keep the executable PROD
-# preflight tests above without restoring removed production jobs.
-assert "prod" not in daily[True]["workflow_dispatch"]["inputs"]["deploy_env"]["options"]
-assert "promote-prod" not in daily["jobs"]
+# Daily now exposes the guarded UAT-to-PROD route. The executable PROD
+# preflight tests above protect the same-digest and manifest boundaries.
+assert "prod" in daily[True]["workflow_dispatch"]["inputs"]["deploy_env"]["options"]
+assert "promote-prod" in daily["jobs"]
+assert daily["jobs"]["promote-prod"]["environment"] == "production"
 PY
 
 echo "prod_same_digest_promotion_test: PASS"

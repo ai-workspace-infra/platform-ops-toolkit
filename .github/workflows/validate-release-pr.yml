@@ -184,6 +184,12 @@ jobs:
     - name: Verify complete-snapshot combined UAT gate
       run: bash .github/scripts/tests/daily_snapshot_uat_gate_contract_test.sh
 
+    - name: Verify accepted UAT promotion is the only PROD source
+      run: bash .github/scripts/tests/prod_accepted_uat_promotion_test.sh
+
+    - name: Verify PROD promotion dispatch and digest manifest contract
+      run: bash .github/scripts/tests/daily_snapshot_prod_manifest_test.sh
+
     - name: Verify immutable snapshot tag routing
       run: bash .github/scripts/tests/snapshot_tag_lookup_test.sh
 

@@ -193,9 +193,9 @@ resolver = Path(sys.argv[2]).read_text(encoding="utf-8")
 jobs = document["jobs"]
 inputs = document[True]["workflow_dispatch"]["inputs"]
 assert len(inputs) <= 25
-assert "prod" not in inputs["deploy_env"]["options"]
-assert "uat_daily_run_id" not in inputs
-assert "resolve-accepted-uat" not in jobs and "promote-prod" not in jobs
+assert "prod" in inputs["deploy_env"]["options"]
+assert "uat_daily_run_id" in inputs
+assert "resolve-accepted-uat" in jobs and "promote-prod" in jobs
 
 # PROD never tags or builds from source.
 summary = jobs["snapshot-summary"]
@@ -207,9 +207,8 @@ names = {"job": summary["name"]} | {f"step{i}": step.get("name") for i, step in 
 for variable in ("uat_job_name", "uat_dispatch_step"):
     value = re.search(rf'^{variable}="([^"]+)"$', resolver, re.M).group(1)
     assert value in names.values(), f"{variable}={value!r} is not in the Daily UAT job"
-# A current Daily run cannot satisfy the legacy resolver: the executable
-# negative tests above require its absent promotion-manifest upload.
-assert not any(step.get("name") == "Upload the verified UAT promotion manifest" for step in summary["steps"])
+assert any(step.get("name") == "Upload the verified UAT promotion manifest" for step in summary["steps"])
+assert jobs["promote-prod"]["environment"] == "production"
 PY
 
 echo "prod_accepted_uat_promotion_test: PASS"

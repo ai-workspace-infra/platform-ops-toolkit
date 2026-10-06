@@ -4,10 +4,12 @@
 
 `Daily Main Snapshot` 仅使用 GitHub App 认证。workflow 通过 GitHub OIDC 登录 Vault，读取 App 私钥并按目标组织生成 installation token。
 
-Daily 只负责 SIT/UAT 快照构建、Shared 只读就绪检查和 UAT Hybrid 发布，不负责
-PROD 晋级，也不请求 production approval。PROD 只能由受保护的 `v*` tag 或
-`release/v*` 分支发布流程触发；这条边界由各发布 workflow 的 ref 路由和 Vault role
-共同约束。详见[多环境交付与发布规范](standards/multi-environment-delivery-and-release-standard.md)。
+Daily 负责 SIT/UAT 快照构建、Shared 只读就绪检查和 UAT Hybrid 发布；在 UAT
+验收清单通过后，也支持受保护的 UAT→PROD 晋级。PROD 晋级必须填写已成功的
+`uat_daily_run_id`，只晋级该 UAT run 验收的镜像 digest，并在 `production` Environment
+审批后创建不可变 `v*` tag、发布 Serverless 与 selfhost。它不从源码重建，也不自动做
+canonical DNS cutover。通用 PROD workflow 仍只能由受保护的 `v*` tag 或 `release/v*`
+分支触发；Daily 使用专用 `prod-release` Vault role。详见[多环境交付与发布规范](standards/multi-environment-delivery-and-release-standard.md)。
 
 ## 前置配置
 
@@ -23,7 +25,10 @@ kv/data/CICD/github-app/daily-snapshot
 app_private_key
 ```
 
-Vault role `github-actions-platform-ops-toolkit-uat` 需要具备该路径的只读权限。
+UAT 使用 Vault role `github-actions-platform-ops-toolkit-uat`；PROD 晋级使用独立的
+`github-actions-platform-ops-toolkit-prod-release` role。后者只能被受保护的
+`daily-main-snapshot.yaml` 主线发布入口使用，并且只在 production Environment 审批后
+读取该 App 私钥。
 
 GitHub App `daily-snapshot-tag`（App ID `4405545`）需要安装到四个目标组织，并拥有目标仓库的：
 
@@ -41,8 +46,12 @@ GitHub App `daily-snapshot-tag`（App ID `4405545`）需要安装到四个目标
 1. 打开 `platform-ops-toolkit` 的 `Actions`。
 2. 选择 `Daily Main Snapshot`。
 3. 点击 `Run workflow`。
-4. 选择 `deploy_env`，默认使用 `uat`。
-5. 可选填写 `snapshot_tag` 和 `repositories`。
+4. 确认 workflow ref 使用受保护的 `main`。
+5. 选择 `deploy_env`。常规发布使用 `uat`；PROD 选择 `prod` 后必须填写已验收的
+   `uat_daily_run_id`。可选填写 `snapshot_tag` / `snapshot_source_ref`，但它们必须与
+   该 UAT run 验收出的 release tag / snapshot tag 一致。
+6. 仅在完整 UAT Hybrid 成功后需要自动进入 PROD 审批时，选择 UAT 的
+   `promote_prod_after_uat`；部分仓库筛选不能进入 PROD。
 
 workflow 会从各仓库当时的 `main` SHA 创建不可变的
 `daily-build-YYYY.MM.DD` tag，并继续执行目标仓库的构建触发流程。
@@ -77,9 +86,9 @@ JP/US/SG 使用 `akamai-cloud` 并包含 Ulighthost existing PH/TW。PROD 旧 AW
 
 稳定发布 tag 与日常构建 tag 共用同一个跨仓库打标脚本，区别只在 tag
 值和路由语义：`daily-build-*` 是每日自动构建，`uat-daily-build-*` 是允许的
-UAT 构建/重试 tag，`v*` 是受控手动选择的正式 PROD 发布，`sit-*` 是低频
-SIT 验证。Daily Snapshot 不能把 `v*` 作为 `snapshot_tag`；否则服务 CI 和
-平台路由会把日常构建误判为正式发布。
+UAT 构建/重试 tag，`v*` 是 UAT 验收后由受保护晋级步骤创建的正式 PROD 发布，
+`sit-*` 是低频 SIT 验证。PROD 运行不能直接把 daily tag 部署到生产；它先验证
+UAT manifest，再为同一组源 SHA 创建不可变 `v*` tag。
 
 路由组合约定：
 
@@ -88,7 +97,8 @@ SIT 验证。Daily Snapshot 不能把 `v*` 作为 `snapshot_tag`；否则服务 
 - `daily-build-*`：每日自动构建入口。
 - `uat-daily-build-*`：允许的 UAT 构建、重试与验证入口。
 - `release/*`（不含 `release/v*`）：UAT 路径，不得进入 PROD。
-- `vYYYY.MM.DD[-rN]`：PROD 稳定发布 tag，由受保护的正式发布流程创建；已存在且指向别处时拒绝，不移动、覆盖或删除。
+- `vYYYY.MM.DD[-rN]`：PROD 稳定发布 tag，由受保护的正式发布流程或 Daily 的
+  `prod-release` 晋级步骤创建；已存在且指向别处时拒绝，不移动、覆盖或删除。
 
 `main` 只能作为 workflow 的控制面入口，不能作为 PROD 制品来源；PROD 制品是 UAT
 验收清单中的镜像 digest。不要手工预建 `v*` tag。
