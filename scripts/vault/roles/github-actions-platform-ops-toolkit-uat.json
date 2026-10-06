@@ -32,7 +32,8 @@
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/ucloud-iac.yml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/gcp-oidc-bootstrap.yml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/ai-aggregator-v1.yml@*",
-      "ai-workspace-infra/playbooks/.github/workflows/selfhost-database-operations.yml@7d660cdb4066e2a4cf3fed68bccafea939771e64"
+      "ai-workspace-infra/playbooks/.github/workflows/selfhost-database-operations.yml@7d660cdb4066e2a4cf3fed68bccafea939771e64",
+      "ai-workspace-infra/playbooks/.github/workflows/uat-data-import.yaml@70f4ca484e5bfdf84d4fd6d322f49d93f20aee86"
     ],
     "ref": [
       "refs/heads/main",
