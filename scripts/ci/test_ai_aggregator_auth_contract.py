@@ -18,7 +18,10 @@ GITOPS = Path(os.environ.get('GITOPS_ROOT', ROOT / 'gitops'))
 class AuthContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.base = yaml.safe_load((GITOPS / 'topology/uat/selfhost/ai-aggregator.yaml').read_text())
+        cls.paths = sorted((GITOPS / 'topology').glob('*/selfhost/ai-aggregator*.yaml'))
+        if not cls.paths:
+            raise RuntimeError(f'no AI Aggregator declarations under {GITOPS}')
+        cls.base = yaml.safe_load(cls.paths[0].read_text())
 
     def check(self, data, valid):
         with tempfile.NamedTemporaryFile('w', suffix='.yaml') as candidate:
@@ -28,20 +31,30 @@ class AuthContractTests(unittest.TestCase):
         self.assertEqual(result.returncode == 0, valid, result.stderr)
 
     def test_all_environment_topologies(self):
-        for env in ('uat', 'prod'):
-            for path in (GITOPS / f'topology/{env}/selfhost').glob('ai-aggregator*.yaml'):
-                with self.subTest(path=path.name, environment=env):
-                    self.check(yaml.safe_load(path.read_text()), True)
+        for path in self.paths:
+            with self.subTest(path=path):
+                self.check(yaml.safe_load(path.read_text()), True)
 
     def test_direct_mode_can_retain_dormant_adapter_for_rollback(self):
         data = copy.deepcopy(self.base)
         data['spec']['gateway']['entry_mode'] = 'direct-new-api'
         self.check(data, True)
 
+    def test_environment_name_does_not_define_domain_or_lifecycle(self):
+        data = copy.deepcopy(self.base)
+        previous = data['metadata']['environment']
+        domain = data['spec']['entrypoint']['domain']
+        source = yaml.safe_dump(data).replace(
+            f'vault://kv/{previous}/', 'vault://kv/preview-eu/'
+        ).replace(domain, 'ai.preview.example.net')
+        data = yaml.safe_load(source)
+        data['metadata']['environment'] = 'preview-eu'
+        self.check(data, True)
+
     def test_bootstrap_key_is_not_a_user_credential(self):
         data = copy.deepcopy(self.base)
         data['spec']['apisix']['runtime_secret_refs'] = {
-            'AI_GATEWAY_CLIENT_KEY': 'vault://kv/uat/ai-aggregator/gateway/apisix#bootstrap_client_key'
+            'AI_GATEWAY_CLIENT_KEY': f"vault://kv/{data['metadata']['environment']}/ai-aggregator/gateway/apisix#bootstrap_client_key"
         }
         self.check(data, False)
 
@@ -49,7 +62,7 @@ class AuthContractTests(unittest.TestCase):
         data = copy.deepcopy(self.base)
         client = next(p for p in data['spec']['client_profiles'] if p['id'] == 'android-studio')
         client['chain'] = 'litellm-direct'
-        client['base_url'] = 'https://ai.onwalk.net/litellm/v1'
+        client['base_url'] = f"https://{data['spec']['entrypoint']['domain']}/litellm/v1"
         self.check(data, False)
 
     def test_public_litellm_route_cannot_bypass_new_api_ledger(self):

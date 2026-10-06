@@ -10,37 +10,47 @@
 
 ## Topology profiles
 
-Each environment has two mutually exclusive GitOps manifests, selected by the
-`deployment_profile` input of `ai-aggregator-v1.yml`:
+The `environment`, `provider` and `deployment_profile` dispatch inputs select a
+compatible GitOps resource template for `ai-aggregator-v1.yml`:
 
-- `distributed`: the existing Gateway plus four independent CPA nodes. UAT
-  keeps the AWS Spot contract and Prod keeps the existing persistent CMDB
-  nodes.
+- `distributed`: a Gateway plus four independent CPA nodes, using the cloud
+  resource format selected by the dispatch or existing inventory.
 - `single-node`: one host is declared with `roles: [gateway, cpa]` and runs
-  APISIX, New API, LiteLLM, and all four CPA instances. UAT uses the GCP Spot
-  contract and Prod uses an existing persistent host.
+  APISIX, New API, LiteLLM, and all four CPA instances, using a compatible
+  cloud resource template or an existing persistent host.
 
-The workflow defaults to `single-node` for manual dispatch; push-based UAT
-automation remains on `distributed` for backward compatibility. Both profiles
-share the environment hostname, so they must never be activated concurrently.
-Home-Lab remains a separate deployment and continues to use its internal
+Manual dispatch defaults to `provider=gcp`, `environment=uat` and
+`deployment_profile=single-node`. The environment accepts arbitrary lowercase
+names; GitOps supplies the corresponding resource schema and deployment form.
+The cloud comes from the event input. Shared hostnames must not be activated
+concurrently. Home-Lab continues to use its separately declared internal
 hostname.
 
 ## Source of truth
 
 - `ai-workspace-infra/gitops`: environment domains, node lifecycle, CPA matrix, model channels, and Vault references.
-- `ai-workspace-infra/iac_modules`: AWS Spot UAT resources and AWS/Vultr/GCP VPS adapter contract. The GCP single-node profile keeps its resource declaration in GitOps and renders it into the GCP Terraform workdir at runtime.
+- `ai-workspace-infra/iac_modules`: provider renderers and Terraform resource modules. The GCP single-node resource template stays in GitOps and renders into the declared Terraform workdir at runtime.
 - `ai-workspace-infra/playbooks`: systemd, Caddy, PostgreSQL, Vault runtime injection, and Ansible deployment.
 - `ai-workspace-service/knowledge`: architecture and operational documentation.
 
 ## Delivery policy
 
-Pull requests run manifest, secret-scan, Terraform, Ansible, and Caddy validation. A merge to
-`main` can run the UAT workflow when the repository variable `AI_AGGREGATOR_UAT_ENABLED=true`
-and `AWS_IAC_ROLE_ARN` is configured. The UAT job creates AWS ARM64 Spot resources, deploys,
-waits for manual OAuth enrollment, runs smoke tests, and always destroys the temporary state.
-Prod is a protected, manual Ansible deployment against existing persistent vhost nodes; Terraform
-must not destroy or replace those nodes.
+Push and pull-request events validate all declared AI Aggregator templates.
+Deployment requires `workflow_dispatch`; merges and tags do not implicitly
+select an environment or create resources. The dispatcher resolves one
+compatible resource template, generates a runner-local deployment declaration
+with the input environment/provider, and pins the GitOps commit for all jobs.
+
+`plan` checks Ansible syntax. `apply`/`provision` create declared ephemeral
+resources. `stage`/`activate` require `spec.enabled: true` and depend on a
+successful plan before any provisioning starts. This prevents the failed-plan
+parallel deployment seen in run `37408925598`. Disabling the declaration remains
+a deliberate stop condition rather than being overridden by CI.
+
+Persistent existing-node deployment keeps its protected GitHub Environment and
+never runs Terraform destroy. See [the provider matrix](ai-aggregator-provider-matrix.md)
+for available resource formats, environment-scoped credentials and missing
+resource-template behavior.
 
 ## Credentials
 

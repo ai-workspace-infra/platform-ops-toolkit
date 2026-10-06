@@ -1,38 +1,48 @@
 # AI Aggregator v1 provider matrix
 
-`platform-ops-toolkit/.github/workflows/ai-aggregator-v1.yml` treats the
-GitOps `spec.infrastructure.provider` field as the source of truth. The
-workflow does not default deployment to AWS. `workflow_dispatch.provider` is
-an optional guard: `manifest` accepts the declaration, while `aws`, `gcp`, or
-`vps` must exactly match it.
+`workflow_dispatch` chooses the environment and cloud. `environment` is a
+lowercase string (default `uat`), and `provider` defaults to `gcp`, with
+`aws`, `vps`, `akamai-cloud`, and `existing` also available. GitOps declares
+resource types, topology, lifecycle and service configuration; its legacy
+`spec.infrastructure.provider` field does not choose the adapter job.
 
-| GitOps provider | Adapter job | UAT lifecycle | Credential source |
+The workflow looks under `topology/<environment>/selfhost/ai-aggregator*.yaml`
+for the requested `deployment_profile` and resource renderer format. Exactly
+one compatible declaration is required. A missing or ambiguous template fails
+before any credentials are loaded or resources are created; choosing a cloud
+never reuses another cloud's resource schema. The checked-out GitOps commit is
+pinned for the remaining jobs.
+
+| Dispatch provider | Resource format | Adapter | Credentials |
 | --- | --- | --- | --- |
-| `aws` | AWS Spot adapter | ephemeral, 60 minutes | AWS OIDC + Vault |
-| `gcp` | GCP Spot adapter | ephemeral, 60 minutes | GCP WIF settings from Vault + Vault |
-| `vps` / `vultr-vps` | VPS adapter | contract-defined | provider credential from Vault |
-| `existing` | no UAT provision job | Prod persistent nodes | existing CMDB + Vault |
+| `gcp` (default) | `gcp-cloud` renderer | GCP Terraform | Vault JWT + Google WIF |
+| `aws` | `aws-cloud` renderer | AWS Terraform | AWS OIDC + Vault |
+| `vps` | `vultr-cloud` / `vps-cloud` renderer | VPS Terraform | Vault provider credential |
+| `akamai-cloud` | `akamai-cloud` renderer | Isolated Akamai state namespaces | Vault provider and state credentials |
+| `existing` | `cmdb/inventory` | Ansible on existing nodes | Existing inventory + Vault |
 
-Each adapter consumes the declared contract's `path`, `renderer`, and
-`workdir`. Provider-specific authentication is isolated to the adapter; the
-common flow is render → Terraform validate/apply → CMDB/inventory → Ansible
-stage → verify → UAT destroy.
+Each job generates a runner-local declaration under
+`gitops/.runtime/<environment>/ai-aggregator.yaml`. The event inputs supply
+its environment and provider; the checked-in templates are not modified.
+Environment-scoped Vault paths, GCP authentication, observability labels and
+Akamai Terraform state namespaces use the selected environment. Resource
+paths and workdirs come from the compatible template.
 
-The GCP UAT contract declares one Gateway and four CPA nodes. CPA nodes use
-`e2-medium` (2 vCPU / 4 GiB) by default, which is the minimum practical size
-for XFCE, XRDP/browser OAuth, the CPA process, and node_exporter. A later
-headless profile may use 2 vCPU / 2 GiB after measurement; it is not the
-default for OAuth-capable CPA nodes.
+`stage` and `activate` require YAML `spec.enabled: true`. A disabled declaration
+can still be inspected with `plan` or provisioned with `apply`/`provision`.
+Every adapter depends on the Ansible syntax-check job, so a failed preflight
+cannot provision resources in parallel. Push and pull-request events validate
+all declared templates; only an explicit dispatch deploys.
 
-The GCP adapter runs `deploy_ai_desktop.yml` only against the generated
-`ai_aggregator_cpa` group and enables node_exporter. XRDP passwords are read
-from `kv/data/uat/ai-aggregator/cpa/<id>#desktop_password` into an ephemeral
-runner file when stage/activate is requested. The file is never uploaded as
-an artifact and is removed after Ansible exits. OAuth bundles remain in the
-same CPA Vault record under `oauth_bundle`.
+`existing` supports `plan`, `stage` and `activate` and never runs Terraform or
+destroy. Its existing protected GitHub Environment is retained, defaulting to
+`production`; `AI_AGGREGATOR_PERSISTENT_ENVIRONMENT` can select another approval
+environment without changing the deployment namespace. AWS/GCP retain their
+branch-scoped OIDC subjects; changing credential namespaces requires matching
+Vault/WIF configuration for that environment.
 
-Required provider-specific GitHub/Vault prerequisites are intentionally
-configuration, not code: GCP WIF project/provider/service-account values and
-`VAULT_GCP_JWT_ROLE`; VPS adapter credential and `VAULT_VPS_JWT_ROLE`; AWS
-role and existing AWS Vault role. Missing prerequisites fail before resource
-creation.
+Provider choices require compatible GitOps resource templates and runtime
+credentials. The current GitOps templates cover GCP `single-node`, Akamai
+`distributed`, and existing nodes for both profiles. Selecting AWS or VPS
+requires adding the corresponding topology/resource contract first; the UI
+choice alone does not create a missing declaration.
