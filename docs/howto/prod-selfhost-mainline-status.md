@@ -1,4 +1,4 @@
-# PROD Selfhost 主线交付状态（2026-10-06）
+# PROD Selfhost 主线交付状态（2026-10-07）
 
 ## 主线与边界
 
@@ -31,7 +31,7 @@ GitOps [#391](https://github.com/ai-workspace-infra/gitops/pull/391) 已合并�
 3. 确认日常 runtime identity 对项目、CMDB 与 OS Login 的能力；不得授予日常 deployer 组织级管理员权限作为快捷修复。
 4. 使用同一资源 state 做增量 plan，保留已创建网络/子网/盘；删除/替换即停止。仅在 plan 审查通过后重新 apply。
 
-当前环境的 bootstrap Vault 记录只有项目 ID；没有可用的 bootstrap 凭据。不能以日常 deployer 自行提权，也不反复要求个人账号登录。完成上述一次性权限修复是 VM 创建的外部前提。
+bootstrap Vault 记录只有项目 ID；本次使用用户明确选择并续期的一次性账号完成修复，凭据仅走运行时。日常 deployer 不自行提权，日常资源发布继续使用 GitHub OIDC。
 
 用户已完成一次性账号登录并授权继续；`identity` IAM/API 目标已真实收敛，
 state serial 8 → 8、保护资源指纹一致，三个目标均为 no-op。统一 Shell 控制入口自动准备固定
@@ -46,16 +46,40 @@ IaC/GitOps 源码，无需填写占位 checkout 路径。操作说明见
 外网策略实查发现旧项目策略的 parent 为数字项目 ID，且有旧实例许可。
 初始计划因 parent ForceNew 被正确拒绝；GitOps #395/IaC #403 保留旧许可、
 声明数字父级、在原 state 接管策略，只新增 web-saas-prod 许可。
-IAM/API 已收敛不等于策略、VM、初始化或主库切换已经完成。
+2026-10-07 外网策略已实际收敛：原资源 state serial **4 → 5**，保护资源指纹一致；
+只 update 原策略，保留 `open-platform-prod` 旧实例许可并新增 `web-saas-prod`，无删除/替换。
+批准计划摘要为 `5755a064184316dabcdc5b2a6c3d9762885b1db89f87f876ae8f452863cdc2bf`。
+两份 bootstrap 回执均为 `converged`、`database_cutover_approved=false`。
+日常资源 [OIDC plan 37493269747](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37493269747)
+已成功，**4 新增、0 修改、0 删除**（VM、两条防火墙与 OS Login），固定 IaC `ee876e29101d251ed19fadb00a3a3f0bcd1987d6` 与 GitOps
+`f5083eb7c60d187a648d757d87953ffb59a7e056`，沿用原资源 state。
+[资源 apply 37493634930](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37493634930)
+实际完成 **4 新增、0 修改、0 删除**，`web-saas-prod` 已 RUNNING，STANDARD、删除保护和 OS Login 开启，独立数据盘验证成功。
+该运行在后续 CMDB 生成阶段失败；资源已创建不能等同整条流水线成功。
+[IaC #404](https://github.com/ai-workspace-infra/iac_modules/pull/404)、[#405](https://github.com/ai-workspace-infra/iac_modules/pull/405)、[#406](https://github.com/ai-workspace-infra/iac_modules/pull/406)、[#407](https://github.com/ai-workspace-infra/iac_modules/pull/407) 已合并：校验精确 WIF principal，查询指定项目的 OS Login API，并只记录 HTTP 状态、异常类型或账户数量，不输出 token/profile/keys。
+[apply 37497921330](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37497921330) 为 0/0/0，但 profile 解析仍失败；未凭猜测扩大 IAM 或登记密钥。
+诊断 owner 固定 `4d7f2eeb4cfef7a62427296d25c8e127fccaae6c`，
+[plan 37500096383](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37500096383) 已成功且无变更；
+[apply 37500322590](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37500322590) 为 0/0/0，但 API 返回没有 POSIX 账户列表。
+[IaC #408](https://github.com/ai-workspace-infra/iac_modules/pull/408) 补齐首次 profile 初始化：仅精确 WIF 下缺少 POSIX 时导入未使用的 1 分钟公钥，私钥在导入前删除、公钥立即撤销，之后重新查询；撤销失败拒绝 CMDB。43 项 renderer 与 Shell 合同检查和 CI 已通过，已合并；固定 owner `b2ebd57ae10b34b0c72af48acc95fe0f95da0fec` 的 [plan 37501153551](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37501153551) 为零变更，
+[apply 37501354395](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37501354395) 整条成功，0 新增/0 修改/0 删除，持久盘验证、CMDB 生成、S3 发布和 artifact 附件均成功。
+`gcp-prod-web-saas-inventory` artifact `11430250658`，摘要 `sha256:9cf10d6e659d22acb0602fd3e490921545b88b7fff7f602277782fe9870aec2d`。
+资源阶段已有真实证据；主机/DB 初始化与主库切换未开始。
+
+Accounts 原生初始化构件：`ghcr.io/ai-workspace-services/accounts:sha-ddee4b01778fd1d1d644a1bc936624c81ec76093`，
+manifest digest `sha256:feabb7179713ff57914ad20e2afc6816414672edf7d480d6035e2d9c667b6f30`，
+SQL SHA256 `842cef3beb98ef819dc854ecdf5f85683233641a0cd85a9156b30ad59f7e0206`。
+CI 发布证据不等于目标主机已拉取、初始化或全业务数据一致。
 
 ## 尚待完成的代码与运行门槛
 
 | 项目 | 状态 |
 | --- | --- |
-| PROD `deploy+init` 支持 | GitOps #393 的 PROD Doco-CD 与 `/data/postgresql` bind、Playbooks #592 的独立盘/精确 CMDB/空库 owner 已合并；Linux CI 证明格式化、挂载、幂等恢复与 fail-closed。仍待 PROD caller 集成与真实 VM，当前 UAT-only DB operation 限制保留 |
-| 最新 schema 与容器构件 | Init SQL 仅适用于不存在或真实空库，必须与不可变 Accounts release 匹配；非空库禁止重建 |
+| PROD `deploy+init` 支持 | GitOps #393 的 PROD Doco-CD 与 `/data/postgresql` bind、Playbooks #592 的独立盘/精确 CMDB/空库 owner 已合并；Linux CI 证明格式化、挂载、幂等恢复与 fail-closed。VM/可信资源 CMDB 已完成；仍待 PROD caller 集成及实际主机部署，当前 UAT-only DB operation 限制保留 |
+| 最新 schema 与容器构件 | Accounts [#194](https://github.com/ai-workspace-services/accounts/pull/194) 提供 52 表最新原生 SQL 与 migratectl init；固定 hash/空库守卫/事务锁/超时、默认预演、零业务行与干净版本回执。本地与最终 PostgreSQL 17 CI 已通过，已合并为 `ddee4b01778fd1d1d644a1bc936624c81ec76093`；合并后的 [CI 37500884987](https://github.com/ai-workspace-services/accounts/actions/runs/37500884987) 已成功发布 full-SHA 镜像，Playbooks owner 集成待完成。Billing cloud_vendor_costs 单独资格尚未完成；非空库禁止重建 |
 | migratectl + 全业务复制 | migratectl 当前为 Users/Identities/Sessions；订阅、额度、账本与其他业务表的完整 owner 尚待集成 |
 | GTM / CNAME | Edge #28/#29、IaC #398/#400、Toolkit #1326 已合并；Serverless DNS caller 使用固定 IaC reusable workflow，PROD gateway 改走受保护的 Edge 入口。GitOps #392 激活仍待 Vault 合同及真实 UAT/生产入口证据 |
+| 写者保护 | 目标 Accounts/Billing 与 Doco-CD 必须在初始化、复制和一致性验证期间暂停；Accounts 现有 root/sandbox/review bootstrap、Proxy rotator、默认目录/overlay 写入及 Billing 后台写入尚待运行保护，不能只依靠网关无流量 |
 | 主库切换 | 来源只读基线已完成；目标全业务一致性、最终追平与可信切换回执尚未完成，生产维持 Serverless |
 | UAT → PROD Full 晋级 | UAT 两跳同步、升级/回退/再次升级与业务资格单独验收；新 PROD 空库不构成 Full 升级资格 |
 
