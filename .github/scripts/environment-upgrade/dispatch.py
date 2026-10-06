@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import signal
 import subprocess
+import tempfile
 import time
 import uuid
 
@@ -17,6 +18,32 @@ _validator_spec = spec_from_file_location("validate_operation", Path(__file__).w
 _validator_module = module_from_spec(_validator_spec)
 _validator_spec.loader.exec_module(_validator_module)
 validate_config = _validator_module.validate_config
+_receipt_spec = spec_from_file_location("import_receipt", Path(__file__).with_name("import_receipt.py"))
+_receipt_module = module_from_spec(_receipt_spec)
+_receipt_spec.loader.exec_module(_receipt_module)
+
+
+def accept_import_receipt(inputs, run):
+    workflow = Path(__file__).resolve().parents[2] / 'workflows/environment-data-operations.yml'
+    owner = re.search(r'uat-data-import\.yaml@([0-9a-f]{40})', workflow.read_text())
+    if not owner:
+        raise SystemExit('Missing fixed import execution owner')
+    with tempfile.TemporaryDirectory(prefix='data-import-receipt-') as directory:
+        gh('run', 'download', str(run['id']), '--repo', REPOSITORY,
+           '--name', f"uat-data-import-receipt-{run['id']}", '--dir', directory)
+        path = Path(directory) / 'uat-data-import-receipt.json'
+        if path.stat().st_size > 65536:
+            raise SystemExit('Import receipt exceeds the accepted contract')
+        try:
+            accepted = _receipt_module.validate(json.loads(path.read_text()), inputs, run, owner.group(1))
+        except (ValueError, TypeError, KeyError) as error:
+            raise SystemExit(str(error)) from None
+    if os.environ.get('RUNNER_TEMP'):
+        target = Path(os.environ['RUNNER_TEMP']) / 'environment-data-dispatch'
+        target.mkdir(mode=0o700, parents=True, exist_ok=True)
+        (target / 'accepted-import.json').write_text(json.dumps(accepted, sort_keys=True) + '\n')
+    print('Import receipt verified: exact child, Accounts commit, target and '
+          + ('preview (no write)' if accepted['dry_run'] else 'applied convergence'), flush=True)
 
 
 def gh(*arguments, payload=None, timeout=30):
@@ -137,6 +164,8 @@ def main():
             if run and run["status"] == "completed":
                 if run["conclusion"] != "success":
                     raise SystemExit(f"Data operation failed: {run['html_url']} ({run['conclusion']})")
+                if inputs['mode'] == 'legacy_import':
+                    accept_import_receipt(inputs, run)
                 if os.environ.get("GITHUB_OUTPUT"):
                     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
                         output.write(f"data_run_id={run['id']}\ndata_run_url={run['html_url']}\n")

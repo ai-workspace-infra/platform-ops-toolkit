@@ -2,6 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+export IMPORT_TEST_REPO_ROOT="${repo_root}"
 dispatcher="${repo_root}/.github/scripts/snapshots/dispatch-uat-combined.sh"
 request_guard="${repo_root}/.github/scripts/snapshots/validate-uat-schema-migration-request.sh"
 workdir="$(mktemp -d)"
@@ -28,6 +29,25 @@ printf '%s\n' "$*" >> "${GH_LOG}"
 printf '%s %s %s\n' "${GH_TOKEN:-none}" "$1" "$2" >> "${GH_LOG}.tokens"
 if [[ "$1 $2" == "workflow run" ]]; then
   printf '%s\n' 'https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/1001'
+elif [[ "$1 $2" == "run download" ]]; then
+  python3 - "$@" <<'PY'
+import json, os, pathlib, re, sys
+inputs = json.load(open(os.environ['GH_LOG'] + '.payload'))['inputs']
+config = json.loads(inputs['config_json'])
+owner = re.search(r'uat-data-import.yaml@([0-9a-f]{40})', pathlib.Path(os.environ['IMPORT_TEST_REPO_ROOT'], '.github/workflows/environment-data-operations.yml').read_text()).group(1)
+preview = config.get('dry_run', True)
+receipt = dict(schema='uat-data-import/v1', environment=inputs['environment'], correlation_id=inputs['correlation_id'],
+               run_id='1002', run_attempt='1', owner_sha=owner, accounts_ref=inputs['accounts_ref'], accounts_sha='a'*40,
+               dry_run=preview, target_host=config.get('accounts_target_host',''), caller_run_id=str(config.get('caller_run_id','')),
+               success=True, runtime=dict(phase='target_preview' if preview else 'target_verify', category='success',
+                                         write_state='not_attempted' if preview else 'verified', convergence_verified=not preview))
+scenario = os.environ.get('RECEIPT_SCENARIO','')
+if scenario == 'wrong-receipt': receipt['correlation_id'] = 'wrong'
+if scenario == 'unverified-import': receipt['runtime']['convergence_verified'] = False
+directory = pathlib.Path(sys.argv[sys.argv.index('--dir')+1])
+directory.mkdir(exist_ok=True)
+if scenario != 'missing-receipt': (directory/'uat-data-import-receipt.json').write_text(json.dumps(receipt))
+PY
 elif [[ "$1" == api && "$*" == *"/actions/runs/1001"* ]]; then
   printf '%s\n' $'completed\tsuccess'
 elif [[ "$1" == api && "$*" == *"--method POST"* ]]; then
@@ -131,7 +151,7 @@ if grep -Fq 'workflow run hybrid-orchestrator.yml' "${workdir}/gh.log"; then
 fi
 
 # Failure/cancellation, unsafe config and mixed schema/import requests stop deployment.
-for scenario in failure cancelled bad-config mixed-schema prod bad-boolean; do
+for scenario in failure cancelled bad-config mixed-schema prod bad-boolean wrong-receipt unverified-import missing-receipt; do
   : > "${workdir}/gh.log"
   extra=()
   case "$scenario" in
@@ -140,6 +160,7 @@ for scenario in failure cancelled bad-config mixed-schema prod bad-boolean; do
     mixed-schema) extra+=(APPLY_ACCOUNTS_SCHEMA_MIGRATION=true);;
     prod) extra+=(DEPLOY_ENV=prod);;
     bad-boolean) extra+=(ENABLE_MIGRATION=invalid);;
+    wrong-receipt|unverified-import|missing-receipt) extra+=("RECEIPT_SCENARIO=$scenario");;
   esac
   if env ENABLE_MIGRATION=true DATA_IMPORT_CONFIG_JSON='{"dry_run":false}' "${extra[@]}" \
     GH_LOG="${workdir}/gh.log" PATH="${workdir}:${PATH}" GH_TOKEN=test-token \
