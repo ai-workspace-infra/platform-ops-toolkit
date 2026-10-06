@@ -997,7 +997,7 @@ jobs:
       (needs.frontend_router.result == 'success' || needs.frontend_router.result == 'skipped') &&
       (needs.edge_gateway.result == 'success' || needs.edge_gateway.result == 'skipped') &&
       (needs.static_pages.result == 'success' || needs.static_pages.result == 'skipped') }}
-    uses: ai-workspace-infra/iac_modules/.github/workflows/cloudflare-serverless-domains.yml@fc714d655ad4bad15943f90fce2066bd8db24cb5
+    uses: ai-workspace-infra/iac_modules/.github/workflows/cloudflare-serverless-domains.yml@a7ac40fb0c3e620bdec89edd72b172afefc1f2ee
     with:
       environment: ${{ inputs.vault_env_path || 'uat' }}
       dns_mode: ${{ inputs.dns_mode || 'none' }}

@@ -116,18 +116,22 @@ expected_readiness_needs = {
     "edge_gateway",
     "static_pages",
 }
-actual_readiness_needs = set(jobs["serverless_domains"].get("needs", []))
+actual_readiness_needs = set(jobs["serverless_domains_provider"].get("needs", []))
 if actual_readiness_needs != expected_readiness_needs:
     raise SystemExit(
-        "serverless_domains must be the single readiness fan-in; "
+        "the IaC domain provider must be the single readiness fan-in; "
         f"got {sorted(actual_readiness_needs)!r}"
     )
 for gate in (
     "!inputs.adopt_accounts_baseline || needs.uat_accounts_baseline.result == 'success'",
     "!inputs.apply_accounts_schema_migration || needs.uat_accounts_schema_migration.result == 'success'",
 ):
-    if gate not in jobs["serverless_domains"].get("if", ""):
-        raise SystemExit(f"serverless_domains must be blocked when a requested schema step fails: {gate}")
+    if gate not in jobs["serverless_domains_provider"].get("if", ""):
+        raise SystemExit(f"the IaC domain provider must be blocked when a requested schema step fails: {gate}")
+if jobs["serverless_domains"].get("needs") != ["preflight", "serverless_domains_provider"]:
+    raise SystemExit("HTTP entry verification must follow the exact provider fan-in")
+if "needs.serverless_domains_provider.result == 'success'" not in jobs["serverless_domains"].get("if", ""):
+    raise SystemExit("HTTP entry verification must stop when provider convergence failed")
 for downstream in ("stripe_catalog",):
     needs = set(jobs[downstream].get("needs", []))
     if not {"uat_accounts_baseline", "uat_accounts_schema_migration"}.issubset(needs):

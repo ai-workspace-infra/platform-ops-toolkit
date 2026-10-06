@@ -38,7 +38,7 @@ GitOps [#391](https://github.com/ai-workspace-infra/gitops/pull/391) 已合并�
 | PROD `deploy+init` 支持 | 仍待 Playbooks 精确目标/独立盘/空库 owner 与 caller 固定 SHA 集成；当前 UAT-only 限制保留 |
 | 最新 schema 与容器构件 | Init SQL 仅适用于不存在或真实空库，必须与不可变 Accounts release 匹配；非空库禁止重建 |
 | migratectl + 全业务复制 | migratectl 当前为 Users/Identities/Sessions；订阅、额度、账本与其他业务表的完整 owner 尚待集成 |
-| GTM / CNAME | Edge #28、IaC #398、GitOps #392 为独立 draft；本分支迁移 Serverless DNS caller 到固定 IaC reusable workflow，PROD gateway 部署统一改走受保护的 Edge 入口；仍待合并、Vault 合同及真实 UAT/生产入口证据 |
+| GTM / CNAME | Edge #28 与 IaC #398 已合并基础实现；Edge #29、IaC #400 与 GitOps #392 为后续 draft；本分支迁移 Serverless DNS caller 到固定 IaC reusable workflow，PROD gateway 部署统一改走受保护的 Edge 入口；仍待合并、Vault 合同及真实 UAT/生产入口证据 |
 | 主库切换 | 来源只读基线已完成；目标全业务一致性、最终追平与可信切换回执尚未完成，生产维持 Serverless |
 | UAT → PROD Full 晋级 | UAT 两跳同步、升级/回退/再次升级与业务资格单独验收；新 PROD 空库不构成 Full 升级资格 |
 
@@ -47,11 +47,11 @@ GitOps [#391](https://github.com/ai-workspace-infra/gitops/pull/391) 已合并�
 ## 本次 owner/caller 改造与验收顺序
 
 - IaC [#399](https://github.com/ai-workspace-infra/iac_modules/pull/399)：一次性 bootstrap API 声明与 VM 依赖；本地 15 项 GCP 契约和 Terraform validate 通过，不代表 live IAM 已应用。
-- IaC [#398](https://github.com/ai-workspace-infra/iac_modules/pull/398)：DNS provider owner、精确 GitOps SHA 和 caller/environment 校验；21 项 provider/请求检查以及迁移后的 legacy/GTM DNS 行为测试通过。
-- Edge [#28](https://github.com/ai-workspace-services/edge-gateway/pull/28)：Accounts/Billing 共同模式、完整数据切换门槛、实际 writer 检查与同 run/commit/计划的限时部署授权。旧 PROD controller 不能绕过该入口。
+- IaC [#398](https://github.com/ai-workspace-infra/iac_modules/pull/398) 已合并 provider 基础实现；后续 [#400](https://github.com/ai-workspace-infra/iac_modules/pull/400) 为精确 GitOps SHA 和 caller/environment 校验、reusable workflow 与稳定 API 别名保护；21 项 provider/请求检查以及迁移后的 legacy/GTM DNS 行为测试通过。
+- Edge [#28](https://github.com/ai-workspace-services/edge-gateway/pull/28) 已合并 Accounts/Billing 共同模式与完整数据切换门槛；后续 [#29](https://github.com/ai-workspace-services/edge-gateway/pull/29) 补充同 run/commit/计划的限时部署授权。旧 PROD controller 不能绕过该入口。
 - GitOps [#392](https://github.com/ai-workspace-infra/gitops/pull/392)：Accounts/Billing 的模式限定 CNAME 声明，caller/owner 迁移验证后才能激活。
 
-本分支只做控制面：Serverless preflight 固定 GitOps SHA，所有后续 lane 使用同一 SHA；Cloudflare 变更交给 `iac_modules/.github/workflows/cloudflare-serverless-domains.yml@fc714d655ad4bad15943f90fce2066bd8db24cb5`。稳定 GTM API 别名由 Edge 的 guarded caller 单独调用 IaC action；Serverless publisher 不得重绑它们。品牌主页、控制台、CORS 与静态资源的 HTTP 检查保留。所有 PROD legacy Edge 部署均跳过；UAT 旧发布入口保持现状。
+本分支只做控制面：Serverless preflight 固定 GitOps SHA，所有后续 lane 使用同一 SHA；Cloudflare 变更交给 `iac_modules/.github/workflows/cloudflare-serverless-domains.yml@a7ac40fb0c3e620bdec89edd72b172afefc1f2ee`。稳定 GTM API 别名由 Edge 的 guarded caller 单独调用 IaC action；Serverless publisher 不得重绑它们。品牌主页、控制台、CORS 与静态资源的 HTTP 检查保留。所有 PROD legacy Edge 部署均跳过；UAT 旧发布入口保持现状。
 
 冻结的旧 DNS executor 暂时保留，仅供现有回归检查；真实 UAT owner → caller 验证后再删除。激活新 GitOps 之前须停止或等待使用旧 owner/Edge source 的既有 run 结束，避免旧调用方覆盖入口。新 reusable workflow 的 Vault job/workflow claims 和环境保护须实际核对；PR/local CI 不证明授权可用。
 
