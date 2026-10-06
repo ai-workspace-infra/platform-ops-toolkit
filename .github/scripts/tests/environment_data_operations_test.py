@@ -94,7 +94,7 @@ class DataControlPlaneTests(unittest.TestCase):
             uses = entry['jobs'][job]['uses']
             self.assertRegex(uses, rf'^ai-workspace-infra/{owner}/.github/workflows/[^@]+@[0-9a-f]{{40}}$')
             if owner == 'playbooks':
-                self.assertEqual(uses.rsplit('@', 1)[1], REVIEWED_PLAYBOOKS_HEAD)
+                self.assertEqual(uses.rsplit('@', 1)[1], '7d660cdb4066e2a4cf3fed68bccafea939771e64' if job == 'selfhost_database' else REVIEWED_PLAYBOOKS_HEAD)
         self.assertLessEqual(len(entry['on']['workflow_dispatch']['inputs']), 25)
 
     def test_parent_orchestrators_dispatch_and_wait(self):

@@ -1617,6 +1617,7 @@ jobs:
     needs: [
       provision,
       deploy_web_saas,
+      accept_web_saas_upgrade,
       deploy_infra_platform,
       deploy_agent_proxy,
       deploy_agent_proxy_non_iac,
@@ -1626,6 +1627,9 @@ jobs:
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
       (needs.deploy_web_saas.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
+      (needs.provision.outputs.deployment_env != 'uat' ||
+      !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) ||
+      needs.accept_web_saas_upgrade.result == 'success') &&
       (needs.deploy_infra_platform.result == 'success' ||
       needs.deploy_infra_platform.result == 'skipped' ||
       !contains(fromJSON('["all","infra-platform","open-platform"]'), needs.provision.outputs.target_domains)) &&
@@ -1748,6 +1752,15 @@ jobs:
           XCONNECT_POOL="${pool}" ansible-playbook reconcile_xconnect_entrypoint.yml
         done
 
+    - name: Check out reviewed UAT DNS provider owner
+      if: ${{ needs.provision.outputs.deployment_env == 'uat' && needs.provision.outputs.dns_mode == 'uat-records' }}
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/iac_modules
+        ref: ed299ac0cbf0d7f3c355b36f2ecbed794ceebd7f
+        path: iac-dns-owner
+        persist-credentials: false
+
     - name: Reconcile UAT DNS records
       if: ${{ needs.provision.outputs.deployment_env == 'uat' && needs.provision.outputs.dns_mode == 'uat-records' }}
       env:
@@ -1760,7 +1773,7 @@ jobs:
       run: |
         jq -e 'with_entries(select((.value | type) == "object") | select((.value.groups | type) == "array"))' \
           cmdb/cmdb.json > "$CMDB_FILE"
-        ${{ github.workspace }}/.github/scripts/platform-ops/dns/platform-ops_uat_dns_reconcile.sh
+        bash ${{ github.workspace }}/iac-dns-owner/scripts/pipeline/cloudflare-uat-dns-reconcile.sh
 
     - name: Reconcile SIT all-in-one DNS records
       if: ${{ needs.provision.outputs.deployment_env == 'sit' && needs.provision.outputs.dns_mode == 'uat-records' }}
