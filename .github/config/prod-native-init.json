@@ -4,7 +4,7 @@
   "resource_accepted": true,
   "gitops_commit": "af4a651ecb79df937f487a07bc93ca5dd2223ed2",
   "iac_commit": "254dd6321449ab12b862220c8876b482d7032fcd",
-  "playbooks_commit": "dd774ace016110b0f19f7d3d43f2e2e3b26f47ec",
+  "playbooks_commit": "23b1af27df2cdd8b80dd11a0d602d373467ae06e",
   "resource": {
     "run_id": 37510999229,
     "run_attempt": 1,
@@ -17,10 +17,10 @@
   },
   "standby_accepted": false,
   "standby": {
-    "run_id": 37517922011,
+    "run_id": 37520882685,
     "run_attempt": 1,
-    "toolkit_commit": "383b7306d3a2708513c5fce4848c54fef2995dbe",
-    "release_tag": "v2026.10.07-r2",
+    "toolkit_commit": "0fe8d8bc4ddc6691af4ff7dce255eb463c65e644",
+    "release_tag": "v2026.10.07-r3",
     "artifact_id": null,
     "artifact_digest": null,
     "receipt_sha256": null

@@ -114,29 +114,28 @@ Playbooks [#596](https://github.com/ai-workspace-infra/playbooks/pull/596) 只�
 四个新增回归检查与独立盘/PostgreSQL 17 CI 通过，调用方固定新 owner 重试。
 源码、CI 和资源接受均不能替代主机/数据库验收。
 
-## 原生空库初始化 owner 与生产数据审批
+第二轮 [37517922011](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37517922011)
+使用 `v2026.10.07-r2`，已准备、挂载并验证独立盘，固定镜像的二进制资格为 PostgreSQL 17。
+容器已创建但持续重启，30 次就绪检查未通过；业务 schema/全业务复制未开始，没有成功待机回执，
+IaC 临时访问撤销成功。Playbooks [#598](https://github.com/ai-workspace-infra/playbooks/pull/598)
+修复 nested PGDATA 的 bind 父目录权限：从精确镜像解析 UID/GID，仅修改真实非符号链接父目录，
+保持 `0700`，不递归处理、不移动/删除/重建现有数据库。官方入口只 chown `PGDATA`，
+不处理 root 所有的 bind 父目录；CI 37520394869 已在一次性 PostgreSQL 17 上复现权限失败并验证同容器恢复，
+运行回执仅保留原始私有日志中的权限失败布尔值，不发布数据库日志。Toolkit #1334 已合并，`v2026.10.07-r3` 触发 [37520882685](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37520882685)，真实待机接受仍待成功回执。
 
-Playbooks [#597](https://github.com/ai-workspace-infra/playbooks/pull/597) 已合并 target-only
-原生 schema action：默认预演，缺失 `account` 库的预演不创建数据库；非空业务 schema 拒绝。
-显式 apply 仅创建缺失数据库，运行既有 Accounts full-SHA/digest 镜像中的 `migratectl init`，
-覆盖服务 ENTRYPOINT，不启动 Accounts/Billing/Doco-CD、不读来源、不 seed、不 reset。
-SQL 摘要、52 表范围与干净版本绑定原生 manifest；事务锁/超时及零业务行回执沿用 Accounts owner。
-共享原 CMDB 与同一 run SSH 校验，私有 DSN、执行容器和主机临时目录在失败时也清理。
-24 项原生合同检查、独立盘/Linux/PostgreSQL 17 CI 与 Ansible/Shell 语法通过；这不构成实际初始化。
-
-调用方正在补齐 `native-init-plan` / `native-init` 操作：先验证真实成功 standby 回执、原始资源 artifact、
-不可变 caller 与固定 image/SQL manifest，再取得运行时凭据。生产数据入口沿用
-`prevent_self_review=true` 要求，并检查本轮真实独立 PROD 审核记录，不能将资源/待机的自审放行复用为数据写入批准。
-当前 `prod` 配置仍为 false、仅触发人本人审核；已请求独立审核配置，未修改环境保护或执行 schema 写入。
-待机重试 [37517922011](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37517922011)
-使用 `v2026.10.07-r2` / Playbooks #596；真实成功及清理回执尚待接受，初始化合同保持拒绝态。
+原生 schema owner Playbooks [#597](https://github.com/ai-workspace-infra/playbooks/pull/597) 已合并；
+默认预演、缺失库预演不创建 DB，显式 apply 运行固定 Accounts 镜像中的 `migratectl init`、覆盖服务入口。
+不会启动应用、读来源、seed 或 reset，失败保留新空库。Toolkit [#1333](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1333)
+独立数据审批与真实待机证据调用方为草稿，CI 已通过；待机接受字段为 false，生产审核配置尚待补齐，
+尚未执行初始化。现有生产数据脚本要求 `prevent_self_review=true`，当前配置仍为 false、唯一审核人与
+触发人相同；已请求独立审核，未修改环境保护或静默削弱原数据守卫。
 
 ## 尚待完成的代码与运行门槛
 
 | 项目 | 状态 |
 | --- | --- |
-| PROD `deploy+init` 支持 | GitOps #393 的 PROD Doco-CD 与 `/data/postgresql` bind、Playbooks #592 的独立盘/精确 CMDB/空库 owner 已合并；Linux CI 证明格式化、挂载、幂等恢复与 fail-closed。VM/可信资源 CMDB 已完成；PROD native-standby caller 已集成；首次主机部署在数据盘前失败并完成访问清理，修复 owner 后待重试，当前 UAT-only DB operation 限制保留 |
-| 最新 schema 与容器构件 | Accounts [#194](https://github.com/ai-workspace-services/accounts/pull/194) 提供 52 表最新原生 SQL 与 migratectl init；固定 hash/空库守卫/事务锁/超时、默认预演、零业务行与干净版本回执。本地与最终 PostgreSQL 17 CI 已通过，已合并为 `ddee4b01778fd1d1d644a1bc936624c81ec76093`；合并后的 [CI 37500884987](https://github.com/ai-workspace-services/accounts/actions/runs/37500884987) 已成功发布 full-SHA 镜像，Playbooks #597 owner 已合并，Toolkit 调用方和真实执行待完成。Billing cloud_vendor_costs 单独资格尚未完成；非空库禁止重建 |
+| PROD `deploy+init` 支持 | GitOps #393 的 PROD Doco-CD 与 `/data/postgresql` bind、Playbooks #592 的独立盘/精确 CMDB/空库 owner 已合并；Linux CI 证明格式化、挂载、幂等恢复与 fail-closed。VM/可信资源 CMDB 已完成；PROD native-standby caller 已集成；两轮主机部署分别在数据盘前与数据库就绪处失败，访问均清理；第三轮待实际成功，当前 UAT-only DB operation 限制保留 |
+| 最新 schema 与容器构件 | Accounts [#194](https://github.com/ai-workspace-services/accounts/pull/194) 提供 52 表最新原生 SQL 与 migratectl init；固定 hash/空库守卫/事务锁/超时、默认预演、零业务行与干净版本回执。本地与最终 PostgreSQL 17 CI 已通过，已合并为 `ddee4b01778fd1d1d644a1bc936624c81ec76093`；合并后的 [CI 37500884987](https://github.com/ai-workspace-services/accounts/actions/runs/37500884987) 已成功发布 full-SHA 镜像，Playbooks #597 owner 已合并；调用方 #1333 草稿及真实执行待完成。Billing cloud_vendor_costs 单独资格尚未完成；非空库禁止重建 |
 | migratectl + 全业务复制 | migratectl 当前为 Users/Identities/Sessions；订阅、额度、账本与其他业务表的完整 owner 尚待集成 |
 | GTM / CNAME | Edge #28/#29、IaC #398/#400、Toolkit #1326 已合并；Serverless DNS caller 使用固定 IaC reusable workflow，PROD gateway 改走受保护的 Edge 入口。GitOps #392 激活仍待 Vault 合同及真实 UAT/生产入口证据 |
 | 写者保护 | 目标 Accounts/Billing 与 Doco-CD 必须在初始化、复制和一致性验证期间暂停；Accounts 现有 root/sandbox/review bootstrap、Proxy rotator、默认目录/overlay 写入及 Billing 后台写入尚待运行保护，不能只依靠网关无流量 |

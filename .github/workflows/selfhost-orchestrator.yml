@@ -299,7 +299,7 @@ jobs:
           cmdb_sha256: ${{ steps.native_control.outputs.cmdb_sha256 }}
           access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Deploy only PostgreSQL standby through fixed Playbooks owner
-        uses: ai-workspace-infra/playbooks/.github/actions/prod-native-standby@2630e8119510b84b558ec0bc50ada3e450463e79
+        uses: ai-workspace-infra/playbooks/.github/actions/prod-native-standby@23b1af27df2cdd8b80dd11a0d602d373467ae06e
         with:
           cmdb_dir: ${{ runner.temp }}/native-resource-cmdb
           cmdb_sha256: ${{ steps.native_control.outputs.cmdb_sha256 }}
@@ -393,7 +393,7 @@ jobs:
           cmdb_sha256: ${{ steps.native_init_control.outputs.cmdb_sha256 }}
           access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Preview or initialize only the absent or empty account schema through fixed Playbooks owner
-        uses: ai-workspace-infra/playbooks/.github/actions/prod-native-init@dd774ace016110b0f19f7d3d43f2e2e3b26f47ec
+        uses: ai-workspace-infra/playbooks/.github/actions/prod-native-init@23b1af27df2cdd8b80dd11a0d602d373467ae06e
         with:
           cmdb_dir: ${{ runner.temp }}/native-resource-cmdb
           cmdb_sha256: ${{ steps.native_init_control.outputs.cmdb_sha256 }}
