@@ -1755,8 +1755,12 @@ jobs:
         SOURCE_DOMAIN_BASE: ${{ needs.provision.outputs.source_domain_base }}
         TARGET_DOMAIN_BASE: ${{ needs.provision.outputs.target_domain_base }}
         DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
+        CMDB_FILE: ${{ runner.temp }}/uat-dns-cmdb.json
         GITOPS_ROUTING_CONFIG: ${{ runner.temp }}/selfhost-edge-routing.json
-      run: ${{ github.workspace }}/.github/scripts/platform-ops/dns/platform-ops_uat_dns_reconcile.sh
+      run: |
+        jq -e 'with_entries(select((.value | type) == "object") | select((.value.groups | type) == "array"))' \
+          cmdb/cmdb.json > "$CMDB_FILE"
+        ${{ github.workspace }}/.github/scripts/platform-ops/dns/platform-ops_uat_dns_reconcile.sh
 
     - name: Reconcile SIT all-in-one DNS records
       if: ${{ needs.provision.outputs.deployment_env == 'sit' && needs.provision.outputs.dns_mode == 'uat-records' }}
