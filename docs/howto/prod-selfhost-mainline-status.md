@@ -33,7 +33,8 @@ GitOps [#391](https://github.com/ai-workspace-infra/gitops/pull/391) 已合并�
 
 当前环境的 bootstrap Vault 记录只有项目 ID；没有可用的 bootstrap 凭据。不能以日常 deployer 自行提权，也不反复要求个人账号登录。完成上述一次性权限修复是 VM 创建的外部前提。
 
-当前为**待用户执行一次性 bootstrap**。统一 Shell 控制入口自动准备固定
+用户已完成一次性账号登录并授权继续；`identity` IAM/API 目标已真实收敛，
+state serial 8 → 8、保护资源指纹一致，三个目标均为 no-op。统一 Shell 控制入口自动准备固定
 IaC/GitOps 源码，无需填写占位 checkout 路径。操作说明见
 [`scripts/cloud/bootstrap/gcp/PROD-SELFHOST.md`](../../scripts/cloud/bootstrap/gcp/PROD-SELFHOST.md)。
 分 `identity`、`external-ip` 两个阶段，分别 plan → 审查摘要 → apply → 再次 plan 验证 no-op。
@@ -42,7 +43,10 @@ IaC/GitOps 源码，无需填写占位 checkout 路径。操作说明见
 [GitOps #394](https://github.com/ai-workspace-infra/gitops/pull/394) 对齐；不迁移 bucket 或 state key。
 实际修复合同源自 [IaC #401](https://github.com/ai-workspace-infra/iac_modules/pull/401)，现统一为 Shell owner，
 控制入口固定该 owner 与声明 SHA，不使用可变 main 作为执行源码。
-该入口源码/检查通过不等于管理员已应用 live 修复。
+外网策略实查发现旧项目策略的 parent 为数字项目 ID，且有旧实例许可。
+初始计划因 parent ForceNew 被正确拒绝；GitOps #395/IaC #403 保留旧许可、
+声明数字父级、在原 state 接管策略，只新增 web-saas-prod 许可。
+IAM/API 已收敛不等于策略、VM、初始化或主库切换已经完成。
 
 ## 尚待完成的代码与运行门槛
 

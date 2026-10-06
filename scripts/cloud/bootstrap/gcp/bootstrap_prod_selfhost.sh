@@ -4,8 +4,8 @@ set -euo pipefail
 set +x
 umask 077
 
-IAC_REF=8fe8bbe9a93ef9ac114a54a734341048d186c923
-GITOPS_REF=0385d939a4d937682768849a7d32fe74c9b09d01
+IAC_REF=ee876e29101d251ed19fadb00a3a3f0bcd1987d6
+GITOPS_REF=f5083eb7c60d187a648d757d87953ffb59a7e056
 OWNER_PATH=terraform-hcl-standard/gcp-cloud/scripts/bootstrap_prod_selfhost.sh
 BOOTSTRAP_PATH=kv/CICD/prod/gcp-bootstrap/xworktech
 STATE_PATH=kv/CICD/prod/iac_state
