@@ -121,12 +121,12 @@ IaC 临时访问撤销成功。Playbooks [#598](https://github.com/ai-workspace-
 修复 nested PGDATA 的 bind 父目录权限：从精确镜像解析 UID/GID，仅修改真实非符号链接父目录，
 保持 `0700`，不递归处理、不移动/删除/重建现有数据库。官方入口只 chown `PGDATA`，
 不处理 root 所有的 bind 父目录；CI 37520394869 已在一次性 PostgreSQL 17 上复现权限失败并验证同容器恢复，
-运行回执仅保留原始私有日志中的权限失败布尔值，不发布数据库日志。Toolkit #1334 已合并，`v2026.10.07-r3` 触发 [37520882685](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37520882685)，真实待机接受仍待成功回执。
+运行回执仅保留原始私有日志中的权限失败布尔值，不发布数据库日志。Toolkit #1334 已合并，`v2026.10.07-r3` 触发 [37520882685](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37520882685)，该轮最终就绪失败；第四轮实际成功验收见后文。
 
 原生 schema owner Playbooks [#597](https://github.com/ai-workspace-infra/playbooks/pull/597) 已合并；
 默认预演、缺失库预演不创建 DB，显式 apply 运行固定 Accounts 镜像中的 `migratectl init`、覆盖服务入口。
 不会启动应用、读来源、seed 或 reset，失败保留新空库。Toolkit [#1333](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1333)
-独立数据审批与真实待机证据调用方为草稿，CI 已通过；待机接受字段为 false，生产审核配置尚待补齐，
+独立数据审批与真实待机证据调用方已合并，CI 已通过；第四轮真实待机接受字段为 true，生产审核配置尚待补齐，
 尚未执行初始化。现有生产数据脚本要求 `prevent_self_review=true`，当前配置仍为 false、唯一审核人与
 触发人相同；已请求独立审核，未修改环境保护或静默削弱原数据守卫。
 
