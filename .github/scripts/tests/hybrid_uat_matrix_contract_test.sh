@@ -178,6 +178,11 @@ fi
   echo "hybrid deploy must preserve the business-lane order" >&2
   exit 1
 }
+uat_dns_dispatch_count="$(grep -Ec '"dns_mode"[[:space:]]*:[[:space:]]*"uat-records"' "${dry_run}")"
+[[ "${uat_dns_dispatch_count}" -eq 1 ]] || {
+  echo "Hybrid deploy must publish UAT records only for its Web SaaS Selfhost lane" >&2
+  exit 1
+}
 
 for operation in plan apply destroy; do
   non_deploy_output="$(
@@ -293,6 +298,16 @@ assert '.workflow_run_id' in dispatcher_text
 assert 'gh run list' not in dispatcher_text
 assert 'gh run watch' not in dispatcher_text
 selfhost = yaml.safe_load(open(".github/workflows/selfhost-orchestrator.yml", encoding="utf-8"))
+baseline_job = selfhost["jobs"]["capture_web_saas_baseline"]
+assert baseline_job["outputs"]["baseline_state"] == "${{ steps.receipt.outputs.captured_state }}"
+acceptance = selfhost["jobs"]["accept_web_saas_upgrade"]
+acceptance_dispatch = next(step for step in acceptance["steps"] if step.get("name") == "Dispatch read-only selfhost verification or first-deploy probe")
+assert "baseline_state == 'absent'" in acceptance_dispatch["env"]["DATA_OPERATION"]
+assert '"action"' in acceptance_dispatch["env"]["DATA_CONFIG_JSON"]
+observe = selfhost["jobs"]["observe_web_saas_after_dns"]
+observe_step = next(step for step in observe["steps"] if step.get("name") == "Verify Web SaaS public endpoints after DNS")
+assert "https://console-selfhost-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/" in observe_step["env"]["OBSERVE_URLS"]
+assert observe_step["env"]["OBSERVE_EXPECTED_CODES"] == "200,200,404,401"
 steps = selfhost["jobs"]["provision"]["steps"]
 adopt = next(step for step in steps if step.get("name") == "Adopt existing UAT external IP policy into open-platform state")
 assert "terraform_namespace == 'open-platform'" in adopt["if"]

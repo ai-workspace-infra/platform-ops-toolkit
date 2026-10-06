@@ -145,7 +145,13 @@ dispatch_and_wait() {
 }
 
 dispatch_selfhost() {
-  local child_operation="$1" namespace="$2" provider="$3" account="$4" profile="$5" agent_profile="$6" existing_host="${7:-}" payload
+  local child_operation="$1" namespace="$2" provider="$3" account="$4" profile="$5" agent_profile="$6" existing_host="${7:-}" dns_mode=none payload
+  # The Web SaaS UAT lane publishes its mode-qualified selfhost records after
+  # deployment so the declared business origin can be verified. Other Hybrid
+  # resource lanes must not mutate public DNS.
+  if [[ "${namespace}" == web-saas && "${child_operation}" == deploy ]]; then
+    dns_mode=uat-records
+  fi
   payload="$(jq -n \
     --arg ref "${CHILD_REF}" --arg runner_type "${RUNNER_TYPE}" --arg deploy_tag "${DEPLOY_TAG}" \
     --arg source_ref "${SOURCE_REF}" --arg operation "${child_operation}" --arg target_domains "${namespace}" \
@@ -153,7 +159,8 @@ dispatch_selfhost() {
     --arg target_domain_base "${TARGET_DOMAIN_BASE}" --arg observability_endpoint "${OBSERVABILITY_ENDPOINT}" \
     --arg vault_addr "${VAULT_ADDR}" --arg gateway "${XCONNECT_GATEWAY_REF}" \
     --arg existing_host "${existing_host}" \
-    '{ref:$ref,inputs:{runner_type:$runner_type,deploy_tag:$deploy_tag,source_ref:$source_ref,offline_mode:"off",source_host:"install.svc.plus",source_domain_base:"svc.plus",target_domain_base:$target_domain_base,observability_endpoint:$observability_endpoint,operation:$operation,target_domains:$target_domains,cloud_provider:$provider,cloud_account:$account,include_external_agent_proxy:"false",instance_plan:$profile,agent_proxy_plan:$agent_profile,dns_mode:"none",vault_env_path:"uat",skip_stripe_catalog:"true",agent_controller_url:"https://accounts-uat.onwalk.net",vault_addr:$vault_addr,xconnect_gateway_ref:$gateway,existing_target_host:$existing_host}}')"
+    --arg dns_mode "${dns_mode}" \
+    '{ref:$ref,inputs:{runner_type:$runner_type,deploy_tag:$deploy_tag,source_ref:$source_ref,offline_mode:"off",source_host:"install.svc.plus",source_domain_base:"svc.plus",target_domain_base:$target_domain_base,observability_endpoint:$observability_endpoint,operation:$operation,target_domains:$target_domains,cloud_provider:$provider,cloud_account:$account,include_external_agent_proxy:"false",instance_plan:$profile,agent_proxy_plan:$agent_profile,dns_mode:$dns_mode,vault_env_path:"uat",skip_stripe_catalog:"true",agent_controller_url:"https://accounts-uat.onwalk.net",vault_addr:$vault_addr,xconnect_gateway_ref:$gateway,existing_target_host:$existing_host}}')"
   dispatch_and_wait selfhost-orchestrator.yml "${payload}" "${namespace} (${provider}, ${profile}, agent=${agent_profile})"
 }
 
