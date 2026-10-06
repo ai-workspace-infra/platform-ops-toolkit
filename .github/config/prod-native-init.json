@@ -15,15 +15,15 @@
     "cmdb_sha256": "e021c6e430c9c04c146fea0eba6c2c9325d029ff839d627aeb9c68536ad97bb7",
     "inventory_sha256": "ba40a4f7a570efda8fe98fdecbb09337230899a9b4c22d49ae9f1d219dfd0eed"
   },
-  "standby_accepted": false,
+  "standby_accepted": true,
   "standby": {
-    "run_id": 37520882685,
+    "run_id": 37526370757,
     "run_attempt": 1,
-    "toolkit_commit": "0fe8d8bc4ddc6691af4ff7dce255eb463c65e644",
-    "release_tag": "v2026.10.07-r3",
-    "artifact_id": null,
-    "artifact_digest": null,
-    "receipt_sha256": null
+    "toolkit_commit": "2b239ba604483e172c68407fcf3dea5a48e30854",
+    "release_tag": "v2026.10.07-r4",
+    "artifact_id": 11442304366,
+    "artifact_digest": "sha256:fe5afc9f409d35fcf095f5648938f5c1f5c355968de8341cf029045179012714",
+    "receipt_sha256": "d4bee2cf17648099732a14506b8572d0da9feb83d0db8e0507596d7306d0b9ce"
   },
   "initialization": {
     "schema": 1,

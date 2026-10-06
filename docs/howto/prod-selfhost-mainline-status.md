@@ -151,7 +151,7 @@ SQL digest `a7133f3ef2ea9013a055cfd1442a7488d2b837f289e0f5d9b61624d4fde9bc53`，
 
 | 项目 | 状态 |
 | --- | --- |
-| PROD `deploy+init` 支持 | GitOps #393 的 PROD Doco-CD 与 `/data/postgresql` bind、Playbooks #592 的独立盘/精确 CMDB/空库 owner 已合并；Linux CI 证明格式化、挂载、幂等恢复与 fail-closed。VM/可信资源 CMDB 已完成；PROD native-standby caller 已集成；前三轮待机失败，临时访问均已清理；第三轮权限修复后仍重启，Playbooks #599 隔离凭据变量并保护空目录恢复；第四轮 37526370757 待真实验收，当前 UAT-only DB operation 限制保留 |
+| PROD `deploy+init` 支持 | GitOps #393 的 PROD Doco-CD 与 `/data/postgresql` bind、Playbooks #592 的独立盘/精确 CMDB/空库 owner 已合并；Linux CI 证明格式化、挂载、幂等恢复与 fail-closed。VM/可信资源 CMDB 已完成；PROD native-standby caller 已集成；前三轮待机失败，临时访问均已清理；第三轮权限修复后仍重启，Playbooks #599 隔离凭据变量并保护空目录恢复；第四轮 37526370757 全部成功，独立盘/PG17/空业务库/暂停写者/访问撤销已验收，当前 UAT-only DB operation 限制保留 |
 | 最新 schema 与容器构件 | Accounts [#194](https://github.com/ai-workspace-services/accounts/pull/194) 提供 52 表最新原生 SQL 与 migratectl init；固定 hash/空库守卫/事务锁/超时、默认预演、零业务行与干净版本回执。本地与最终 PostgreSQL 17 CI 已通过，已合并为 `ddee4b01778fd1d1d644a1bc936624c81ec76093`；合并后的 [CI 37500884987](https://github.com/ai-workspace-services/accounts/actions/runs/37500884987) 已成功发布 full-SHA 镜像，Playbooks #597 owner 已合并；调用方 #1333 草稿及真实执行待完成。Billing #44 cloud_vendor_costs SQL/main CI 资格已完成，实际增量 owner/执行尚待集成；非空库禁止重建 |
 | migratectl + 全业务复制 | migratectl 当前为 Users/Identities/Sessions；订阅、额度、账本与其他业务表的完整 owner 尚待集成 |
 | GTM / CNAME | Edge #28/#29、IaC #398/#400、Toolkit #1326 已合并；Serverless DNS caller 使用固定 IaC reusable workflow，PROD gateway 改走受保护的 Edge 入口。GitOps #392 激活仍待 Vault 合同及真实 UAT/生产入口证据 |
@@ -175,3 +175,9 @@ SQL digest `a7133f3ef2ea9013a055cfd1442a7488d2b837f289e0f5d9b61624d4fde9bc53`，
 SIT/UAT/PROD 现有 Vault role 源码已增加上述唯一固定 IaC workflow SHA；repository、既有 ref 限制和 token policy 未扩大。合并后按既有 Vault role apply 流程同步，再做真实 owner/caller 验证。源码 allowlist 不代表 live Vault 已应用，PROD 仍只允许版本 tag/release 分支。
 
 合并顺序为 IaC owner → Toolkit caller 与 Edge guarded 发布入口 → GitOps 声明激活。实际主库切换继续等待完整业务一致性和单写者回执，身份复制、路由 plan 或 DNS 收敛均不能替代它。
+
+## 第四轮真实待机验收（2026-10-07）
+
+[37526370757](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37526370757)（`v2026.10.07-r4` / `2b239ba604483e172c68407fcf3dea5a48e30854`）全部成功。固定 Playbooks `c6a4cb6c54c7e6dd2d63c43767f44a228385312a` 对同一 ownership marker、相同镜像且无任何数据库文件的容器完成缺失密码修复；PostgreSQL 17、独立持久盘、空业务库与暂停应用/CD 写者通过，IaC 临时密钥/防火墙撤销和原始 CMDB 保留成功。
+
+成功 artifact `prod-native-standby-receipt` ID `11442304366`，ZIP digest `sha256:fe5afc9f409d35fcf095f5648938f5c1f5c355968de8341cf029045179012714`，原始 receipt SHA-256 `d4bee2cf17648099732a14506b8572d0da9feb83d0db8e0507596d7306d0b9ce` 已实际下载并核对。初始化配置已绑定该 run/attempt/tag/SHA/artifact/hash，`standby_accepted=true`；这不表示 schema 或数据已经写入。独立生产审核仍待配置，初始化调用方在取 Vault/打开访问之前检查本轮真实独立审批，不能使用自己的审核绕过。主库保持 Serverless。
