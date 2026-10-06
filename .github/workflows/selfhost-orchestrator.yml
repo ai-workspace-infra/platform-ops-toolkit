@@ -74,11 +74,11 @@ on:
         default: ""
         type: string
       operation:
-        description: "执行范围：plan 仅校验；infra 仅基础设施；deploy 部署应用；deploy+init 显式 UAT 空库初始化并部署；migrate 仅迁移；deploy+migrate 部署并迁移；destroy 销毁。迁移由此操作参数选择；GitOps 仅声明拓扑与能力。"
+        description: "执行范围：plan 仅校验；infra 仅基础设施；deploy 部署应用；deploy+init 显式 UAT 空库初始化并部署；native-standby 仅准备 PROD PostgreSQL、保持应用停止；migrate 仅迁移；deploy+migrate 部署并迁移；destroy 销毁。迁移由此操作参数选择；GitOps 仅声明拓扑与能力。"
         required: true
         default: "plan"
         type: choice
-        options: [plan, infra, deploy, deploy+init, migrate, deploy+migrate, destroy]
+        options: [plan, infra, deploy, deploy+init, native-standby, migrate, deploy+migrate, destroy]
       target_domains:
         description: "选择要执行的业务域 (Business Domain)"
         required: true
@@ -240,7 +240,102 @@ jobs:
   # GitHub Actions renders jobs as a dependency graph.  Keep every job and
   # dependency intact, but use four stable visual stages in job names so the
   # matrix fan-out remains readable: Prepare, Bootstrap, Workloads, Gate.
+  native_prod_standby:
+    name: "[1] PROD | native database standby only"
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.operation == 'native-standby' }}
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: Checkout immutable control source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify approved resource run and original CMDB artifact
+        id: native_control
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/prod-selfhost/native_standby_control.py \
+            --contract .github/config/prod-native-standby.json \
+            --destination "$RUNNER_TEMP/native-resource-cmdb"
+          echo "gitops_commit=$(jq -er '.gitops_commit' .github/config/prod-native-standby.json)" >> "$GITHUB_OUTPUT"
+          echo "cmdb_sha256=$(jq -er '.resource.cmdb_sha256' .github/config/prod-native-standby.json)" >> "$GITHUB_OUTPUT"
+      - name: Checkout fixed GitOps declaration
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ steps.native_control.outputs.gitops_commit }}
+          path: native-gitops
+          persist-credentials: false
+      - name: Configure exact PROD GitHub OIDC deploy identity
+        uses: ./.github/actions/configure-gcp-oidc
+        with:
+          environment: prod
+          account_id: xworktech
+          load_state_contract: 'false'
+          vault_addr: https://vault.svc.plus
+      - name: Configure cloud access runtime
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Read only target PostgreSQL and registry runtime secrets
+        id: native_vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-prod
+          jwtGithubAudience: vault
+          exportToken: false
+          secrets: |
+            kv/data/prod/databases postgres_root_password | NATIVE_POSTGRES_PASSWORD ;
+            kv/data/CICD GHCR_USERNAME | NATIVE_GHCR_USERNAME ;
+            kv/data/CICD GHCR_TOKEN | NATIVE_GHCR_TOKEN
+      - name: Open same-run cloud access through fixed IaC owner
+        id: native_access
+        uses: ai-workspace-infra/iac_modules/.github/actions/prod-selfhost-access@254dd6321449ab12b862220c8876b482d7032fcd
+        with:
+          phase: open
+          cmdb_file: ${{ runner.temp }}/native-resource-cmdb/cmdb.json
+          cmdb_sha256: ${{ steps.native_control.outputs.cmdb_sha256 }}
+          access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Deploy only PostgreSQL standby through fixed Playbooks owner
+        uses: ai-workspace-infra/playbooks/.github/actions/prod-native-standby@502f4b5d47eb64b19b3180de8de834122e702422
+        with:
+          cmdb_dir: ${{ runner.temp }}/native-resource-cmdb
+          cmdb_sha256: ${{ steps.native_control.outputs.cmdb_sha256 }}
+          gitops_checkout: ${{ github.workspace }}/native-gitops
+          gitops_commit: ${{ steps.native_control.outputs.gitops_commit }}
+          access_file: ${{ steps.native_access.outputs.access_file }}
+          postgres_password: ${{ steps.native_vault.outputs.NATIVE_POSTGRES_PASSWORD }}
+          ghcr_username: ${{ steps.native_vault.outputs.NATIVE_GHCR_USERNAME }}
+          ghcr_token: ${{ steps.native_vault.outputs.NATIVE_GHCR_TOKEN }}
+      - name: Revoke cloud access even if standby deployment failed
+        if: ${{ always() && steps.native_access.outcome != '' && steps.native_access.outcome != 'skipped' }}
+        uses: ai-workspace-infra/iac_modules/.github/actions/prod-selfhost-access@254dd6321449ab12b862220c8876b482d7032fcd
+        with:
+          phase: close
+          cmdb_file: ${{ runner.temp }}/native-resource-cmdb/cmdb.json
+          cmdb_sha256: ${{ steps.native_control.outputs.cmdb_sha256 }}
+          access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Retain original authoritative CMDB for the next controlled stage
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-ops-toolkit-cmdb
+          path: ${{ runner.temp }}/native-resource-cmdb
+          if-no-files-found: error
+      - name: Publish sanitized standby evidence only after successful cleanup
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-native-standby-receipt
+          path: ${{ runner.temp }}/prod-native-standby-receipt.json
+          if-no-files-found: error
+      - name: State the completed boundary
+        run: |
+          echo '## PROD PostgreSQL standby' >> "$GITHUB_STEP_SUMMARY"
+          echo 'PostgreSQL and independent storage verified; application/CD writers remain paused. Schema initialization, full business copy, equality and main database cutover are pending.' >> "$GITHUB_STEP_SUMMARY"
+
   provision:
+    if: ${{ github.event.inputs.operation != 'native-standby' }}
     name: "[0] Prepare | profile + infra"
     environment: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.vault_env_path == 'prod') && 'prod' || (github.event_name == 'workflow_dispatch' && github.event.inputs.vault_env_path == 'uat' && 'uat' || (github.event_name == 'push' && github.ref == 'refs/heads/main' && 'uat' || ((startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || ''))) }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
@@ -2054,7 +2149,7 @@ jobs:
     # that every declared need has produced a result. This satisfies the
     # workflow gating contract without turning a failure into a skipped summary.
     if: >-
-      ${{ always() && !cancelled() &&
+      ${{ always() && !cancelled() && github.event.inputs.operation != 'native-standby' &&
       needs.provision.result != '' &&
       needs.deploy_web_saas.result != '' &&
       needs.capture_web_saas_baseline.result != '' &&
