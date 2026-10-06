@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "source": "github-actions",
-  "updatedAt": "2026-10-06T00:11:06.629226+00:00",
+  "updatedAt": "2026-10-06T00:38:32.303558+00:00",
   "timezone": "Asia/Shanghai",
   "coverage": {
     "since": "2026-09-04T02:53:34Z",
@@ -637,7 +637,7 @@
     "37357809375": "1:2026-10-05T18:45:39Z",
     "37365634221": "1:2026-10-05T20:09:17Z",
     "37381472906": "1:2026-10-05T22:37:01Z",
-    "37390854354": "1:2026-10-06T00:10:55Z"
+    "37390854354": "2:2026-10-06T00:38:22Z"
   },
   "gaps": [
     {
@@ -2454,6 +2454,91 @@
       "url": "https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37390854354",
       "startedAt": "2026-10-05T23:51:28Z",
       "completedAt": "2026-10-06T00:10:55Z",
+      "repositories": [
+        {
+          "repository": "ai-workspace-lab/xworkmate-bridge",
+          "tag": "daily-build-2026.10.06-r1",
+          "sha": "20c6c37b5c12c61e49023f7c43ab7c5510475246",
+          "build": "success",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/accounts",
+          "tag": "daily-build-2026.10.06-r1",
+          "sha": "c2c343fe2c91bb31e7f7f9b4fa60512a66e2b4c9",
+          "build": "success",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/billing-service",
+          "tag": "daily-build-2026.10.06-r1",
+          "sha": "e241d3534a71a26f018260918f89d527d0e1f584",
+          "build": "success",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/content-service",
+          "tag": "daily-build-2026.10.06-r1",
+          "sha": "762089b736fb8a9336b617e892800e807d9dfa72",
+          "build": "success",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/portal",
+          "tag": "daily-build-2026.10.06-r1",
+          "sha": "31969c69b9964cb0d2b6e9b949f00581d9496807",
+          "build": "success",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/edge-gateway",
+          "tag": "daily-build-2026.10.06-r1",
+          "sha": "ffdd75f7f91d6814c23f8ad17c9c003db3e68815",
+          "build": "success",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/frontend-router",
+          "tag": "daily-build-2026.10.06-r1",
+          "sha": "3a5f652ddf1c5df805d3369a251a071c961d9d98",
+          "build": "success",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/postgresql",
+          "tag": "daily-build-2026.10.06-r1",
+          "sha": "31c165f23ba5d9d44b3300c717f35d8eab4d452f",
+          "build": "success",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-xstream/xray-exporter",
+          "tag": "daily-build-2026.10.06-r1",
+          "sha": "1094bd8e11af30eda62fdbb2ecf9d8560d493829",
+          "build": "success",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-xstream/xconnect-edge-agent",
+          "tag": "daily-build-2026.10.06-r1",
+          "sha": "dbb03b27997a436ae143d112a5f71897e92a087a",
+          "build": "success",
+          "deployment": "unknown"
+        }
+      ]
+    },
+    {
+      "id": "37390854354:2:uat:daily-build-2026.10.06-r1",
+      "runId": 37390854354,
+      "attempt": 2,
+      "environment": "uat",
+      "tag": "daily-build-2026.10.06-r1",
+      "scope": "full-uat",
+      "status": "failed",
+      "workflow": "daily-main-snapshot.yaml",
+      "url": "https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37390854354",
+      "startedAt": "2026-10-05T23:51:28Z",
+      "completedAt": "2026-10-06T00:38:22Z",
       "repositories": [
         {
           "repository": "ai-workspace-lab/xworkmate-bridge",
