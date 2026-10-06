@@ -246,11 +246,11 @@ Daily 控制面可以从 `main` 创建 release，但 PROD 子工作流必须在�
 | GAP-10 | Observability 验证脚本仍写死生产服务域名 | 从依赖声明注入端点，分别核查 endpoint health 和实际数据流 |
 | GAP-11 | 本地存在未合并的串行 shared jobs / promotion 草稿 | 不算已交付；按最新只读 Daily 边界审查，不能直接上线旧草稿 |
 | GAP-12 | #838 仍为旧六 Akamai 规划 | 回写最新目标、受保护资源、跨仓任务和可证伪验收，再实现 |
-| GAP-13 | 已收敛：Daily 曾内置 UAT→PROD 晋级 job，与受保护 tag/branch 发布规则重复 | Daily 不再创建 `v*` tag、不派发 PROD，也不请求 production approval；PROD 仅由 `refs/tags/v*` 或 `refs/heads/release/v*` 路由进入 |
-| GAP-14 | 已收敛：Daily 曾包含独立 `promote-prod` approval job | 已移除 `resolve-accepted-uat` / `promote-prod` 及其专用输入；生产审批由正式 PROD 发布 workflow 负责 |
+| GAP-13 | 已实现：Daily 的 UAT→PROD 晋级必须消费已验收 UAT manifest，并使用专用 release-authoring role | `resolve-accepted-uat` 只读验证原 Daily run；`promote-prod` 经 `production` Environment 审批创建不可变 `v*`，不从源码重建 |
+| GAP-14 | 已实现：Daily `promote-prod` approval job 恢复为显式受保护入口 | 只有完整 UAT Hybrid 成功或已验收的 `uat_daily_run_id` 能到达审批；部分仓库、失败/跳过的 UAT 不得晋级 |
 | GAP-15 | 已修正：Hybrid 无法承载 `enable_migration`、schema 迁移、基线采纳、XConnect release 覆盖，Daily 校验后静默丢弃 | UAT 派发前明确失败；转发能力需扩展 Hybrid → 子流水线的输入并经真实 UAT 演练验证，尚未实现 |
-| GAP-16 | UAT Serverless 仍记录 `serverless-artifact-manifest`，但 Daily 不再转交 PROD | PROD 发布 workflow 必须从受保护 `v*` / `release/v*` 制品入口完成 digest 校验；不能以 Daily 成功或 tag 名称替代 PROD 验收 |
-| GAP-17 | 已收敛：Daily 不再包含 PROD dispatch 或 DNS 行为 | PROD 部署与 canonical DNS 切换继续由独立、显式审批的生产流程负责 |
+| GAP-16 | 已实现：UAT Serverless/Hybrid 产出并由 Daily 转交经过复核的 promotion manifest | `verify-accepted-promotion-manifest.sh` 在 PROD 派发前再次核对同一 UAT Hybrid run 的 digest；PROD 不从移动的 `main` 重建 |
+| GAP-17 | 已实现：Daily 的 PROD dispatch 保持独立 DNS 边界 | `dispatch-prod-combined.sh` 只派发 `dns_mode=none` 的 Serverless/AWS/Akamai legs；canonical DNS 仍需单独审批 |
 
 ## 9. 小步实施计划与合并顺序
 
@@ -505,7 +505,7 @@ Daily 仍只检查 Shared Vault → Observability → IAM，不负责 Gateway �
 | Shared readiness | 2026-09-30 已恢复：[ZITADEL #36752612194](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/36752612194) success，iam.svc.plus 的 HTTPS OIDC discovery issuer 正确，API/Login healthy；[Observability #36753310209](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/36753310209) success，observability.svc.plus 的 Grafana 与 VM/VL/VT HTTPS 检查通过（migration_mode=none，历史数据仍在旧节点）。IAM 根因：GitOps 只传 `--config`，`start-from-init` 忽略 FirstInstance（gitops#363 加 `--steps`）；中断的首实例经确认后备份并重置 zitadel 库（playbooks#534、toolkit#1180，备份在 /var/backups/zitadel/）；Caddy reload 因 handler 丢失未生效（playbooks#536）。 | Daily 仍只读检查三项。待办：以 Vault 密码实测 zitadel-admin@iam.svc.plus 登录；Login PAT 持久化到 Vault（需管理员授权的窄写策略）；Observability 历史迁移需显式 `migrate` 并经审批。；2026-10-01 编排器 upgrade [#36797906295](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/36797906295)：三份 Terraform state 无 delete/replace 均 success，Vault node-preflight success；ZITADEL 子 run 两次在 iam-shared-0 的 common 角色 `apt update` 失败（无报错原因；playbooks#537 已让 apt 输出原因，Caddy 密钥过期是最可能原因，playbooks#542 处理）。Daily 只读 readiness 仍通过。 |
 | UAT Hybrid 与 Shared 隔离 | Hybrid 的普通 `all/deploy` 曾额外调用 `open-platform`，即使矩阵行标记 `release_scope=shared-infrastructure` | 本轮代码移除额外调用，并新增回归断言：业务 Hybrid 不派发该行；错误将它改成 `business` 时直接拒绝。仍需在合并后的 `main` 验证。 |
 | Daily 等待子流水线 | UAT 等待用 60 分钟有效的 GitHub App token 读 Hybrid 状态，一次 API 读取失败即判 Daily 失败；PROD 用 `gh run watch`，遇 API 错误即退出 | 本轮改为共享 `wait-for-workflow-run.sh`：用 job `GITHUB_TOKEN` 读状态、有界容忍瞬时错误、只认子 run `success`、不重复派发；`daily_snapshot_run_wait_test.sh` 覆盖。仍需在合并后的 `main` 用真实 Daily run 验证。 |
-| PROD 发布边界 | Daily 不再负责 UAT→PROD 晋级；生产发布只从受保护 `v*` / `release/v*` ref 进入，并由正式生产 workflow 负责制品与 DNS 审批 | 未执行 PROD（需用户批准）。仍需在正式 PROD workflow 中验证 GitOps matrix、制品 digest、独立 DNS 审批与回滚；不能把 Daily 成功或 tag 名称误报成生产验收。 |
+| PROD 发布边界 | Daily 仅通过专用 release-authoring role 将已验收 UAT 制品晋级为 `v*`，再从该 tag 派发 PROD；通用生产 workflow 仍只接受受保护 `v*` / `release/v*` ref | 本地合同测试覆盖 UAT run、manifest、同 digest 晋级、production approval 和 `dns_mode=none`；仍需真实 PROD workflow、GitOps matrix、独立 DNS 审批与回滚证据，不能把本地通过误报成线上验收。 |
 
 本地 Daily 门禁、生产 manifest、Shared readiness 和 UAT matrix 契约测试通过，只证明对应代码路径；在上述线上失败和 PROD 差距未消除前，不标记 UAT 或 PROD 发布验收完成。
 
@@ -552,7 +552,8 @@ PROD Hybrid、Selfhost 制品证明、独立 DNS 审批及真实端到端验收�
   plan 要替换 `i-0289f628cb875beaf`（2 add / 2 destroy），UAT apply 守卫正确拒绝。
   [gitops#369](https://github.com/ai-workspace-infra/gitops/pull/369) 将该主机固定到当前运行镜像，并要求 UAT
   Hybrid 路由的每台 AWS Terraform 主机都固定 `ami_id`；否则每个新上游镜像都会阻断 UAT 及其后的晋级。
-- Daily 不再提供 `deploy_env=prod` 或 UAT→PROD 晋级入口；`daily_snapshot_uat_gate_contract_test.sh`
-  断言 Daily 只保留 `sit` / `uat`、UAT Hybrid 派发和 Shared readiness。生产 tag/branch
-  规则由正式发布 workflow 单独验证。仍未执行 PROD：跨项目 AR 只读授权、PROD AWS 登录用户、
-  PROD Hybrid（GAP-06/07）与 DNS 切换仍需单独审批。
+- Daily 现已提供受保护的 `deploy_env=prod` / UAT→PROD 晋级入口；
+  `daily_snapshot_uat_gate_contract_test.sh`、`prod_accepted_uat_promotion_test.sh` 和
+  `daily_snapshot_prod_manifest_test.sh` 覆盖入口、验收 run、digest manifest 和审批边界。
+  仍未执行真实 PROD：跨项目 AR 只读授权、PROD AWS 登录用户、PROD Hybrid（GAP-06/07）
+  与 DNS 切换仍需单独审批。
