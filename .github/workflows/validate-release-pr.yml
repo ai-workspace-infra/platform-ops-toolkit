@@ -304,6 +304,7 @@ jobs:
       run: |
         bash .github/scripts/tests/serverless_cloudflare_domains_contract_test.sh
         python3 -m unittest discover -s scripts/serverless_uat -p 'test_console_dns_validation.py'
+        python3 -m unittest discover -s .github/scripts/tests -p 'serverless_domain_owner_contract_test.py'
 
     - name: Verify serverless aliases serve without redirects
       run: bash .github/scripts/tests/serverless_public_chain_challenge_test.sh

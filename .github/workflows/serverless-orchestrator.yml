@@ -170,6 +170,9 @@ jobs:
     name: Validate / Dispatch inputs
     environment: ${{ inputs.vault_env_path == 'prod' && 'production' || '' }}
     runs-on: ubuntu-latest
+    outputs:
+      gitops_ref: ${{ steps.topology.outputs.gitops_ref }}
+      guarded_api_gateway: ${{ steps.topology.outputs.guarded_api_gateway }}
     steps:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
@@ -199,6 +202,14 @@ jobs:
         env:
           GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
+
+      - name: Freeze the GitOps revision and select the API publisher
+        id: topology
+        run: python3 .github/scripts/serverless/select-domain-owner.py
+        env:
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          GITOPS_DIR: ${{ github.workspace }}/gitops
+          REQUESTED_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}
 
       - name: Validate Portal and GitOps public domains
         run: ./.github/scripts/serverless/validate_portal_runtime_domains.sh
@@ -361,8 +372,8 @@ jobs:
         with:
           repository: ai-workspace-infra/gitops
           # GitOps runtime topology is the environment configuration source of truth;
-          # keep it on main while deployable artifacts share tag_ref.
-          ref: main
+          # use the preflight SHA while deployable artifacts share tag_ref.
+          ref: ${{ needs.preflight.outputs.gitops_ref }}
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -648,8 +659,8 @@ jobs:
         with:
           repository: ai-workspace-infra/gitops
           # GitOps runtime topology is the environment configuration source of truth;
-          # keep it on main while deployable artifacts share tag_ref.
-          ref: main
+          # use the preflight SHA while deployable artifacts share tag_ref.
+          ref: ${{ needs.preflight.outputs.gitops_ref }}
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -737,7 +748,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/gitops
-          ref: main
+          ref: ${{ needs.preflight.outputs.gitops_ref }}
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -796,6 +807,7 @@ jobs:
     needs: [preflight, backend_gate]
     if: >-
       ${{ always() && needs.preflight.result == 'success' &&
+      needs.preflight.outputs.guarded_api_gateway != 'true' &&
       contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
       inputs.deploy_cloudflare == true &&
       (needs.backend_gate.result == 'success' || needs.backend_gate.result == 'skipped') }}
@@ -827,8 +839,8 @@ jobs:
         with:
           repository: ai-workspace-infra/gitops
           # GitOps runtime topology is the environment configuration source of truth;
-          # keep it on main while deployable artifacts share tag_ref.
-          ref: main
+          # use the preflight SHA while deployable artifacts share tag_ref.
+          ref: ${{ needs.preflight.outputs.gitops_ref }}
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -905,8 +917,8 @@ jobs:
         with:
           repository: ai-workspace-infra/gitops
           # GitOps runtime topology is the environment configuration source of truth;
-          # keep it on main while deployable artifacts share tag_ref.
-          ref: main
+          # use the preflight SHA while deployable artifacts share tag_ref.
+          ref: ${{ needs.preflight.outputs.gitops_ref }}
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -970,8 +982,8 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_API_TOKEN }}
           INTERNAL_SERVICE_TOKEN: ${{ steps.vault.outputs.INTERNAL_SERVICE_TOKEN }}
 
-  serverless_domains:
-    name: Cloudflare / custom domains and public CORS chain
+  serverless_domains_provider:
+    name: Cloudflare / IaC domain owner
     needs: [preflight, supabase, uat_accounts_baseline, uat_accounts_schema_migration, cloud_run, cloudflare_ssr, frontend_router, edge_gateway, static_pages]
     if: >-
       ${{ always() && needs.preflight.result == 'success' &&
@@ -985,6 +997,16 @@ jobs:
       (needs.frontend_router.result == 'success' || needs.frontend_router.result == 'skipped') &&
       (needs.edge_gateway.result == 'success' || needs.edge_gateway.result == 'skipped') &&
       (needs.static_pages.result == 'success' || needs.static_pages.result == 'skipped') }}
+    uses: ai-workspace-infra/iac_modules/.github/workflows/cloudflare-serverless-domains.yml@fc714d655ad4bad15943f90fce2066bd8db24cb5
+    with:
+      environment: ${{ inputs.vault_env_path || 'uat' }}
+      dns_mode: ${{ inputs.dns_mode || 'none' }}
+      gitops_ref: ${{ needs.preflight.outputs.gitops_ref }}
+
+  serverless_domains:
+    name: Verify / public CORS, frontend and brand entries
+    needs: [preflight, serverless_domains_provider]
+    if: ${{ always() && needs.preflight.result == 'success' && needs.serverless_domains_provider.result == 'success' }}
     concurrency:
       group: public-dns-${{ inputs.vault_env_path || 'uat' }}
       cancel-in-progress: false
@@ -999,7 +1021,7 @@ jobs:
           repository: ai-workspace-infra/gitops
           # The GitOps runtime topology is the source of truth for the public
           # console/accounts hosts and the Pages/Worker boundary names.
-          ref: main
+          ref: ${{ needs.preflight.outputs.gitops_ref }}
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -1010,27 +1032,6 @@ jobs:
         env:
           GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
-
-      - name: Authenticate to Vault with GitHub OIDC
-        id: vault
-        uses: hashicorp/vault-action@v4
-        with:
-          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
-          method: jwt
-          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
-          jwtGithubAudience: vault
-          exportToken: true
-          secrets: |
-            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
-            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN
-
-      - name: Reconcile Worker custom domains and routes
-        run: ./scripts/serverless_uat/reconcile_cloudflare_domains.sh
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
-          SERVERLESS_DNS_MODE: ${{ inputs.dns_mode || 'none' }}
 
       - name: Verify public Console to Accounts CORS chain
         run: ./scripts/serverless_uat/verify_serverless_public_chain.sh
@@ -1111,7 +1112,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/gitops
-          ref: main
+          ref: ${{ needs.preflight.outputs.gitops_ref }}
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -1179,7 +1180,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/gitops
-          ref: main
+          ref: ${{ needs.preflight.outputs.gitops_ref }}
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
