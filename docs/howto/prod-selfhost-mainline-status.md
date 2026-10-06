@@ -120,7 +120,7 @@ Playbooks [#596](https://github.com/ai-workspace-infra/playbooks/pull/596) 只�
 IaC 临时访问撤销成功。Playbooks [#598](https://github.com/ai-workspace-infra/playbooks/pull/598)
 修复 nested PGDATA 的 bind 父目录权限：从精确镜像解析 UID/GID，仅修改真实非符号链接父目录，
 保持 `0700`，不递归处理、不移动/删除/重建现有数据库。官方入口只 chown `PGDATA`，
-不处理 root 所有的 bind 父目录；CI 在一次性 PostgreSQL 17 上复现失败并验证同容器恢复，
+不处理 root 所有的 bind 父目录；CI 新增一次性 PostgreSQL 17 失败复现与同容器恢复检查，
 运行回执仅保留原始私有日志中的权限失败布尔值，不发布数据库日志。新固定调用方待真实重试。
 
 原生 schema owner Playbooks [#597](https://github.com/ai-workspace-infra/playbooks/pull/597) 已合并；
