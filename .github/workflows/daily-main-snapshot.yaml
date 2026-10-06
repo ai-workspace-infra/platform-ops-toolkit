@@ -377,6 +377,13 @@ jobs:
           ACCOUNTS_SCHEMA_EXPECTED_VERSION: ${{ inputs.accounts_schema_expected_version }}
           ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
           ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}
+      - name: Upload interrupted data dispatch receipt
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: daily-data-dispatch-receipt
+          path: ${{ runner.temp }}/environment-data-dispatch/
+          if-no-files-found: ignore
       - name: Publish unified snapshot matrix summary
         # Also on failure: the per-repository matrix is the evidence needed to
         # diagnose a failed readiness gate or UAT dispatch.
