@@ -59,6 +59,11 @@ on:
         description: 'Unified immutable tag for Cloud Run images, portal, and edge-gateway (for example daily-build-2026.08.17-r1)'
         required: false
         type: string
+      website_content_ref:
+        description: 'Reviewed knowledge commit or immutable tag consumed by Portal website builds'
+        required: false
+        default: 'main'
+        type: string
       accounts_schema_ref:
         description: 'Accounts source ref containing sql/schema.sql; used only by init-schema'
         required: false
@@ -693,6 +698,7 @@ jobs:
         env:
           CLOUDFLARE_TARGET: ssr
           PORTAL_SSR_BOUNDARY: ${{ matrix.boundary }}
+          WEBSITE_CONTENT_REF: ${{ inputs.website_content_ref || 'main' }}
           CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
           PORTAL_DIR: ${{ github.workspace }}/portal
@@ -713,11 +719,14 @@ jobs:
 
   frontend_router:
     name: Cloudflare / frontend-router
-    needs: [preflight, backend_gate]
+    # Publish Portal HTML and the matching static assets before switching the
+    # router to discovery paths owned by that Portal build.
+    needs: [preflight, backend_gate, static_pages]
     if: >-
       ${{ always() && needs.preflight.result == 'success' &&
       contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
       inputs.deploy_cloudflare == true &&
+      needs.static_pages.result == 'success' &&
       (needs.backend_gate.result == 'success' || needs.backend_gate.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
@@ -951,6 +960,7 @@ jobs:
         run: ./.github/scripts/serverless/run_cloudflare_target.sh
         env:
           CLOUDFLARE_TARGET: static-pages
+          WEBSITE_CONTENT_REF: ${{ inputs.website_content_ref || 'main' }}
           EDGE_ASSETS_DIR: ${{ runner.temp }}/edge-assets
           CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
           PAGES_BRANCH: ${{ inputs.vault_env_path || 'uat' }}
