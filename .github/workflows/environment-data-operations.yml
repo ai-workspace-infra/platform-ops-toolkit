@@ -178,7 +178,7 @@ jobs:
   selfhost_database:
     needs: request_gate
     if: ${{ contains(fromJSON('["selfhost_probe","selfhost_init","selfhost_verify"]'), inputs.mode) }}
-    uses: ai-workspace-infra/playbooks/.github/workflows/selfhost-database-operations.yml@5a1f68c6de22010b20771ea7583f892c2c899da3
+    uses: ai-workspace-infra/playbooks/.github/workflows/selfhost-database-operations.yml@7d660cdb4066e2a4cf3fed68bccafea939771e64
     with:
       environment: ${{ inputs.environment }}
       operation: ${{ inputs.mode }}

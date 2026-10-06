@@ -74,11 +74,11 @@ on:
         default: ""
         type: string
       operation:
-        description: "执行范围：plan 仅校验；infra 仅基础设施；deploy 部署应用；migrate 仅迁移；deploy+migrate 部署并迁移；destroy 销毁。迁移由此操作参数选择；GitOps 仅声明拓扑与能力。"
+        description: "执行范围：plan 仅校验；infra 仅基础设施；deploy 部署应用；deploy+init 显式 UAT 空库初始化并部署；migrate 仅迁移；deploy+migrate 部署并迁移；destroy 销毁。迁移由此操作参数选择；GitOps 仅声明拓扑与能力。"
         required: true
         default: "plan"
         type: choice
-        options: [plan, infra, deploy, migrate, deploy+migrate, destroy]
+        options: [plan, infra, deploy, deploy+init, migrate, deploy+migrate, destroy]
       target_domains:
         description: "选择要执行的业务域 (Business Domain)"
         required: true
@@ -1539,13 +1539,41 @@ jobs:
   # Application deployment remains independent of explicit schema initialization.
   # A schema init is routed through the unified data control plane only when
   # specifically requested there; ordinary deploys never create schema.
+  initialize_empty_web_saas:
+    name: "[2] Explicit empty UAT database initialization"
+    needs: [provision, deploy_base, capture_web_saas_baseline, update_gitops_tags]
+    if: >-
+      ${{ !cancelled() && github.event.inputs.operation == 'deploy+init' &&
+      needs.provision.result == 'success' && needs.deploy_base.result == 'success' &&
+      needs.capture_web_saas_baseline.result == 'success' &&
+      (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        ref: ${{ github.sha }}
+    - name: Dispatch explicit empty-host initialization and wait
+      env:
+        GH_TOKEN: ${{ github.token }}
+        DATA_OPERATION: selfhost_init
+        DATA_ENVIRONMENT: ${{ needs.provision.outputs.deployment_env }}
+        DATA_CONFIG_JSON: '{"target_host":"web-saas-uat","caller_run_id":"${{ github.run_id }}"}'
+        RELEASE_TAG: ${{ needs.provision.outputs.deploy_tag }}
+        ACCOUNTS_REF: ${{ needs.provision.outputs.deploy_tag }}
+        DATA_WORKFLOW_REF: main
+        BASELINE_STATE: ${{ needs.capture_web_saas_baseline.outputs.baseline_state }}
+      run: |
+        test "$BASELINE_STATE" = absent || { echo "::error::Explicit initialization requires an absent pre-deploy database; use ordinary deploy for existing data."; exit 1; }
+        python3 .github/scripts/environment-upgrade/dispatch.py
+
   deploy_web_saas:
     name: "[2] Web SaaS | ${{ matrix.host }}"
-    needs: [provision, deploy_base, update_gitops_tags]
+    needs: [provision, deploy_base, update_gitops_tags, initialize_empty_web_saas]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
+      (needs.initialize_empty_web_saas.result == 'success' || needs.initialize_empty_web_saas.result == 'skipped') &&
       (needs.update_gitops_tags.result == 'success' || needs.update_gitops_tags.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
@@ -1617,6 +1645,7 @@ jobs:
     needs: [
       provision,
       deploy_web_saas,
+      accept_web_saas_upgrade,
       deploy_infra_platform,
       deploy_agent_proxy,
       deploy_agent_proxy_non_iac,
@@ -1626,6 +1655,9 @@ jobs:
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
       (needs.deploy_web_saas.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
+      (needs.provision.outputs.deployment_env != 'uat' ||
+      !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) ||
+      needs.accept_web_saas_upgrade.result == 'success') &&
       (needs.deploy_infra_platform.result == 'success' ||
       needs.deploy_infra_platform.result == 'skipped' ||
       !contains(fromJSON('["all","infra-platform","open-platform"]'), needs.provision.outputs.target_domains)) &&
@@ -1748,6 +1780,15 @@ jobs:
           XCONNECT_POOL="${pool}" ansible-playbook reconcile_xconnect_entrypoint.yml
         done
 
+    - name: Check out reviewed UAT DNS provider owner
+      if: ${{ needs.provision.outputs.deployment_env == 'uat' && needs.provision.outputs.dns_mode == 'uat-records' }}
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/iac_modules
+        ref: ed299ac0cbf0d7f3c355b36f2ecbed794ceebd7f
+        path: iac-dns-owner
+        persist-credentials: false
+
     - name: Reconcile UAT DNS records
       if: ${{ needs.provision.outputs.deployment_env == 'uat' && needs.provision.outputs.dns_mode == 'uat-records' }}
       env:
@@ -1760,7 +1801,7 @@ jobs:
       run: |
         jq -e 'with_entries(select((.value | type) == "object") | select((.value.groups | type) == "array"))' \
           cmdb/cmdb.json > "$CMDB_FILE"
-        ${{ github.workspace }}/.github/scripts/platform-ops/dns/platform-ops_uat_dns_reconcile.sh
+        bash ${{ github.workspace }}/iac-dns-owner/scripts/pipeline/cloudflare-uat-dns-reconcile.sh
 
     - name: Reconcile SIT all-in-one DNS records
       if: ${{ needs.provision.outputs.deployment_env == 'sit' && needs.provision.outputs.dns_mode == 'uat-records' }}
@@ -1993,6 +2034,7 @@ jobs:
       provision,
       deploy_web_saas,
       capture_web_saas_baseline,
+      initialize_empty_web_saas,
       accept_web_saas_upgrade,
       deploy_agent_proxy,
       deploy_agent_proxy_non_iac,
@@ -2015,6 +2057,7 @@ jobs:
       needs.provision.result != '' &&
       needs.deploy_web_saas.result != '' &&
       needs.capture_web_saas_baseline.result != '' &&
+      needs.initialize_empty_web_saas.result != '' &&
       needs.accept_web_saas_upgrade.result != '' &&
       needs.deploy_agent_proxy.result != '' &&
       needs.deploy_agent_proxy_non_iac.result != '' &&
@@ -2039,7 +2082,7 @@ jobs:
       env:
         PROVISION_RESULT: ${{ needs.provision.result }}
         WEB_SAAS_DEPLOY_RESULT: ${{ needs.deploy_web_saas.result }}
-        DB_INIT_RESULT: not-requested
+        DB_INIT_RESULT: ${{ needs.initialize_empty_web_saas.result }}
         WEB_SAAS_BASELINE_RESULT: ${{ needs.capture_web_saas_baseline.result }}
         WEB_SAAS_ACCEPTANCE_RESULT: ${{ needs.accept_web_saas_upgrade.result }}
         RUN_APPLICATION_DEPLOY: ${{ needs.provision.outputs.run_application_deploy }}
