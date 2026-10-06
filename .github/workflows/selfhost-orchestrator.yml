@@ -1355,6 +1355,7 @@ jobs:
     outputs:
       baseline_data_run_id: ${{ steps.dispatch.outputs.data_run_id }}
       baseline_state: ${{ steps.receipt.outputs.captured_state }}
+      acceptance_mode: ${{ steps.receipt.outputs.acceptance_mode }}
     needs: [provision]
     if: >-
       ${{ !cancelled() &&
@@ -1629,10 +1630,10 @@ jobs:
     - name: Dispatch read-only selfhost verification or first-deploy probe
       env:
         GH_TOKEN: ${{ github.token }}
-        DATA_OPERATION: ${{ needs.capture_web_saas_baseline.outputs.baseline_state == 'absent' && 'selfhost_probe' || 'selfhost_verify' }}
+        DATA_OPERATION: ${{ needs.capture_web_saas_baseline.outputs.acceptance_mode == 'probe' && 'selfhost_probe' || 'selfhost_verify' }}
         DATA_ENVIRONMENT: ${{ needs.provision.outputs.deployment_env }}
         DATA_CONFIG_JSON: >-
-          {"action":"${{ needs.capture_web_saas_baseline.outputs.baseline_state == 'absent' && 'probe' || 'verify' }}","target_host":"${{ matrix.host }}","acceptance_run_id":"${{ github.run_id }}","caller_run_id":"${{ github.run_id }}","baseline_data_run_id":"${{ needs.capture_web_saas_baseline.outputs.baseline_data_run_id }}"}
+          {"action":"${{ needs.capture_web_saas_baseline.outputs.acceptance_mode == 'probe' && 'probe' || 'verify' }}","target_host":"${{ matrix.host }}","acceptance_run_id":"${{ github.run_id }}","caller_run_id":"${{ github.run_id }}","baseline_data_run_id":"${{ needs.capture_web_saas_baseline.outputs.baseline_data_run_id }}"}
         RELEASE_TAG: ${{ needs.provision.outputs.deploy_tag }}
         ACCOUNTS_REF: ${{ needs.provision.outputs.deploy_tag || 'main' }}
         DATA_WORKFLOW_REF: main

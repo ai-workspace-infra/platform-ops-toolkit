@@ -300,9 +300,10 @@ assert 'gh run watch' not in dispatcher_text
 selfhost = yaml.safe_load(open(".github/workflows/selfhost-orchestrator.yml", encoding="utf-8"))
 baseline_job = selfhost["jobs"]["capture_web_saas_baseline"]
 assert baseline_job["outputs"]["baseline_state"] == "${{ steps.receipt.outputs.captured_state }}"
+assert baseline_job["outputs"]["acceptance_mode"] == "${{ steps.receipt.outputs.acceptance_mode }}"
 acceptance = selfhost["jobs"]["accept_web_saas_upgrade"]
 acceptance_dispatch = next(step for step in acceptance["steps"] if step.get("name") == "Dispatch read-only selfhost verification or first-deploy probe")
-assert "baseline_state == 'absent'" in acceptance_dispatch["env"]["DATA_OPERATION"]
+assert "acceptance_mode == 'probe'" in acceptance_dispatch["env"]["DATA_OPERATION"]
 assert '"action"' in acceptance_dispatch["env"]["DATA_CONFIG_JSON"]
 dns = selfhost["jobs"]["switch_dns"]
 assert "accept_web_saas_upgrade" in dns["needs"]

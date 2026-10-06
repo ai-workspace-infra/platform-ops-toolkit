@@ -41,18 +41,39 @@ class BaselineStateTest(unittest.TestCase):
             "target_host": "web-saas-uat",
             "acceptance_run_id": "12345",
             "captured_state": state,
-            "row_counts": {},
+            "row_counts": {"users": 0, "identities": 0, "subscriptions": 0},
         }
 
     def test_accepts_fresh_host_baseline_as_absent(self):
         result, output = self.run_reader(self.receipt("absent"))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(output, "captured_state=absent\n")
+        self.assertEqual(output, "captured_state=absent\nacceptance_mode=probe\n")
 
     def test_accepts_existing_database_baseline_as_present(self):
         result, output = self.run_reader(self.receipt("present"))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(output, "captured_state=present\n")
+        self.assertEqual(output, "captured_state=present\nacceptance_mode=probe\n")
+
+    def test_existing_subscription_sample_uses_upgrade_verification(self):
+        receipt = self.receipt("present")
+        receipt["row_counts"]["subscriptions"] = 3
+        result, output = self.run_reader(receipt)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output, "captured_state=present\nacceptance_mode=verify\n")
+
+    def test_present_database_requires_subscription_count(self):
+        receipt = self.receipt("present")
+        receipt["row_counts"].pop("subscriptions")
+        result, _ = self.run_reader(receipt)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("lacks subscription row count", result.stderr)
+
+    def test_rejects_negative_row_count(self):
+        receipt = self.receipt("present")
+        receipt["row_counts"]["subscriptions"] = -1
+        result, _ = self.run_reader(receipt)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invalid row counts", result.stderr)
 
     def test_rejects_receipt_bound_to_another_parent(self):
         receipt = self.receipt("absent")
