@@ -187,3 +187,19 @@ SIT/UAT/PROD 现有 Vault role 源码已增加上述唯一固定 IaC workflow SH
 Billing #44 SQL 与 Playbooks [#600](https://github.com/ai-workspace-infra/playbooks/pull/600) 的 owner 已合并；[37529510281](https://github.com/ai-workspace-infra/playbooks/actions/runs/37529510281) 全部成功，实际 disposable PostgreSQL 17 完成 52 表原生初始化加第 53 表增量、重复执行及错误摘要拒绝。首轮 37527995099 发现旧工具要求当前版本的历史 SQL；Accounts [#195](https://github.com/ai-workspace-services/accounts/pull/195) 修复 bounded source，仅有已应用 checkpoint 的无 SQL 元数据和下一份准确 hash 的 SQL，不提供 down 或重放旧 schema。
 
 Accounts 合并 source `ac3239a6ddb89fd49c2b15416bf5f6ea588c6797` 的 [main CI 37529455394](https://github.com/ai-workspace-services/accounts/actions/runs/37529455394) 已成功构建发布 `ghcr.io/ai-workspace-services/accounts:sha-ac3239a6ddb89fd49c2b15416bf5f6ea588c6797`，digest `sha256:8a8d92fc2d7cc8a8855400970bb971436fc117bd39366595f55f7e1283a1e961`；native SQL hash/52 表/版本 `2026100601` 不变，当前初始化配置绑定这份预构建镜像及 Playbooks `96065b03b2e0e3d329f6f9a5ed7aff5fe521dbd2`。真实生产还需 registry pull/compiled manifest/目标守卫回执；资格检查不是生产执行。Billing 生产 caller 与实际初始化/增量/全业务复制/切换继续按门槛执行，生产 schema 写入仍待已请求的独立审核配置。
+
+## Billing 原生增量生产调用方
+
+`native-billing-plan` / `native-billing` 使用原 `selfhost-orchestrator.yml` operation，dispatch 输入仍为 25 个，
+默认操作仍为 plan，原 UAT-only 路径未扩展。Toolkit 只检查本轮独立 PROD 审核、成功资源/待机/实际初始化
+run/tag/SHA/attempt 与原 artifact bytes，不执行主机或数据库命令。固定 Billing checkout
+`5b7285bf49af12983027f7624d196ab3f2b1804f`、Playbooks `96065b03b2e0e3d329f6f9a5ed7aff5fe521dbd2`
+及已发布 Accounts `ac3239a6ddb89fd49c2b15416bf5f6ea588c6797` 镜像/digest，受限执行器只将版本
+`2026100601` 升至 `2026100701`，52+1 表、零业务行、无 seed/down/reset，应用/CD 写者保持停止。
+
+生产初始化尚未执行，因此 `.github/config/prod-native-billing.json` 的 `initialization_accepted=false`，
+实际 init run/artifact/hash 为空；不得把 CI、预演、待机成功或手写回执填成实际初始化成功。
+取得真实 apply 回执、校验 cleanup 和原始 artifact 后才能通过 PR 更新该接受记录。
+控制守卫在读取凭据和打开访问之前拒绝未接受初始化；IaC 同轮临时访问总是清理，成功 schema evidence
+仅在清理成功后发布。所有原资源/待机 metadata 来自已验收真实 run；没有新增手写 CMDB。
+预演不改 schema，实际升级不代表全业务复制或切换；后续仍须全业务/最终追平/单写者与生产入口验收。
