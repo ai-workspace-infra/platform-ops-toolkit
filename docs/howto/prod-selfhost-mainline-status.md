@@ -181,3 +181,9 @@ SIT/UAT/PROD 现有 Vault role 源码已增加上述唯一固定 IaC workflow SH
 [37526370757](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37526370757)（`v2026.10.07-r4` / `2b239ba604483e172c68407fcf3dea5a48e30854`）全部成功。固定 Playbooks `c6a4cb6c54c7e6dd2d63c43767f44a228385312a` 对同一 ownership marker、相同镜像且无任何数据库文件的容器完成缺失密码修复；PostgreSQL 17、独立持久盘、空业务库与暂停应用/CD 写者通过，IaC 临时密钥/防火墙撤销和原始 CMDB 保留成功。
 
 成功 artifact `prod-native-standby-receipt` ID `11442304366`，ZIP digest `sha256:fe5afc9f409d35fcf095f5648938f5c1f5c355968de8341cf029045179012714`，原始 receipt SHA-256 `d4bee2cf17648099732a14506b8572d0da9feb83d0db8e0507596d7306d0b9ce` 已实际下载并核对。初始化配置已绑定该 run/attempt/tag/SHA/artifact/hash，`standby_accepted=true`；这不表示 schema 或数据已经写入。独立生产审核仍待配置，初始化调用方在取 Vault/打开访问之前检查本轮真实独立审批，不能使用自己的审核绕过。主库保持 Serverless。
+
+## 原生增量工具与 Billing 受限 owner 资格
+
+Billing #44 SQL 与 Playbooks [#600](https://github.com/ai-workspace-infra/playbooks/pull/600) 的 owner 已合并；[37529510281](https://github.com/ai-workspace-infra/playbooks/actions/runs/37529510281) 全部成功，实际 disposable PostgreSQL 17 完成 52 表原生初始化加第 53 表增量、重复执行及错误摘要拒绝。首轮 37527995099 发现旧工具要求当前版本的历史 SQL；Accounts [#195](https://github.com/ai-workspace-services/accounts/pull/195) 修复 bounded source，仅有已应用 checkpoint 的无 SQL 元数据和下一份准确 hash 的 SQL，不提供 down 或重放旧 schema。
+
+Accounts 合并 source `ac3239a6ddb89fd49c2b15416bf5f6ea588c6797` 的 [main CI 37529455394](https://github.com/ai-workspace-services/accounts/actions/runs/37529455394) 已成功构建发布 `ghcr.io/ai-workspace-services/accounts:sha-ac3239a6ddb89fd49c2b15416bf5f6ea588c6797`，digest `sha256:8a8d92fc2d7cc8a8855400970bb971436fc117bd39366595f55f7e1283a1e961`；native SQL hash/52 表/版本 `2026100601` 不变，当前初始化配置绑定这份预构建镜像及 Playbooks `96065b03b2e0e3d329f6f9a5ed7aff5fe521dbd2`。真实生产还需 registry pull/compiled manifest/目标守卫回执；资格检查不是生产执行。Billing 生产 caller 与实际初始化/增量/全业务复制/切换继续按门槛执行，生产 schema 写入仍待已请求的独立审核配置。
