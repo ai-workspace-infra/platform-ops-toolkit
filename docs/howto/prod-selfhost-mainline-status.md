@@ -104,13 +104,21 @@ GitOps 将相同内网 `/24` 表达为两个 `/25`，以便计划明确移除公
 原始 artifact `11435337628`，ZIP 摘要
 `sha256:a25f787b3f6c3305cdf51fca4aefeb20f716991e9310b309cfbd0de01f688bc3`；
 CMDB 与 inventory 字节保持一致。控制配置已固定这份接受证据；未接受的资源回执会拒绝待机部署。
-真实主机部署尚待固定 caller 发布，源码、CI 和资源接受均不能替代主机/数据库验收。
+固定 caller 已随 Toolkit [#1331](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1331)
+发布为 `v2026.10.07-r1`。首次真实 [native-standby 37512354869](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37512354869)
+通过原始资源 artifact、OIDC/Vault 与 IaC 临时访问检查，并完成 Docker 安装；随后在现有容器检查处
+因新版 Docker 的小写 `error: no such object` 被旧守卫误判而停止。失败发生在数据盘准备之前，
+PostgreSQL 未启动，业务 schema/数据未写入，IaC 密钥与临时防火墙撤销成功，没有发布成功待机回执。
+Playbooks [#596](https://github.com/ai-workspace-infra/playbooks/pull/596) 只接受精确目标、退出码 1 的
+大小写规范化“对象不存在”消息，其他 Docker/权限错误继续拒绝；完整 inspect 输出隐藏以保护容器环境变量。
+四个新增回归检查与独立盘/PostgreSQL 17 CI 通过，调用方固定新 owner 重试。
+源码、CI 和资源接受均不能替代主机/数据库验收。
 
 ## 尚待完成的代码与运行门槛
 
 | 项目 | 状态 |
 | --- | --- |
-| PROD `deploy+init` 支持 | GitOps #393 的 PROD Doco-CD 与 `/data/postgresql` bind、Playbooks #592 的独立盘/精确 CMDB/空库 owner 已合并；Linux CI 证明格式化、挂载、幂等恢复与 fail-closed。VM/可信资源 CMDB 已完成；仍待 PROD caller 集成及实际主机部署，当前 UAT-only DB operation 限制保留 |
+| PROD `deploy+init` 支持 | GitOps #393 的 PROD Doco-CD 与 `/data/postgresql` bind、Playbooks #592 的独立盘/精确 CMDB/空库 owner 已合并；Linux CI 证明格式化、挂载、幂等恢复与 fail-closed。VM/可信资源 CMDB 已完成；PROD native-standby caller 已集成；首次主机部署在数据盘前失败并完成访问清理，修复 owner 后待重试，当前 UAT-only DB operation 限制保留 |
 | 最新 schema 与容器构件 | Accounts [#194](https://github.com/ai-workspace-services/accounts/pull/194) 提供 52 表最新原生 SQL 与 migratectl init；固定 hash/空库守卫/事务锁/超时、默认预演、零业务行与干净版本回执。本地与最终 PostgreSQL 17 CI 已通过，已合并为 `ddee4b01778fd1d1d644a1bc936624c81ec76093`；合并后的 [CI 37500884987](https://github.com/ai-workspace-services/accounts/actions/runs/37500884987) 已成功发布 full-SHA 镜像，Playbooks owner 集成待完成。Billing cloud_vendor_costs 单独资格尚未完成；非空库禁止重建 |
 | migratectl + 全业务复制 | migratectl 当前为 Users/Identities/Sessions；订阅、额度、账本与其他业务表的完整 owner 尚待集成 |
 | GTM / CNAME | Edge #28/#29、IaC #398/#400、Toolkit #1326 已合并；Serverless DNS caller 使用固定 IaC reusable workflow，PROD gateway 改走受保护的 Edge 入口。GitOps #392 激活仍待 Vault 合同及真实 UAT/生产入口证据 |

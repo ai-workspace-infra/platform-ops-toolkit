@@ -299,7 +299,7 @@ jobs:
           cmdb_sha256: ${{ steps.native_control.outputs.cmdb_sha256 }}
           access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Deploy only PostgreSQL standby through fixed Playbooks owner
-        uses: ai-workspace-infra/playbooks/.github/actions/prod-native-standby@e82e59dc67eb34fe3e043b8350b57070f6b2b3ac
+        uses: ai-workspace-infra/playbooks/.github/actions/prod-native-standby@2630e8119510b84b558ec0bc50ada3e450463e79
         with:
           cmdb_dir: ${{ runner.temp }}/native-resource-cmdb
           cmdb_sha256: ${{ steps.native_control.outputs.cmdb_sha256 }}
