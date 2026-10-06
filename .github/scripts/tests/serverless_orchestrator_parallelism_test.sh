@@ -64,11 +64,17 @@ gated_frontend = {
 }
 for job in gated_frontend:
     needs = jobs[job].get("needs")
-    if needs != ["preflight", "backend_gate"]:
+    expected_needs = ["preflight", "backend_gate"]
+    # Public discovery routes must not switch before Portal assets are ready.
+    if job == "frontend_router":
+        expected_needs.append("static_pages")
+    if needs != expected_needs:
         raise SystemExit(
             f"{job} must wait on backend_gate so a failed or partial Cloud Run "
             f"rollout cannot ship a frontend against it, got {needs!r}"
         )
+    if job == "frontend_router" and "needs.static_pages.result == 'success'" not in jobs[job].get("if", ""):
+        raise SystemExit("frontend_router must fail closed when Portal asset publication fails")
 
 # The gate is only meaningful if it actually consumes the matrix result: with
 # fail-fast: false a single failed service still reports the matrix as failed,
