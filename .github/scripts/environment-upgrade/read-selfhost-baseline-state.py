@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the exact selfhost baseline receipt and expose its captured state."""
+"""Validate a bound selfhost baseline and select safe read-only acceptance."""
 
 import json
 import os
@@ -25,14 +25,35 @@ def main() -> None:
         raise SystemExit("baseline receipt is not bound to this parent, child, host, and acceptance")
 
     state = receipt.get("captured_state")
-    if state not in {"present", "absent"} or not isinstance(receipt.get("row_counts"), dict):
+    counts = receipt.get("row_counts")
+    if state not in {"present", "absent"} or not isinstance(counts, dict):
         raise SystemExit("baseline receipt lacks captured database evidence")
+
+    if any(
+        not isinstance(value, int) or isinstance(value, bool) or value < 0
+        for value in counts.values()
+    ):
+        raise SystemExit("baseline receipt has invalid row counts")
+
+    # An initialized Accounts database can contain administrative users while
+    # still having no subscription/business sample. Use the read-only health
+    # probe for that first-release state; retain fingerprint verification for
+    # any database with subscriptions to preserve.
+    if state == "present" and "subscriptions" not in counts:
+        raise SystemExit("present baseline receipt lacks subscription row count")
+    acceptance_mode = (
+        "verify" if state == "present" and counts["subscriptions"] > 0 else "probe"
+    )
 
     output_path = os.environ.get("GITHUB_OUTPUT")
     if output_path:
         with open(output_path, "a", encoding="utf-8") as output:
             output.write(f"captured_state={state}\n")
-    print(f"Verified bound selfhost baseline receipt; captured_state={state}.")
+            output.write(f"acceptance_mode={acceptance_mode}\n")
+    print(
+        "Verified bound selfhost baseline receipt; "
+        f"captured_state={state}, acceptance_mode={acceptance_mode}."
+    )
 
 
 if __name__ == "__main__":
