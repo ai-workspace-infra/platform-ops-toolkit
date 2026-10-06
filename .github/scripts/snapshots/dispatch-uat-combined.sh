@@ -173,4 +173,7 @@ if [[ -n "${promotion_manifest_file}" ]]; then
     --manifest "${manifest_work}/uat-artifact-manifest.json" --snapshot-tag "${snapshot_tag}" \
     --uat-run-id "${hybrid_run_id}" --uat-run-json "${manifest_work}/uat-run.json" > "${promotion_manifest_file}"
   echo "UAT artifact manifest verified for ${snapshot_tag} (Hybrid run ${hybrid_run_id})."
+  if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+    echo "promotion_manifest_verified=true" >> "${GITHUB_OUTPUT}"
+  fi
 fi

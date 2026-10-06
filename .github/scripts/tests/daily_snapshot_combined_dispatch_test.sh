@@ -138,15 +138,21 @@ assert 'test-token api --method' in tokens
 assert 'job-token api repos/' in tokens
 PY
 
-# Default preview never deploys applications or masquerades as an applied import.
+# Default preview never deploys applications or authorizes promotion artifacts.
+: > "${workdir}/preview.outputs"
 : > "${workdir}/gh.log"
-env ENABLE_MIGRATION=true \
+env ENABLE_MIGRATION=true GITHUB_OUTPUT="${workdir}/preview.outputs" \
   GH_LOG="${workdir}/gh.log" PATH="${workdir}:${PATH}" GH_TOKEN=test-token \
   SNAPSHOT_TAG=uat-daily-build-2026.09.28-r2 \
   bash "${dispatcher}" >/dev/null
 grep -Fq 'environment-data-operations.yml/dispatches' "${workdir}/gh.log"
 if grep -Fq 'workflow run hybrid-orchestrator.yml' "${workdir}/gh.log"; then
   echo 'Import preview must not authorize an application deployment.' >&2
+  exit 1
+fi
+
+if grep -Fq 'promotion_manifest_verified=true' "${workdir}/preview.outputs"; then
+  echo 'Import preview must not authorize a promotion artifact upload.' >&2
   exit 1
 fi
 

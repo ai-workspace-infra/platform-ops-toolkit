@@ -404,7 +404,7 @@ jobs:
           path: ${{ runner.temp }}/environment-data-dispatch/
           if-no-files-found: ignore
       - name: Upload the verified UAT promotion manifest
-        if: ${{ steps.dispatch_uat_hybrid.outcome == 'success' }}
+        if: ${{ steps.dispatch_uat_hybrid.outcome == 'success' && steps.dispatch_uat_hybrid.outputs.promotion_manifest_verified == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: uat-promotion-manifest
