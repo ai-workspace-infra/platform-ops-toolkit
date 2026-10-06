@@ -75,7 +75,9 @@ CI 发布证据不等于目标主机已拉取、初始化或全业务数据一�
 
 Playbooks [#593](https://github.com/ai-workspace-infra/playbooks/pull/593) 与
 [#594](https://github.com/ai-workspace-infra/playbooks/pull/594) 已合并主机待机 role 和固定版本 action；
-70 项本地数据合同检查及 CI 的独立盘/PostgreSQL 17 检查通过。它只从固定 GitOps compose
+70 项本地数据合同检查及 CI 的独立盘/PostgreSQL 17 检查通过。
+Playbooks [#595](https://github.com/ai-workspace-infra/playbooks/pull/595) 增加生产数据目录挂载前的
+镜像二进制资格检查，以及私有 known-hosts、关闭 SSH 长连接的独立 runner 合同。它只从固定 GitOps compose
 投影 PostgreSQL，验证独立盘、空库资格与暂停的应用/CD 写者，不初始化业务 schema 或插入数据。
 IaC [#409](https://github.com/ai-workspace-infra/iac_modules/pull/409) 已合并限时 OS Login/runner `/32`
 访问 action，按原 CMDB 摘要和实际 VM/盘事实绑定同一 run/attempt，失败也必须撤销访问。
@@ -95,8 +97,14 @@ SSH 收紧计划 [37509129291](https://github.com/ai-workspace-infra/platform-op
 [Google provider 7.46.1 的 diffSuppressSourceRanges](https://github.com/hashicorp/terraform-provider-google/blob/v7.46.1/google/services/compute/resource_compute_firewall.go)
 会在一个元素改为一个元素时抑制默认 `0.0.0.0/0` 的删除。
 GitOps 将相同内网 `/24` 表达为两个 `/25`，以便计划明确移除公网默认范围；IaC 的访问前检查
-还必须核对实际防火墙无公网范围。新的资源成功回执未完成时，控制配置 `resource_accepted=false`
-会拒绝待机部署。源码与 CI 不能替代这个真实云端门槛。
+还必须核对实际防火墙无公网范围。复核 [plan 37510472481](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37510472481)
+明确删除 `0.0.0.0/0` 并加入两个内网 `/25`；
+[apply 37510999229](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37510999229)
+整条成功，0 新增/1 修改/0 删除，保护盘、CMDB、S3 与 artifact 均成功。
+原始 artifact `11435337628`，ZIP 摘要
+`sha256:a25f787b3f6c3305cdf51fca4aefeb20f716991e9310b309cfbd0de01f688bc3`；
+CMDB 与 inventory 字节保持一致。控制配置已固定这份接受证据；未接受的资源回执会拒绝待机部署。
+真实主机部署尚待固定 caller 发布，源码、CI 和资源接受均不能替代主机/数据库验收。
 
 ## 尚待完成的代码与运行门槛
 
