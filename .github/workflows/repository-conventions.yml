@@ -6,14 +6,14 @@ on:
       - ".github/scripts/**"
       - ".github/workflows/repository-conventions.yml"
       - "scripts/ci/**"
-      - "scripts/cloud/bootstrap/gcp/bootstrap_prod_selfhost.py"
+      - "scripts/cloud/bootstrap/gcp/bootstrap_prod_selfhost.sh"
   push:
     branches: [main]
     paths:
       - ".github/scripts/**"
       - ".github/workflows/repository-conventions.yml"
       - "scripts/ci/**"
-      - "scripts/cloud/bootstrap/gcp/bootstrap_prod_selfhost.py"
+      - "scripts/cloud/bootstrap/gcp/bootstrap_prod_selfhost.sh"
 
 permissions:
   contents: read
@@ -64,4 +64,4 @@ jobs:
         run: python3 scripts/ci/tests/test_script_ownership.py
 
       - name: Verify fixed PROD bootstrap controller and credential guards
-        run: python3 scripts/ci/test_prod_selfhost_bootstrap_controller.py
+        run: bash scripts/ci/test_prod_selfhost_bootstrap_controller.sh
