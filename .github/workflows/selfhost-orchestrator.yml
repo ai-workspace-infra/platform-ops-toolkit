@@ -74,11 +74,11 @@ on:
         default: ""
         type: string
       operation:
-        description: "执行范围：plan 仅校验；infra 仅基础设施；deploy 部署应用；deploy+init 显式 UAT 空库初始化并部署；native-standby 仅准备 PROD PostgreSQL、保持应用停止；native-init-plan/native-init 受独立 PROD 数据审批保护的原生空库预演/初始化；native-billing-plan/native-billing 受相同保护的 Billing 原生增量预演/升级；migrate 仅迁移；deploy+migrate 部署并迁移；destroy 销毁。迁移由此操作参数选择；GitOps 仅声明拓扑与能力。"
+        description: "执行范围：plan 仅校验；infra 仅基础设施；deploy 部署应用；deploy+init 显式 UAT 空库初始化并部署；native-standby 仅准备 PROD PostgreSQL、保持应用停止；native-init-plan/native-init 受独立 PROD 数据审批保护的原生空库预演/初始化；native-billing-plan/native-billing 受相同保护的 Billing 原生增量预演/升级；native-business-plan/copy/compare 专用只读来源的全业务预演/复制/比对，均不授权切库；migrate 仅迁移；deploy+migrate 部署并迁移；destroy 销毁。迁移由此操作参数选择；GitOps 仅声明拓扑与能力。"
         required: true
         default: "plan"
         type: choice
-        options: [plan, infra, deploy, deploy+init, native-standby, native-init-plan, native-init, native-billing-plan, native-billing, migrate, deploy+migrate, destroy]
+        options: [plan, infra, deploy, deploy+init, native-standby, native-init-plan, native-init, native-billing-plan, native-billing, native-business-plan, native-business-copy, native-business-compare, migrate, deploy+migrate, destroy]
       target_domains:
         description: "选择要执行的业务域 (Business Domain)"
         required: true
@@ -537,8 +537,108 @@ jobs:
           echo '## PROD native Billing schema operation' >> "$GITHUB_STEP_SUMMARY"
           echo 'Billing schema receipt published after access cleanup; application/CD writers remain paused. Full business copy, equality and main database cutover remain pending. Preview makes no schema changes.' >> "$GITHUB_STEP_SUMMARY"
 
+  native_prod_business:
+    name: "[3] PROD | full-business preview, copy or comparison"
+    if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.operation == 'native-business-plan' || github.event.inputs.operation == 'native-business-copy' || github.event.inputs.operation == 'native-business-compare') }}
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: Checkout immutable control source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify independent PROD review, approved source identity and exact successful parent evidence
+        id: full_business_control
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/prod-selfhost/full_business_control.py \
+            --contract .github/config/prod-full-business.json \
+            --destination "$RUNNER_TEMP/native-resource-cmdb"
+          umask 077
+          jq -e '{initialization, transfer, source}' .github/config/prod-full-business.json > "$RUNNER_TEMP/full-business-spec.json"
+      - name: Checkout fixed GitOps declaration
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ steps.full_business_control.outputs.gitops_commit }}
+          path: native-gitops
+          persist-credentials: false
+      - name: Configure exact PROD GitHub OIDC deploy identity
+        uses: ./.github/actions/configure-gcp-oidc
+        with:
+          environment: prod
+          account_id: xworktech
+          load_state_contract: 'false'
+          vault_addr: https://vault.svc.plus
+      - name: Configure cloud access runtime
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Read approved readonly PROD source, target and registry runtime secrets
+        id: native_vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-prod
+          jwtGithubAudience: vault
+          exportToken: false
+          exportEnv: false
+          secrets: |
+            kv/data/prod/databases postgres_root_password | NATIVE_POSTGRES_PASSWORD ;
+            kv/data/prod/database-upgrade PROD_SUPABASE_READONLY_DSN | NATIVE_SOURCE_DSN ;
+            kv/data/CICD GHCR_USERNAME | NATIVE_GHCR_USERNAME ;
+            kv/data/CICD GHCR_TOKEN | NATIVE_GHCR_TOKEN
+      - name: Open same-run cloud access through fixed IaC owner
+        id: native_access
+        uses: ai-workspace-infra/iac_modules/.github/actions/prod-selfhost-access@254dd6321449ab12b862220c8876b482d7032fcd
+        with:
+          phase: open
+          cmdb_file: ${{ runner.temp }}/native-resource-cmdb/cmdb.json
+          cmdb_sha256: ${{ steps.full_business_control.outputs.cmdb_sha256 }}
+          access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Run only the explicit full-business mode through fixed Playbooks owner
+        uses: ai-workspace-infra/playbooks/.github/actions/prod-full-business@7e9b16fa6c83a2dd8bafc22dca5870e06154253f
+        with:
+          cmdb_dir: ${{ runner.temp }}/native-resource-cmdb
+          cmdb_sha256: ${{ steps.full_business_control.outputs.cmdb_sha256 }}
+          gitops_checkout: ${{ github.workspace }}/native-gitops
+          gitops_commit: ${{ steps.full_business_control.outputs.gitops_commit }}
+          access_file: ${{ steps.native_access.outputs.access_file }}
+          spec_file: ${{ runner.temp }}/full-business-spec.json
+          mode: ${{ steps.full_business_control.outputs.mode }}
+          source_dsn: ${{ steps.native_vault.outputs.NATIVE_SOURCE_DSN }}
+          data_gate_verified: ${{ steps.full_business_control.outputs.data_gate_verified }}
+          postgres_password: ${{ steps.native_vault.outputs.NATIVE_POSTGRES_PASSWORD }}
+          ghcr_username: ${{ steps.native_vault.outputs.NATIVE_GHCR_USERNAME }}
+          ghcr_token: ${{ steps.native_vault.outputs.NATIVE_GHCR_TOKEN }}
+      - name: Revoke cloud access even if full-business operation failed
+        if: ${{ always() && steps.native_access.outcome != '' && steps.native_access.outcome != 'skipped' }}
+        uses: ai-workspace-infra/iac_modules/.github/actions/prod-selfhost-access@254dd6321449ab12b862220c8876b482d7032fcd
+        with:
+          phase: close
+          cmdb_file: ${{ runner.temp }}/native-resource-cmdb/cmdb.json
+          cmdb_sha256: ${{ steps.full_business_control.outputs.cmdb_sha256 }}
+          access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Retain original authoritative CMDB for the next controlled stage
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-ops-toolkit-cmdb
+          path: ${{ runner.temp }}/native-resource-cmdb
+          if-no-files-found: error
+      - name: Publish sanitized full-business evidence only after successful cleanup
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-full-business-receipt
+          path: ${{ runner.temp }}/prod-full-business-receipt.json
+          if-no-files-found: error
+      - name: State the completed boundary
+        run: |
+          echo '## PROD full-business data operation' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Full-business receipt published after access cleanup. Preview does not copy business rows; copy and comparison do not authorize cutover. Source freeze, final catch-up, single writer and production acceptance remain separate gates.' >> "$GITHUB_STEP_SUMMARY"
+
   provision:
-    if: ${{ github.event.inputs.operation != 'native-standby' && github.event.inputs.operation != 'native-init-plan' && github.event.inputs.operation != 'native-init' && github.event.inputs.operation != 'native-billing-plan' && github.event.inputs.operation != 'native-billing' }}
+    if: ${{ github.event.inputs.operation != 'native-standby' && github.event.inputs.operation != 'native-init-plan' && github.event.inputs.operation != 'native-init' && github.event.inputs.operation != 'native-billing-plan' && github.event.inputs.operation != 'native-billing' && github.event.inputs.operation != 'native-business-plan' && github.event.inputs.operation != 'native-business-copy' && github.event.inputs.operation != 'native-business-compare' }}
     name: "[0] Prepare | profile + infra"
     environment: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.vault_env_path == 'prod') && 'prod' || (github.event_name == 'workflow_dispatch' && github.event.inputs.vault_env_path == 'uat' && 'uat' || (github.event_name == 'push' && github.ref == 'refs/heads/main' && 'uat' || ((startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || ''))) }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
@@ -2352,7 +2452,7 @@ jobs:
     # that every declared need has produced a result. This satisfies the
     # workflow gating contract without turning a failure into a skipped summary.
     if: >-
-      ${{ always() && !cancelled() && github.event.inputs.operation != 'native-standby' && github.event.inputs.operation != 'native-init-plan' && github.event.inputs.operation != 'native-init' && github.event.inputs.operation != 'native-billing-plan' && github.event.inputs.operation != 'native-billing' &&
+      ${{ always() && !cancelled() && github.event.inputs.operation != 'native-standby' && github.event.inputs.operation != 'native-init-plan' && github.event.inputs.operation != 'native-init' && github.event.inputs.operation != 'native-billing-plan' && github.event.inputs.operation != 'native-billing' && github.event.inputs.operation != 'native-business-plan' && github.event.inputs.operation != 'native-business-copy' && github.event.inputs.operation != 'native-business-compare' &&
       needs.provision.result != '' &&
       needs.deploy_web_saas.result != '' &&
       needs.capture_web_saas_baseline.result != '' &&

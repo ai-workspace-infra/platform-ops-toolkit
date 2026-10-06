@@ -203,3 +203,51 @@ run/tag/SHA/attempt 与原 artifact bytes，不执行主机或数据库命令。
 控制守卫在读取凭据和打开访问之前拒绝未接受初始化；IaC 同轮临时访问总是清理，成功 schema evidence
 仅在清理成功后发布。所有原资源/待机 metadata 来自已验收真实 run；没有新增手写 CMDB。
 预演不改 schema，实际升级不代表全业务复制或切换；后续仍须全业务/最终追平/单写者与生产入口验收。
+
+## 全业务复制与比对 owner → caller（2026-10-07）
+
+Playbooks [#601](https://github.com/ai-workspace-infra/playbooks/pull/601) 已合并为
+`0faff281de9cefa29ab01595cc40c7d2c60b08fc`，固定执行 owner 为审核通过的
+`7e9b16fa6c83a2dd8bafc22dca5870e06154253f`。隔离 PostgreSQL 17
+[run 37540184936](https://github.com/ai-workspace-infra/playbooks/actions/runs/37540184936)
+通过生产容器 stdin 启动脚本、预演、53 表复制/比对、1,003 行账本分页、大整数精度和 Docker 配置无凭据检查。
+首轮测试遗漏 `InitializeNative` 单独建立的版本记录表，已修复测试并重跑；没有生产 SQL 或数据执行。
+
+Toolkit 新调用方沿用 `selfhost-orchestrator.yml`，增加三项 operation，仍使用原 25 个输入，默认 plan。
+
+| operation | 行为 | 前序证据 |
+| --- | --- | --- |
+| `native-business-plan` | 只读目录/用户预演；不下载大业务表，不写目标行 | 实际资源、待机、原生初始化、Billing 增量成功回执 |
+| `native-business-copy` | 单一来源快照、每批 1,000 行复制到零行 53 表目标，并在提交前逐表比对 | 与预演相同；目标若有业务行直接拒绝 |
+| `native-business-compare` | 不写目标行，重新读取同一来源快照与完整目标，按 email 比对用户及业务引用 | 上述证据及已完成实际复制的原始完整回执 |
+
+读取凭据或打开访问之前，校验本次独立 PROD 审核、固定 tag/SHA、每个实际成功 run/attempt、
+workflow/repository、artifact ID/digest 和原始回执 bytes。原 CMDB 保持不变，IaC 固定 owner 同轮打开/总是撤销访问，
+只有成功清理后才发布脱敏业务回执。Toolkit 不新增主机、数据库、云或 DNS 执行。
+
+使用 Accounts 已发布镜像 `sha-7b3112eb09ec1e7fbb9d35f25029818d8500980f`，digest
+`sha256:339e7e840a5de627833e67f6dce74145a8db8c22f6ebe11a6dca9cc9cd3e35cd`，
+原生 Accounts SQL `842cef3beb98ef819dc854ecdf5f85683233641a0cd85a9156b30ad59f7e0206`
+及 Billing SQL `a7133f3ef2ea9013a055cfd1442a7488d2b837f289e0f5d9b61624d4fde9bc53`。
+主机只拉取并核验该镜像的 compiled manifest；不现场构建。
+
+来源必须为审批确认的 PROD session pooler `readonly_release.PROJECT_REF`（5432/TLS），
+实际角色及完整 RLS 可见性由 `migratectl` 检查；来源 RLS 保持开启。
+新调用方只从 `kv/prod/database-upgrade` 读取 `PROD_SUPABASE_READONLY_DSN`，不跨环境读取 UAT 凭据。
+Vault policy 源码允许当前 PROD 路径且 role 绑定原 workflow/版本 tag；源码不证明 live Vault 配置。
+`source.identity_sha256` 是审批确认的 Host/Port/Database/Role JSON 摘要，不包含密码，
+不得直接以运行时凭据计算值填入待批准合同。运行时连接必须匹配该摘要。
+连接凭据经 SSH/容器 stdin 传递，不写主机 env 文件或 Docker 持久配置；Registry auth 仅在私密 tmpfs 临时目录。
+回执仅含来源/快照/目录摘要、逐表行数和摘要、scope/版本/时间与只读状态，不含业务行、email 或 Proxy UUID。
+
+当前 `.github/config/prod-full-business.json` 的来源为 `ready=false / identity_sha256=null`，
+初始化/Billing/复制 acceptance 均为 false，实际回执字段均为空。必须取得并审核真实前序回执后再通过 PR 更新，
+不得用 CI、预演或手写回执填充。当前 PROD 独立审核仍未配置成功，因此生产主库继续保持 Serverless。
+
+复制和比对均明确 `source_writers_paused=false`、`final_catchup_complete=false`、`database_cutover_approved=false`。
+它们只证明各自快照一致，不能自动切 Edge/CNAME。后续仍需来源业务写者冻结、最终追平、10 分钟内完整一致性、
+Accounts/Billing 同一主库的单写者证明与生产业务入口验收。当前工具拒绝已有业务行的基线复制；
+UAT 23 用户不同 UUID 的非空目标对齐须采用另行审核的逐引用 reconciliation，不能靠清空目标实现。
+
+旧身份域 export/import 为 LEGACY，有既存调用方时保留；53 表成功复制及真实 owner → caller 验收后，
+再审查旧路径删除条件。身份域导入回执不能代替完整业务一致性。
