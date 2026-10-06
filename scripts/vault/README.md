@@ -70,7 +70,27 @@ bash scripts/create_vault_service_repo_roles.sh --apply \
 The script provisions the Vault role and policy only. AWS IAM OIDC trust
 reconciliation remains a separate, explicitly approved AWS bootstrap action.
 
-## Apply
+## Console-only UAT deployment
+
+`github-actions-console-uat-deploy` is separate from the legacy Console CI
+roles. It trusts only Portal `console-uat-pipeline.yml` dispatched on `main`
+in GitHub Environment `uat`. The workflow checks out a reviewed immutable
+release tag after validation; the OIDC caller remains the main workflow.
+Its only capability is `read` on `kv/data/uat/serverless/cloudflare`.
+No PROD, shared CICD, KV writes, database or other environment access is granted.
+The Cloudflare token's own scope remains independently administered; this
+declaration does not create or broaden a Cloudflare token.
+
+Apply only this declaration after review:
+
+```bash
+VAULT_ADDR=https://vault.svc.plus bash scripts/create_vault_service_repo_roles.sh \
+  --apply --role github-actions-console-uat-deploy
+```
+
+The existing Console roles and policies are not changed.
+
+## General apply
 
 Run with an authenticated Vault admin session:
 
