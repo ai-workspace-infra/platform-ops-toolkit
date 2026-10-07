@@ -91,7 +91,9 @@ jobs:
         run: python3 scripts/ci/script_ownership_verify.py
 
       - name: Falsify ownership guard with new and changed execution fixtures
-        run: python3 scripts/ci/tests/test_script_ownership.py
+        run: |
+          python3 scripts/ci/tests/test_script_ownership.py
+          python3 scripts/ci/test_non_iac_tls_restore_contract.py
 
       - name: Verify Vault owner recommendation handoff and pure stage planning
         run: |
