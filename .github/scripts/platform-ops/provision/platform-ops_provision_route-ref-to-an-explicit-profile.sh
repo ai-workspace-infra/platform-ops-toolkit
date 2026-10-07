@@ -261,9 +261,6 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     state_project="svc.plus"
   fi
   uat_akamai_region_namespace=false
-  akamai_matrix_mode=false
-  akamai_matrix_action=none
-  akamai_matrix_workspaces=""
   if [[ "${reuse_existing_host}" == "true" ]]; then
     # Existing AI Workspace is an application-only deployment target. Keep the
     # provider/account identity for routing and observability, but deliberately
@@ -300,12 +297,10 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
         exit 1
         ;;
     esac
-    if [[ "${akamai_matrix_mode}" != "true" ]]; then
-      rf="${terraform_namespace}"
-      resource_file="${deployment_env}/${terraform_namespace}"
-      terraform_workspace="${deployment_env}-${state_project}-${cloud_provider}-${account}-${terraform_namespace}"
-      state_key="terraform/${deployment_env}/${state_project}/${cloud_provider}/${account}/${terraform_namespace}/terraform.tfstate"
-    fi
+    rf="${terraform_namespace}"
+    resource_file="${deployment_env}/${terraform_namespace}"
+    terraform_workspace="${deployment_env}-${state_project}-${cloud_provider}-${account}-${terraform_namespace}"
+    state_key="terraform/${deployment_env}/${state_project}/${cloud_provider}/${account}/${terraform_namespace}/terraform.tfstate"
     if [[ "${operation:-${INPUT_OPERATION:-plan}}" == "destroy" && "${terraform_namespace}" == "open-platform" ]]; then
       echo "::error::The UAT open-platform Akamai namespace is permanent and cannot be destroyed by this workflow." >&2
       exit 1
@@ -377,16 +372,6 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
       exit 1
       ;;
   esac
-
-  if [[ "${akamai_matrix_mode:-false}" == "true" ]]; then
-    # The parent orchestrator only dispatches child workflows.  It must not
-    # run Terraform against a synthetic matrix namespace or expose a shared
-    # state key to downstream jobs.
-    run_infrastructure=false
-    run_application_deploy=false
-    terraform_action=none
-    toolkit_action=none
-  fi
 
   if [[ "${reuse_existing_host}" == "true" ]]; then
     case "${operation}" in
@@ -566,7 +551,7 @@ fi
 # workspace compatibility. Resolve the physical declaration only after all
 # event/ref branches have selected the final environment/provider.
 if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ||
-  ("${uat_akamai_region_namespace:-false}" != "true" && "${akamai_matrix_mode:-false}" != "true") ]]; then
+  "${uat_akamai_region_namespace:-false}" != "true" ]]; then
   resource_files_full="$(resolve_gitops_resource_files "${deployment_env}" "${cloud_provider}" "${target_domains}")"
 fi
 
@@ -704,7 +689,7 @@ fi
 
 terraform_namespace="${terraform_namespace:-${rf:-${target_domains}}}"
 terraform_project="${state_project:-${STATE_PROJECT}}"
-for key in deployment_env resource_file resource_files_full terraform_workspace state_key terraform_namespace terraform_project run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider provider_tree provider_gitops_dir provider_provisioner provider_credential_mode account source_host source_domain_base target_domain_base env_suffix dns_mode deploy_tag agent_controller_url billing_service_base_url include_external_agent_proxy akamai_matrix_mode akamai_matrix_action akamai_matrix_workspaces reuse_existing_host existing_target_host existing_target_user; do
+for key in deployment_env resource_file resource_files_full terraform_workspace state_key terraform_namespace terraform_project run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider provider_tree provider_gitops_dir provider_provisioner provider_credential_mode account source_host source_domain_base target_domain_base env_suffix dns_mode deploy_tag agent_controller_url billing_service_base_url include_external_agent_proxy reuse_existing_host existing_target_host existing_target_user; do
   value="${!key:-}"
   echo "$key=$value" >> "$GITHUB_OUTPUT"
 done
@@ -720,7 +705,7 @@ else
   echo 'count=0' >> "$GITHUB_OUTPUT"
 fi
 terraform_workdir="envs/platform-ops-toolkit"
-if [[ "${deployment_env}" == "uat" && "${cloud_provider}" == "akamai-cloud" && "${akamai_matrix_mode:-false}" != "true" ]]; then
+if [[ "${deployment_env}" == "uat" && "${cloud_provider}" == "akamai-cloud" ]]; then
   # Akamai UAT has one Terraform root per namespace. The generator rejects
   # the historical shared directory because it would make six state locks
   # look like one workdir and can overwrite generated files between runs.

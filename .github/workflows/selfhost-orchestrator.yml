@@ -695,9 +695,6 @@ jobs:
       cloud_provider:           ${{ steps.route.outputs.cloud_provider }}
       provider_gitops_dir:      ${{ steps.route.outputs.provider_gitops_dir }}
       account:                  ${{ steps.route.outputs.account }}
-      akamai_matrix_mode:       ${{ steps.route.outputs.akamai_matrix_mode }}
-      akamai_matrix_action:     ${{ steps.route.outputs.akamai_matrix_action }}
-      akamai_matrix_workspaces: ${{ steps.route.outputs.akamai_matrix_workspaces }}
       migration_target_host:    ${{ steps.resolve_migration_target.outputs.target_host }}
       hosts_infra_platform: ${{ steps.matrix.outputs.hosts_infra_platform || '[]' }}
       hosts_agent_proxy:  ${{ steps.matrix.outputs.hosts_agent_proxy  || '[]' }}
@@ -1326,82 +1323,21 @@ jobs:
         path: ${{ runner.temp }}/cmdb-artifact
         if-no-files-found: error
 
-  # Legacy aggregate UAT mode is intentionally unreachable for UAT: the
-  # Hybrid Orchestrator is the only all-provider entry point. Keeping this
-  # guard visible prevents a future change from silently reintroducing the old
-  # Akamai-only fan-out and recreating JP/US/AI resources on the wrong cloud.
-  provision_akamai_uat_namespace_matrix:
-    name: "[0A] Legacy UAT namespace matrix (disabled)"
-    needs: provision
-    if: >-
-      ${{ !cancelled() &&
-      needs.provision.result == 'success' &&
-      needs.provision.outputs.akamai_matrix_mode == 'true' }}
-    runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
-    steps:
-    - name: Checkout toolkit
-      uses: actions/checkout@v7
-      with:
-        ref: ${{ needs.provision.outputs.toolkit_ref || github.sha }}
-
-    - name: Dispatch isolated Akamai namespace workflows
-      if: needs.provision.outputs.akamai_matrix_action != 'deploy'
-      env:
-        GH_TOKEN: ${{ github.token }}
-        GH_REPO: ai-workspace-infra/platform-ops-toolkit
-        CHILD_WORKFLOW: akamai-cloud-iac.yml
-        DEPLOY_ACTION: ${{ needs.provision.outputs.akamai_matrix_action }}
-        ACCOUNT: ${{ needs.provision.outputs.account }}
-        GITOPS_REF: ${{ needs.provision.outputs.gitops_ref }}
-        IAC_REF: ${{ needs.provision.outputs.infra_ref }}
-        TARGET_DOMAIN_BASE: ${{ needs.provision.outputs.target_domain_base }}
-      run: .github/scripts/platform-ops/provision/platform-ops_provision_dispatch-akamai-uat-namespace-matrix.sh
-
-    - name: Dispatch ordered UAT selfhost namespace deployments
-      if: needs.provision.outputs.akamai_matrix_action == 'deploy'
-      env:
-        GH_TOKEN: ${{ github.token }}
-        GH_REPO: ai-workspace-infra/platform-ops-toolkit
-        CHILD_WORKFLOW: selfhost-orchestrator.yml
-        RUNNER_TYPE: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
-        ACCOUNT: ${{ needs.provision.outputs.account }}
-        DEPLOY_TAG: ${{ needs.provision.outputs.deploy_tag }}
-        SOURCE_REF: ${{ needs.provision.outputs.toolkit_ref || 'main' }}
-        OFFLINE_MODE: ${{ needs.provision.outputs.offline_mode || 'off' }}
-        SOURCE_HOST: ${{ needs.provision.outputs.source_host }}
-        SOURCE_DOMAIN_BASE: ${{ needs.provision.outputs.source_domain_base }}
-        TARGET_DOMAIN_BASE: ${{ needs.provision.outputs.target_domain_base }}
-        OBSERVABILITY_ENDPOINT: ${{ github.event.inputs.observability_endpoint || 'https://observability.svc.plus' }}
-        XRAY_EXPORTER_IMAGE: ${{ github.event.inputs.xray_exporter_image || '' }}
-        INCLUDE_EXTERNAL_AGENT_PROXY: ${{ needs.provision.outputs.include_external_agent_proxy || 'true' }}
-        INSTANCE_PLAN: ${{ github.event.inputs.instance_plan || '2C4G' }}
-        AGENT_PROXY_PLAN: ${{ github.event.inputs.agent_proxy_plan || '1C2G' }}
-        DNS_MODE: ${{ github.event.inputs.dns_mode || 'none' }}
-        OPEN_PLATFORM_SERVICE: ${{ github.event.inputs.open_platform_service || 'all' }}
-        OPEN_PLATFORM_MCP_SERVICES: ${{ github.event.inputs.open_platform_mcp_services || 'none' }}
-        SKIP_STRIPE_CATALOG: ${{ github.event.inputs.skip_stripe_catalog || 'false' }}
-        AGENT_CONTROLLER_URL: ${{ github.event.inputs.agent_controller_url || '' }}
-        VAULT_ADDR: ${{ github.event.inputs.vault_addr || 'https://vault.svc.plus' }}
-      run: .github/scripts/platform-ops/provision/platform-ops_provision_dispatch-selfhost-uat-namespace-matrix.sh
-
   # target_domains=all is not complete until the UAT XConnect Zero control/data
   # plane is reconciled. Keep this as a separate workflow so its existing-One
-  # state and Vault role remain independent from the six Akamai Terraform
-  # namespaces. The external Gateway and One records are configurable inputs;
-  # the defaults are the current UAT topology, not provider-specific logic.
+  # state and Vault role remain independent from provider-specific resources.
+  # The external Gateway and One records are configurable inputs; the defaults
+  # are the current UAT topology, not provider-specific logic.
   deploy_xconnect_zero_uat:
     name: "[0B] XConnect Zero UAT / existing One"
-    needs: [provision, provision_akamai_uat_namespace_matrix]
+    needs: [provision]
     if: >-
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
-      needs.provision_akamai_uat_namespace_matrix.result == 'success' &&
       needs.provision.outputs.deployment_env == 'uat' &&
       needs.provision.outputs.target_domains == 'all' &&
       needs.provision.outputs.run_application_deploy == 'true' &&
-      (needs.provision.outputs.terraform_action == 'apply' ||
-      (needs.provision.outputs.akamai_matrix_mode == 'true' &&
-      needs.provision.outputs.akamai_matrix_action == 'deploy')) }}
+      needs.provision.outputs.terraform_action == 'apply' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     steps:
     - name: Checkout toolkit
@@ -2445,7 +2381,6 @@ jobs:
       deploy_infra_platform,
       bootstrap_stripe_catalog,
       trigger_data_migration,
-      provision_akamai_uat_namespace_matrix,
       deploy_xconnect_zero_uat,
       deploy_ai_workspace,
       deploy_monitor_agent
@@ -2468,7 +2403,6 @@ jobs:
       needs.deploy_infra_platform.result != '' &&
       needs.bootstrap_stripe_catalog.result != '' &&
       needs.trigger_data_migration.result != '' &&
-      needs.provision_akamai_uat_namespace_matrix.result != '' &&
       needs.deploy_xconnect_zero_uat.result != '' &&
       needs.deploy_ai_workspace.result != '' &&
       needs.deploy_monitor_agent.result != '' }}
@@ -2495,7 +2429,6 @@ jobs:
         INFRA_PLATFORM_DEPLOY_RESULT: ${{ needs.deploy_infra_platform.result }}
         STRIPE_CATALOG_RESULT: ${{ needs.bootstrap_stripe_catalog.result }}
         DATA_MIGRATION_RESULT: ${{ needs.trigger_data_migration.result }}
-        AKAMAI_NAMESPACE_MATRIX_RESULT: ${{ needs.provision_akamai_uat_namespace_matrix.result }}
         XCONNECT_ZERO_UAT_RESULT: ${{ needs.deploy_xconnect_zero_uat.result }}
         AI_WORKSPACE_RESULT: ${{ needs.deploy_ai_workspace.result }}
         MONITOR_AGENT_RESULT: ${{ needs.deploy_monitor_agent.result }}
