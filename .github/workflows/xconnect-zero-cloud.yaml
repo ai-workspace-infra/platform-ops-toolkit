@@ -16,7 +16,7 @@ on:
         description: Advanced override - reviewed iac_modules commit SHA
         type: string
         required: false
-        default: '63e4251f8708b05a96c236b465ae170f43743df2'
+        default: '8373e926a6f7ba37a59a7b7ee864c7e87b102f58'
       gitops_ref:
         description: Advanced override - reviewed gitops commit SHA
         type: string
@@ -242,7 +242,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/playbooks
-          ref: fda67822d3d9461567238606256dbe3610a8759f
+          ref: 2d326409ccfbd5f6e862c3dc08660e0ae12fb51d
           token: ${{ steps.infra-token.outputs.token }}
           path: playbooks
           persist-credentials: false
@@ -348,7 +348,7 @@ jobs:
     timeout-minutes: 90
     env:
       MODE: ${{ inputs.mode }}
-      IAC_REF: ${{ inputs.iac_ref || '63e4251f8708b05a96c236b465ae170f43743df2' }}
+      IAC_REF: ${{ inputs.iac_ref || '8373e926a6f7ba37a59a7b7ee864c7e87b102f58' }}
       GITOPS_REF: ${{ inputs.gitops_ref || '28430b835c4275eea1921aa7fd98c96dbc2c50ef' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '1308c585bbb3806b69279be678dad2feb8099699' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
@@ -922,7 +922,7 @@ jobs:
     timeout-minutes: 45
     env:
       MODE: cleanup
-      IAC_REF: ${{ inputs.iac_ref || '63e4251f8708b05a96c236b465ae170f43743df2' }}
+      IAC_REF: ${{ inputs.iac_ref || '8373e926a6f7ba37a59a7b7ee864c7e87b102f58' }}
       GITOPS_REF: ${{ inputs.gitops_ref || '28430b835c4275eea1921aa7fd98c96dbc2c50ef' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '1308c585bbb3806b69279be678dad2feb8099699' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}

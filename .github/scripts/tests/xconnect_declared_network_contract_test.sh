@@ -56,7 +56,7 @@ if 'read' in match.group(1):
     raise SystemExit("CI must not read its one-use invitation")
 PY
 ! grep -Fq 'VAULT_JWT: ${{ github.token }}' "$workflow"
-grep -Fq 'ref: fda67822d3d9461567238606256dbe3610a8759f' "$workflow"
+grep -Fq 'ref: 2d326409ccfbd5f6e862c3dc08660e0ae12fb51d' "$workflow"
 grep -Fq 'uses: ./playbooks/.github/actions/xconnect-network-bootstrap' "$workflow"
 ! grep -Fq 'run: bash .github/scripts/xconnect-network/bootstrap.sh' "$workflow"
 grep -Fq 'ACTIONS_ID_TOKEN_REQUEST_TOKEN' "$handoff"

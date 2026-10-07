@@ -32,7 +32,7 @@ class VaultServerEntryTests(unittest.TestCase):
         self.assertIn("connection_mode: bootstrap-public", ENTRY.read_text(encoding="utf-8"))
         self.assertIn("xconnect-one", self.inputs["service_stage"]["options"])
         self.assertIn("vault-public-frontend", self.inputs["service_stage"]["options"])
-        self.assertEqual(self.inputs["playbooks_ref"]["default"], "dbcdc8073228e1749ee88b669dcbfccc0549212d")
+        self.assertEqual(self.inputs["playbooks_ref"]["default"], "2d326409ccfbd5f6e862c3dc08660e0ae12fb51d")
 
     def test_gateway_tls_is_read_with_the_scoped_xconnect_role_only_when_needed(self):
         steps = steps_by_name(self.jobs["node-stage"]["steps"])
@@ -195,7 +195,7 @@ class ProviderNeutralStageTests(unittest.TestCase):
         setup = self.steps["Prepare isolated Python and Ansible in the Playbooks owner"]
         self.assertEqual(
             setup["uses"],
-            "ai-workspace-infra/playbooks/.github/actions/setup-node-stage-runner@dbcdc8073228e1749ee88b669dcbfccc0549212d",
+            "ai-workspace-infra/playbooks/.github/actions/setup-node-stage-runner@2d326409ccfbd5f6e862c3dc08660e0ae12fb51d",
         )
         self.assertEqual(setup["with"]["venv_path"], "${{ runner.temp }}/node-stage-python")
         self.assertEqual(str(setup["with"]["pyyaml_version"]), "6.0.2")
@@ -204,7 +204,7 @@ class ProviderNeutralStageTests(unittest.TestCase):
         run = self.steps["Execute provider-neutral Vault node stage"]
         self.assertEqual(
             run["uses"],
-            "ai-workspace-infra/playbooks/.github/actions/vault-node-stage@dbcdc8073228e1749ee88b669dcbfccc0549212d",
+            "ai-workspace-infra/playbooks/.github/actions/vault-node-stage@2d326409ccfbd5f6e862c3dc08660e0ae12fb51d",
         )
         for field in ("tags", "requires", "confirms", "playbook", "action", "extra_vars", "stage"):
             self.assertEqual(run["with"][field], f"${{{{ steps.stage.outputs.{field} }}}}")
@@ -217,7 +217,7 @@ class ProviderNeutralStageTests(unittest.TestCase):
         observe = self.steps["Observe the automatic migration in the Playbooks owner"]
         self.assertEqual(
             observe["uses"],
-            "ai-workspace-infra/playbooks/.github/actions/vault-migration-observation@dbcdc8073228e1749ee88b669dcbfccc0549212d",
+            "ai-workspace-infra/playbooks/.github/actions/vault-migration-observation@2d326409ccfbd5f6e862c3dc08660e0ae12fb51d",
         )
         self.assertEqual(observe["with"]["owner_root"], "${{ github.workspace }}/playbooks")
         resolve = self.steps["Resolve the stage to run"]

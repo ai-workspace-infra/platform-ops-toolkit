@@ -4,7 +4,7 @@
 
 `declared-network` 的 Accounts API invitation 已从混合 Toolkit bootstrap 路径切到
 Playbooks owner action `xconnect-network-bootstrap`，固定 owner SHA 为
-`fda67822d3d9461567238606256dbe3610a8759f`。Playbooks 只消费 Toolkit 已校验的
+`2d326409ccfbd5f6e862c3dc08660e0ae12fb51d`。Playbooks 只消费 Toolkit 已校验的
 私有请求和运行时 service token，调用 Accounts bootstrap API，并写出 mode `0600`
 的私有 handoff；它不登录 Vault，也不持久化 invitation。
 
@@ -19,7 +19,7 @@ Accounts API 或 Vault 写入，也不构成 UAT 完成。
 ## 2026-10-07 XConnect lab IaC lifecycle owner/caller 切换
 
 `xconnect-zero-cloud.yaml` 的 Terraform preflight/prepare/apply/cleanup 已切到固定
-IaC owner SHA `63e4251f8708b05a96c236b465ae170f43743df2` 的
+IaC owner SHA `8373e926a6f7ba37a59a7b7ee864c7e87b102f58` 的
 `xconnect-lab-lifecycle` action。owner 仅处理精确 run state、Terraform plan/apply/
 destroy/output/state evidence、AWS provider facts、租约对象 CRUD 和脱敏诊断；它不
 调用 Toolkit 脚本、SSH、Ansible、systemd 或 Accounts API。`run.sh` 继续承担输入、
@@ -66,7 +66,7 @@ Playbooks 已存在 `deploy_xconnect_one.yml`（`roles/vhosts/xconnect_one`）�
 ### 2026-10-07 host/service caller 切换 gate
 
 以下 gate 是下一子批次的执行清单。当前 Playbooks SHA
-`fda67822d3d9461567238606256dbe3610a8759f` 已有 `xconnect_one`、
+`2d326409ccfbd5f6e862c3dc08660e0ae12fb51d` 已有 `xconnect_one`、
 `xconnect_gateway`、`xconnect_lab_runtime` Roles，但只覆盖
 `gateway_identity/gateway/one/gateway_verify/one_verify`；它还没有等价覆盖旧 runner
 的邀请、peer reconcile 和端到端 receipt。因此 `run.sh setup/bootstrap/gateway/one/verify`、

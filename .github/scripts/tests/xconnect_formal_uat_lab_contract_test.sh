@@ -85,7 +85,7 @@ if grep -Fq 'xconnect-gateway up --state-dir "$state"' "${repo_root}/.github/scr
   exit 1
 fi
 grep -Fq 'timeout-minutes: 90' "${workflow}"
-grep -Fq "default: '63e4251f8708b05a96c236b465ae170f43743df2'" "${workflow}"
+grep -Fq "default: '8373e926a6f7ba37a59a7b7ee864c7e87b102f58'" "${workflow}"
 grep -Fq 'uses: ./iac_modules/.github/actions/xconnect-lab-lifecycle' "${workflow}"
 for stage in preflight prepare apply cleanup; do
   grep -Fq "operation: ${stage}" "${workflow}"

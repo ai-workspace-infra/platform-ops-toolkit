@@ -3,7 +3,7 @@ import unittest
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-OWNER_SHA = "dbcdc8073228e1749ee88b669dcbfccc0549212d"
+OWNER_SHA = "2d326409ccfbd5f6e862c3dc08660e0ae12fb51d"
 SETUP = f"ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@{OWNER_SHA}"
 
 
