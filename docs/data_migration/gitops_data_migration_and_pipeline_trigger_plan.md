@@ -115,16 +115,15 @@ spec:
   - 在 `operation` 选项中补充 `upgrade`：
     `options: [plan, init-schema, deploy, upgrade, migrate, deploy+migrate, destroy]`；
   - 应用部署任务统一兼容 `upgrade`（不执行数据迁移）。
-* **`.github/scripts/snapshots/dispatch-uat-combined.sh`**:
-  - 调整 serverless 派发参数为 `-f operation=deploy+migrate`；
-  - 传入 `accounts_source_backend=supabase`。
-* **`.github/scripts/snapshots/dispatch-prod-combined.sh`**:
-  - 调整 serverless 派发参数为 `-f operation=upgrade`；
-  - 严格禁用无确认的自动化数据迁移。
-* **`.github/workflows/daily-main-snapshot.yaml`**:
-  - 补充 `enable_migration` 参数（UAT 默认为 true，PROD 默认为 false），提供清晰的控制界面。
+* **`.github/scripts/snapshots/dispatch-environment-combined.sh`**：
+  - 按 `DEPLOY_ENV` 选择 Serverless/SIT 或 Hybrid/UAT；
+  - 只传入不可变快照 tag，迁移与生产发布不从 Daily 隐式触发。
+* **`.github/workflows/daily-main-snapshot.yaml`**：
+  - 由 `deploy_env` 选择 Dispatch matrix；迁移、baseline、schema 和 PROD 晋级改由
+    Playbooks role + GitOps 入口负责。
 
 ### 5.3 契约测试与验证
 * **`.github/scripts/tests/data_migration_mode_contract_test.sh`**: 补充双端 Supabase 校验测试；
 * **`.github/scripts/tests/serverless_dispatch_contract_test.sh`**: 补充 `upgrade` 选项测试；
-* **`.github/scripts/tests/daily_snapshot_combined_dispatch_test.sh`**: 覆盖最新的 UAT 与 PROD 派发行为断言。
+* **`.github/scripts/tests/daily_snapshot_environment_dispatch_test.sh`**: 覆盖 SIT/UAT
+  参数选择、不可变 tag 和子工作流派发行为断言。

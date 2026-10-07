@@ -4,12 +4,9 @@
 
 `Daily Main Snapshot` 仅使用 GitHub App 认证。workflow 通过 GitHub OIDC 登录 Vault，读取 App 私钥并按目标组织生成 installation token。
 
-Daily 负责 SIT/UAT 快照构建、Shared 只读就绪检查和 UAT Hybrid 发布；在 UAT
-验收清单通过后，也支持受保护的 UAT→PROD 晋级。PROD 晋级必须填写已成功的
-`uat_daily_run_id`，只晋级该 UAT run 验收的镜像 digest，并在 `production` Environment
-审批后创建不可变 `v*` tag、发布 Serverless 与 selfhost。它不从源码重建，也不自动做
-canonical DNS cutover。通用 PROD workflow 仍只能由受保护的 `v*` tag 或 `release/v*`
-分支触发；Daily 使用专用 `prod-release` Vault role。详见[多环境交付与发布规范](standards/multi-environment-delivery-and-release-standard.md)。
+Daily 负责 SIT/UAT 快照构建、Shared 只读就绪检查和按参数选择环境的发布矩阵。
+PROD 晋级、release tag 创建和生产制品校验不属于 Daily；这些工作由受保护的
+Playbooks role + GitOps 发布入口负责。详见[多环境交付与发布规范](standards/multi-environment-delivery-and-release-standard.md)。
 
 ## 前置配置
 
@@ -25,10 +22,8 @@ kv/data/CICD/github-app/daily-snapshot
 app_private_key
 ```
 
-UAT 使用 Vault role `github-actions-platform-ops-toolkit-uat`；PROD 晋级使用独立的
-`github-actions-platform-ops-toolkit-prod-release` role。后者只能被受保护的
-`daily-main-snapshot.yaml` 主线发布入口使用，并且只在 production Environment 审批后
-读取该 App 私钥。
+SIT/UAT 使用与矩阵环境对应的 Vault role；生产发布使用独立的受保护 role。Daily
+不会读取生产发布凭据，也不会创建生产 release tag。
 
 GitHub App `daily-snapshot-tag`（App ID `4405545`）需要安装到四个目标组织，并拥有目标仓库的：
 
@@ -47,11 +42,8 @@ GitHub App `daily-snapshot-tag`（App ID `4405545`）需要安装到四个目标
 2. 选择 `Daily Main Snapshot`。
 3. 点击 `Run workflow`。
 4. 确认 workflow ref 使用受保护的 `main`。
-5. 选择 `deploy_env`。常规发布使用 `uat`；PROD 选择 `prod` 后必须填写已验收的
-   `uat_daily_run_id`。可选填写 `snapshot_tag` / `snapshot_source_ref`，但它们必须与
-   该 UAT run 验收出的 release tag / snapshot tag 一致。
-6. 仅在完整 UAT Hybrid 成功后需要自动进入 PROD 审批时，选择 UAT 的
-   `promote_prod_after_uat`；部分仓库筛选不能进入 PROD。
+5. 选择 `deploy_env`（`sit` 或 `uat`）。矩阵只执行所选环境的映射，不把 UAT 写死为
+   默认派发目标；可选填写 `snapshot_tag` / `snapshot_source_ref`。
 
 workflow 会从各仓库当时的 `main` SHA 创建不可变的
 `daily-build-YYYY.MM.DD` tag，并继续执行目标仓库的构建触发流程。
@@ -66,15 +58,17 @@ workflow 会从各仓库当时的 `main` SHA 创建不可变的
 GitOps 只代表 desired state，provider API、DNS、健康检查和部署 CMDB 才能证明
 observed state。只有声明而没有观察记录的资源必须显示为 `declared_only`。
 
-## UAT 自动联动
+## 环境矩阵自动联动
 
-当 `deploy_env=uat` 且未使用 `repositories` 缩小范围时，快照矩阵全部构建成功后会自动：
+当未使用 `repositories` 缩小范围时，快照矩阵全部构建成功后会自动：
 
 1. 从各组织状态 artifact 解析唯一的不可变快照 tag；
 2. 只读检查 Shared 就绪：Vault → Observability → IAM（`check-shared-readiness.sh`）。任一失败即停止，不发布业务；Shared 的部署、升级、迁移属于独立的 `open-platform-orchestrator.yml`，Daily 不触碰；
-3. dispatch `hybrid-orchestrator.yml`（`operation=deploy`、`target_domains=all`、`vault_env_path=uat` 和该 tag）并等待其完成。Serverless / Selfhost 子流水线由 Hybrid 按 GitOps UAT 矩阵逐行派发。
+3. 根据 `deploy_env` 选择 GitOps 拓扑文件和对应 orchestrator：SIT 使用 Serverless，UAT 使用 Hybrid；派发参数、目标域名和 Vault 环境均来自矩阵/GitOps，不由脚本硬编码；等待子流程完成并在汇总 Job 中写入环境回执。
 
-Hybrid 没有对应输入，因此 **`enable_migration`、`apply_accounts_schema_migration`、`adopt_accounts_baseline`、`xconnect_one_release_tag`、`xconnect_gateway_release_tag` 在 UAT 下会在派发前直接失败**，而不是被静默忽略后仍显示成功。需要这些操作时，直接执行 `serverless-orchestrator.yml`（例如 `deploy+migrate`）或对应的 XConnect 工作流。Hybrid 固定以 `skip_stripe_catalog=true` 派发子流水线，Daily 的该开关对 UAT Hybrid 不生效。
+Daily 不接受迁移、基线采纳或 PROD 晋级参数。需要数据库导入、schema migration、baseline
+或生产发布时，直接使用 `environment-data-operations.yml` 及其 Playbooks role，并按
+GitOps 拓扑校验目标环境和执行路径。
 
 部分仓库筛选或 SIT 快照不会自动触发 UAT；这避免不完整制品集进入 UAT。
 
@@ -86,9 +80,8 @@ JP/US/SG 使用 `akamai-cloud` 并包含 Ulighthost existing PH/TW。PROD 旧 AW
 
 稳定发布 tag 与日常构建 tag 共用同一个跨仓库打标脚本，区别只在 tag
 值和路由语义：`daily-build-*` 是每日自动构建，`uat-daily-build-*` 是允许的
-UAT 构建/重试 tag，`v*` 是 UAT 验收后由受保护晋级步骤创建的正式 PROD 发布，
-`sit-*` 是低频 SIT 验证。PROD 运行不能直接把 daily tag 部署到生产；它先验证
-UAT manifest，再为同一组源 SHA 创建不可变 `v*` tag。
+UAT 构建/重试 tag，`sit-*` 是低频 SIT 验证。`v*` / `release/v*` 的生产发布由
+受保护的 Playbooks + GitOps 流程负责，Daily 不创建或晋级这些 tag。
 
 路由组合约定：
 

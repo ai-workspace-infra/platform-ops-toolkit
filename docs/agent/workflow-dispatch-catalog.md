@@ -26,9 +26,11 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
 
 ---
 
-## 2. `daily-main-snapshot.yaml` —— 快照、部署与可选迁移
+## 2. `daily-main-snapshot.yaml` —— 快照、部署与环境矩阵
 
-注意：旧版本文曾把完整 UAT 快照写成默认 `deploy+migrate`。现行脚本的默认值是 `deploy`、`enable_migration=false`；PROD→UAT 数据同步必须显式开启。`adopt_accounts_baseline` 与 `apply_accounts_schema_migration` 仅用于受控 UAT 原地 schema 升级，互斥且不能与数据同步组合。以下细节仍以实际工作流输入和验证脚本为准。
+Daily 只负责完整快照、Shared 只读就绪检查和按 `deploy_env` 选择的环境派发。
+迁移、基线采纳、schema migration 及 PROD release 不再作为 Daily inputs；这些操作走
+`environment-data-operations.yml` 的 Playbooks role + GitOps 校验链路。
 
 | input | 类型 | 现状 |
 |---|---|---|
@@ -36,9 +38,6 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
 | `snapshot_source_ref` | string | 留空使用 `main`；也可指定明确的 source ref |
 | `deploy_env` | choice：sit / uat | 默认 `uat`；PROD 不从 Daily Snapshot 入口派发 |
 | `repositories` | string，逗号分隔 | 留空 → 当前 `.github/daily-snapshot-builds.json` 的完整构建清单；指定部分仓库只构建，不触发组合部署 |
-| `enable_migration` | boolean | 默认 `false`；仅显式开启才做 PROD→UAT 数据合并 |
-| `adopt_accounts_baseline` | boolean | 仅 UAT 一次性采纳既有 Accounts 结构，不能与数据迁移或普通增量迁移同开 |
-| `apply_accounts_schema_migration` | boolean | 仅 UAT 单个经审核的增量 SQL；还需给出起点/目标版本及 SHA-256 |
 
 - **`snapshot_source_ref` 已生效**：该值会作为 `SNAPSHOT_REF` 传给打 tag 脚本；新 tag
   固定指向所选 ref。它作用于完整仓库矩阵，并非单仓覆盖；不能用一个仓库的 PR 分支直接发布完整 UAT。不能用同一个 tag 改指向另一个提交，需使用新的 retry tag。
@@ -69,12 +68,14 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
 
 ---
 
-## 3. `serverless-orchestrator.yml` —— UAT 自动发布与数据同步
+## 3. `serverless-orchestrator.yml` —— SIT 环境发布与独立数据操作
 
-`daily-main-snapshot.yaml` 在完整 UAT 服务快照构建完成后会按组合式顺序派发
-`serverless-orchestrator.yml` 与 `selfhost-orchestrator.yml`。第一条默认传入
-`operation=deploy`、`vault_env_path=uat` 与不可变 `tag_ref`；只有显式
-`enable_migration=true` 才传 `operation=deploy+migrate`。它同时明确传入
+`daily-main-snapshot.yaml` 在完整快照构建完成后，根据 `deploy_env` 矩阵派发
+`serverless-orchestrator.yml`（SIT）或 `hybrid-orchestrator.yml`（UAT）。SIT 传入
+`operation=deploy`、`vault_env_path=sit` 与不可变 `tag_ref`；UAT 则由 Hybrid 按
+GitOps 拓扑继续派发其子流程。Daily 不传迁移控制参数。
+
+独立手工派发 serverless 时，才可按该 workflow 自身的受保护输入执行数据操作；它同时明确传入
 `supabase_target_existing_strategy=accounts_merge`，因此 UAT 已有 public 表时不会因
 可复用迁移工作流的默认 `reject` 而中止；Accounts 的 `migratectl --merge` 只增量合并
 用户、身份和会话数据，不删除 UAT 行。手工派发也默认使用 `accounts_merge`。
