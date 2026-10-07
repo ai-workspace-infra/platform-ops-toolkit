@@ -152,10 +152,12 @@ def main():
     require(os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch', 'full-business data requires explicit dispatch')
     mode = validate_inputs(json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text()), os.environ['GITHUB_REF'],
         os.environ['GITHUB_SHA'], os.environ['GITHUB_REPOSITORY'], os.environ['GITHUB_RUN_ATTEMPT'])
+    contract = json.loads(args.contract.read_text())
+    review_required = INIT.validate_data_review_config(contract, 'prod-full-business-only')
     get, run_id = BASE.get_json, os.environ['GITHUB_RUN_ID']
     INIT.validate_data_review(get('/environments/prod'), get('/actions/runs/' + run_id),
-        get('/actions/runs/' + run_id + '/approvals'), run_id, os.environ['GITHUB_SHA'], os.environ['GITHUB_REF'])
-    contract = json.loads(args.contract.read_text())
+        get('/actions/runs/' + run_id + '/approvals'), run_id, os.environ['GITHUB_SHA'], os.environ['GITHUB_REF'],
+        review_required)
     validate_contract(contract)
     require(contract.get('initialization_accepted') is True, 'real initialization acceptance is pending')
     source, standby, initialized = (contract[key] for key in ('resource', 'standby', 'initialized'))
@@ -183,7 +185,9 @@ def main():
             for key, value in dict(mode=mode, gitops_commit=contract['gitops_commit'],
                 cmdb_sha256=source['cmdb_sha256'], data_gate_verified='true').items():
                 output.write(key + '=' + value + '\n')
-    print('Independent approval, reviewed source and real immutable parents verified; no database action or cutover authorized.')
+    review_message = ('Independent approval' if review_required else
+                      'Controlled independent data review requirement disabled')
+    print(review_message + ', reviewed source and real immutable parents verified; no database action or cutover authorized.')
 
 
 if __name__ == '__main__':

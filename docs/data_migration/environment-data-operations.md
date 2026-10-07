@@ -38,6 +38,24 @@ Actions 并发锁按环境统一；数据库实现仍须取得数据库迁移锁
 普通发布永远不自动复制 PROD→UAT。旧 migrate/deploy+migrate 的自动导入路径被阻断，管理员
 必须明确启动 legacy_import；这不是平滑 schema 升级。
 
+### PROD Selfhost 数据链的独立审批策略
+
+`native-init`、`native-billing` 和 `native-business-*` 使用各自受控仓库合同中的
+`independent_data_review_required`。当前三份合同默认值均为 `false`，适配单人维护；这只跳过
+控制脚本中“配置 reviewer、`prevent_self_review=true`、本次 run 绑定的独立数据审批”这一层，
+不会跳过首段的 run/attempt/event、固定 head SHA、release tag 分支和仓库身份核验，也不会跳过
+固定 owner SHA/digest、来源身份、初始化/Billing/复制/一致性回执、单写者、回退或 fresh-run 门槛。
+字段缺失、非布尔值或 scope 不匹配均 fail-closed；workflow dispatch 没有可越权关闭该策略的参数。
+
+将字段改为 `true` 后，原有独立审批机制完整生效：必须存在 PROD required reviewers、
+`prevent_self_review=true`，并有非触发者对当前 run/PROD environment 的批准。三条 job 仍声明
+`environment: prod`，所以共享 GitHub Environment 自身若仍配置 reviewer，运行时仍会等待那一层；
+本次代码开关只控制独立数据审查层，不宣称或修改共享环境规则。
+
+release tag 继续复用现有 native standby 的 `refs/tags/v\d[0-9.r-]*` 与 40-hex SHA 校验，
+不新增标签格式、不把 `v*` 字符串当作受保护 tag，也不改变 GitHub 环境、IAM、Vault、OIDC 或网络。
+当前仓库代码不提供远端 tag→SHA、tag protection 或 actor 权限的完整证明；本次改动不伪造这类证明。
+
 ### Daily 的显式一次性导入
 
 `daily-main-snapshot.yaml` 的 `enable_migration=true` 不传给 Hybrid，而是先派发
