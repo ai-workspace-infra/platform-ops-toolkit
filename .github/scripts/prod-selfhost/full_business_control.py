@@ -49,15 +49,12 @@ def validate_contract(contract, require_source=True):
         transfer.get('migration_version') == 2026100701 and transfer.get('batch_size') == 1000 and
         transfer.get('business_tables') == sorted(initial['business_tables'] + ['cloud_vendor_costs']) and
         transfer.get('database_cutover_approved') is False, 'full-business image/table/version scope differs')
+    identity = source.get('identity_sha256')
     require(source.get('role') == 'readonly_release' and source.get('tls_required') is True and
-        source.get('direction') == 'prod-supabase-to-prod-selfhost', 'source readonly/direction boundary differs')
-    if require_source:
-        require(source.get('ready') is True and re.fullmatch('[0-9a-f]{64}', source.get('identity_sha256') or ''),
-            'approved source identity/readonly connection contract is pending')
-    else:
-        require((source.get('ready') is False and source.get('identity_sha256') is None) or
-            (source.get('ready') is True and re.fullmatch('[0-9a-f]{64}', source.get('identity_sha256') or '')),
-            'source readiness must be explicit; no fabricated pending identity')
+        source.get('direction') == 'prod-supabase-to-prod-selfhost' and type(source.get('ready')) is bool and
+        ((source.get('ready') is False and identity is None) or
+         (source.get('ready') is True and re.fullmatch('[0-9a-f]{64}', identity or ''))),
+        'source must declare the PROD readonly session-pooler contract; runtime identity is bound from Vault')
 
 
 def parent_details(contract, kind):
@@ -123,7 +120,8 @@ def validate_parent_receipt(contract, kind, archive):
             receipt.get('format') == 1 and receipt.get('accounts_commit') == transfer['accounts_commit'] and
             receipt.get('image_digest') == transfer['image_digest'] and receipt.get('schema_sha256') == ACCOUNTS_SQL and
             receipt.get('billing_schema_sha256') == BILLING_SQL and receipt.get('batch_size') == 1000 and
-            receipt.get('source_identity_sha256') == contract['source']['identity_sha256'] and
+        (receipt.get('source_identity_sha256') == contract['source']['identity_sha256'] if contract['source']['identity_sha256']
+         else re.fullmatch('[0-9a-f]{64}', receipt.get('source_identity_sha256') or '') is not None) and
             receipt.get('source_read_only') is True and receipt.get('full_business_equal') is True and
             receipt.get('target_writes') is True and receipt.get('source_writers_paused') is False and
             receipt.get('final_catchup_complete') is False and
@@ -155,9 +153,11 @@ def main():
     contract = json.loads(args.contract.read_text())
     review_required = INIT.validate_data_review_config(contract, 'prod-full-business-only')
     get, run_id = BASE.get_json, os.environ['GITHUB_RUN_ID']
-    INIT.validate_data_review(get('/environments/prod'), get('/actions/runs/' + run_id),
-        get('/actions/runs/' + run_id + '/approvals'), run_id, os.environ['GITHUB_SHA'], os.environ['GITHUB_REF'],
-        review_required)
+    run = get('/actions/runs/' + run_id)
+    environment = get('/environments/prod') if review_required else {}
+    approvals = get('/actions/runs/' + run_id + '/approvals') if review_required else []
+    INIT.validate_data_review(environment, run, approvals, run_id, os.environ['GITHUB_SHA'],
+        os.environ['GITHUB_REF'], review_required)
     validate_contract(contract)
     require(contract.get('initialization_accepted') is True, 'real initialization acceptance is pending')
     source, standby, initialized = (contract[key] for key in ('resource', 'standby', 'initialized'))

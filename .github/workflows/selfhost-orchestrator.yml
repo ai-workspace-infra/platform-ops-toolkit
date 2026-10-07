@@ -549,7 +549,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
-      - name: Verify configured PROD data review policy, approved source identity and exact successful parent evidence
+      - name: Verify configured PROD readonly source contract and exact successful parent evidence
         id: full_business_control
         env:
           GH_TOKEN: ${{ github.token }}
@@ -600,7 +600,7 @@ jobs:
           cmdb_sha256: ${{ steps.full_business_control.outputs.cmdb_sha256 }}
           access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Run only the explicit full-business mode through fixed Playbooks owner
-        uses: ai-workspace-infra/playbooks/.github/actions/prod-full-business@7e9b16fa6c83a2dd8bafc22dca5870e06154253f
+        uses: ai-workspace-infra/playbooks/.github/actions/prod-full-business@2a33d7a0cd8505c64a3021587e78ddcb4f4233ce
         with:
           cmdb_dir: ${{ runner.temp }}/native-resource-cmdb
           cmdb_sha256: ${{ steps.full_business_control.outputs.cmdb_sha256 }}
