@@ -34,10 +34,10 @@ else
   render_summary
 fi
 
-if [[ "${DEPLOYMENT_ENV:-}" == uat && "${RUN_APPLICATION_DEPLOY:-false}" == true &&
+if [[ ( "${DEPLOYMENT_ENV:-}" == uat || "${DEPLOYMENT_ENV:-}" == prod ) && "${RUN_APPLICATION_DEPLOY:-false}" == true &&
       ( "${TARGET_DOMAINS:-}" == all || "${TARGET_DOMAINS:-}" == *web-saas* ) &&
       "${WEB_SAAS_ACCEPTANCE_RESULT:-}" != success ]]; then
-  echo "::error::BLOCKED: UAT Web SaaS upgrade acceptance was failed, skipped or not executed; deployment success is not business acceptance." >&2
+  echo "::error::BLOCKED: Web SaaS runtime acceptance was failed, skipped or not executed; deployment success is not business acceptance." >&2
   exit 1
 fi
 

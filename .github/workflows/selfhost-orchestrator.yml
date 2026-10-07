@@ -74,11 +74,11 @@ on:
         default: ""
         type: string
       operation:
-        description: "执行范围：plan 仅校验；infra 仅基础设施；deploy 部署应用；deploy+init 显式 UAT 空库初始化并部署；native-standby 仅准备 PROD PostgreSQL、保持应用停止；native-init-plan/native-init 按受控合同策略执行原生空库预演/初始化；native-billing-plan/native-billing 执行 Billing 原生增量预演/升级；native-business-plan/copy/compare 执行全业务预演/复制/比对；native-core-users 仅按 release tag 复制并比对最新用户 email、密码 hash、Proxy UUID，均不授权切库；migrate 仅迁移；deploy+migrate 部署并迁移；destroy 销毁。GitOps 仅声明拓扑与能力。"
+        description: "执行范围：plan 仅校验；infra 仅基础设施；deploy 部署应用；deploy+init 显式 UAT 空库初始化并部署；native-standby 仅准备 PROD PostgreSQL、保持应用停止；native-init-plan/native-init 按受控合同策略执行原生空库预演/初始化；native-billing-plan/native-billing 执行 Billing 原生增量预演/升级；native-business-plan/copy/compare 执行全业务预演/复制/比对；native-core-users 显式复制；native-core-users-compare 只读比对数量/email/密码 hash/Proxy UUID；native-availability 检查容器/HTTPS/API/DB 可用性，均不授权切库；migrate 仅迁移；deploy+migrate 部署并迁移；destroy 销毁。GitOps 仅声明拓扑与能力。"
         required: true
         default: "plan"
         type: choice
-        options: [plan, infra, deploy, deploy+init, native-standby, native-init-plan, native-init, native-billing-plan, native-billing, native-business-plan, native-business-copy, native-business-compare, native-core-users, migrate, deploy+migrate, destroy]
+        options: [plan, infra, deploy, deploy+init, native-standby, native-init-plan, native-init, native-billing-plan, native-billing, native-business-plan, native-business-copy, native-business-compare, native-core-users, native-core-users-compare, native-availability, migrate, deploy+migrate, destroy]
       target_domains:
         description: "选择要执行的业务域 (Business Domain)"
         required: true
@@ -334,6 +334,75 @@ jobs:
           echo '## PROD PostgreSQL standby' >> "$GITHUB_STEP_SUMMARY"
           echo 'PostgreSQL and independent storage verified; application/CD writers remain paused. Schema initialization, full business copy, equality and main database cutover are pending.' >> "$GITHUB_STEP_SUMMARY"
 
+  prod_availability:
+    name: "[3] PROD | containers + HTTPS + API + DB availability"
+    needs: [provision, deploy_web_saas]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && (github.event.inputs.operation == 'native-availability' || (needs.provision.outputs.deployment_env == 'prod' && needs.provision.outputs.target_domains == 'web-saas' && needs.deploy_web_saas.result == 'success')) }}
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: Checkout immutable control source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify approved resource run and original CMDB artifact
+        id: native_control
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/prod-selfhost/availability_control.py \
+            --contract .github/config/prod-native-standby.json \
+            --destination "$RUNNER_TEMP/native-resource-cmdb"
+          echo "gitops_commit=$(jq -er '.gitops_commit' .github/config/prod-native-standby.json)" >> "$GITHUB_OUTPUT"
+          echo "cmdb_sha256=$(jq -er '.resource.cmdb_sha256' .github/config/prod-native-standby.json)" >> "$GITHUB_OUTPUT"
+      - name: Checkout fixed GitOps declaration
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ steps.native_control.outputs.gitops_commit }}
+          path: native-gitops
+          persist-credentials: false
+      - name: Configure exact PROD GitHub OIDC deploy identity
+        uses: ./.github/actions/configure-gcp-oidc
+        with:
+          environment: prod
+          account_id: xworktech
+          load_state_contract: 'false'
+          vault_addr: https://vault.svc.plus
+      - name: Configure cloud access runtime
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Open same-run cloud access through fixed IaC owner
+        id: native_access
+        uses: ai-workspace-infra/iac_modules/.github/actions/prod-selfhost-access@254dd6321449ab12b862220c8876b482d7032fcd
+        with:
+          phase: open
+          cmdb_file: ${{ runner.temp }}/native-resource-cmdb/cmdb.json
+          cmdb_sha256: ${{ steps.native_control.outputs.cmdb_sha256 }}
+          access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Observe Doco-CD, containers, HTTPS, API and DB without service changes
+        uses: ai-workspace-infra/playbooks/.github/actions/prod-availability@934e1e1f729d8d5ecf1adcbae05a02c6b1ff7939
+        with:
+          cmdb_dir: ${{ runner.temp }}/native-resource-cmdb
+          cmdb_sha256: ${{ steps.native_control.outputs.cmdb_sha256 }}
+          gitops_checkout: ${{ github.workspace }}/native-gitops
+          gitops_commit: ${{ steps.native_control.outputs.gitops_commit }}
+          access_file: ${{ steps.native_access.outputs.access_file }}
+      - name: Revoke cloud access even if availability failed
+        if: ${{ always() && steps.native_access.outcome != '' && steps.native_access.outcome != 'skipped' }}
+        uses: ai-workspace-infra/iac_modules/.github/actions/prod-selfhost-access@254dd6321449ab12b862220c8876b482d7032fcd
+        with:
+          phase: close
+          cmdb_file: ${{ runner.temp }}/native-resource-cmdb/cmdb.json
+          cmdb_sha256: ${{ steps.native_control.outputs.cmdb_sha256 }}
+          access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Publish sanitized availability evidence only after successful cleanup
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-availability-receipt
+          path: ${{ runner.temp }}/prod-availability-receipt.json
+          if-no-files-found: error
+
   native_prod_init:
     name: "[2] PROD | native empty schema only"
     if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.operation == 'native-init-plan' || github.event.inputs.operation == 'native-init') }}
@@ -540,8 +609,8 @@ jobs:
           echo 'Billing schema receipt published after access cleanup; application/CD writers remain paused. Full business copy, equality and main database cutover remain pending. Preview makes no schema changes.' >> "$GITHUB_STEP_SUMMARY"
 
   native_prod_business:
-    name: "${{ github.event.inputs.operation == 'native-core-users' && '[3] PROD | core users sync and four-field comparison' || '[3] PROD | full-business preview, copy or comparison' }}"
-    if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.operation == 'native-business-plan' || github.event.inputs.operation == 'native-business-copy' || github.event.inputs.operation == 'native-business-compare' || github.event.inputs.operation == 'native-core-users') }}
+    name: "${{ startsWith(github.event.inputs.operation, 'native-core-users') && '[3] PROD | core users sync and four-field comparison' || '[3] PROD | full-business preview, copy or comparison' }}"
+    if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.operation == 'native-business-plan' || github.event.inputs.operation == 'native-business-copy' || github.event.inputs.operation == 'native-business-compare' || github.event.inputs.operation == 'native-core-users' || github.event.inputs.operation == 'native-core-users-compare') }}
     runs-on: ubuntu-latest
     environment: prod
     steps:
@@ -549,7 +618,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
-      - name: Verify configured PROD readonly source contract and exact successful parent evidence
+      - name: Prepare PROD source and target records before runtime checks
         id: full_business_control
         env:
           GH_TOKEN: ${{ github.token }}
@@ -600,7 +669,7 @@ jobs:
           cmdb_sha256: ${{ steps.full_business_control.outputs.cmdb_sha256 }}
           access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Run only the explicit full-business mode through fixed Playbooks owner
-        uses: ai-workspace-infra/playbooks/.github/actions/prod-full-business@0d92802a97bcea9c4a8d293767bd7138b675f654
+        uses: ai-workspace-infra/playbooks/.github/actions/prod-full-business@934e1e1f729d8d5ecf1adcbae05a02c6b1ff7939
         with:
           cmdb_dir: ${{ runner.temp }}/native-resource-cmdb
           cmdb_sha256: ${{ steps.full_business_control.outputs.cmdb_sha256 }}
@@ -640,7 +709,7 @@ jobs:
           echo 'Receipt published after access cleanup. Core-user mode proves latest source/target count, email, password hash and Proxy UUID equality with a read-only source. It requires the exact native schema, without dynamic 53-table row equality. Business acceptance and Cloudflare switching are subsequent operations, outside this workflow acceptance.' >> "$GITHUB_STEP_SUMMARY"
 
   provision:
-    if: ${{ github.event.inputs.operation != 'native-standby' && github.event.inputs.operation != 'native-init-plan' && github.event.inputs.operation != 'native-init' && github.event.inputs.operation != 'native-billing-plan' && github.event.inputs.operation != 'native-billing' && github.event.inputs.operation != 'native-business-plan' && github.event.inputs.operation != 'native-business-copy' && github.event.inputs.operation != 'native-business-compare' && github.event.inputs.operation != 'native-core-users' }}
+    if: ${{ github.event.inputs.operation != 'native-standby' && github.event.inputs.operation != 'native-init-plan' && github.event.inputs.operation != 'native-init' && github.event.inputs.operation != 'native-billing-plan' && github.event.inputs.operation != 'native-billing' && github.event.inputs.operation != 'native-business-plan' && github.event.inputs.operation != 'native-business-copy' && github.event.inputs.operation != 'native-business-compare' && github.event.inputs.operation != 'native-core-users' && github.event.inputs.operation != 'native-core-users-compare' && github.event.inputs.operation != 'native-availability' }}
     name: "[0] Prepare | profile + infra"
     environment: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.vault_env_path == 'prod') && 'prod' || (github.event_name == 'workflow_dispatch' && github.event.inputs.vault_env_path == 'uat' && 'uat' || (github.event_name == 'push' && github.ref == 'refs/heads/main' && 'uat' || ((startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || ''))) }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
@@ -1983,6 +2052,7 @@ jobs:
       provision,
       deploy_web_saas,
       accept_web_saas_upgrade,
+      prod_availability,
       deploy_infra_platform,
       deploy_agent_proxy,
       deploy_agent_proxy_non_iac,
@@ -1995,6 +2065,7 @@ jobs:
       (needs.provision.outputs.deployment_env != 'uat' ||
       !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) ||
       needs.accept_web_saas_upgrade.result == 'success') &&
+      (needs.provision.outputs.deployment_env != 'prod' || needs.provision.outputs.target_domains != 'web-saas' || needs.prod_availability.result == 'success') &&
       (needs.deploy_infra_platform.result == 'success' ||
       needs.deploy_infra_platform.result == 'skipped' ||
       !contains(fromJSON('["all","infra-platform","open-platform"]'), needs.provision.outputs.target_domains)) &&
@@ -2373,6 +2444,7 @@ jobs:
       capture_web_saas_baseline,
       initialize_empty_web_saas,
       accept_web_saas_upgrade,
+      prod_availability,
       deploy_agent_proxy,
       deploy_agent_proxy_non_iac,
       switch_dns,
@@ -2389,7 +2461,7 @@ jobs:
     # that every declared need has produced a result. This satisfies the
     # workflow gating contract without turning a failure into a skipped summary.
     if: >-
-      ${{ always() && !cancelled() && github.event.inputs.operation != 'native-standby' && github.event.inputs.operation != 'native-init-plan' && github.event.inputs.operation != 'native-init' && github.event.inputs.operation != 'native-billing-plan' && github.event.inputs.operation != 'native-billing' && github.event.inputs.operation != 'native-business-plan' && github.event.inputs.operation != 'native-business-copy' && github.event.inputs.operation != 'native-business-compare' && github.event.inputs.operation != 'native-core-users' &&
+      ${{ always() && !cancelled() && github.event.inputs.operation != 'native-standby' && github.event.inputs.operation != 'native-init-plan' && github.event.inputs.operation != 'native-init' && github.event.inputs.operation != 'native-billing-plan' && github.event.inputs.operation != 'native-billing' && github.event.inputs.operation != 'native-business-plan' && github.event.inputs.operation != 'native-business-copy' && github.event.inputs.operation != 'native-business-compare' && github.event.inputs.operation != 'native-core-users' && github.event.inputs.operation != 'native-core-users-compare' && github.event.inputs.operation != 'native-availability' &&
       needs.provision.result != '' &&
       needs.deploy_web_saas.result != '' &&
       needs.capture_web_saas_baseline.result != '' &&
@@ -2411,7 +2483,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
-        ref: ${{ needs.provision.outputs.toolkit_ref || github.sha }}
+        ref: ${{ github.sha }}
 
     - name: Write deployment summary
       env:
@@ -2419,7 +2491,7 @@ jobs:
         WEB_SAAS_DEPLOY_RESULT: ${{ needs.deploy_web_saas.result }}
         DB_INIT_RESULT: ${{ needs.initialize_empty_web_saas.result }}
         WEB_SAAS_BASELINE_RESULT: ${{ needs.capture_web_saas_baseline.result }}
-        WEB_SAAS_ACCEPTANCE_RESULT: ${{ needs.accept_web_saas_upgrade.result }}
+        WEB_SAAS_ACCEPTANCE_RESULT: ${{ needs.provision.outputs.deployment_env == 'prod' && needs.prod_availability.result || needs.accept_web_saas_upgrade.result }}
         RUN_APPLICATION_DEPLOY: ${{ needs.provision.outputs.run_application_deploy }}
         AGENT_PROXY_DEPLOY_RESULT: ${{ needs.deploy_agent_proxy.result }}
         AGENT_PROXY_NON_IAC_DEPLOY_RESULT: ${{ needs.deploy_agent_proxy_non_iac.result }}
