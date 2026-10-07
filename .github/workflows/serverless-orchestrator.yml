@@ -474,12 +474,20 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Verify target Artifact Registry repository
-        run: |
-          gcloud artifacts repositories describe serverless \
-            --location="${{ steps.gitops_gcp.outputs.region }}" \
-            --project="${{ steps.gitops_gcp.outputs.project_id }}" \
-            --format='value(name)'
+      - uses: ./.github/actions/setup-yq
+
+      - name: Verify target Artifact Registry through the IaC owner
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@eeba506886c5d08bbcd58d4866551ef32f845fd2
+        with:
+          operation: registry-preflight
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          release_ref: ${{ inputs.tag_ref }}
+          gcp_declaration: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
+        env:
+          GCP_PROJECT_ID: ${{ steps.gitops_gcp.outputs.project_id }}
+          GCP_REGION: ${{ steps.gitops_gcp.outputs.region }}
+          CLOUD_RUN_SERVICE: ${{ matrix.service }}
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
 
       - name: Authenticate Docker to target Artifact Registry
         run: gcloud auth configure-docker "${{ steps.gitops_gcp.outputs.region }}-docker.pkg.dev" --quiet
@@ -517,15 +525,34 @@ jobs:
       # revision reads SMTP credentials as secretKeyRef, so Secret Manager has
       # to carry what Vault holds before the new revision starts.
       - name: Sync SMTP credentials from Vault to Secret Manager
+        id: smtp
         if: ${{ matrix.service == 'accounts' }}
-        run: ./.github/scripts/serverless/sync_smtp_secrets.sh
+        uses: ai-workspace-infra/iac_modules/.github/actions/platform-resource-operations@eeba506886c5d08bbcd58d4866551ef32f845fd2
+        with:
+          operation: smtp-sync
+          environment: ${{ inputs.vault_env_path || 'uat' }}
         env:
           VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
           VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
           GCP_PROJECT_ID: ${{ steps.gitops_gcp.outputs.project_id }}
 
-      - name: Deploy Cloud Run service
-        run: ./.github/scripts/platform-ops/deploy/uat_orchestrator_runner.sh
+      - name: Prepare Cloud Run runtime authorization and inputs
+        uses: ./.github/actions/serverless-runtime
+        with:
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          service: ${{ matrix.service }}
+        env:
+          VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          GITOPS_OAUTH_GITHUB_CONFIG: ${{ runner.temp }}/accounts-github-oauth.json
+
+      - name: Deploy Cloud Run service through the Provider owner
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@eeba506886c5d08bbcd58d4866551ef32f845fd2
+        with:
+          operation: cloud-run
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          release_ref: ${{ inputs.tag_ref }}
+          gcp_declaration: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
         env:
           VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
           VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
@@ -534,9 +561,7 @@ jobs:
           GCP_REGION: ${{ steps.gitops_gcp.outputs.region }}
           GCP_ARTIFACT_REGISTRY_REGION: ${{ steps.gitops_gcp.outputs.region }}
           IMAGE_TAG: ${{ inputs.tag_ref }}
-          DEPLOY_CLOUDFLARE: 'false'
-          DEPLOY_CLOUD_RUN: 'true'
-          VERIFY_SUPABASE: 'false'
+          SMTP_CONFIGURED: ${{ steps.smtp.outputs.smtp_configured }}
           CLOUD_RUN_SERVICE: ${{ matrix.service }}
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
           GITOPS_OAUTH_GITHUB_CONFIG: ${{ runner.temp }}/accounts-github-oauth.json
@@ -710,7 +735,11 @@ jobs:
             kv/data/WEB_SAAS INTERNAL_SERVICE_TOKEN | INTERNAL_SERVICE_TOKEN
 
       - name: Deploy SSR Worker boundary
-        run: ./.github/scripts/serverless/run_cloudflare_target.sh
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@eeba506886c5d08bbcd58d4866551ef32f845fd2
+        with:
+          operation: ssr
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          release_ref: ${{ inputs.tag_ref }}
         env:
           CLOUDFLARE_TARGET: ssr
           PORTAL_SSR_BOUNDARY: ${{ matrix.boundary }}
@@ -797,7 +826,11 @@ jobs:
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN ;
 
       - name: Deploy Frontend Router Worker
-        run: ./.github/scripts/serverless/run_cloudflare_target.sh
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@eeba506886c5d08bbcd58d4866551ef32f845fd2
+        with:
+          operation: frontend-router
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          release_ref: ${{ inputs.tag_ref }}
         env:
           CLOUDFLARE_TARGET: frontend-router
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
@@ -890,7 +923,11 @@ jobs:
             kv/data/WEB_SAAS INTERNAL_SERVICE_TOKEN | INTERNAL_SERVICE_TOKEN
 
       - name: Deploy edge-gateway Worker boundary
-        run: ./.github/scripts/serverless/run_cloudflare_target.sh
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@eeba506886c5d08bbcd58d4866551ef32f845fd2
+        with:
+          operation: edge-gateway
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          release_ref: ${{ inputs.tag_ref }}
         env:
           CLOUDFLARE_TARGET: edge-gateway
           EDGE_GATEWAY_BOUNDARY: ${{ matrix.boundary }}
@@ -974,7 +1011,11 @@ jobs:
           path: ${{ runner.temp }}/edge-assets
 
       - name: Deploy Cloudflare Pages static assets
-        run: ./.github/scripts/serverless/run_cloudflare_target.sh
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@eeba506886c5d08bbcd58d4866551ef32f845fd2
+        with:
+          operation: static-pages
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          release_ref: ${{ inputs.tag_ref }}
         env:
           CLOUDFLARE_TARGET: static-pages
           WEBSITE_CONTENT_REF: ${{ inputs.website_content_ref || 'main' }}
@@ -1002,10 +1043,11 @@ jobs:
       (needs.frontend_router.result == 'success' || needs.frontend_router.result == 'skipped') &&
       (needs.edge_gateway.result == 'success' || needs.edge_gateway.result == 'skipped') &&
       (needs.static_pages.result == 'success' || needs.static_pages.result == 'skipped') }}
-    uses: ai-workspace-infra/iac_modules/.github/workflows/cloudflare-serverless-domains.yml@a7ac40fb0c3e620bdec89edd72b172afefc1f2ee
+    uses: ai-workspace-infra/iac_modules/.github/workflows/cloudflare-serverless-domains.yml@eeba506886c5d08bbcd58d4866551ef32f845fd2
     with:
       environment: ${{ inputs.vault_env_path || 'uat' }}
       dns_mode: ${{ inputs.dns_mode || 'none' }}
+      release_ref: ${{ inputs.tag_ref }}
       gitops_ref: ${{ needs.preflight.outputs.gitops_ref }}
 
   serverless_domains:
@@ -1039,13 +1081,21 @@ jobs:
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
 
       - name: Verify public Console to Accounts CORS chain
-        run: ./scripts/serverless_uat/verify_serverless_public_chain.sh
+        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@c3fcb3396882283d8840178261883f5041ee77f8
+        with:
+          operation: public-chain
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          release_ref: ${{ inputs.tag_ref }}
         env:
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
           SERVERLESS_DNS_MODE: ${{ inputs.dns_mode || 'none' }}
 
       - name: Verify Frontend Router boundary assets
-        run: ./.github/scripts/serverless/verify_frontend_boundary_assets.sh
+        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@c3fcb3396882283d8840178261883f5041ee77f8
+        with:
+          operation: frontend-assets
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          release_ref: ${{ inputs.tag_ref }}
         env:
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
 
@@ -1054,7 +1104,11 @@ jobs:
       # in place on the brand domain, legal name, company-domain email, no
       # legacy branding). Spec: store-and-startup-homepage-spec skill.
       - name: Verify brand website review readiness
-        run: ./scripts/serverless_uat/verify_brand_site_review_readiness.sh
+        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@c3fcb3396882283d8840178261883f5041ee77f8
+        with:
+          operation: brand-entry
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          release_ref: ${{ inputs.tag_ref }}
         env:
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
 
@@ -1189,6 +1243,7 @@ jobs:
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
+            topology/uat/serverless/cleanup-policy.yaml
             resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
 
       - name: Read GitOps GCP target
@@ -1227,12 +1282,26 @@ jobs:
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Destroy serverless ephemeral compute
-        run: ./scripts/serverless_uat/destroy_ephemeral_compute.sh
+      - name: Require explicit UAT cleanup scope
         env:
-          DEPLOY_ENV: ${{ inputs.vault_env_path || 'uat' }}
-          GCP_PROJECT_ID: ${{ steps.gitops_gcp.outputs.project_id }}
-          GCP_REGION: ${{ steps.gitops_gcp.outputs.region }}
+          CLEANUP_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}
+        run: |
+          [[ "$CLEANUP_ENVIRONMENT" == uat ]] || { echo '::error::Compute cleanup is UAT-only.'; exit 2; }
+
+      - uses: ./.github/actions/setup-yq
+
+      - name: Run immutable UAT cleanup owner
+        id: cleanup
+        uses: ai-workspace-infra/iac_modules/.github/actions/uat-compute-cleanup@eeba506886c5d08bbcd58d4866551ef32f845fd2
+        with:
+          policy: ${{ github.workspace }}/gitops/topology/uat/serverless/cleanup-policy.yaml
+          mode: apply
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uat-compute-cleanup-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.cleanup.outputs.receipt }}
+          if-no-files-found: error
 
   verify:
     name: Verify / Summary
@@ -1256,20 +1325,28 @@ jobs:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
 
-      - name: Authenticate to Vault with GitHub OIDC
-        uses: hashicorp/vault-action@v4
+      - name: Download current-run owner operation receipts
+        if: inputs.deploy_cloud_run == true || inputs.deploy_cloudflare == true
+        uses: actions/download-artifact@v4
         with:
-          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
-          method: jwt
-          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
-          jwtGithubAudience: vault
-          exportToken: true
+          pattern: owner-receipt-*
+          path: ${{ runner.temp }}/serverless-owner-receipts
 
-      - name: Verify Supabase and publish summary
-        run: ./.github/scripts/serverless/verify_summary.sh
+      - name: Verify selected owner receipts and publish final status
+        uses: ./.github/actions/serverless-summary
+        with:
+          receipts: ${{ runner.temp }}/serverless-owner-receipts
         env:
-          VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
-          VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
+          RELEASE_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}
+          RELEASE_TAG: ${{ inputs.tag_ref }}
+          PROVIDER_OWNER_SHA: eeba506886c5d08bbcd58d4866551ef32f845fd2
+          PLAYBOOKS_OWNER_SHA: c3fcb3396882283d8840178261883f5041ee77f8
+          DEPLOYS_CLOUD_RUN: ${{ inputs.deploy_cloud_run }}
+          DEPLOYS_CLOUDFLARE: ${{ inputs.deploy_cloudflare }}
+          GUARDED_API_GATEWAY: ${{ needs.preflight.outputs.guarded_api_gateway }}
+          SERVERLESS_DNS_MODE: ${{ inputs.dns_mode || 'none' }}
+          CLOUD_RUN_SERVICE: ${{ inputs.cloud_run_service }}
+          DATA_RUN_ID: ${{ needs.supabase.outputs.data_run_id }}
           CLOUDFLARE_RESULT: ${{ needs.cloudflare_ssr.result }}
           FRONTEND_ROUTER_RESULT: ${{ needs.frontend_router.result }}
           EDGE_GATEWAY_RESULT: ${{ needs.edge_gateway.result }}
@@ -1300,15 +1377,10 @@ jobs:
           RELEASE_TARGET: ${{ inputs.target_domains || 'all' }}
           RELEASE_LANES: ${{ toJSON(needs) }}
         run: |
-          python3 - <<'PY'
-          import json, os
-          from pathlib import Path
-          lanes = json.loads(os.environ['RELEASE_LANES'])
-          payload = {'environment': os.environ['RELEASE_ENV'], 'tag': os.environ['RELEASE_TAG'],
-                     'operation': os.environ['RELEASE_OPERATION'], 'target': os.environ['RELEASE_TARGET'],
-                     'lanes': {key: {'result': value['result']} for key, value in lanes.items()}}
-          Path('release-metadata.json').write_text(json.dumps(payload))
-          PY
+          jq -n --arg environment "$RELEASE_ENV" --arg tag "$RELEASE_TAG" \
+            --arg operation "$RELEASE_OPERATION" --arg target "$RELEASE_TARGET" --argjson lanes "$RELEASE_LANES" \
+            '{environment:$environment,tag:$tag,operation:$operation,target:$target,
+              lanes:($lanes | with_entries(.value = {result:.value.result}))}' > release-metadata.json
       - uses: actions/upload-artifact@v7
         with:
           name: console-release-metadata

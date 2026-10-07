@@ -1,0 +1,19 @@
+name: Set up checksum-pinned YAML reader
+description: Install the fixed yq binary without a container or Python runtime.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        case "$(uname -sm)" in
+          'Linux x86_64') asset=yq_linux_amd64; checksum=8e34fc298390875de416e6a4afcb8cabeceb25d9aa8506c1a2f9353cf702ea5f ;;
+          'Darwin arm64') asset=yq_darwin_arm64; checksum=fee511a181bd8b3e6b7da98842b41973bfac8cd3bcd341ed29a584620b5b2844 ;;
+          *) echo '::error::Unsupported YAML reader platform'; exit 2 ;;
+        esac
+        directory="$(mktemp -d "$RUNNER_TEMP/yq.XXXXXX")"
+        curl --fail --silent --show-error --location --retry 3 \
+          "https://github.com/mikefarah/yq/releases/download/v4.54.1/$asset" -o "$directory/yq"
+        printf '%s  %s\n' "$checksum" "$directory/yq" | shasum -a 256 -c -
+        chmod 755 "$directory/yq"
+        printf '%s\n' "$directory" >> "$GITHUB_PATH"

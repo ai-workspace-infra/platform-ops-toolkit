@@ -57,7 +57,12 @@ grep -Fq 'former peer-count window is not a valid macOS acceptance test' "${runn
 grep -Fq 'validate-desktop' "${runner}"
 grep -Fq 'desktop_ingress_cidrs' "${repo_root}/.github/scripts/xconnect-lab/prepare.py"
 grep -Fq 'NODE_OBSERVATION_INPUT:' "${workflow}"
-grep -Fq 'run.sh node-observation' "${workflow}"
+grep -Eq 'uses: ai-workspace-infra/playbooks/\.github/actions/xconnect-node-observation@[0-9a-f]{40}' "${workflow}"
+grep -Fq 'window: ${{ env.NODE_OBSERVATION_WINDOW_MINUTES }}' "${workflow}"
+if grep -Fq 'run.sh node-observation' "${workflow}"; then
+  echo 'Node execution must use the fixed owner action, not the legacy wrapper' >&2
+  exit 1
+fi
 for forbidden in mac_join_window_minutes desktop_join_window_minutes node_observation_window_minutes 'run.sh desktop' 'xconnect-desktop-public-'; do
   if grep -Fq "${forbidden}" "${workflow}"; then
     echo "Desktop/observation stage must remain outside the cloud lab workflow: ${forbidden}" >&2
@@ -68,7 +73,9 @@ grep -Fq 'xconnect-desktop-handoff-${{ github.run_id }}-${{ github.run_attempt }
 grep -Fq 'retention-days: 1' "${workflow}"
 grep -Fq '$1 == peer && $2 > 0' "${deploy}"
 grep -Fq 'signed-config-ack-status' "${deploy}"
-grep -Fq 'probe-control-plane.py' "${workflow}"
+grep -Fq 'operation: xconnect-control-plane' "${workflow}"
+grep -Fq 'XCONNECT_DECLARATION_JSON:' "${workflow}"
+grep -Eq 'uses: ai-workspace-infra/playbooks/\.github/actions/service-probes@[0-9a-f]{40}' "${workflow}"
 grep -Fq 'validate-topology.jq' "${runner}"
 grep -Fq 'timeout 60m bash "$ROOT/.github/scripts/xconnect-lab/node-observation.sh"' "${runner}"
 grep -Fq 'xconnect-gateway status --state-dir "$state"' "${repo_root}/.github/scripts/xconnect-lab/remote-gateway-observation.sh"

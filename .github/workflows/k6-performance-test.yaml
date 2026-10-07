@@ -74,13 +74,6 @@ jobs:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
 
-      - name: Checkout observability test assets
-        uses: actions/checkout@v7
-        with:
-          repository: ai-workspace-infra/playbooks
-          ref: main
-          path: playbooks
-
       - name: Load observability remote-write credentials
         id: vault
         uses: hashicorp/vault-action@v4
@@ -97,4 +90,10 @@ jobs:
         env:
           K6_PROMETHEUS_RW_USERNAME: ${{ steps.vault.outputs.K6_PROMETHEUS_RW_USERNAME }}
           K6_PROMETHEUS_RW_PASSWORD: ${{ steps.vault.outputs.K6_PROMETHEUS_RW_PASSWORD }}
-        run: .github/scripts/platform-ops/observe/run_k6_performance_test.sh
+        uses: ai-workspace-infra/playbooks/.github/actions/k6-performance@c3fcb3396882283d8840178261883f5041ee77f8
+        with:
+          environment: ${{ inputs.target_env }}
+          profile: ${{ inputs.test_profile }}
+          duration: ${{ inputs.duration }}
+          max_vus: ${{ inputs.max_vus }}
+          target_url: ${{ inputs.target_base_url }}

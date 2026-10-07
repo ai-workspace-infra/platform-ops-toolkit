@@ -1,21 +1,82 @@
 name: UAT Daily Compute Cleanup
-
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [plan, apply]
+        default: plan
+        description: Apply additionally requires an enabled reviewed GitOps cleanup policy
   schedule:
-    # 每天 20:00 (UTC 12:00) 彻底销毁 Cloud Run 临时计算实例并清理镜像
     - cron: '0 12 * * *'
-
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: uat-compute-cleanup
+  cancel-in-progress: false
 jobs:
   cleanup_uat:
-    name: Teardown UAT Ephemeral Compute
-    runs-on: ubuntu-latest
+    name: Plan or verify exact UAT compute cleanup
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: uat
+    timeout-minutes: 20
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v7
-
-      - name: Run UAT Teardown Script
-        run: ./.github/scripts/platform-ops/deploy/uat_cleanup_runner.sh
-        env:
-          VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
-          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-yq
+      - name: Authenticate using the exact main-only cleanup OIDC role
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-uat-compute-cleanup
+          jwtGithubAudience: vault
+          exportEnv: false
+          secrets: |
+            kv/data/uat/serverless/gcp GCP_WORKLOAD_IDENTITY_PROVIDER | GCP_WORKLOAD_IDENTITY_PROVIDER ;
+            kv/data/uat/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL ;
+            kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
+      - name: Mint read-only GitOps checkout token
+        id: gitops-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: Iv23liNwStpQIiXajhpb
+          private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
+          owner: ai-workspace-infra
+          repositories: gitops
+          permission-contents: read
+      - uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: 7edb3b5b779aefea2ecab0ecf559357e390b6e4e
+          token: ${{ steps.gitops-token.outputs.token }}
+          path: cleanup-gitops
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            topology/uat/serverless/cleanup-policy.yaml
+      - name: Authenticate the UAT Google Cloud identity
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ steps.vault.outputs.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ steps.vault.outputs.GCP_SERVICE_ACCOUNT_EMAIL }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Run immutable IaC cleanup owner
+        id: cleanup
+        uses: ai-workspace-infra/iac_modules/.github/actions/uat-compute-cleanup@eeba506886c5d08bbcd58d4866551ef32f845fd2
+        with:
+          policy: ${{ github.workspace }}/cleanup-gitops/topology/uat/serverless/cleanup-policy.yaml
+          # Schedules remain plan-only until a reviewed activation changes this contract.
+          mode: ${{ inputs.mode || 'plan' }}
+      - name: Preserve actual plan/deletion receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: uat-compute-cleanup-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.cleanup.outputs.receipt }}
+          if-no-files-found: error
+          retention-days: 7

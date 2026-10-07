@@ -292,7 +292,10 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Check Shared platform readiness (read-only)
-        run: ./.github/scripts/snapshots/check-shared-readiness.sh
+        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@c3fcb3396882283d8840178261883f5041ee77f8
+        with:
+          operation: shared-readiness
+          environment: shared
         env:
           SHARED_VAULT_ENDPOINT: ${{ inputs.shared_vault_endpoint || 'https://vault.svc.plus' }}
           SHARED_OBSERVABILITY_ENDPOINT: ${{ inputs.shared_observability_endpoint || 'https://observability.svc.plus' }}
