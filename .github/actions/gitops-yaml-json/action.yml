@@ -1,0 +1,17 @@
+name: Render GitOps YAML for machine consumers
+description: Read a YAML declaration and emit a temporary JSON representation outside GitOps.
+inputs:
+  source:
+    required: true
+    description: Canonical YAML declaration from the checked-out GitOps revision
+  output:
+    required: true
+    description: Derived JSON path under runner.temp
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        DECLARATION_SOURCE: ${{ inputs.source }}
+        DECLARATION_OUTPUT: ${{ inputs.output }}
+      run: ruby "${{ github.action_path }}/render.rb"

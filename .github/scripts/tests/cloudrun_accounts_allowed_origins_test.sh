@@ -166,7 +166,7 @@ assert "GITOPS_OAUTH_GITHUB_CONFIG" in deploy_step.get("env", {}), deploy_step.g
 
 gitops_step = next(step for step in steps if step.get("name") == "Checkout GitOps runtime topology")
 sparse_checkout = gitops_step.get("with", {}).get("sparse-checkout", "")
-assert "services/accounts/${{ inputs.vault_env_path || 'uat' }}/oauth/github.json" in sparse_checkout, sparse_checkout
+assert "services/accounts/${{ inputs.vault_env_path || 'uat' }}/oauth/github.yaml" in sparse_checkout, sparse_checkout
 
 print("cloud_run workflow wiring: PASS")
 EOF

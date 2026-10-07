@@ -157,7 +157,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             topology/uat/hybrid/runtime-topology.yaml
-            topology/uat/hybrid/resource-matrix.json
+            topology/uat/hybrid/resource-matrix.yaml
             resources/onwalk.net/uat/gcp/open-platform.yaml
             resources/onwalk.net/uat/gcp/web-saas.yaml
             resources/svc.plus/uat/gcp/ai-workspace.yaml
@@ -165,7 +165,7 @@ jobs:
             topology/uat/serverless/runtime-topology.yaml
       - name: Validate GitOps resource matrix contract
         env:
-          GITOPS_MATRIX_FILE: ${{ github.workspace }}/gitops/topology/uat/hybrid/resource-matrix.json
+          GITOPS_MATRIX_FILE: ${{ github.workspace }}/gitops/topology/uat/hybrid/resource-matrix.yaml
           GITOPS_OPEN_PLATFORM_FILE: ${{ github.workspace }}/gitops/resources/onwalk.net/uat/gcp/open-platform.yaml
           GITOPS_RESOURCE_ROOTS: ${{ github.workspace }}/gitops/resources/onwalk.net/uat/gcp:${{ github.workspace }}/gitops/resources/svc.plus/uat/gcp
         run: ./.github/scripts/tests/hybrid_uat_matrix_contract_test.sh
@@ -219,12 +219,17 @@ jobs:
           path: gitops
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            topology/uat/hybrid/resource-matrix.json
+            topology/uat/hybrid/resource-matrix.yaml
+      - name: Render resource matrix for the frozen dispatcher
+        uses: ./.github/actions/gitops-yaml-json
+        with:
+          source: ${{ github.workspace }}/gitops/topology/uat/hybrid/resource-matrix.yaml
+          output: ${{ runner.temp }}/hybrid-resource-matrix.json
       - name: Dispatch and wait for resource lanes
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          MATRIX_FILE: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/hybrid/resource-matrix.json
+          MATRIX_FILE: ${{ runner.temp }}/hybrid-resource-matrix.json
           REGISTRY_FILE: ${{ github.workspace }}/config/iac_provider_registry.json
           OPERATION: ${{ inputs.operation }}
           # Dispatch every child from the explicitly selected shared ref. The

@@ -752,7 +752,7 @@ jobs:
           topology/${{ steps.route.outputs.deployment_env }}/selfhost/xconnect-regional-pool.yaml
           topology/${{ steps.route.outputs.deployment_env }}/selfhost/xconnect-regional-pools.yaml
           topology/${{ steps.route.outputs.deployment_env }}/serverless/runtime-topology.yaml
-          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/github-actions-oidc.json
+          resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/github-actions-oidc.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/vultr/web-saas.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/vultr/agent-proxy.yaml
           resources/svc.plus/${{ steps.route.outputs.deployment_env }}/vultr/all-in-one.yaml
@@ -885,7 +885,7 @@ jobs:
       if: steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.cloud_provider == 'aws-cloud'
       run: ${{ github.workspace }}/.github/scripts/gitops/resolve_gitops_aws_oidc_config.sh
       env:
-        GITOPS_AWS_OIDC_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/github-actions-oidc.json
+        GITOPS_AWS_OIDC_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/${{ steps.route.outputs.deployment_env }}/aws/github-actions-oidc.yaml
         EXPECTED_DEPLOYMENT_ENV: ${{ steps.route.outputs.deployment_env }}
         EXPECTED_CLOUD_ACCOUNT: ${{ steps.route.outputs.account }}
 
