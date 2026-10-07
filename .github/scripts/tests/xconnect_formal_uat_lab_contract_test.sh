@@ -85,8 +85,17 @@ if grep -Fq 'xconnect-gateway up --state-dir "$state"' "${repo_root}/.github/scr
   exit 1
 fi
 grep -Fq 'timeout-minutes: 90' "${workflow}"
-grep -Fq 'terraform-diagnostics.py' "${runner}"
-grep -Fq 'terraform-${command}.log' "${runner}"
+grep -Fq "default: '63e4251f8708b05a96c236b465ae170f43743df2'" "${workflow}"
+grep -Fq 'uses: ./iac_modules/.github/actions/xconnect-lab-lifecycle' "${workflow}"
+for stage in preflight prepare apply cleanup; do
+  grep -Fq "operation: ${stage}" "${workflow}"
+done
+for retired_call in 'run.sh preflight' 'run.sh prepare' 'run.sh apply' 'run.sh cleanup'; do
+  if grep -Fq "$retired_call" "${workflow}"; then
+    echo "Terraform/state stage still calls the frozen mixed Toolkit runner: $retired_call" >&2
+    exit 1
+  fi
+done
 grep -Fq 'unset-current-credentials: true' "${workflow}"
 grep -Fq 'steps.prepare.outcome == '\''success'\''' "${workflow}"
 grep -Fq "if: inputs.mode == 'cleanup' && steps.prepare.outcome == 'success'" "${workflow}"

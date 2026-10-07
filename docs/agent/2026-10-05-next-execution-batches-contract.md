@@ -16,6 +16,21 @@ invitation 写入。新 `xconnect-network-invite-handoff` action 只接受 Playb
 下游一次性 invitation 消费验证前不得删除。当前只有离线 mock/契约证据，未执行
 Accounts API 或 Vault 写入，也不构成 UAT 完成。
 
+## 2026-10-07 XConnect lab IaC lifecycle owner/caller 切换
+
+`xconnect-zero-cloud.yaml` 的 Terraform preflight/prepare/apply/cleanup 已切到固定
+IaC owner SHA `63e4251f8708b05a96c236b465ae170f43743df2` 的
+`xconnect-lab-lifecycle` action。owner 仅处理精确 run state、Terraform plan/apply/
+destroy/output/state evidence、AWS provider facts、租约对象 CRUD 和脱敏诊断；它不
+调用 Toolkit 脚本、SSH、Ansible、systemd 或 Accounts API。`run.sh` 继续承担输入、
+GitOps topology、release artifact 与尚未迁移的阶段分发，旧 `prepare.py`、`lease.sh`
+及 `terraform-diagnostics.py` 保持冻结，等待真实 apply/失败/cleanup UAT 后再删除。
+
+本地 mock 已覆盖相同 plan 的 apply、私有 output、精确 state show、允许资源集合、
+destroy 后空 state 与 lease create/delete；尚未执行 AWS、Terraform remote state 或
+真实资源动作。外部 Gateway SSH key 仅由 Toolkit 做 mode-0600 秘密交接，实际主机
+执行仍待切换到 Playbooks owner。
+
 核对基线：Toolkit `ec7bc9b1`，Playbooks `14f6196b`，IaC `71746d06`。本文件是实码评估与后续门禁，**不是已实现、已合并或已验收记录**。P2a owner 另见 IaC #392。所有后续批次保持 owner → caller → 验证 → cleanup；不自动合并、不改变管理员权限、不读取真实凭据、不执行真实云端/主机操作。
 
 ## P3：不要整体移动 XConnect 混合脚本

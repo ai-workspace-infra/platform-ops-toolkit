@@ -16,7 +16,7 @@ on:
         description: Advanced override - reviewed iac_modules commit SHA
         type: string
         required: false
-        default: 'a0185e61fc2b41ac4dbd40c8037016aaef1b3973'
+        default: '63e4251f8708b05a96c236b465ae170f43743df2'
       gitops_ref:
         description: Advanced override - reviewed gitops commit SHA
         type: string
@@ -348,7 +348,7 @@ jobs:
     timeout-minutes: 90
     env:
       MODE: ${{ inputs.mode }}
-      IAC_REF: ${{ inputs.iac_ref || '2ba98f30c3e4199e01eb940bb1951549fca0ae3e' }}
+      IAC_REF: ${{ inputs.iac_ref || '63e4251f8708b05a96c236b465ae170f43743df2' }}
       GITOPS_REF: ${{ inputs.gitops_ref || '28430b835c4275eea1921aa7fd98c96dbc2c50ef' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '1308c585bbb3806b69279be678dad2feb8099699' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
@@ -444,8 +444,18 @@ jobs:
         with:
           terraform_version: 1.10.5
           terraform_wrapper: false
-      - name: Offline topology and Terraform preflight
-        run: bash .github/scripts/xconnect-lab/run.sh preflight
+      - name: Require the reviewed Playbooks runtime entrypoint
+        run: test -f playbooks/deploy_xconnect_observability.yml
+      - name: Run owner-local Terraform preflight without state or cloud writes
+        uses: ./iac_modules/.github/actions/xconnect-lab-lifecycle
+        with:
+          operation: preflight
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          declaration-file: ${{ github.workspace }}/gitops/vpn-overlay/uat/xconnect-lab.json
+          lab-dir: ${{ runner.temp }}/xconnect-lab
+          run-id: xcl-${{ github.run_id }}-${{ github.run_attempt }}
+          mode: ${{ inputs.mode }}
       - name: Infrastructure credentials from UAT Vault role
         if: inputs.mode != 'dry-run'
         uses: hashicorp/vault-action@v4
@@ -513,10 +523,37 @@ jobs:
       - name: Prepare isolated state and inspect account prerequisites
         id: prepare
         if: inputs.mode != 'dry-run'
-        run: bash .github/scripts/xconnect-lab/run.sh prepare
+        uses: ./iac_modules/.github/actions/xconnect-lab-lifecycle
+        with:
+          operation: prepare
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          declaration-file: ${{ github.workspace }}/gitops/vpn-overlay/uat/xconnect-lab.json
+          lab-dir: ${{ runner.temp }}/xconnect-lab
+          run-id: xcl-${{ github.run_id }}-${{ github.run_attempt }}
+          mode: ${{ inputs.mode }}
+      - name: Hand the external Gateway credential to later Playbooks-owned host stages
+        if: inputs.mode == 'apply' && inputs.gateway_provider == 'external' && steps.prepare.outcome == 'success'
+        env:
+          PRIVATE_KEY_B64: ${{ env.EXTERNAL_GATEWAY_SSH_PRIVATE_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          key="$RUNNER_TEMP/xconnect-lab/external-gateway.key"
+          printf '%s' "$PRIVATE_KEY_B64" | base64 --decode > "$key"
+          chmod 600 "$key"
+          ssh-keygen -y -f "$key" > "$RUNNER_TEMP/xconnect-lab/external-gateway.pub"
+          echo "EXTERNAL_GATEWAY_SSH_KEY=$key" >> "$GITHUB_ENV"
       - name: Provision the two isolated Spot nodes
         if: inputs.mode == 'apply'
-        run: bash .github/scripts/xconnect-lab/run.sh apply
+        uses: ./iac_modules/.github/actions/xconnect-lab-lifecycle
+        with:
+          operation: apply
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          declaration-file: ${{ github.workspace }}/gitops/vpn-overlay/uat/xconnect-lab.json
+          lab-dir: ${{ runner.temp }}/xconnect-lab
+          run-id: xcl-${{ github.run_id }}-${{ github.run_attempt }}
+          mode: apply
       - name: Install released runtimes and create the Gateway local identity
         if: inputs.mode == 'apply'
         run: bash .github/scripts/xconnect-lab/run.sh setup
@@ -885,7 +922,7 @@ jobs:
     timeout-minutes: 45
     env:
       MODE: cleanup
-      IAC_REF: ${{ inputs.iac_ref || '2ba98f30c3e4199e01eb940bb1951549fca0ae3e' }}
+      IAC_REF: ${{ inputs.iac_ref || '63e4251f8708b05a96c236b465ae170f43743df2' }}
       GITOPS_REF: ${{ inputs.gitops_ref || '28430b835c4275eea1921aa7fd98c96dbc2c50ef' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '1308c585bbb3806b69279be678dad2feb8099699' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
@@ -978,7 +1015,15 @@ jobs:
           audience: sts.amazonaws.com
       - name: Re-open isolated state for explicit cleanup
         id: prepare
-        run: bash .github/scripts/xconnect-lab/run.sh prepare
+        uses: ./iac_modules/.github/actions/xconnect-lab-lifecycle
+        with:
+          operation: prepare
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          declaration-file: ${{ github.workspace }}/gitops/vpn-overlay/uat/xconnect-lab.json
+          lab-dir: ${{ runner.temp }}/xconnect-lab
+          run-id: ${{ inputs.cleanup_run }}
+          mode: cleanup
       - name: Refresh short-lived AWS OIDC credentials before explicit cleanup
         if: inputs.mode == 'cleanup' && steps.prepare.outcome == 'success'
         uses: aws-actions/configure-aws-credentials@v4
@@ -989,4 +1034,12 @@ jobs:
           unset-current-credentials: true
       - name: Destroy only the explicitly selected lab state
         if: inputs.mode == 'cleanup'
-        run: bash .github/scripts/xconnect-lab/run.sh cleanup
+        uses: ./iac_modules/.github/actions/xconnect-lab-lifecycle
+        with:
+          operation: cleanup
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          declaration-file: ${{ github.workspace }}/gitops/vpn-overlay/uat/xconnect-lab.json
+          lab-dir: ${{ runner.temp }}/xconnect-lab
+          run-id: ${{ inputs.cleanup_run }}
+          mode: cleanup
