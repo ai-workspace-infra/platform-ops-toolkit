@@ -101,9 +101,8 @@ destroy.
 Run local contract checks without cloud credentials or cloud API access:
 
 ```bash
-bash .github/scripts/tests/platform_ops_akamai_destroy_scope_contract_test.sh
-bash .github/scripts/tests/platform_ops_uat_six_namespace_contract_test.sh
-python3 -m unittest .github.scripts.tests.test_platform_ops_destroy_scope
+# Resource and host scope checks run in the pinned IaC/Playbooks owner. The
+# Toolkit records the dispatch receipt and immutable ref only.
 ```
 
 ## Domain separation

@@ -21,12 +21,22 @@ repository that owns the thing it operates on:
 | `environment-upgrade/` | data-operation dispatch and release evidence validation only |
 | `snapshots/`, `release/` | immutable artifact/tag orchestration |
 | `serverless/`, `resize/`, `platform-ops/`, … | mixed-generation legacy areas; execution files are migration debt, not an approved boundary |
-| `tests/` | contract tests; run by `validate-release-pr.yml` |
+| `tests/` | contract tests owned by the relevant workflow or repository |
 
 Composite actions stay in `.github/actions/` of this repository: `uses: ./…` resolves
 against the workspace, and some pipelines pin `iac_modules` to a fixed SHA.
 
 ## Guards
+
+`platform-ops-toolkit` is a control-plane repository. Its release PR validation
+is limited to the sensitive-information scan and immutable TAG/ref rules. Product
+business checks, database checks, host health checks, and deployment acceptance
+run in the owning service, Playbooks, IaC, or GitOps flow; they must not be added
+to `validate-release-pr.yml` or duplicated under `.github/scripts/`.
+
+The former release-PR business and infrastructure contract-test bundle was
+removed when its callers were retired. The active owner checklist now lives in
+[`playbooks/docs/checklists/platform-ops-presetup-postsetup.md`](https://github.com/ai-workspace-infra/playbooks/blob/main/docs/checklists/platform-ops-presetup-postsetup.md).
 
 - `scripts/ci/workflow_script_refs_verify.py` — every script a workflow calls exists,
   and a call into `iac_modules` / `playbooks` is preceded by that checkout in the same job.

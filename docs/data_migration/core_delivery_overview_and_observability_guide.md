@@ -166,14 +166,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_release_checkpoints_unique
 
 ### 1.6 自动化契约测试矩阵
 
-本地与 CI 流水线测试全部通过（**7 / 7 PASS**）：
-1. `database_release_checkpoint_contract_test.sh`: **PASS**（账本 DDL、安全栓、参数校验全覆盖）
-2. `workflow_dispatch_input_limit_test.sh`: **PASS**（全部工作流输入数 $\le 25$）
-3. `daily_snapshot_environment_dispatch_test.sh`: **PASS**（覆盖 SIT/UAT/PROD 参数选择与派发）
-4. `data_migration_mode_contract_test.sh`: **PASS**（校验源/目标后端类型分支）
-5. `supabase_target_strategy_contract_test.sh`: **PASS**（直连 Supabase 策略契约验证）
-6. 生产发布由受保护的 Playbooks + GitOps 入口验证，不由 Daily manifest 派发。
-7. `serverless_dispatch_contract_test.sh`: **PASS**（`upgrade` 操作类型合规验证）
+Toolkit PR 验证仅包含敏感信息扫描和不可变 TAG/ref 规则。资源、主机、数据库、API、DNS
+和业务流程由固定 Playbooks role 的 `presetup`/`postsetup` checklist 验证；生产发布由受保护
+的 Playbooks + GitOps 入口验证，不由 Daily manifest 派发。
 
 ---
 
