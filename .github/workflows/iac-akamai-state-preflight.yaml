@@ -1,0 +1,98 @@
+name: Akamai state preflight / Toolkit delivery
+on:
+  workflow_call:
+    inputs:
+      environment: {required: true, type: string}
+      account: {required: true, type: string}
+      gitops_ref: {required: true, type: string}
+      correlation_id: {required: true, type: string}
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: akamai-state-preflight-${{ inputs.environment }}-${{ inputs.account }}
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    environment: uat
+    steps:
+      - name: Validate read-only operation scope before authorization
+        shell: bash
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          ACCOUNT: ${{ inputs.account }}
+          CORRELATION: ${{ inputs.correlation_id }}
+        run: |
+          set -euo pipefail
+          test "$ENVIRONMENT" = uat
+          [[ "$ACCOUNT" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$ ]]
+          [[ "$CORRELATION" =~ ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$ ]]
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: 9570b01959396e1d0e20331205b5cb5718f5c588
+          path: iac_modules
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_ref }}
+          path: gitops
+          persist-credentials: false
+      - name: Bind exact declaration revision
+        id: declaration
+        shell: bash
+        run: printf 'sha=%s\n' "$(git -C gitops rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install PyYAML==6.0.2 Jinja2==3.1.6
+      - name: Validate fixed owner, declaration and parent caller before Vault
+        uses: ./iac_modules/.github/actions/akamai-state-preflight
+        with:
+          phase: validate
+          environment: ${{ inputs.environment }}
+          account: ${{ inputs.account }}
+          correlation-id: ${{ inputs.correlation_id }}
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          gitops-sha: ${{ steps.declaration.outputs.sha }}
+          output: ${{ runner.temp }}/akamai-state-preflight.json
+      - name: Authorize read-only state and resource access
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-uat-akamai-oidc-bootstrap-${{ inputs.account }}
+          jwtGithubAudience: vault
+          exportToken: false
+          secrets: |
+            kv/data/CICD/uat/akamai-cloud/${{ inputs.account }} LINODE_TOKEN | LINODE_TOKEN ;
+            kv/data/CICD/uat/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
+            kv/data/CICD/uat/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
+            kv/data/CICD/uat/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+            kv/data/CICD/uat/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+            kv/data/CICD/uat/iac_state TF_STATE_REGION | TF_STATE_REGION
+      - name: Query the fixed IaC preflight owner
+        uses: ./iac_modules/.github/actions/akamai-state-preflight
+        with:
+          environment: ${{ inputs.environment }}
+          account: ${{ inputs.account }}
+          correlation-id: ${{ inputs.correlation_id }}
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          gitops-sha: ${{ steps.declaration.outputs.sha }}
+          output: ${{ runner.temp }}/akamai-state-preflight.json
+      - name: Publish sanitized preflight evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: akamai-state-preflight
+          path: ${{ runner.temp }}/akamai-state-preflight.json
+          if-no-files-found: error
+          retention-days: 7

@@ -9,6 +9,8 @@ on:
       - ".github/workflows/**"
       - ".github/workflows/repository-conventions.yml"
       - "scripts/ci/**"
+      - "scripts/node_deploy/**"
+      - "scripts/tests/**"
       - "scripts/cloud/bootstrap/gcp/bootstrap_prod_selfhost.sh"
   push:
     branches: [main]
@@ -19,6 +21,8 @@ on:
       - ".github/workflows/**"
       - ".github/workflows/repository-conventions.yml"
       - "scripts/ci/**"
+      - "scripts/node_deploy/**"
+      - "scripts/tests/**"
       - "scripts/cloud/bootstrap/gcp/bootstrap_prod_selfhost.sh"
 
 permissions:
@@ -36,14 +40,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: be8456282f7495e098170e0894e742605a94dae6
+          ref: 9570b01959396e1d0e20331205b5cb5718f5c588
           path: contract/iac_modules
 
-      - name: Checkout playbooks main
+      - name: Checkout immutable Playbooks owner
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/playbooks
-          ref: main
+          ref: 18fa333e5d76143f2a3a3ce94b1766a04003ebd8
           path: contract/playbooks
 
       - name: Checkout immutable GitOps declarations
@@ -57,6 +61,12 @@ jobs:
         run: |
           python3 -m pip install PyYAML==6.0.2
           python3 scripts/ci/unified_iac_contract_test.py -v
+          python3 scripts/ci/tests/test_delivery_workflow_handoff.py -v
+          python3 scripts/ci/tests/test_nested_owner_action_checkout.py -v
+          python3 scripts/tests/test_gcp_owner_routing.py -v
+          python3 scripts/tests/test_gcp_delivery_fact_routing.py -v
+          python3 scripts/tests/test_setup_deployment_runner_owner_callers.py -v
+          python3 scripts/tests/test_playbooks_owner_callers.py -v
 
       - name: Verify repository conventions
         run: >-
@@ -77,7 +87,14 @@ jobs:
         run: python3 scripts/ci/script_ownership_verify.py
 
       - name: Falsify ownership guard with new and changed execution fixtures
-        run: python3 scripts/ci/tests/test_script_ownership.py
+        run: |
+          python3 scripts/ci/tests/test_script_ownership.py
+          python3 scripts/ci/test_non_iac_tls_restore_contract.py
+
+      - name: Verify Vault owner recommendation handoff and pure stage planning
+        run: |
+          python3 -m unittest discover -s scripts/tests -p 'test_stage_plan.py' -v
+          python3 -m unittest discover -s scripts/tests -p 'test_vault_shared_workflow_contract.py' -v
 
       - uses: ./.github/actions/setup-yq
 
@@ -88,7 +105,7 @@ jobs:
 
       - name: Verify YAML and Shell control-plane contracts
         run: |
-          bash scripts/ci/action-metadata-verify.sh .github/actions/prod-selfhost-control/action.yml .github/actions/serverless-runtime/action.yml .github/actions/serverless-summary/action.yml .github/actions/setup-yq/action.yml
+          bash scripts/ci/action-metadata-verify.sh .github/actions/prod-selfhost-control/action.yml .github/actions/serverless-runtime/action.yml .github/actions/serverless-summary/action.yml .github/actions/setup-yq/action.yml .github/actions/xconnect-network-invite-handoff/action.yml
           bash .github/actions/prod-selfhost-control/tests/control-test.sh
           bash .github/actions/serverless-runtime/tests/runtime-test.sh
           bash .github/actions/serverless-summary/tests/summary-test.sh

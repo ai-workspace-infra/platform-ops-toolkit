@@ -85,8 +85,17 @@ if grep -Fq 'xconnect-gateway up --state-dir "$state"' "${repo_root}/.github/scr
   exit 1
 fi
 grep -Fq 'timeout-minutes: 90' "${workflow}"
-grep -Fq 'terraform-diagnostics.py' "${runner}"
-grep -Fq 'terraform-${command}.log' "${runner}"
+grep -Fq "default: '9570b01959396e1d0e20331205b5cb5718f5c588'" "${workflow}"
+grep -Fq 'uses: ./iac_modules/.github/actions/xconnect-lab-lifecycle' "${workflow}"
+for stage in preflight prepare apply cleanup; do
+  grep -Fq "operation: ${stage}" "${workflow}"
+done
+for retired_call in 'run.sh preflight' 'run.sh prepare' 'run.sh apply' 'run.sh cleanup'; do
+  if grep -Fq "$retired_call" "${workflow}"; then
+    echo "Terraform/state stage still calls the frozen mixed Toolkit runner: $retired_call" >&2
+    exit 1
+  fi
+done
 grep -Fq 'unset-current-credentials: true' "${workflow}"
 grep -Fq 'steps.prepare.outcome == '\''success'\''' "${workflow}"
 grep -Fq "if: inputs.mode == 'cleanup' && steps.prepare.outcome == 'success'" "${workflow}"
@@ -97,6 +106,15 @@ if grep -Fq 'Always destroy only this lab state' "${workflow}"; then
 fi
 for stage in setup bootstrap gateway one verify; do
   grep -Fq "run.sh ${stage}" "${workflow}"
+done
+# These host/service callers remain frozen until H1-H6 in the execution
+# contract have both an owner caller and same-run UAT receipts. Keeping this
+# assertion prevents a scanner-only cleanup from silently dropping coverage.
+grep -Fq 'bash .github/scripts/xconnect-existing-one-uat/deploy.sh' "${workflow}"
+grep -Fq 'bash .github/scripts/xconnect-lab/enroll-node.sh' "${workflow}"
+gates="${repo_root}/docs/agent/2026-10-05-next-execution-batches-contract.md"
+for gate in H1 H2 H3 H4 H5 H6; do
+  grep -Fq "| ${gate} " "${gates}"
 done
 grep -Fq 'gateway_release_tag:$gateway' "${repo_root}/.github/scripts/xconnect-lab/lease.sh"
 grep -Fq 'wireguard-handshake' "${repo_root}/gitops/vpn-overlay/uat/xconnect-lab.json" 2>/dev/null || true

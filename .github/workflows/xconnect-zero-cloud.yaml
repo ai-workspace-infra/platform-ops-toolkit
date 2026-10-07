@@ -16,7 +16,7 @@ on:
         description: Advanced override - reviewed iac_modules commit SHA
         type: string
         required: false
-        default: 'a0185e61fc2b41ac4dbd40c8037016aaef1b3973'
+        default: '9570b01959396e1d0e20331205b5cb5718f5c588'
       gitops_ref:
         description: Advanced override - reviewed gitops commit SHA
         type: string
@@ -224,20 +224,27 @@ jobs:
             kv/data/CICD/shared/xconnect ZERO_SERVICE_TOKEN | ZERO_SERVICE_TOKEN ;
             kv/data/CICD/shared/xconnect VLESS_ID | VLESS_ID ;
             kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
-      - name: Mint read-only GitOps checkout token
-        id: gitops-token
+      - name: Mint read-only owner and declaration checkout token
+        id: infra-token
         uses: actions/create-github-app-token@v3
         with:
           client-id: Iv23liNwStpQIiXajhpb
           private-key: ${{ steps.bootstrap.outputs.APP_PRIVATE_KEY }}
           owner: ai-workspace-infra
-          repositories: gitops
+          repositories: gitops,playbooks
       - uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/gitops
           ref: ${{ inputs.network_gitops_ref }}
-          token: ${{ steps.gitops-token.outputs.token }}
+          token: ${{ steps.infra-token.outputs.token }}
           path: gitops
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: 18fa333e5d76143f2a3a3ce94b1766a04003ebd8
+          token: ${{ steps.infra-token.outputs.token }}
+          path: playbooks
           persist-credentials: false
       - name: Validate GitOps declaration and build a private bootstrap request
         id: declaration
@@ -247,23 +254,33 @@ jobs:
           VLESS_ID: ${{ steps.bootstrap.outputs.VLESS_ID }}
           REQUEST_FILE: ${{ runner.temp }}/xconnect-network-request.json
         run: python3 .github/scripts/xconnect-network/manifest.py
-      - name: Bootstrap the declared network and issue a one-use Gateway invitation
+      - name: Issue the one-use Gateway invitation through the Playbooks service owner
         if: inputs.mode == 'apply'
         env:
-          VAULT_ADDR: https://vault.svc.plus
-          VAULT_ROLE: github-actions-platform-ops-toolkit-shared-xconnect-network
           ZERO_SERVICE_TOKEN: ${{ steps.bootstrap.outputs.ZERO_SERVICE_TOKEN }}
-          NETWORK_REQUEST_FILE: ${{ runner.temp }}/xconnect-network-request.json
-          NETWORK_ID: ${{ steps.declaration.outputs.network_id }}
-          ACCOUNTS_API_URL: ${{ steps.declaration.outputs.accounts_api_url }}
-          INVITATION_TTL_MINUTES: ${{ steps.declaration.outputs.invitation_ttl_minutes }}
-        run: bash .github/scripts/xconnect-network/bootstrap.sh
+        uses: ./playbooks/.github/actions/xconnect-network-bootstrap
+        id: network-owner
+        with:
+          request-file: ${{ runner.temp }}/xconnect-network-request.json
+          response-file: ${{ runner.temp }}/xconnect-network-response.json
+          network-id: ${{ steps.declaration.outputs.network_id }}
+          accounts-api-url: ${{ steps.declaration.outputs.accounts_api_url }}
+          invitation-ttl-minutes: ${{ steps.declaration.outputs.invitation_ttl_minutes }}
+      - name: Persist the private invitation through the Toolkit Vault boundary
+        if: inputs.mode == 'apply' && steps.network-owner.outcome == 'success'
+        uses: ./.github/actions/xconnect-network-invite-handoff
+        with:
+          response-file: ${{ runner.temp }}/xconnect-network-response.json
+          vault-address: https://vault.svc.plus
+          vault-role: github-actions-platform-ops-toolkit-shared-xconnect-network
+          network-id: ${{ steps.network-owner.outputs.network_id }}
+          gateway-id: ${{ steps.network-owner.outputs.gateway_id }}
       - name: Report dry-run boundary
         if: inputs.mode == 'dry-run'
         run: echo 'Declaration validated; no Zero API or Vault writes were performed.'
-      - name: Remove private generated request
+      - name: Remove private generated request and invitation handoff
         if: always()
-        run: rm -f '${{ runner.temp }}/xconnect-network-request.json'
+        run: rm -f '${{ runner.temp }}/xconnect-network-request.json' '${{ runner.temp }}/xconnect-network-response.json'
 
   resolve_ai_aggregator_matrix:
     name: Resolve AI Aggregator node matrix
@@ -331,7 +348,7 @@ jobs:
     timeout-minutes: 90
     env:
       MODE: ${{ inputs.mode }}
-      IAC_REF: ${{ inputs.iac_ref || '2ba98f30c3e4199e01eb940bb1951549fca0ae3e' }}
+      IAC_REF: ${{ inputs.iac_ref || '9570b01959396e1d0e20331205b5cb5718f5c588' }}
       GITOPS_REF: ${{ inputs.gitops_ref || '28430b835c4275eea1921aa7fd98c96dbc2c50ef' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '1308c585bbb3806b69279be678dad2feb8099699' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
@@ -427,8 +444,18 @@ jobs:
         with:
           terraform_version: 1.10.5
           terraform_wrapper: false
-      - name: Offline topology and Terraform preflight
-        run: bash .github/scripts/xconnect-lab/run.sh preflight
+      - name: Require the reviewed Playbooks runtime entrypoint
+        run: test -f playbooks/deploy_xconnect_observability.yml
+      - name: Run owner-local Terraform preflight without state or cloud writes
+        uses: ./iac_modules/.github/actions/xconnect-lab-lifecycle
+        with:
+          operation: preflight
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          declaration-file: ${{ github.workspace }}/gitops/vpn-overlay/uat/xconnect-lab.json
+          lab-dir: ${{ runner.temp }}/xconnect-lab
+          run-id: xcl-${{ github.run_id }}-${{ github.run_attempt }}
+          mode: ${{ inputs.mode }}
       - name: Infrastructure credentials from UAT Vault role
         if: inputs.mode != 'dry-run'
         uses: hashicorp/vault-action@v4
@@ -496,10 +523,37 @@ jobs:
       - name: Prepare isolated state and inspect account prerequisites
         id: prepare
         if: inputs.mode != 'dry-run'
-        run: bash .github/scripts/xconnect-lab/run.sh prepare
+        uses: ./iac_modules/.github/actions/xconnect-lab-lifecycle
+        with:
+          operation: prepare
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          declaration-file: ${{ github.workspace }}/gitops/vpn-overlay/uat/xconnect-lab.json
+          lab-dir: ${{ runner.temp }}/xconnect-lab
+          run-id: xcl-${{ github.run_id }}-${{ github.run_attempt }}
+          mode: ${{ inputs.mode }}
+      - name: Hand the external Gateway credential to later Playbooks-owned host stages
+        if: inputs.mode == 'apply' && inputs.gateway_provider == 'external' && steps.prepare.outcome == 'success'
+        env:
+          PRIVATE_KEY_B64: ${{ env.EXTERNAL_GATEWAY_SSH_PRIVATE_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          key="$RUNNER_TEMP/xconnect-lab/external-gateway.key"
+          printf '%s' "$PRIVATE_KEY_B64" | base64 --decode > "$key"
+          chmod 600 "$key"
+          ssh-keygen -y -f "$key" > "$RUNNER_TEMP/xconnect-lab/external-gateway.pub"
+          echo "EXTERNAL_GATEWAY_SSH_KEY=$key" >> "$GITHUB_ENV"
       - name: Provision the two isolated Spot nodes
         if: inputs.mode == 'apply'
-        run: bash .github/scripts/xconnect-lab/run.sh apply
+        uses: ./iac_modules/.github/actions/xconnect-lab-lifecycle
+        with:
+          operation: apply
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          declaration-file: ${{ github.workspace }}/gitops/vpn-overlay/uat/xconnect-lab.json
+          lab-dir: ${{ runner.temp }}/xconnect-lab
+          run-id: xcl-${{ github.run_id }}-${{ github.run_attempt }}
+          mode: apply
       - name: Install released runtimes and create the Gateway local identity
         if: inputs.mode == 'apply'
         run: bash .github/scripts/xconnect-lab/run.sh setup
@@ -868,7 +922,7 @@ jobs:
     timeout-minutes: 45
     env:
       MODE: cleanup
-      IAC_REF: ${{ inputs.iac_ref || '2ba98f30c3e4199e01eb940bb1951549fca0ae3e' }}
+      IAC_REF: ${{ inputs.iac_ref || '9570b01959396e1d0e20331205b5cb5718f5c588' }}
       GITOPS_REF: ${{ inputs.gitops_ref || '28430b835c4275eea1921aa7fd98c96dbc2c50ef' }}
       PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '1308c585bbb3806b69279be678dad2feb8099699' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
@@ -961,7 +1015,15 @@ jobs:
           audience: sts.amazonaws.com
       - name: Re-open isolated state for explicit cleanup
         id: prepare
-        run: bash .github/scripts/xconnect-lab/run.sh prepare
+        uses: ./iac_modules/.github/actions/xconnect-lab-lifecycle
+        with:
+          operation: prepare
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          declaration-file: ${{ github.workspace }}/gitops/vpn-overlay/uat/xconnect-lab.json
+          lab-dir: ${{ runner.temp }}/xconnect-lab
+          run-id: ${{ inputs.cleanup_run }}
+          mode: cleanup
       - name: Refresh short-lived AWS OIDC credentials before explicit cleanup
         if: inputs.mode == 'cleanup' && steps.prepare.outcome == 'success'
         uses: aws-actions/configure-aws-credentials@v4
@@ -972,4 +1034,12 @@ jobs:
           unset-current-credentials: true
       - name: Destroy only the explicitly selected lab state
         if: inputs.mode == 'cleanup'
-        run: bash .github/scripts/xconnect-lab/run.sh cleanup
+        uses: ./iac_modules/.github/actions/xconnect-lab-lifecycle
+        with:
+          operation: cleanup
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          declaration-file: ${{ github.workspace }}/gitops/vpn-overlay/uat/xconnect-lab.json
+          lab-dir: ${{ runner.temp }}/xconnect-lab
+          run-id: ${{ inputs.cleanup_run }}
+          mode: cleanup

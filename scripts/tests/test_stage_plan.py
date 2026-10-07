@@ -145,6 +145,19 @@ class StagePlanTests(unittest.TestCase):
         self.assertEqual(auto["tags"], [])
         self.assertEqual(auto["action"], "")
 
+    def test_auto_mode_expands_only_owner_recommendations_under_outer_confirmation(self):
+        for stage in module.AUTO_RECOMMENDATIONS:
+            result = module.plan_auto(stage, "MIGRATE-VAULT-AUTO", migration=True, backup=False)
+            self.assertEqual(result["stage"], stage)
+            self.assertEqual(result["confirm"], entry(stage)["confirm"])
+        for stage in ("migrate-rollback", "migrate-preflight", "vault-snapshot", "arbitrary-shell"):
+            with self.assertRaisesRegex(ValueError, "unsupported auto stage"):
+                module.plan_auto(stage, "MIGRATE-VAULT-AUTO", migration=True)
+        with self.assertRaisesRegex(ValueError, "confirm=MIGRATE-VAULT-AUTO"):
+            module.plan_auto("migrate-join", "", migration=True)
+        with self.assertRaisesRegex(ValueError, "spec.migration"):
+            module.plan_auto("migrate-join", "MIGRATE-VAULT-AUTO", migration=False)
+
     def test_paths_do_not_mix(self):
         with self.assertRaisesRegex(ValueError, "would initialize a new cluster"):
             module.plan("fresh-leader", migration=True)

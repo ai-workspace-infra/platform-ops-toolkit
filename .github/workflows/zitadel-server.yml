@@ -181,7 +181,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: 1b5277ffbe14b2103bc2c92eb0110ef66954ad42
+          ref: 9570b01959396e1d0e20331205b5cb5718f5c588
           path: iac_modules
           persist-credentials: false
       - name: Authenticate GCP through GitHub OIDC and Vault
@@ -323,10 +323,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: 92fa6b9c592fa76a5e5fdd66bb0737de1723f20f
+          ref: 9570b01959396e1d0e20331205b5cb5718f5c588
           path: iac_modules
           persist-credentials: false
-          sparse-checkout: scripts/pipeline
+          sparse-checkout: |
+            .github/actions/auth-gcp-cloud
+            scripts/pipeline
       - name: Authenticate GCP through GitHub OIDC and Vault
         if: ${{ inputs.service_stage == 'deploy' }}
         id: auth

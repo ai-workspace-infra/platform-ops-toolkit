@@ -103,5 +103,11 @@ python3 scripts/node_deploy/verify_vault_stage.py \
   --checks access,leader-unsealed
 ```
 
+For `migrate-auto`, the active workflow obtains token-free host and DNS facts
+from the fixed Playbooks `vault-migration-observation` action. Toolkit accepts
+only its allowlisted recommendation and expands it with `stage_plan.py`. The
+local `auto_migration.py` copy remains frozen for UAT comparison and is not an
+active workflow dependency.
+
 Stages that are not wired end-to-end (XConnect Gateway/One) stay in the plan
 with `enabled: False`, so `stage_plan.py` rejects them with the reason.

@@ -59,17 +59,17 @@ on:
         description: Reviewed iac_modules commit containing the GCP Vault renderer and VM modules.
         type: string
         required: true
-        default: 8b223cf01b8fca51ce8e84e7aa407941044561d5
+        default: 9570b01959396e1d0e20331205b5cb5718f5c588
       confirm:
         description: Confirmation phrase for live Vault stages or DNS switch/rollback (SWITCH-VAULT-DNS / ROLLBACK-VAULT-DNS).
         type: string
         required: false
         default: ''
       playbooks_ref:
-        description: Reviewed playbooks commit for Vault node configuration.
+        description: Immutable Playbooks owner commit; overrides are rejected by the node-stage checkout contract.
         type: string
         required: true
-        default: 4c5187f0ae64d49b8cc0004f1e96b91f637fc3c4
+        default: 18fa333e5d76143f2a3a3ce94b1766a04003ebd8
 
 permissions:
   contents: read
@@ -237,6 +237,19 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Checkout fixed IaC GCP node-access owner
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: ${{ inputs.iac_ref }}
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/auth-gcp-cloud
+            .github/actions/node-access-gcp
+            scripts/node_deploy
+            scripts/pipeline
+
       - name: Checkout reviewed GitOps declaration
         uses: actions/checkout@v4
         with:
@@ -249,18 +262,30 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/playbooks
-          ref: ${{ inputs.playbooks_ref }}
+          ref: 18fa333e5d76143f2a3a3ce94b1766a04003ebd8
           path: playbooks
           persist-credentials: false
 
-      - name: Prepare isolated Python and Ansible
-        shell: bash
+      - name: Require the immutable Playbooks owner revision
+        env:
+          REQUESTED_PLAYBOOKS_REF: ${{ inputs.playbooks_ref }}
         run: |
           set -euo pipefail
-          python3 -m venv "${RUNNER_TEMP}/node-stage-python"
-          "${RUNNER_TEMP}/node-stage-python/bin/python" -m pip install --disable-pip-version-check 'pyyaml==6.0.2' 'ansible-core==2.17.14'
-          "${RUNNER_TEMP}/node-stage-python/bin/ansible-galaxy" collection install 'ansible.posix:==2.1.0'
-          echo "${RUNNER_TEMP}/node-stage-python/bin" >> "${GITHUB_PATH}"
+          expected=18fa333e5d76143f2a3a3ce94b1766a04003ebd8
+          [[ "${REQUESTED_PLAYBOOKS_REF}" == "${expected}" ]] || {
+            echo "::error::playbooks_ref must equal the reviewed owner SHA ${expected}" >&2
+            exit 1
+          }
+          test "$(git -C playbooks rev-parse HEAD)" = "${expected}"
+
+      - name: Prepare isolated Python and Ansible in the Playbooks owner
+        uses: ai-workspace-infra/playbooks/.github/actions/setup-node-stage-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
+        with:
+          venv_path: ${{ runner.temp }}/node-stage-python
+          python: python3
+          pyyaml_version: 6.0.2
+          ansible_core_version: 2.17.14
+          ansible_posix_version: 2.1.0
 
       - name: Create the one-run SSH key
         if: ${{ needs.declaration.outputs.open_new == 'true' || needs.declaration.outputs.open_legacy == 'true' }}
@@ -273,10 +298,23 @@ jobs:
       # Provider adapters: add one step per adapter. Each emits the same
       # contract/auth_adapter outputs for the shared one-run key and has a
       # close phase.
+      - name: Load target GCP identity through the scoped Vault role
+        id: gcp_identity
+        if: ${{ needs.declaration.outputs.open_new == 'true' && inputs.cloud_provider == 'gcp-cloud' }}
+        uses: ./.github/actions/load-gcp-cloud-identity
+        with:
+          environment: ${{ fromJSON(needs.declaration.outputs.provider_config).environment }}
+          credential_environment: ${{ fromJSON(needs.declaration.outputs.provider_config).environment }}
+          account_id: ${{ fromJSON(needs.declaration.outputs.provider_config).account_id }}
+          identity_path: ${{ fromJSON(needs.declaration.outputs.provider_config).runtime_identity_path }}
+          vault_addr: ${{ fromJSON(needs.declaration.outputs.provider_config).vault_addr }}
+          vault_role: ${{ fromJSON(needs.declaration.outputs.provider_config).node_role }}
+          load_state_contract: 'false'
+
       - name: Open node access through the GCP adapter
         id: gcp
         if: ${{ needs.declaration.outputs.open_new == 'true' && inputs.cloud_provider == 'gcp-cloud' }}
-        uses: ./.github/actions/node-access-gcp
+        uses: ./iac_modules/.github/actions/node-access-gcp
         with:
           phase: open
           contract_mode: target
@@ -287,6 +325,10 @@ jobs:
           connection_mode: bootstrap-public
           work_dir: ${{ runner.temp }}/node-access/gcp
           ssh_key: ${{ runner.temp }}/node-access/id_ed25519
+          identity_provider: ${{ steps.gcp_identity.outputs.provider }}
+          service_account: ${{ steps.gcp_identity.outputs.service_account }}
+          audience: ${{ steps.gcp_identity.outputs.audience }}
+          credential_project_id: ${{ steps.gcp_identity.outputs.project_id }}
 
       - name: Open access to the existing vault.svc.plus node
         id: legacy
@@ -298,10 +340,23 @@ jobs:
           service_manifest: ${{ inputs.service_manifest }}
           ssh_key: ${{ runner.temp }}/node-access/id_ed25519
 
+      - name: Load migration-source GCP identity through the scoped Vault role
+        id: gcp_source_identity
+        if: ${{ needs.declaration.outputs.open_legacy == 'true' && needs.declaration.outputs.source_provider == 'gcp-cloud' }}
+        uses: ./.github/actions/load-gcp-cloud-identity
+        with:
+          environment: ${{ fromJSON(needs.declaration.outputs.source_provider_config).environment }}
+          credential_environment: ${{ fromJSON(needs.declaration.outputs.source_provider_config).environment }}
+          account_id: ${{ fromJSON(needs.declaration.outputs.source_provider_config).account_id }}
+          identity_path: ${{ fromJSON(needs.declaration.outputs.source_provider_config).runtime_identity_path }}
+          vault_addr: ${{ fromJSON(needs.declaration.outputs.source_provider_config).vault_addr }}
+          vault_role: ${{ fromJSON(needs.declaration.outputs.source_provider_config).node_role }}
+          load_state_contract: 'false'
+
       - name: Open access to the GCP migration source
         id: gcp_source
         if: ${{ needs.declaration.outputs.open_legacy == 'true' && needs.declaration.outputs.source_provider == 'gcp-cloud' }}
-        uses: ./.github/actions/node-access-gcp
+        uses: ./iac_modules/.github/actions/node-access-gcp
         with:
           phase: open
           contract_mode: source
@@ -310,6 +365,10 @@ jobs:
           connection_mode: bootstrap-public
           work_dir: ${{ runner.temp }}/node-access/gcp-source
           ssh_key: ${{ runner.temp }}/node-access/id_ed25519
+          identity_provider: ${{ steps.gcp_source_identity.outputs.provider }}
+          service_account: ${{ steps.gcp_source_identity.outputs.service_account }}
+          audience: ${{ steps.gcp_source_identity.outputs.audience }}
+          credential_project_id: ${{ steps.gcp_source_identity.outputs.project_id }}
 
       - name: Select the prepared adapters
         id: access
@@ -343,7 +402,7 @@ jobs:
             fi
           fi
           contract="${NODE_ACCESS_DIR}/nodes.json"
-          python3 scripts/node_deploy/legacy_source.py merge "${contracts[@]}" --output "${contract}"
+          python3 playbooks/scripts/node_deploy/legacy_source.py merge "${contracts[@]}" --output "${contract}"
           echo "contract=${contract}" >> "${GITHUB_OUTPUT}"
           echo "ssh_private_key=${NODE_ACCESS_DIR}/id_ed25519" >> "${GITHUB_OUTPUT}"
           echo "auth_adapters=$(IFS=,; echo "${adapters[*]}")" >> "${GITHUB_OUTPUT}"
@@ -355,11 +414,25 @@ jobs:
           NODE_CONTRACT: ${{ steps.access.outputs.contract }}
         run: |
           set -euo pipefail
-          python3 scripts/node_deploy/prepare_known_hosts.py \
+          python3 playbooks/scripts/node_deploy/prepare_known_hosts.py \
             --contract "${NODE_CONTRACT}" --output "${SSH_KNOWN_HOSTS}"
 
-      # migrate-auto chooses the next step from live state here, once access
-      # is open; every other stage resolves to itself.
+      - name: Observe the automatic migration in the Playbooks owner
+        id: migration_observation
+        if: ${{ inputs.service_stage == 'migrate-auto' }}
+        uses: ai-workspace-infra/playbooks/.github/actions/vault-migration-observation@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
+        with:
+          contract: ${{ steps.access.outputs.contract }}
+          ssh_private_key: ${{ steps.access.outputs.ssh_private_key }}
+          known_hosts: ${{ runner.temp }}/node-known-hosts
+          vault_addr: ${{ needs.declaration.outputs.vault_addr }}
+          backup_config: ${{ needs.declaration.outputs.backup_config }}
+          observation: ${{ needs.declaration.outputs.observation }}
+          gateway_state: /var/lib/xconnect-gateway/${{ needs.declaration.outputs.environment }}/state.json
+          owner_root: ${{ github.workspace }}/playbooks
+
+      # Playbooks observes live state above. Toolkit only validates and expands
+      # the resulting recommendation through its pure stage plan.
       - name: Resolve the stage to run
         id: stage
         shell: bash
@@ -367,19 +440,30 @@ jobs:
           SERVICE_STAGE: ${{ inputs.service_stage }}
           CONFIRM: ${{ inputs.confirm }}
           MIGRATION: ${{ needs.declaration.outputs.migration }}
-          NODE_CONTRACT: ${{ steps.access.outputs.contract }}
-          VAULT_ADDR: ${{ needs.declaration.outputs.vault_addr }}
           BACKUP_CONFIG: ${{ needs.declaration.outputs.backup_config }}
-          OBSERVATION: ${{ needs.declaration.outputs.observation }}
+          RECOMMENDED_STAGE: ${{ steps.migration_observation.outputs.recommended_stage }}
+          OBSERVATION_BLOCKED: ${{ steps.migration_observation.outputs.blocked }}
         run: |
           set -euo pipefail
           backup=true
           [[ "${BACKUP_CONFIG}" != '{}' ]] || backup=false
           if [[ "${SERVICE_STAGE}" == migrate-auto ]]; then
-            python3 scripts/node_deploy/auto_migration.py \
-              --contract "${NODE_CONTRACT}" --key "${NODE_ACCESS_DIR}/id_ed25519" --known-hosts "${SSH_KNOWN_HOSTS}" \
-              --vault-addr "${VAULT_ADDR}" --backup-config "${BACKUP_CONFIG}" --observation "${OBSERVATION}" \
-              --github-output "${GITHUB_OUTPUT}"
+            if [[ -n "${RECOMMENDED_STAGE}" ]]; then
+              python3 scripts/node_deploy/stage_plan.py migrate-auto \
+                --confirm "${CONFIRM}" --migration "${MIGRATION}" --backup "${backup}" \
+                --recommended-stage "${RECOMMENDED_STAGE}" --github-output "${GITHUB_OUTPUT}" >/dev/null
+              echo "blocked=" >> "${GITHUB_OUTPUT}"
+            else
+              [[ -n "${OBSERVATION_BLOCKED}" ]] || {
+                echo '::error::Playbooks observation returned neither a recommendation nor a manual gate' >&2
+                exit 1
+              }
+              for value in \
+                'stage=' "blocked=${OBSERVATION_BLOCKED}" 'snapshot_first=false' \
+                'token=' 'action=' 'needs_observability=false'; do
+                printf '%s\n' "${value}" >> "${GITHUB_OUTPUT}"
+              done
+            fi
           else
             python3 scripts/node_deploy/stage_plan.py "${SERVICE_STAGE}" \
               --confirm "${CONFIRM}" --migration "${MIGRATION}" --backup "${backup}" \
@@ -468,7 +552,7 @@ jobs:
           set -euo pipefail
           umask 077
           install -d -m 700 "${RUNNER_TEMP}/xconnect" "${RUNNER_TEMP}/xconnect/secrets"
-          arch="$(python3 scripts/node_deploy/xconnect_stage.py arch --role "${XCONNECT_ROLE}" \
+          arch="$(python3 playbooks/scripts/node_deploy/xconnect_stage.py arch --role "${XCONNECT_ROLE}" \
             --contract "${NODE_CONTRACT}" --key "${NODE_ACCESS_DIR}/id_ed25519" --known-hosts "${SSH_KNOWN_HOSTS}")"
           eval "$(python3 - "${XCONNECT_TOPOLOGY}" <<'PY'
           import shlex, sys, yaml
@@ -479,7 +563,7 @@ jobs:
           )"
           components=one
           [[ "${XCONNECT_ROLE}" == gateway ]] && components=gateway
-          bash scripts/node_deploy/xconnect_artifacts.sh "${RUNNER_TEMP}/xconnect/bin" "${arch}" "${components}"
+          bash playbooks/scripts/node_deploy/xconnect_artifacts.sh "${RUNNER_TEMP}/xconnect/bin" "${arch}" "${components}"
           printf '%s' "${TRUST_BUNDLE_B64}" | base64 --decode > "${RUNNER_TEMP}/xconnect/secrets/trust-bundle.pem"
           openssl x509 -in "${RUNNER_TEMP}/xconnect/secrets/trust-bundle.pem" -noout
 
@@ -525,13 +609,13 @@ jobs:
         run: |
           set -euo pipefail
           command -v age >/dev/null 2>&1 || sudo apt-get install -y -qq age >/dev/null
-          bash scripts/node_deploy/install_vault_drill.sh "${VAULT_DRILL_VERSION}" "${RUNNER_TEMP}/vault-drill-bin"
-          VAULT_DRILL_BIN="${RUNNER_TEMP}/vault-drill-bin/vault" bash scripts/node_deploy/vault_snapshot.sh
+          bash playbooks/scripts/node_deploy/install_vault_drill.sh "${VAULT_DRILL_VERSION}" "${RUNNER_TEMP}/vault-drill-bin"
+          VAULT_DRILL_BIN="${RUNNER_TEMP}/vault-drill-bin/vault" bash playbooks/scripts/node_deploy/vault_snapshot.sh
 
       - name: Execute provider-neutral Vault node stage
         id: node_deploy
         if: ${{ steps.access.outcome == 'success' && steps.stage.outputs.stage != '' }}
-        uses: ./.github/actions/vault-node-stage
+        uses: ai-workspace-infra/playbooks/.github/actions/vault-node-stage@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
         env:
           VECTOR_AUTH_USER: ${{ steps.observability.outputs.VECTOR_AUTH_USER }}
           VECTOR_AUTH_PASSWORD: ${{ steps.observability.outputs.VECTOR_AUTH_PASSWORD }}
@@ -549,6 +633,7 @@ jobs:
           confirms: ${{ steps.stage.outputs.confirms }}
           next_step: ${{ steps.stage.outputs.next }}
           playbooks_root: ${{ github.workspace }}/playbooks
+          owner_root: ${{ github.workspace }}/playbooks
           ssh_private_key: ${{ steps.access.outputs.ssh_private_key }}
           known_hosts: ${{ runner.temp }}/node-known-hosts
           ready_adapters: ${{ steps.access.outputs.auth_adapters }}
@@ -620,7 +705,7 @@ jobs:
           XCONNECT_VLESS_ID: ${{ steps.xconnect_secrets.outputs.XCONNECT_VLESS_ID }}
         run: |
           set -euo pipefail
-          python3 scripts/node_deploy/xconnect_stage.py operator-invite \
+          python3 playbooks/scripts/node_deploy/xconnect_stage.py operator-invite \
             --topology "${XCONNECT_TOPOLOGY}" --contract "${NODE_CONTRACT}" \
             --key "${NODE_ACCESS_DIR}/id_ed25519" --known-hosts "${SSH_KNOWN_HOSTS}" \
             --gateway-state "${GATEWAY_STATE}" --vault-path "${INVITE_PATH}" \
@@ -636,7 +721,7 @@ jobs:
 
       - name: Close access to the GCP migration source
         if: ${{ always() && needs.declaration.outputs.open_legacy == 'true' && needs.declaration.outputs.source_provider == 'gcp-cloud' }}
-        uses: ./.github/actions/node-access-gcp
+        uses: ./iac_modules/.github/actions/node-access-gcp
         with:
           phase: close
           contract_mode: source
@@ -644,10 +729,14 @@ jobs:
           connection_mode: bootstrap-public
           work_dir: ${{ runner.temp }}/node-access/gcp-source
           ssh_key: ${{ runner.temp }}/node-access/id_ed25519
+          identity_provider: ${{ steps.gcp_source_identity.outputs.provider }}
+          service_account: ${{ steps.gcp_source_identity.outputs.service_account }}
+          audience: ${{ steps.gcp_source_identity.outputs.audience }}
+          credential_project_id: ${{ steps.gcp_source_identity.outputs.project_id }}
 
       - name: Close node access through the GCP adapter
         if: ${{ always() && needs.declaration.outputs.open_new == 'true' && inputs.cloud_provider == 'gcp-cloud' }}
-        uses: ./.github/actions/node-access-gcp
+        uses: ./iac_modules/.github/actions/node-access-gcp
         with:
           phase: close
           contract_mode: target
@@ -655,6 +744,10 @@ jobs:
           connection_mode: bootstrap-public
           work_dir: ${{ runner.temp }}/node-access/gcp
           ssh_key: ${{ runner.temp }}/node-access/id_ed25519
+          identity_provider: ${{ steps.gcp_identity.outputs.provider }}
+          service_account: ${{ steps.gcp_identity.outputs.service_account }}
+          audience: ${{ steps.gcp_identity.outputs.audience }}
+          credential_project_id: ${{ steps.gcp_identity.outputs.project_id }}
 
       - name: Remove runner-private node files
         if: ${{ always() }}
@@ -677,9 +770,35 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Checkout fixed IaC GCP node-access owner
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: ${{ inputs.iac_ref }}
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/auth-gcp-cloud
+            .github/actions/node-access-gcp
+            scripts/node_deploy
+            scripts/pipeline
+
+      - name: Load target GCP identity through the scoped Vault role
+        id: gcp_identity
+        if: ${{ needs.declaration.outputs.open_new == 'true' }}
+        uses: ./.github/actions/load-gcp-cloud-identity
+        with:
+          environment: ${{ fromJSON(needs.declaration.outputs.provider_config).environment }}
+          credential_environment: ${{ fromJSON(needs.declaration.outputs.provider_config).environment }}
+          account_id: ${{ fromJSON(needs.declaration.outputs.provider_config).account_id }}
+          identity_path: ${{ fromJSON(needs.declaration.outputs.provider_config).runtime_identity_path }}
+          vault_addr: ${{ fromJSON(needs.declaration.outputs.provider_config).vault_addr }}
+          vault_role: ${{ fromJSON(needs.declaration.outputs.provider_config).node_role }}
+          load_state_contract: 'false'
+
       - name: Close node access through the GCP adapter
         if: ${{ needs.declaration.outputs.open_new == 'true' }}
-        uses: ./.github/actions/node-access-gcp
+        uses: ./iac_modules/.github/actions/node-access-gcp
         with:
           phase: close
           contract_mode: target
@@ -687,10 +806,27 @@ jobs:
           connection_mode: bootstrap-public
           work_dir: ${{ runner.temp }}/node-access/gcp
           ssh_key: ${{ runner.temp }}/node-access/id_ed25519
+          identity_provider: ${{ steps.gcp_identity.outputs.provider }}
+          service_account: ${{ steps.gcp_identity.outputs.service_account }}
+          audience: ${{ steps.gcp_identity.outputs.audience }}
+          credential_project_id: ${{ steps.gcp_identity.outputs.project_id }}
+
+      - name: Load migration-source GCP identity through the scoped Vault role
+        id: gcp_source_identity
+        if: ${{ needs.declaration.outputs.open_legacy == 'true' && needs.declaration.outputs.source_provider == 'gcp-cloud' }}
+        uses: ./.github/actions/load-gcp-cloud-identity
+        with:
+          environment: ${{ fromJSON(needs.declaration.outputs.source_provider_config).environment }}
+          credential_environment: ${{ fromJSON(needs.declaration.outputs.source_provider_config).environment }}
+          account_id: ${{ fromJSON(needs.declaration.outputs.source_provider_config).account_id }}
+          identity_path: ${{ fromJSON(needs.declaration.outputs.source_provider_config).runtime_identity_path }}
+          vault_addr: ${{ fromJSON(needs.declaration.outputs.source_provider_config).vault_addr }}
+          vault_role: ${{ fromJSON(needs.declaration.outputs.source_provider_config).node_role }}
+          load_state_contract: 'false'
 
       - name: Close GCP migration source access
         if: ${{ needs.declaration.outputs.open_legacy == 'true' && needs.declaration.outputs.source_provider == 'gcp-cloud' }}
-        uses: ./.github/actions/node-access-gcp
+        uses: ./iac_modules/.github/actions/node-access-gcp
         with:
           phase: close
           contract_mode: source
@@ -698,6 +834,10 @@ jobs:
           connection_mode: bootstrap-public
           work_dir: ${{ runner.temp }}/node-access/gcp-source
           ssh_key: ${{ runner.temp }}/node-access/id_ed25519
+          identity_provider: ${{ steps.gcp_source_identity.outputs.provider }}
+          service_account: ${{ steps.gcp_source_identity.outputs.service_account }}
+          audience: ${{ steps.gcp_source_identity.outputs.audience }}
+          credential_project_id: ${{ steps.gcp_source_identity.outputs.project_id }}
 
   dns-discovery:
     name: Resolve reviewed Vault DNS targets

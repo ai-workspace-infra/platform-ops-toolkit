@@ -32,7 +32,7 @@ class VaultServerEntryTests(unittest.TestCase):
         self.assertIn("connection_mode: bootstrap-public", ENTRY.read_text(encoding="utf-8"))
         self.assertIn("xconnect-one", self.inputs["service_stage"]["options"])
         self.assertIn("vault-public-frontend", self.inputs["service_stage"]["options"])
-        self.assertEqual(self.inputs["playbooks_ref"]["default"], "4c5187f0ae64d49b8cc0004f1e96b91f637fc3c4")
+        self.assertEqual(self.inputs["playbooks_ref"]["default"], "18fa333e5d76143f2a3a3ce94b1766a04003ebd8")
 
     def test_gateway_tls_is_read_with_the_scoped_xconnect_role_only_when_needed(self):
         steps = steps_by_name(self.jobs["node-stage"]["steps"])
@@ -178,8 +178,10 @@ class ProviderNeutralStageTests(unittest.TestCase):
 
     def test_adapter_opens_and_closes_access_and_host_keys_are_pinned(self):
         open_step = self.steps["Open node access through the GCP adapter"]
-        self.assertEqual(open_step["uses"], "./.github/actions/node-access-gcp")
+        self.assertEqual(open_step["uses"], "./iac_modules/.github/actions/node-access-gcp")
         self.assertEqual(open_step["with"]["phase"], "open")
+        for field in ("identity_provider", "service_account", "audience", "credential_project_id"):
+            self.assertIn("steps.gcp_identity.outputs", open_step["with"][field])
         close_step = self.steps["Close node access through the GCP adapter"]
         self.assertEqual(close_step["with"]["phase"], "close")
         self.assertIn("always()", close_step["if"])
@@ -190,20 +192,41 @@ class ProviderNeutralStageTests(unittest.TestCase):
         self.assertEqual(cleanup["steps"][-1]["with"]["phase"], "close")
 
     def test_stage_runner_receives_plan_outputs(self):
+        setup = self.steps["Prepare isolated Python and Ansible in the Playbooks owner"]
+        self.assertEqual(
+            setup["uses"],
+            "ai-workspace-infra/playbooks/.github/actions/setup-node-stage-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8",
+        )
+        self.assertEqual(setup["with"]["venv_path"], "${{ runner.temp }}/node-stage-python")
+        self.assertEqual(str(setup["with"]["pyyaml_version"]), "6.0.2")
+        self.assertEqual(str(setup["with"]["ansible_core_version"]), "2.17.14")
+        self.assertEqual(str(setup["with"]["ansible_posix_version"]), "2.1.0")
         run = self.steps["Execute provider-neutral Vault node stage"]
-        self.assertEqual(run["uses"], "./.github/actions/vault-node-stage")
+        self.assertEqual(
+            run["uses"],
+            "ai-workspace-infra/playbooks/.github/actions/vault-node-stage@18fa333e5d76143f2a3a3ce94b1766a04003ebd8",
+        )
         for field in ("tags", "requires", "confirms", "playbook", "action", "extra_vars", "stage"):
             self.assertEqual(run["with"][field], f"${{{{ steps.stage.outputs.{field} }}}}")
+        self.assertEqual(run["with"]["owner_root"], "${{ github.workspace }}/playbooks")
         self.assertIn("steps.stage.outputs.stage != ''", run["if"])
         self.assertIn("steps.stage.outputs.needs_observability == 'true'", self.steps["Read observability ingestion credentials"]["if"])
 
     def test_stage_is_resolved_after_access_and_auto_mode_can_stop(self):
         names = list(self.steps)
+        observe = self.steps["Observe the automatic migration in the Playbooks owner"]
+        self.assertEqual(
+            observe["uses"],
+            "ai-workspace-infra/playbooks/.github/actions/vault-migration-observation@18fa333e5d76143f2a3a3ce94b1766a04003ebd8",
+        )
+        self.assertEqual(observe["with"]["owner_root"], "${{ github.workspace }}/playbooks")
         resolve = self.steps["Resolve the stage to run"]
-        self.assertLess(names.index("Verify live SSH host keys against GitOps pins"), names.index("Resolve the stage to run"))
+        self.assertLess(names.index("Verify live SSH host keys against GitOps pins"), names.index("Observe the automatic migration in the Playbooks owner"))
+        self.assertLess(names.index("Observe the automatic migration in the Playbooks owner"), names.index("Resolve the stage to run"))
         self.assertLess(names.index("Resolve the stage to run"), names.index("Log in with the stage's scoped Vault role"))
-        self.assertIn("auto_migration.py", resolve["run"])
+        self.assertNotIn("auto_migration.py", resolve["run"])
         self.assertIn("stage_plan.py", resolve["run"])
+        self.assertIn("--recommended-stage", resolve["run"])
         report = self.steps["Report where migrate-auto stopped"]
         self.assertIn("steps.stage.outputs.blocked != ''", report["if"])
         snapshot = self.steps["Take, encrypt and upload a Raft snapshot"]
@@ -226,7 +249,7 @@ class MigrationWiringTests(unittest.TestCase):
 
     def test_cross_project_migration_opens_two_gcp_oslogin_adapters(self):
         source = self.steps["Open access to the GCP migration source"]
-        self.assertEqual(source["uses"], "./.github/actions/node-access-gcp")
+        self.assertEqual(source["uses"], "./iac_modules/.github/actions/node-access-gcp")
         self.assertEqual(source["with"]["contract_mode"], "source")
         self.assertIn("source_provider_config", source["with"]["provider_config"])
         select = self.steps["Select the prepared adapters"]["run"]
@@ -259,7 +282,8 @@ class MigrationWiringTests(unittest.TestCase):
         self.assertIn("vault-service-verify", options)
         resolve = self.steps["Resolve the stage to run"]["run"]
         self.assertIn('--backup "${backup}"', resolve)
-        self.assertIn('--observation "${OBSERVATION}"', resolve)
+        observe = self.steps["Observe the automatic migration in the Playbooks owner"]
+        self.assertEqual(observe["with"]["observation"], "${{ needs.declaration.outputs.observation }}")
         action = load(NODE_STAGE)
         gate = steps_by_name(action["runs"]["steps"])["Check live node state required by the stage"]
         self.assertIn("--select-next-peer", gate["run"])
@@ -293,21 +317,19 @@ class MigrationWiringTests(unittest.TestCase):
 
 
 class AdapterAndRunnerTests(unittest.TestCase):
-    def test_gcp_adapter_uses_short_lived_identities_and_cleans_up(self):
-        action = load(GCP_ADAPTER)
-        steps = steps_by_name(action["runs"]["steps"])
-        self.assertEqual(steps["Read GCP runtime identity with the scoped Vault JWT role"]["with"]["method"], "jwt")
-        self.assertIn("--ttl=65m", steps["Prepare one-run OS Login SSH identity"]["run"])
-        resolve = steps["Resolve live GCP nodes and the private Raft channel into a NodeDeployment"]["run"]
-        self.assertIn("firewall-rules list", resolve)
-        self.assertIn("--firewalls", resolve)
-        create = steps["Temporarily open SSH for the bootstrap job"]
-        self.assertIn("--source-ranges=0.0.0.0/0", create["run"])
-        self.assertIn("--rules=tcp:22", create["run"])
-        self.assertIn("inputs.connection_mode == 'bootstrap-public'", create["if"])
-        self.assertIn("firewall-rules delete", steps["Delete and verify the temporary public SSH rule"]["run"])
-        self.assertIn("os-login ssh-keys remove", steps["Revoke the OS Login key and remove discovery files"]["run"])
-        self.assertEqual(action["outputs"]["auth_adapter"]["value"], "gcp-oslogin-ephemeral")
+    def test_legacy_gcp_adapter_is_frozen_and_no_longer_called(self):
+        self.assertTrue(GCP_ADAPTER.is_file())
+        workflow = load(ENTRY)
+        uses = [
+            step.get("uses")
+            for job in workflow["jobs"].values()
+            if isinstance(job, dict)
+            for step in job.get("steps", [])
+        ]
+        self.assertNotIn("./.github/actions/node-access-gcp", uses)
+        registry = (ROOT / "scripts/ci/control-plane-legacy.yaml").read_text(encoding="utf-8")
+        self.assertIn('path: ".github/actions/node-access-gcp/action.yml"', registry)
+        self.assertIn("status: requires-owner-split", registry)
 
     def test_node_stage_gates_before_and_after_the_playbook(self):
         action = load(NODE_STAGE)

@@ -123,6 +123,34 @@ legacy:
   owner: playbooks
   sha256: 8c0dff3cabf5b9031c327db6d842b3d57850eec805e95675c5d12ff257f26d52
   status: requires-owner-split
+- path: ".github/scripts/xconnect-network/bootstrap.sh"
+  owner: playbooks
+  sha256: b5172bd46df6c3460b306615e9706987f56a9e167bd5c9c3d7e8ad45de5680f8
+  status: pending-owner-uat
+- path: scripts/node_deploy/auto_migration.py
+  owner: playbooks
+  sha256: 6b7dd0fd4514aab2e7a4d6314033f4b23d3b3dc130872bbc9dc8f39d0cf6146b
+  status: pending-owner-uat
+- path: scripts/node_deploy/prepare_known_hosts.py
+  owner: playbooks
+  sha256: d133e1f8d91d57b4cd8a31bdcc9a760b636b22f7f1ea6697b9fa62656eb8e890
+  status: pending-owner-uat
+- path: scripts/node_deploy/run_stage.sh
+  owner: playbooks
+  sha256: 35e3676178882eab89018ac586a20e33b4ae72971426b246cbfd8b485ae6f361
+  status: pending-owner-uat
+- path: scripts/node_deploy/vault_snapshot.sh
+  owner: playbooks
+  sha256: 17003c598344ff23f0a9ea41a1fa63819b06139f76c9488d4ffee53d397e7d98
+  status: pending-owner-uat
+- path: scripts/node_deploy/verify_vault_stage.py
+  owner: playbooks
+  sha256: 30cb09fcbcb63c936de075f02cdcb0ddb5795735a8c8556b0c682e71cbb70552
+  status: pending-owner-uat
+- path: scripts/node_deploy/xconnect_stage.py
+  owner: playbooks
+  sha256: d14e5e08b597e6bc1842fef85117b6bed9c28c41f5ba837ec9285bab4d764a61
+  status: pending-owner-uat
 retired_workflow_entries:
 - ".github/scripts/platform-ops/deploy/uat_cleanup_runner.sh"
 - ".github/scripts/platform-ops/deploy/uat_orchestrator_runner.sh"
@@ -147,3 +175,10 @@ retired_workflow_entries:
 - scripts/serverless_uat/destroy_ephemeral_compute.sh
 - scripts/serverless_uat/verify_brand_site_review_readiness.sh
 - scripts/serverless_uat/verify_serverless_public_chain.sh
+vault_server_forbidden_entries:
+- "python3 scripts/node_deploy/auto_migration.py"
+- "scripts/node_deploy/run_stage.sh"
+- "scripts/node_deploy/run_stage_action.sh"
+- "scripts/node_deploy/verify_vault_stage.py"
+- "uses: ./.github/actions/vault-node-stage"
+- "uses: ./.github/actions/node-access-gcp"

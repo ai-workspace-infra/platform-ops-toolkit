@@ -1,0 +1,74 @@
+name: Persist an XConnect invitation handoff
+description: Exchange GitHub OIDC for a scoped Vault token and persist a Playbooks-owned private invitation response.
+inputs:
+  response-file:
+    description: Private Playbooks response file below RUNNER_TEMP.
+    required: true
+  vault-address:
+    description: Reviewed Vault HTTPS address.
+    required: true
+  vault-role:
+    description: Exact workflow-bound Vault JWT role.
+    required: true
+  network-id:
+    description: Exact reviewed network identity.
+    required: true
+  gateway-id:
+    description: Exact reviewed Gateway identity.
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        HANDOFF_FILE: ${{ inputs.response-file }}
+        VAULT_ADDR: ${{ inputs.vault-address }}
+        VAULT_ROLE: ${{ inputs.vault-role }}
+        NETWORK_ID: ${{ inputs.network-id }}
+        GATEWAY_ID: ${{ inputs.gateway-id }}
+      run: |
+        set -euo pipefail
+        umask 077
+        die() { echo "::error::$*" >&2; exit 1; }
+        for name in ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_ID_TOKEN_REQUEST_TOKEN RUNNER_TEMP GITHUB_RUN_ID GITHUB_RUN_ATTEMPT HANDOFF_FILE VAULT_ADDR VAULT_ROLE NETWORK_ID GATEWAY_ID; do
+          [[ -n "${!name:-}" ]] || die "$name is required"
+        done
+        [[ "$HANDOFF_FILE" == "$RUNNER_TEMP/"* && "$HANDOFF_FILE" != *'/../'* && "$HANDOFF_FILE" != */.. ]] || die 'Private handoff must remain below RUNNER_TEMP'
+        [[ -f "$HANDOFF_FILE" && ! -L "$HANDOFF_FILE" ]] || die 'Private handoff is missing or unsafe'
+        [[ "$NETWORK_ID" =~ ^net_[A-Za-z0-9][A-Za-z0-9_-]{1,62}$ ]] || die 'NETWORK_ID is invalid'
+        [[ "$GATEWAY_ID" =~ ^gw-[A-Za-z0-9][A-Za-z0-9_-]{1,62}$ ]] || die 'GATEWAY_ID is invalid'
+        [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ && "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]] || die 'GitHub run identity is invalid'
+        jq -e --arg network "$NETWORK_ID" --arg gateway "$GATEWAY_ID" '
+          keys == ["gateway_id","join_uri","network_id"] and
+          .network_id == $network and .gateway_id == $gateway and
+          (.join_uri | type == "string" and startswith("xconnect://join/"))
+        ' "$HANDOFF_FILE" >/dev/null || die 'Playbooks invitation handoff does not match the selected target'
+        temporary="$(mktemp -d "$RUNNER_TEMP/xconnect-invite-handoff.XXXXXX")"
+        chmod 700 "$temporary"
+        trap 'rm -rf "$temporary"' EXIT
+        oidc_url="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=vault"
+        oidc_response="$(curl --fail --silent --show-error -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "$oidc_url")" || die 'GitHub OIDC token request failed'
+        jwt="$(jq -er '.value | strings | select(length > 0)' <<<"$oidc_response")" || die 'GitHub OIDC response did not contain a token'
+        unset oidc_response
+        echo "::add-mask::${jwt}"
+        jq -n --arg role "$VAULT_ROLE" --arg jwt "$jwt" '{role:$role,jwt:$jwt}' > "$temporary/login.json"
+        unset jwt
+        login_status="$(curl --silent --show-error --output "$temporary/login-response.json" --write-out '%{http_code}' \
+          -H 'Content-Type: application/json' --data-binary "@$temporary/login.json" \
+          "${VAULT_ADDR%/}/v1/auth/jwt/login" || true)"
+        [[ "$login_status" == 200 ]] || die "Vault JWT login failed (HTTP ${login_status})"
+        vault_token="$(jq -er '.auth.client_token | strings | select(length > 0)' "$temporary/login-response.json")" || die 'Vault JWT login did not return a client token'
+        echo "::add-mask::${vault_token}"
+        jq -n --arg network "$NETWORK_ID" --arg gateway "$GATEWAY_ID" \
+          --arg join_uri "$(jq -er .join_uri "$HANDOFF_FILE")" \
+          '{data:{NETWORK_ID:$network,GATEWAY_ID:$gateway,JOIN_URI:$join_uri}}' > "$temporary/write.json"
+        invite_path="CICD/shared/xconnect-operator-invite/${NETWORK_ID}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        write_status="$(curl --silent --show-error --output "$temporary/write-response.json" --write-out '%{http_code}' \
+          -H "X-Vault-Token: ${vault_token}" -H 'Content-Type: application/json' \
+          --request POST --data-binary "@$temporary/write.json" \
+          "${VAULT_ADDR%/}/v1/kv/data/${invite_path}" || true)"
+        unset vault_token
+        [[ "$write_status" == 200 || "$write_status" == 204 ]] || die "Vault invite write failed (HTTP ${write_status}); do not retry blindly because Accounts may already have issued the invitation"
+        summary="Created XConnect network ${NETWORK_ID}; one-use Gateway invitation stored at kv/${invite_path}. CI cannot read it back."
+        echo "$summary"
+        [[ -z "${GITHUB_STEP_SUMMARY:-}" ]] || printf '%s\n' "$summary" >> "$GITHUB_STEP_SUMMARY"

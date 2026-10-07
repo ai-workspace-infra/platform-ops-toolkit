@@ -250,6 +250,14 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
+      - name: Checkout fixed IaC GCP authentication owner
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: 9570b01959396e1d0e20331205b5cb5718f5c588
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: .github/actions/auth-gcp-cloud
       - name: Verify approved resource run and original CMDB artifact
         id: native_control
         env:
@@ -343,6 +351,14 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
+      - name: Checkout fixed IaC GCP authentication owner
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: 9570b01959396e1d0e20331205b5cb5718f5c588
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: .github/actions/auth-gcp-cloud
       - name: Verify approved resource run and original CMDB artifact
         id: native_control
         env:
@@ -409,6 +425,14 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
+      - name: Checkout fixed IaC GCP authentication owner
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: 9570b01959396e1d0e20331205b5cb5718f5c588
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: .github/actions/auth-gcp-cloud
       - name: Verify configured PROD data review policy and exact successful standby/resource evidence
         id: native_init_control
         env:
@@ -505,6 +529,14 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
+      - name: Checkout fixed IaC GCP authentication owner
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: 9570b01959396e1d0e20331205b5cb5718f5c588
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: .github/actions/auth-gcp-cloud
       - name: Verify configured PROD data review policy and exact successful initialization/standby/resource evidence
         id: native_billing_control
         env:
@@ -610,6 +642,14 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
+      - name: Checkout fixed IaC GCP authentication owner
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: 9570b01959396e1d0e20331205b5cb5718f5c588
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: .github/actions/auth-gcp-cloud
       - name: Prepare PROD source and target records before runtime checks
         id: full_business_control
         env:
@@ -1230,7 +1270,8 @@ jobs:
           ${{ runner.os }}-pip-
 
     - name: Setup deployment runner
-      uses: ./.github/actions/setup-deployment-runner
+      id: runner
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         matrix_host: ${{ matrix.host }}
@@ -1244,44 +1285,46 @@ jobs:
     #
     # 顺序: 先恢复(bootstrap 之后、Doco-CD 把 caddy 拉起来之前), 让 caddy 一起来
     # 就发现证书已在, 根本不调 ACME; 部署末尾再备份, 把这一轮可能新签的证书存回去。
-    - name: Restore domain TLS state from Vault before Caddy can issue
-      id: tls_restore
+    - name: Read domain TLS record through the authorized Vault session
+      id: tls_record
       # Agent Proxy owns a public Caddy vhost too.  The combined UAT path
       # deploys it after serverless web-saas, so restore the shared wildcard
       # certificate for agent-proxy-only runs as well; otherwise the playbook
       # correctly refuses to fall back to ACME on a fresh node.
       if: ${{ contains(needs.provision.outputs.target_domains, 'web-saas') || contains(needs.provision.outputs.target_domains, 'agent-proxy') || needs.provision.outputs.target_domains == 'all' }}
       env:
-        VAULT_ROLE: ${{ env.VAULT_ROLE }}
         VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
-        # Public wildcard PEM is separate from web-saas/certs/, which belongs
-        # to stunnel's internal CA. Non-Caddy consumers use current/{fullchain,
-        # cert,key,ca}.pem below; `current` flips atomically after validation.
-        DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
-      run: python3 ${{ github.workspace }}/.github/scripts/platform-ops/deploy/prepare-domain-tls-restore.py
+        TLS_VAULT_RESPONSE_FILE: ${{ runner.temp }}/domain-tls-vault.json
+      run: |
+        set -euo pipefail
+        umask 077
+        test -n "${VAULT_TOKEN:-}" || {
+          echo "::error::Vault token was not exported for TLS restoration." >&2
+          exit 1
+        }
+        status="$(curl --silent --show-error \
+          -o "${TLS_VAULT_RESPONSE_FILE}" -w '%{http_code}' \
+          -H "X-Vault-Token: ${VAULT_TOKEN}" \
+          "${VAULT_ADDR%/}/v1/${VAULT_CADDY_PATH}")"
+        case "${status}" in
+          200|404) ;;
+          *) echo "::error::TLS Vault read returned HTTP ${status}; refusing restore." >&2; exit 1 ;;
+        esac
+        printf 'http_status=%s\nresponse_file=%s\n' \
+          "${status}" "${TLS_VAULT_RESPONSE_FILE}" >>"${GITHUB_OUTPUT}"
 
-    - name: Checkout reviewed Caddy PEM restore owner
-      if: ${{ steps.tls_restore.outputs.restore_required == 'true' }}
-      uses: actions/checkout@v7
+    - name: Restore domain TLS with pinned Playbooks owner
+      if: ${{ steps.tls_record.outcome == 'success' }}
+      uses: ai-workspace-infra/playbooks/.github/actions/caddy-certificate-restore@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
-        repository: ai-workspace-infra/playbooks
-        ref: 14f6196bbf69b78d07f1adb9fb8c97bc816a485b
-        path: caddy-restore-playbooks
-
-    - name: Restore PEM with pinned Playbooks Role
-      if: ${{ steps.tls_restore.outputs.restore_required == 'true' }}
-      env:
-        TLS_RESTORE_VARS_FILE: ${{ steps.tls_restore.outputs.vars_file }}
-      run: >-
-        ansible-playbook -i cmdb/inventory.ini
-        caddy-restore-playbooks/caddy_certificate_restore.yml
-        -e "@${TLS_RESTORE_VARS_FILE}"
-
-    - name: Remove runtime PEM variables
-      if: ${{ always() && steps.tls_restore.outputs.vars_file != '' }}
-      env:
-        TLS_RESTORE_VARS_FILE: ${{ steps.tls_restore.outputs.vars_file }}
-      run: rm -f -- "${TLS_RESTORE_VARS_FILE}"
+        inventory_file: cmdb/inventory.ini
+        vault_response_file: ${{ steps.tls_record.outputs.response_file }}
+        vault_http_status: ${{ steps.tls_record.outputs.http_status }}
+        target: ${{ matrix.host }}
+        # Public wildcard PEM is separate from web-saas/certs/, which belongs
+        # to stunnel's internal CA. Non-Caddy consumers use current/ below.
+        domain_tls_directory: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
+        deploy_key_file: ${{ steps.runner.outputs.deploy_key_file }}
 
     - name: Bootstrap node according to CMDB role
       working-directory: playbooks
@@ -1803,7 +1846,7 @@ jobs:
           ${{ env.VAULT_KV }} CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN
 
     - name: Setup DNS deployment runner
-      uses: ./.github/actions/setup-deployment-runner
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         install_ansible: 'true'
@@ -1977,7 +2020,7 @@ jobs:
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64
 
     - name: Setup deployment runner
-      uses: ./.github/actions/setup-deployment-runner
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         matrix_host: ${{ matrix.host }}
@@ -2065,7 +2108,7 @@ jobs:
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64
 
     - name: Setup deployment runner
-      uses: ./.github/actions/setup-deployment-runner
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         matrix_host: ${{ matrix.host }}
@@ -2270,7 +2313,7 @@ jobs:
           ${{ runner.os }}-pip-
 
     - name: Setup deployment runner
-      uses: ./.github/actions/setup-deployment-runner
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         matrix_host: ${{ matrix.host }}
@@ -2433,27 +2476,11 @@ jobs:
 
     - name: Setup deployment runner
       id: runner
-      uses: ./.github/actions/setup-deployment-runner
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         matrix_host: ${{ matrix.host }}
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         install_ansible: 'true'
-
-    - name: Materialize non-IaC deploy key at runner temp
-      id: deploy_key
-      env:
-        DEPLOY_KEY_B64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
-        DEPLOY_KEY_FILE: ${{ runner.temp }}/xconnect-non-iac-deploy-key
-      run: |-
-        set -euo pipefail
-        test -n "${DEPLOY_KEY_B64}" || {
-          echo "::error::Vault did not provide the non-IaC deployment key." >&2
-          exit 1
-        }
-        umask 077
-        printf '%s' "${DEPLOY_KEY_B64}" | base64 --decode >"${DEPLOY_KEY_FILE}"
-        ssh-keygen -y -f "${DEPLOY_KEY_FILE}" >/dev/null
-        printf 'path=%s\n' "${DEPLOY_KEY_FILE}" >>"${GITHUB_OUTPUT}"
 
     - name: Resolve non-IaC node Vault path
       id: vault_path
@@ -2481,19 +2508,17 @@ jobs:
           > "${XCONNECT_VAULT_RESPONSE_FILE}"
 
     - name: Render non-IaC Agent Proxy inventory
-      id: bootstrap_inventory
-      env:
-        DEPLOYMENT_ENV: ${{ needs.provision.outputs.deployment_env }}
-        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/${{ needs.provision.outputs.deployment_env }}/selfhost/${{ needs.provision.outputs.deployment_env == 'uat' && 'xconnect-regional-pool.yaml' || 'xconnect-regional-pools.yaml' }}
-        XCONNECT_VAULT_RESPONSE_FILE: ${{ runner.temp }}/xconnect-vault.json
-        XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/external-agent-proxy-bootstrap-inventory.yml
-        XCONNECT_NODE_ID: ${{ matrix.host }}
-        # The renderer replaces this fallback with a node-scoped Vault key
-        # when ssh_private_key_b64 is present in the node record.
-        XCONNECT_DEPLOY_KEY_FILE: ${{ steps.deploy_key.outputs.path }}
-      run: >-
-        python3
-        ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_render-non-iac-agent-proxy-inventory.py
+      id: inventory
+      uses: ai-workspace-infra/playbooks/.github/actions/non-iac-agent-proxy-inventory@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
+      with:
+        environment: ${{ needs.provision.outputs.deployment_env }}
+        topology_file: ${{ github.workspace }}/gitops/topology/${{ needs.provision.outputs.deployment_env }}/selfhost/${{ needs.provision.outputs.deployment_env == 'uat' && 'xconnect-regional-pool.yaml' || 'xconnect-regional-pools.yaml' }}
+        vault_response_file: ${{ runner.temp }}/xconnect-vault.json
+        node_id: ${{ matrix.host }}
+        inventory_file: ${{ runner.temp }}/external-agent-proxy-inventory.yml
+        # The owner replaces this fallback in place when a node-scoped Vault
+        # key is present; key material never becomes an action output value.
+        deploy_key_file: ${{ steps.runner.outputs.deploy_key_file }}
 
     - name: Preserve deploy-key access on non-IaC node
       working-directory: playbooks
@@ -2509,59 +2534,47 @@ jobs:
         # Offer the deploy key first and let ssh fall back to the password for a
         # genuine first contact. That makes the step idempotent and matches the
         # transport every other Ansible step in this workflow uses.
-        ANSIBLE_SSH_ARGS: "-o ControlMaster=auto -o ControlPersist=60s -o IdentityFile=${{ runner.temp }}/xconnect-non-iac-deploy-key -o PreferredAuthentications=publickey,password -o StrictHostKeyChecking=no"
+        ANSIBLE_SSH_ARGS: "-o ControlMaster=auto -o ControlPersist=60s -o IdentityFile=${{ steps.inventory.outputs.deploy_key_file }} -o PreferredAuthentications=publickey,password -o StrictHostKeyChecking=no"
       run: |-
-        SSH_PUBLIC_DEPLOY_KEY="$(ssh-keygen -y -f "${{ steps.deploy_key.outputs.path }}")"
+        SSH_PUBLIC_DEPLOY_KEY="$(ssh-keygen -y -f "${{ steps.inventory.outputs.deploy_key_file }}")"
         export SSH_PUBLIC_DEPLOY_KEY
         ansible-playbook \
-          -i "${{ runner.temp }}/external-agent-proxy-bootstrap-inventory.yml" \
+          -i "${{ steps.inventory.outputs.inventory }}" \
           prepare_non_iac_ssh_access.yml \
           --limit "${MATRIX_HOST}"
 
-    - name: Render deploy-key inventory for non-IaC node
-      id: inventory
+    - name: Read domain TLS record through the authorized Vault session
+      id: tls_record
       env:
-        DEPLOYMENT_ENV: ${{ needs.provision.outputs.deployment_env }}
-        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops/topology/${{ needs.provision.outputs.deployment_env }}/selfhost/${{ needs.provision.outputs.deployment_env == 'uat' && 'xconnect-regional-pool.yaml' || 'xconnect-regional-pools.yaml' }}
-        XCONNECT_VAULT_RESPONSE_FILE: ${{ runner.temp }}/xconnect-vault.json
-        XCONNECT_INVENTORY_FILE: ${{ runner.temp }}/external-agent-proxy-inventory.yml
-        XCONNECT_NODE_ID: ${{ matrix.host }}
-        XCONNECT_DEPLOY_KEY_FILE: ${{ steps.deploy_key.outputs.path }}
-      run: >-
-        python3
-        ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_render-non-iac-agent-proxy-inventory.py
-
-    - name: Restore domain TLS state to non-IaC node
-      id: tls_restore
-      env:
-        VAULT_ROLE: ${{ env.VAULT_ROLE }}
         VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
-        DOMAIN_TLS_DIR: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
-      run: python3 ${{ github.workspace }}/.github/scripts/platform-ops/deploy/prepare-domain-tls-restore.py
+        TLS_VAULT_RESPONSE_FILE: ${{ runner.temp }}/domain-tls-vault.json
+      run: |
+        set -euo pipefail
+        umask 077
+        test -n "${VAULT_TOKEN:-}" || {
+          echo "::error::Vault token was not exported for TLS restoration." >&2
+          exit 1
+        }
+        status="$(curl --silent --show-error \
+          -o "${TLS_VAULT_RESPONSE_FILE}" -w '%{http_code}' \
+          -H "X-Vault-Token: ${VAULT_TOKEN}" \
+          "${VAULT_ADDR%/}/v1/${VAULT_CADDY_PATH}")"
+        case "${status}" in
+          200|404) ;;
+          *) echo "::error::TLS Vault read returned HTTP ${status}; refusing restore." >&2; exit 1 ;;
+        esac
+        printf 'http_status=%s\nresponse_file=%s\n' \
+          "${status}" "${TLS_VAULT_RESPONSE_FILE}" >>"${GITHUB_OUTPUT}"
 
-    - name: Checkout reviewed Caddy PEM restore owner for non-IaC node
-      if: ${{ steps.tls_restore.outputs.restore_required == 'true' }}
-      uses: actions/checkout@v7
+    - name: Restore domain TLS with pinned Playbooks owner
+      uses: ai-workspace-infra/playbooks/.github/actions/caddy-certificate-restore@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
-        repository: ai-workspace-infra/playbooks
-        ref: 14f6196bbf69b78d07f1adb9fb8c97bc816a485b
-        path: caddy-restore-playbooks
-
-    - name: Restore PEM with pinned Playbooks Role on non-IaC node
-      if: ${{ steps.tls_restore.outputs.restore_required == 'true' }}
-      env:
-        TLS_RESTORE_VARS_FILE: ${{ steps.tls_restore.outputs.vars_file }}
-        ANSIBLE_SSH_ARGS: "-o ControlMaster=auto -o ControlPersist=60s -o IdentityFile=${{ runner.temp }}/xconnect-non-iac-deploy-key -o PreferredAuthentications=publickey,password -o StrictHostKeyChecking=no"
-      run: >-
-        ansible-playbook -i "${{ runner.temp }}/external-agent-proxy-inventory.yml"
-        caddy-restore-playbooks/caddy_certificate_restore.yml
-        -e "@${TLS_RESTORE_VARS_FILE}"
-
-    - name: Remove non-IaC runtime PEM variables
-      if: ${{ always() && steps.tls_restore.outputs.vars_file != '' }}
-      env:
-        TLS_RESTORE_VARS_FILE: ${{ steps.tls_restore.outputs.vars_file }}
-      run: rm -f -- "${TLS_RESTORE_VARS_FILE}"
+        inventory_file: ${{ steps.inventory.outputs.inventory }}
+        vault_response_file: ${{ steps.tls_record.outputs.response_file }}
+        vault_http_status: ${{ steps.tls_record.outputs.http_status }}
+        target: ${{ matrix.host }}
+        domain_tls_directory: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
+        deploy_key_file: ${{ steps.inventory.outputs.deploy_key_file }}
 
     - name: Resolve Xray Exporter image
       id: xray_exporter
@@ -2748,7 +2761,7 @@ jobs:
           ${{ runner.os }}-pip-
 
     - name: Setup deployment runner
-      uses: ./.github/actions/setup-deployment-runner
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         matrix_host: ${{ matrix.host }}

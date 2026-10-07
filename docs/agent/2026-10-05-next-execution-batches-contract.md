@@ -1,5 +1,36 @@
 # 后续执行职责迁移合同草案（P3 / P4 / 横向收敛）
 
+## 2026-10-07 XConnect Accounts 邀请 owner/caller 切换
+
+`declared-network` 的 Accounts API invitation 已从混合 Toolkit bootstrap 路径切到
+Playbooks owner action `xconnect-network-bootstrap`，固定 owner SHA 为
+`18fa333e5d76143f2a3a3ce94b1766a04003ebd8`。Playbooks 只消费 Toolkit 已校验的
+私有请求和运行时 service token，调用 Accounts bootstrap API，并写出 mode `0600`
+的私有 handoff；它不登录 Vault，也不持久化 invitation。
+
+Toolkit 保留 GitHub OIDC、Vault role、GitOps/owner 固定 SHA、目标选择以及私有
+invitation 写入。新 `xconnect-network-invite-handoff` action 只接受 Playbooks 返回的
+精确 network/gateway handoff，并写入本次 run/attempt 专属的 Vault KV 路径。
+`.github/scripts/xconnect-network/bootstrap.sh` 保持冻结且不再是 workflow caller；在
+真实 prod/custom 声明完成 Accounts HTTP 201、精确响应核对、Vault write receipt 和
+下游一次性 invitation 消费验证前不得删除。当前只有离线 mock/契约证据，未执行
+Accounts API 或 Vault 写入，也不构成 UAT 完成。
+
+## 2026-10-07 XConnect lab IaC lifecycle owner/caller 切换
+
+`xconnect-zero-cloud.yaml` 的 Terraform preflight/prepare/apply/cleanup 已切到固定
+IaC owner SHA `9570b01959396e1d0e20331205b5cb5718f5c588` 的
+`xconnect-lab-lifecycle` action。owner 仅处理精确 run state、Terraform plan/apply/
+destroy/output/state evidence、AWS provider facts、租约对象 CRUD 和脱敏诊断；它不
+调用 Toolkit 脚本、SSH、Ansible、systemd 或 Accounts API。`run.sh` 继续承担输入、
+GitOps topology、release artifact 与尚未迁移的阶段分发，旧 `prepare.py`、`lease.sh`
+及 `terraform-diagnostics.py` 保持冻结，等待真实 apply/失败/cleanup UAT 后再删除。
+
+本地 mock 已覆盖相同 plan 的 apply、私有 output、精确 state show、允许资源集合、
+destroy 后空 state 与 lease create/delete；尚未执行 AWS、Terraform remote state 或
+真实资源动作。外部 Gateway SSH key 仅由 Toolkit 做 mode-0600 秘密交接，实际主机
+执行仍待切换到 Playbooks owner。
+
 核对基线：Toolkit `ec7bc9b1`，Playbooks `14f6196b`，IaC `71746d06`。本文件是实码评估与后续门禁，**不是已实现、已合并或已验收记录**。P2a owner 另见 IaC #392。所有后续批次保持 owner → caller → 验证 → cleanup；不自动合并、不改变管理员权限、不读取真实凭据、不执行真实云端/主机操作。
 
 ## P3：不要整体移动 XConnect 混合脚本
@@ -13,7 +44,7 @@
 | `lease.sh` 的 S3-compatible put/list/get/delete | IaC 租约状态适配器 | 显式 bucket/endpoint/prefix/run/expiry；不接管其他 run；分页完整；失败不返回 cleanup success |
 | `lease.sh` 的过期判定、cleanup inputs 与 `gh api .../dispatches` | Toolkit 编排 | 校验已记录 run/ref 与 expiry；审批与 dispatch 分离；dispatch receipt 不等于资源已删除 |
 | `deploy.sh` / existing-One / `enroll-node.sh` 的主机安装、identity、join/up、systemd、WireGuard 与远程健康 | Playbooks Roles | 显式 target/SSH trust、device/network/gateway identity、immutable binary/release、run 范围；幂等重跑不重建 identity；拒绝跨环境/错误 host |
-| Accounts API bootstrap/invite 与 gateway owner reconciliation | 明确参数化的 Toolkit 控制适配器；主机 join 由 Playbooks | 不把 API success 当主机成功；invite 为一次性敏感文件；不能把 mutating invite creation 标为 non-mutating rehearsal |
+| Accounts API bootstrap/invite 与 gateway owner reconciliation | Accounts 服务写入归 Playbooks 参数化 owner；Toolkit 保留 OIDC/Vault 授权、秘密交接和最终门禁；主机 join 仍由 Playbooks Roles | 不把 API success 当主机成功；invite 为一次性敏感文件；不能把 mutating invite creation 标为 non-mutating rehearsal |
 | `desktop.sh` / `node-observation.sh` 的 host probe | Playbooks 受限健康入口；等待窗口/汇总留 Toolkit | timeout ≤ lease expiry；SUMMARY_ONLY / UNVERIFIED 原样传递，不转译成验收成功 |
 
 ### 复用与第一子批次
@@ -31,6 +62,31 @@ Playbooks 已存在 `deploy_xconnect_one.yml`（`roles/vhosts/xconnect_one`）�
 - observation 的 external-gateway 分支只等到 expiry 并返回 SUMMARY_ONLY；这不是 One 或 Gateway 数据面验收。
 
 验收矩阵至少覆盖：fake Accounts API + fixture inventory、missing/mismatched target、错 device/network、expired/used invite、owner missing、SSH trust failure、service/handshake failure、幂等保留 identity、always secret cleanup。真实验收须记录 owner/Toolkit/binary SHA、environment/target/run、实际 Role 与 overlay handshake/private traffic；未覆盖 caller 的旧脚本保留。
+
+### 2026-10-07 host/service caller 切换 gate
+
+以下 gate 保留逐链交接状态。Playbooks [#622](https://github.com/ai-workspace-infra/playbooks/pull/622) 已合并，固定 SHA
+`18fa333e5d76143f2a3a3ce94b1766a04003ebd8` 已有 `xconnect_one`、
+`xconnect_gateway`、`xconnect_lab_runtime` Roles，并新增 trusted-target runtime/evidence actions，覆盖
+`gateway_identity/gateway/gateway_reconcile/one/gateway_verify/one_verify`。Accounts device-bound
+invitation 复用已有 `scripts/node_deploy/xconnect_stage.py`，不再新增同等邀请实现。
+owner 的离线证据不替代 lab 的可信 host keys、private probe URL/marker 和真实运行证据。因此 `run.sh setup/bootstrap/gateway/one/verify`、
+`xconnect-existing-one-uat/deploy.sh`、`enroll-node.sh` 仍是冻结 caller，不能以 Role
+文件存在或 syntax-check 通过为理由删除。
+
+| Gate | owner 完成条件 | 离线证据 | 真实 UAT receipt | 当前状态 |
+| --- | --- | --- | --- | --- |
+| H1 可信 target handoff | Toolkit 交付精确 host/user、私有 key 与预先审查的 known_hosts；Playbooks 拒绝空 target、通配发现和 accept-new | owner 已覆盖 missing/mismatch/host-key failure | owner SHA、target、host-key fingerprint、Ansible recap | OWNER-READY；caller 缺声明式可信 host-key 来源，仍冻结 |
+| H2 Accounts device invite | Playbooks 参数化 service owner 支持 gateway/one、固定 network/device/role/TTL，并输出私密 handoff；Toolkit 只做 Vault token 交接 | 复用已存在的 node-deploy invitation owner 与其测试 | HTTP 201、精确 network/device/role、invite consumed once | REUSE；lab 精确 target/contract 的 caller 交接与真实消费待验证 |
+| H3 Gateway identity/enroll/reconcile | `xconnect_lab_runtime` 分开 identity、join、peer reconcile；已有 credential 重跑不消耗 invite，401 轮换须显式操作 | Role contract、syntax 与 runtime action mock 已通过 | gateway identity 保持、实际 config generation、timer active | OWNER-PARTIAL；reconcile 已补，401 rotation 等价性和运行行为待验证 |
+| H4 One deploy | `xconnect_one` 消费 immutable binary、CA、一次性 invite 和精确 target，失败也删除 runner/remote invite | exact target runner 与私密输入清理反例已通过 | joined device/network、credential valid、runtime applied | OWNER-READY；caller 仍混在 deploy scripts，未真实验收 |
+| H5 数据面验收 | Playbooks owner 返回脱敏 receipt，包含 One/Gateway status、精确 peer handshake age、TLS/SNI、private ping/HTTP；任一缺失即失败 | CLI rc/state/credential、runtime peer binding、多配置、stale handshake 与 probe 负例已通过 | 同一 run/attempt 的 handshake、private traffic 与实际 runtime receipt | OWNER-READY；缺 private probe 声明；不宣称 Gateway CLI status 是 signed receipt |
+| H6 existing-One 拆分 | release 获取/校验留 Toolkit；Accounts 写归 service owner；Gateway/One 主机操作归 Roles；观察 owner 继续复用现有 action | 每个 owner 单独 mock，不调用 Toolkit 脚本 | fixed owner/binary SHA + exact host/network + H2-H5 receipts | BLOCKED：旧 527 行脚本仍混合四类副作用 |
+
+执行顺序必须是 H1 → H2 → H3/H4 → H5 → caller 切换 → 真实 UAT → legacy
+删除。H2 的 HTTP 201、H3/H4 的 Ansible success 或现有观测 action 的 SUMMARY_ONLY
+均不能单独满足 H5。迁移完成前，本仓合同测试继续断言五个 lab host stage 与两个独立
+legacy caller 仍在，防止只删调用来让 scanner 变绿。
 
 ## P4：SMTP Secret Manager 与 Vault 分离
 
