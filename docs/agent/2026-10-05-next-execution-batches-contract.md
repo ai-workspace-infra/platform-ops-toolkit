@@ -1,5 +1,21 @@
 # 后续执行职责迁移合同草案（P3 / P4 / 横向收敛）
 
+## 2026-10-07 XConnect Accounts 邀请 owner/caller 切换
+
+`declared-network` 的 Accounts API invitation 已从混合 Toolkit bootstrap 路径切到
+Playbooks owner action `xconnect-network-bootstrap`，固定 owner SHA 为
+`fda67822d3d9461567238606256dbe3610a8759f`。Playbooks 只消费 Toolkit 已校验的
+私有请求和运行时 service token，调用 Accounts bootstrap API，并写出 mode `0600`
+的私有 handoff；它不登录 Vault，也不持久化 invitation。
+
+Toolkit 保留 GitHub OIDC、Vault role、GitOps/owner 固定 SHA、目标选择以及私有
+invitation 写入。新 `xconnect-network-invite-handoff` action 只接受 Playbooks 返回的
+精确 network/gateway handoff，并写入本次 run/attempt 专属的 Vault KV 路径。
+`.github/scripts/xconnect-network/bootstrap.sh` 保持冻结且不再是 workflow caller；在
+真实 prod/custom 声明完成 Accounts HTTP 201、精确响应核对、Vault write receipt 和
+下游一次性 invitation 消费验证前不得删除。当前只有离线 mock/契约证据，未执行
+Accounts API 或 Vault 写入，也不构成 UAT 完成。
+
 核对基线：Toolkit `ec7bc9b1`，Playbooks `14f6196b`，IaC `71746d06`。本文件是实码评估与后续门禁，**不是已实现、已合并或已验收记录**。P2a owner 另见 IaC #392。所有后续批次保持 owner → caller → 验证 → cleanup；不自动合并、不改变管理员权限、不读取真实凭据、不执行真实云端/主机操作。
 
 ## P3：不要整体移动 XConnect 混合脚本
@@ -13,7 +29,7 @@
 | `lease.sh` 的 S3-compatible put/list/get/delete | IaC 租约状态适配器 | 显式 bucket/endpoint/prefix/run/expiry；不接管其他 run；分页完整；失败不返回 cleanup success |
 | `lease.sh` 的过期判定、cleanup inputs 与 `gh api .../dispatches` | Toolkit 编排 | 校验已记录 run/ref 与 expiry；审批与 dispatch 分离；dispatch receipt 不等于资源已删除 |
 | `deploy.sh` / existing-One / `enroll-node.sh` 的主机安装、identity、join/up、systemd、WireGuard 与远程健康 | Playbooks Roles | 显式 target/SSH trust、device/network/gateway identity、immutable binary/release、run 范围；幂等重跑不重建 identity；拒绝跨环境/错误 host |
-| Accounts API bootstrap/invite 与 gateway owner reconciliation | 明确参数化的 Toolkit 控制适配器；主机 join 由 Playbooks | 不把 API success 当主机成功；invite 为一次性敏感文件；不能把 mutating invite creation 标为 non-mutating rehearsal |
+| Accounts API bootstrap/invite 与 gateway owner reconciliation | Accounts 服务写入归 Playbooks 参数化 owner；Toolkit 保留 OIDC/Vault 授权、秘密交接和最终门禁；主机 join 仍由 Playbooks Roles | 不把 API success 当主机成功；invite 为一次性敏感文件；不能把 mutating invite creation 标为 non-mutating rehearsal |
 | `desktop.sh` / `node-observation.sh` 的 host probe | Playbooks 受限健康入口；等待窗口/汇总留 Toolkit | timeout ≤ lease expiry；SUMMARY_ONLY / UNVERIFIED 原样传递，不转译成验收成功 |
 
 ### 复用与第一子批次

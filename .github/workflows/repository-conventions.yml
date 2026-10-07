@@ -106,7 +106,7 @@ jobs:
 
       - name: Verify YAML and Shell control-plane contracts
         run: |
-          bash scripts/ci/action-metadata-verify.sh .github/actions/prod-selfhost-control/action.yml .github/actions/serverless-runtime/action.yml .github/actions/serverless-summary/action.yml .github/actions/setup-yq/action.yml
+          bash scripts/ci/action-metadata-verify.sh .github/actions/prod-selfhost-control/action.yml .github/actions/serverless-runtime/action.yml .github/actions/serverless-summary/action.yml .github/actions/setup-yq/action.yml .github/actions/xconnect-network-invite-handoff/action.yml
           bash .github/actions/prod-selfhost-control/tests/control-test.sh
           bash .github/actions/serverless-runtime/tests/runtime-test.sh
           bash .github/actions/serverless-summary/tests/summary-test.sh

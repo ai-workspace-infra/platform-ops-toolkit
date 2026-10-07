@@ -6,7 +6,7 @@ workflow="$repo_root/.github/workflows/xconnect-zero-cloud.yaml"
 policy="$repo_root/scripts/vault/policies/github-actions-platform-ops-toolkit-shared-xconnect-network.hcl"
 role="$repo_root/scripts/vault/roles/github-actions-platform-ops-toolkit-shared-xconnect-network.json"
 manifest="$repo_root/.github/scripts/xconnect-network/manifest.py"
-bootstrap="$repo_root/.github/scripts/xconnect-network/bootstrap.sh"
+handoff="$repo_root/.github/actions/xconnect-network-invite-handoff/action.yml"
 
 python3 - "$workflow" "$role" <<'PY'
 from pathlib import Path
@@ -56,10 +56,13 @@ if 'read' in match.group(1):
     raise SystemExit("CI must not read its one-use invitation")
 PY
 ! grep -Fq 'VAULT_JWT: ${{ github.token }}' "$workflow"
-grep -Fq 'ACTIONS_ID_TOKEN_REQUEST_TOKEN' "$bootstrap"
-grep -Fq 'startswith("xconnect://join/")' "$bootstrap"
-grep -Fq 'del(.bootstrap.invite.ttl_minutes)' "$bootstrap"
-grep -Fq 'GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}' "$bootstrap"
+grep -Fq 'ref: fda67822d3d9461567238606256dbe3610a8759f' "$workflow"
+grep -Fq 'uses: ./playbooks/.github/actions/xconnect-network-bootstrap' "$workflow"
+! grep -Fq 'run: bash .github/scripts/xconnect-network/bootstrap.sh' "$workflow"
+grep -Fq 'ACTIONS_ID_TOKEN_REQUEST_TOKEN' "$handoff"
+grep -Fq 'startswith("xconnect://join/")' "$handoff"
+grep -Fq 'GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}' "$handoff"
+grep -Fq 'do not retry blindly because Accounts may already have issued the invitation' "$handoff"
 grep -Fq 'workflow_dispatch' "$workflow"
 
 echo 'xconnect_declared_network_contract_test: PASS'

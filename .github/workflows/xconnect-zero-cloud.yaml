@@ -224,20 +224,27 @@ jobs:
             kv/data/CICD/shared/xconnect ZERO_SERVICE_TOKEN | ZERO_SERVICE_TOKEN ;
             kv/data/CICD/shared/xconnect VLESS_ID | VLESS_ID ;
             kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
-      - name: Mint read-only GitOps checkout token
-        id: gitops-token
+      - name: Mint read-only owner and declaration checkout token
+        id: infra-token
         uses: actions/create-github-app-token@v3
         with:
           client-id: Iv23liNwStpQIiXajhpb
           private-key: ${{ steps.bootstrap.outputs.APP_PRIVATE_KEY }}
           owner: ai-workspace-infra
-          repositories: gitops
+          repositories: gitops,playbooks
       - uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/gitops
           ref: ${{ inputs.network_gitops_ref }}
-          token: ${{ steps.gitops-token.outputs.token }}
+          token: ${{ steps.infra-token.outputs.token }}
           path: gitops
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: fda67822d3d9461567238606256dbe3610a8759f
+          token: ${{ steps.infra-token.outputs.token }}
+          path: playbooks
           persist-credentials: false
       - name: Validate GitOps declaration and build a private bootstrap request
         id: declaration
@@ -247,23 +254,33 @@ jobs:
           VLESS_ID: ${{ steps.bootstrap.outputs.VLESS_ID }}
           REQUEST_FILE: ${{ runner.temp }}/xconnect-network-request.json
         run: python3 .github/scripts/xconnect-network/manifest.py
-      - name: Bootstrap the declared network and issue a one-use Gateway invitation
+      - name: Issue the one-use Gateway invitation through the Playbooks service owner
         if: inputs.mode == 'apply'
         env:
-          VAULT_ADDR: https://vault.svc.plus
-          VAULT_ROLE: github-actions-platform-ops-toolkit-shared-xconnect-network
           ZERO_SERVICE_TOKEN: ${{ steps.bootstrap.outputs.ZERO_SERVICE_TOKEN }}
-          NETWORK_REQUEST_FILE: ${{ runner.temp }}/xconnect-network-request.json
-          NETWORK_ID: ${{ steps.declaration.outputs.network_id }}
-          ACCOUNTS_API_URL: ${{ steps.declaration.outputs.accounts_api_url }}
-          INVITATION_TTL_MINUTES: ${{ steps.declaration.outputs.invitation_ttl_minutes }}
-        run: bash .github/scripts/xconnect-network/bootstrap.sh
+        uses: ./playbooks/.github/actions/xconnect-network-bootstrap
+        id: network-owner
+        with:
+          request-file: ${{ runner.temp }}/xconnect-network-request.json
+          response-file: ${{ runner.temp }}/xconnect-network-response.json
+          network-id: ${{ steps.declaration.outputs.network_id }}
+          accounts-api-url: ${{ steps.declaration.outputs.accounts_api_url }}
+          invitation-ttl-minutes: ${{ steps.declaration.outputs.invitation_ttl_minutes }}
+      - name: Persist the private invitation through the Toolkit Vault boundary
+        if: inputs.mode == 'apply' && steps.network-owner.outcome == 'success'
+        uses: ./.github/actions/xconnect-network-invite-handoff
+        with:
+          response-file: ${{ runner.temp }}/xconnect-network-response.json
+          vault-address: https://vault.svc.plus
+          vault-role: github-actions-platform-ops-toolkit-shared-xconnect-network
+          network-id: ${{ steps.network-owner.outputs.network_id }}
+          gateway-id: ${{ steps.network-owner.outputs.gateway_id }}
       - name: Report dry-run boundary
         if: inputs.mode == 'dry-run'
         run: echo 'Declaration validated; no Zero API or Vault writes were performed.'
-      - name: Remove private generated request
+      - name: Remove private generated request and invitation handoff
         if: always()
-        run: rm -f '${{ runner.temp }}/xconnect-network-request.json'
+        run: rm -f '${{ runner.temp }}/xconnect-network-request.json' '${{ runner.temp }}/xconnect-network-response.json'
 
   resolve_ai_aggregator_matrix:
     name: Resolve AI Aggregator node matrix
