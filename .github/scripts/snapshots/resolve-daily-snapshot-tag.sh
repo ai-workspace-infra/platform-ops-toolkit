@@ -28,10 +28,17 @@ if [[ "${#tags[@]}" -ne 1 ]]; then
 fi
 
 tag="${tags[0]}"
-[[ "${tag}" =~ ^(uat-)?daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?$ ]] || {
-  echo "::error::UAT automation requires an immutable daily-build tag, got: ${tag}" >&2
-  exit 2
-}
+if [[ "${DEPLOY_ENV:-uat}" == prod ]]; then
+  [[ "${tag}" =~ ^v[0-9A-Za-z._/-]+$ ]] || {
+    echo "::error::PROD automation requires an immutable v* release tag, got: ${tag}" >&2
+    exit 2
+  }
+else
+  [[ "${tag}" =~ ^(uat-)?daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?$ ]] || {
+    echo "::error::SIT/UAT automation requires an immutable daily-build tag, got: ${tag}" >&2
+    exit 2
+  }
+fi
 
 mapfile -t provider_tags < <(
   find "${status_directory}" -type f -name '*.jsonl' -exec jq -r \
@@ -44,4 +51,4 @@ if [[ "${#provider_tags[@]}" -gt 0 ]]; then
 fi
 
 printf 'snapshot_tag=%s\n' "${tag}" >> "${github_output}"
-echo "Resolved immutable UAT snapshot tag: ${tag}"
+echo "Resolved immutable ${DEPLOY_ENV:-uat} snapshot tag: ${tag}"

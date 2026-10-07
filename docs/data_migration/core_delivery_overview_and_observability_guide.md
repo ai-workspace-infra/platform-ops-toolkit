@@ -61,7 +61,7 @@ graph TD
     end
 
     GitOps_Control --> CI_Execution
-    Daily -->|PROD 默认 upgrade / 禁用迁移| Serverless
+    Daily -->|PROD 受保护 v* / 禁用迁移| Selfhost
     Daily -->|按 deploy_env 选择环境，仅负责部署派发| Serverless
     Serverless -->|前置备份门禁| Ledger
     RollbackOrch -->|状态回退与快照还原| Ledger
@@ -76,11 +76,11 @@ graph TD
 | 环境 | 默认操作 (`operation`) | 数据迁移入口 | 目标源与行为 |
 | :--- | :---: | :---: | :--- |
 | **SIT/UAT** | `deploy` | Daily 不提供迁移参数；独立入口显式选择 mode | 快照矩阵按 `deploy_env` 选择 Serverless 或 Hybrid，并从 GitOps 读取拓扑目标。 |
-| **PROD** | 受保护发布入口决定 | Playbooks role + GitOps 显式校验 | 生产发布不由 Daily Snapshot 触发，也不从 Daily 隐式复制数据。 |
+| **PROD** | 受保护 `v*` tag + `deploy_env=prod` | Selfhost Orchestrator、Playbooks role + GitOps 显式校验 | Daily 只部署已验证制品，保持 `dns_mode=none`；不复制数据、不切换主库或生产 DNS。 |
 
 **核心控制脚本改动**：
 - [dispatch-environment-combined.sh](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/scripts/snapshots/dispatch-environment-combined.sh)：按 `DEPLOY_ENV` 选择 Serverless/Hybrid，使用不可变快照 tag 派发并等待。
-- [daily-main-snapshot.yaml](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/workflows/daily-main-snapshot.yaml)：提供环境选择矩阵，不提供迁移或 PROD 晋级开关。
+- [daily-main-snapshot.yaml](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/workflows/daily-main-snapshot.yaml)：提供 SIT/UAT/PROD 环境选择矩阵，不提供迁移、release tag 创建或生产切换开关。
 - [serverless-orchestrator.yml](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-orchestrator.yml)：在 `upgrade` 操作下运行全套微服务部署，但跳过 `trigger_data_migration` 任务。
 
 ---
@@ -169,7 +169,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_release_checkpoints_unique
 本地与 CI 流水线测试全部通过（**7 / 7 PASS**）：
 1. `database_release_checkpoint_contract_test.sh`: **PASS**（账本 DDL、安全栓、参数校验全覆盖）
 2. `workflow_dispatch_input_limit_test.sh`: **PASS**（全部工作流输入数 $\le 25$）
-3. `daily_snapshot_environment_dispatch_test.sh`: **PASS**（覆盖 SIT/UAT 参数选择与派发）
+3. `daily_snapshot_environment_dispatch_test.sh`: **PASS**（覆盖 SIT/UAT/PROD 参数选择与派发）
 4. `data_migration_mode_contract_test.sh`: **PASS**（校验源/目标后端类型分支）
 5. `supabase_target_strategy_contract_test.sh`: **PASS**（直连 Supabase 策略契约验证）
 6. 生产发布由受保护的 Playbooks + GitOps 入口验证，不由 Daily manifest 派发。
@@ -568,7 +568,7 @@ EOF
 | [`.github/scripts/tests/database_release_checkpoint_contract_test.sh`](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/scripts/tests/database_release_checkpoint_contract_test.sh) | **NEW** | 检查点与回滚契约测试套件 |
 | [`.github/workflows/serverless-orchestrator.yml`](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-orchestrator.yml) | **MODIFY** | 接入 `upgrade` 操作类型；在 Supabase 任务前插入版本检查点门禁与构建产物上传 |
 | [`.github/workflows/data-migration.yaml`](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/workflows/data-migration.yaml) | **MODIFY** | 拆分多源 Vault 凭据提取步骤；支持直连 Supabase 源；严控参数在 25 个以内 |
-| [`.github/workflows/daily-main-snapshot.yaml`](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/workflows/daily-main-snapshot.yaml) | **MODIFY** | 由 `deploy_env` 选择 SIT/UAT 派发矩阵，不提供迁移开关 |
+| [`.github/workflows/daily-main-snapshot.yaml`](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/workflows/daily-main-snapshot.yaml) | **MODIFY** | 由 `deploy_env` 选择 SIT/UAT/PROD 派发矩阵，不提供迁移或生产切换开关 |
 | [`.github/scripts/snapshots/dispatch-environment-combined.sh`](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/scripts/snapshots/dispatch-environment-combined.sh) | **NEW** | 按环境选择对应 orchestrator，并等待明确成功结论 |
 | [`.github/scripts/data-migration/supabase_accounts_merge_migration.sh`](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/scripts/data-migration/supabase_accounts_merge_migration.sh) | **MODIFY** | 扩展支持 direct Supabase 源无 SSH 直连导出与增量冲突解决 |
 | [`.github/scripts/data-migration/validate_accounts_migration_target.sh`](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/scripts/data-migration/validate_accounts_migration_target.sh) | **MODIFY** | 扩展源后端参数校验逻辑 |
