@@ -101,9 +101,11 @@ def main():
     review_required = INIT.validate_data_review_config(contract, 'prod-native-billing-only')
     get = BASE.get_json
     run_id = os.environ['GITHUB_RUN_ID']
-    INIT.validate_data_review(get('/environments/prod'), get('/actions/runs/' + run_id),
-        get('/actions/runs/' + run_id + '/approvals'), run_id, os.environ['GITHUB_SHA'], os.environ['GITHUB_REF'],
-        review_required)
+    run = get('/actions/runs/' + run_id)
+    environment = get('/environments/prod') if review_required else {}
+    approvals = get('/actions/runs/' + run_id + '/approvals') if review_required else []
+    INIT.validate_data_review(environment, run, approvals, run_id, os.environ['GITHUB_SHA'],
+        os.environ['GITHUB_REF'], review_required)
     validate_billing(contract)
     require(contract.get('initialization_accepted') is True, 'successful real native initialization acceptance is pending')
     for key in ('gitops_commit', 'iac_commit', 'playbooks_commit'):
