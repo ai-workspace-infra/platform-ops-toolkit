@@ -21,8 +21,57 @@ test -f "${cloud_lab_role}"
 test -f "${existing_one_policy}"
 test -f "${existing_one_role}"
 
-grep -Fq '"job_workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/xconnect-zero-cloud.yaml@refs/heads/main"' "${cloud_lab_role}"
-grep -Fq '"token_policies":' "${cloud_lab_role}"
+python3 - "${cloud_lab_role}" "${existing_one_role}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+expected_claims = {
+    "github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab": {
+        "repository": "ai-workspace-infra/platform-ops-toolkit",
+        "job_workflow_ref": [
+            "ai-workspace-infra/platform-ops-toolkit/.github/workflows/xconnect-zero-cloud.yaml@refs/heads/main",
+            "ai-workspace-infra/platform-ops-toolkit/.github/workflows/xconnect-runtime-control.yml@refs/heads/main",
+        ],
+        "ref": "refs/heads/main",
+        "environment": "uat",
+    },
+    "github-actions-platform-ops-toolkit-uat-xconnect-existing-one": {
+        "repository": "ai-workspace-infra/platform-ops-toolkit",
+        "job_workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/xconnect-zero-cloud.yaml@refs/heads/main",
+        "ref": "refs/heads/main",
+    },
+}
+
+
+def strings(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from strings(item)
+
+
+for value in sys.argv[1:]:
+    role = json.loads(Path(value).read_text(encoding="utf-8"))
+    role_name = role.get("role_name")
+    if role_name not in expected_claims:
+        raise SystemExit(f"unexpected XConnect UAT Vault role: {role_name!r}")
+    if role.get("bound_claims") != expected_claims[role_name]:
+        raise SystemExit(f"{role['role_name']} must use the exact Toolkit workflow claim set")
+    if any("*" in claim for claim in strings(role["bound_claims"])):
+        raise SystemExit("XConnect UAT workflow claims must not contain wildcards")
+    if role.get("bound_audiences") != ["vault"]:
+        raise SystemExit(f"{role['role_name']} must bind only the Vault audience")
+    if role.get("token_policies") != [role["role_name"]]:
+        raise SystemExit(f"{role['role_name']} must bind only its environment-specific policy")
+    if role.get("token_no_default_policy") is not True:
+        raise SystemExit(f"{role['role_name']} must disable Vault's default policy")
+PY
+
 grep -Fq 'path "kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus"' "${cloud_lab_policy}"
 if grep -Fq 'path "kv/data/prod/*"' "${cloud_lab_policy}"; then
   echo "XConnect cloud lab must not receive broad production access" >&2
@@ -32,8 +81,6 @@ grep -Fq 'path "kv/data/uat/xconnect-one"' "${cloud_lab_policy}"
 grep -Fq 'path "kv/data/CICD/observability"' "${cloud_lab_policy}"
 grep -Fq 'path "kv/data/CICD/domains/svc.plus"' "${cloud_lab_policy}"
 grep -Fq 'path "kv/metadata/CICD/domains/svc.plus"' "${cloud_lab_policy}"
-grep -Fq '"job_workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/xconnect-zero-cloud.yaml@refs/heads/main"' "${existing_one_role}"
-grep -Fq '"token_policies":' "${existing_one_role}"
 grep -Fq 'path "kv/data/prod/ulighthost-xconnect/observability.svc.plus"' "${existing_one_policy}"
 grep -Fq 'kv/data/prod/ulighthost-xconnect/${{ env.ONE_VAULT_KEY }} host | ONE_HOST' "${workflow}"
 grep -Fq 'kv/data/prod/ulighthost-xconnect/${{ env.GATEWAY_VAULT_KEY }} ssh_private_key_b64 | GATEWAY_SSH_PRIVATE_KEY_B64' "${workflow}"

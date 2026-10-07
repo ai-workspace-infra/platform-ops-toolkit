@@ -7,7 +7,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 route_policy="${repo_root}/.github/scripts/platform-ops/provision/platform-ops_provision_route-ref-to-an-explicit-profile.sh"
-snapshot_routing_test="${repo_root}/.github/scripts/tests/daily_snapshot_tag_routing_test.sh"
+snapshot_routing_test="${repo_root}/scripts/tests/control_plane/daily_snapshot_tag_routing_test.sh"
 
 [[ -f "${route_policy}" ]] || {
   echo "missing release route policy: ${route_policy}" >&2

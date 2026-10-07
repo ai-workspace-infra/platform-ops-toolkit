@@ -142,7 +142,7 @@ UAT rehearsal 中的 rollback 是演练阶段，由审核过的 UAT 专用适配
 
 ## 演练方式
 
-离线契约测试：`python3 .github/scripts/tests/environment_upgrade_test.py`，不访问任何
+离线契约测试：`python3 scripts/tests/control_plane/environment_upgrade_test.py`，不访问任何
 数据库或云资源，不能替代 UAT 实际演练。
 GitHub：接入真实适配器并合并主线后从 Actions 选择 Environment Upgrade，
 mode=rehearsal、environment=uat，输入真实 UAT tag、Hybrid run、起止版本及 checksum。

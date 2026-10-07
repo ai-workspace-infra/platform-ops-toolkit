@@ -59,7 +59,7 @@ on:
         description: Reviewed iac_modules commit containing the GCP Vault renderer and VM modules.
         type: string
         required: true
-        default: 9570b01959396e1d0e20331205b5cb5718f5c588
+        default: d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
       confirm:
         description: Confirmation phrase for live Vault stages or DNS switch/rollback (SWITCH-VAULT-DNS / ROLLBACK-VAULT-DNS).
         type: string

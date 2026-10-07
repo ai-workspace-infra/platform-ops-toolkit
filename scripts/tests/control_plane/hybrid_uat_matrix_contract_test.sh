@@ -271,6 +271,7 @@ grep -Eq '"accounts_schema_target_version"[[:space:]]*:[[:space:]]*"2026092801"'
 grep -Eq '"accounts_schema_sha256"[[:space:]]*:[[:space:]]*"d066e223641b4eccbb65a00dce70f717b6dce02491d1d54edc1099baf2071433"' "${migration_dry_run}"
 
 python3 - "${workflow}" "${dispatcher}" <<'PY'
+import re
 import sys
 import yaml
 
@@ -324,22 +325,49 @@ observe = selfhost["jobs"]["observe_web_saas_after_dns"]
 observe_step = next(step for step in observe["steps"] if step.get("name") == "Verify Web SaaS public endpoints after DNS")
 assert "https://console-selfhost-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/" in observe_step["env"]["OBSERVE_URLS"]
 assert observe_step["env"]["OBSERVE_EXPECTED_CODES"] == "200,200,404,401"
-steps = selfhost["jobs"]["provision"]["steps"]
-adopt = next(step for step in steps if step.get("name") == "Adopt existing UAT external IP policy into open-platform state")
-assert "terraform_namespace == 'open-platform'" in adopt["if"]
-assert 'google_org_policy_policy.vm_external_ip_access' in adopt["run"]
-assert 'module.open_platform_uat.google_compute_address.public[0]' in adopt["run"]
-assert 'module.open_platform_uat.google_service_account.runtime' in adopt["run"]
-assert " import -input=false" in adopt["run"]
-adopt_vm = next(step for step in steps if step.get("name") == "Adopt existing GitOps-declared UAT Open Platform VM")
-assert "terraform_namespace == 'open-platform'" in adopt_vm["if"]
-assert "deployment_env == 'uat'" in adopt_vm["if"]
-assert "terraform_action == 'apply'" in adopt_vm["if"]
-assert "steps.route.outputs.resource_files_full" in adopt_vm["env"]["GITOPS_MANIFEST"]
-assert "infra/iac_modules/scripts/pipeline/adopt_uat_open_platform_vm.py" in adopt_vm["run"]
-plan_apply = next(i for i, step in enumerate(steps) if step.get("name") == "Terraform Plan / Apply / Destroy")
-assert steps.index(adopt) < steps.index(adopt_vm) < plan_apply
-assert "infra/iac_modules/scripts/pipeline/terraform-apply-destroy.sh" in steps[plan_apply]["run"]
+resolve = selfhost["jobs"]["resolve-targets"]
+resolve_steps = resolve["steps"]
+owner_checkout = next(step for step in resolve_steps if step.get("with", {}).get("repository") == "ai-workspace-infra/iac_modules")
+assert re.fullmatch(r"[0-9a-f]{40}", owner_checkout["with"]["ref"])
+assert owner_checkout["with"]["path"] == "iac_modules"
+target = next(step for step in resolve_steps if step.get("uses") == "./iac_modules/.github/actions/iac-caller-targets")
+assert resolve_steps.index(owner_checkout) < resolve_steps.index(target)
+assert target["if"] == owner_checkout["if"]
+assert target["with"]["caller"] == "selfhost"
+assert target["with"]["iac-root"] == "${{ github.workspace }}/iac_modules"
+assert target["with"]["gitops-root"] == "${{ github.workspace }}/gitops"
+assert target["with"]["state-key"] == "${{ steps.route.outputs.state_key }}"
+
+iac = selfhost["jobs"]["iac"]
+assert iac["needs"] == "resolve-targets"
+assert iac["uses"] == "./.github/workflows/iac-pipeline-multi-cloud-master.yaml"
+assert iac["with"]["target_manifest"] == "${{ needs.resolve-targets.outputs.target_manifest }}"
+assert iac["with"]["gitops_ref"] == "${{ needs.resolve-targets.outputs.gitops_sha }}"
+assert iac["with"]["iac_ref"] == "${{ needs.resolve-targets.outputs.iac_sha }}"
+assert iac["with"]["stage_scope"] == "resources"
+assert iac["with"]["bootstrap_mode"] == "verify"
+assert iac["with"]["correlation_id"] == "${{ github.run_id }}:${{ github.run_attempt }}:selfhost"
+
+provision = selfhost["jobs"]["provision"]
+assert provision["needs"] == ["resolve-targets", "iac"]
+steps = provision["steps"]
+receipt_checkout = next(step for step in steps if step.get("with", {}).get("repository") == "ai-workspace-infra/iac_modules")
+assert receipt_checkout["with"]["ref"] == "${{ needs.iac.outputs.iac_sha }}"
+receipt_download = next(step for step in steps if step.get("with", {}).get("artifact-ids") == "${{ needs.iac.outputs.receipt_artifact_id }}")
+receipt_verify = next(step for step in steps if step.get("uses") == "./iac_modules/.github/actions/iac-receipt-verify")
+inventory = next(step for step in steps if step.get("uses") == "./iac_modules/.github/actions/iac-caller-inventory")
+assert steps.index(receipt_checkout) < steps.index(receipt_download) < steps.index(receipt_verify) < steps.index(inventory)
+assert receipt_verify["with"]["receipt-sha256"] == "${{ needs.iac.outputs.receipt_sha256 }}"
+assert receipt_verify["with"]["gitops-sha"] == "${{ needs.resolve-targets.outputs.gitops_sha }}"
+assert receipt_verify["with"]["iac-sha"] == "${{ needs.resolve-targets.outputs.iac_sha }}"
+assert receipt_verify["with"]["target-manifest"] == "${{ needs.resolve-targets.outputs.target_manifest }}"
+assert receipt_verify["with"]["correlation-id"] == "${{ github.run_id }}:${{ github.run_attempt }}:selfhost"
+assert "terraform_action == 'apply'" in inventory["if"]
+selfhost_text = open(".github/workflows/selfhost-orchestrator.yml", encoding="utf-8").read()
+assert "adopt_uat_open_platform_vm.py" not in selfhost_text
+assert "terraform-apply-destroy.sh" not in selfhost_text
+assert "terraform import" not in selfhost_text
+assert " import -input=false" not in selfhost_text
 PY
 
 echo "hybrid_uat_matrix_contract_test: PASS"

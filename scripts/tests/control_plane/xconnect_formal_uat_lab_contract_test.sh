@@ -85,7 +85,21 @@ if grep -Fq 'xconnect-gateway up --state-dir "$state"' "${repo_root}/.github/scr
   exit 1
 fi
 grep -Fq 'timeout-minutes: 90' "${workflow}"
-grep -Fq "default: '9570b01959396e1d0e20331205b5cb5718f5c588'" "${workflow}"
+python3 - "${workflow}" <<'PY'
+import re
+import sys
+import yaml
+
+workflow = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+trigger = workflow.get("on", workflow.get(True))
+owner_sha = trigger["workflow_dispatch"]["inputs"]["iac_ref"]["default"]
+assert re.fullmatch(r"[0-9a-f]{40}", owner_sha)
+for name in ("apply", "cleanup"):
+    job = workflow["jobs"][name]
+    assert job["env"]["IAC_REF"] == "${{ inputs.iac_ref || '" + owner_sha + "' }}"
+    checkout = next(step for step in job["steps"] if step.get("with", {}).get("repository") == "ai-workspace-infra/iac_modules")
+    assert checkout["with"]["ref"] == "${{ env.IAC_REF }}"
+PY
 grep -Fq 'uses: ./iac_modules/.github/actions/xconnect-lab-lifecycle' "${workflow}"
 for stage in preflight prepare apply cleanup; do
   grep -Fq "operation: ${stage}" "${workflow}"
@@ -117,7 +131,28 @@ for gate in H1 H2 H3 H4 H5 H6; do
   grep -Fq "| ${gate} " "${gates}"
 done
 grep -Fq 'gateway_release_tag:$gateway' "${repo_root}/.github/scripts/xconnect-lab/lease.sh"
-grep -Fq 'wireguard-handshake' "${repo_root}/gitops/vpn-overlay/uat/xconnect-lab.json" 2>/dev/null || true
+if [[ -n "${XCONNECT_GITOPS_ROOT:-}" ]]; then
+  declaration="${XCONNECT_GITOPS_ROOT}/vpn-overlay/uat/xconnect-lab.json"
+  test -f "${declaration}" || {
+    echo "fixed-SHA XConnect declaration fixture is missing: ${declaration}" >&2
+    exit 1
+  }
+  if [[ -n "${XCONNECT_GITOPS_REF:-}" ]]; then
+    actual_ref="$(git -C "${XCONNECT_GITOPS_ROOT}" rev-parse HEAD)"
+    [[ "${actual_ref}" == "${XCONNECT_GITOPS_REF}" ]] || {
+      echo "XConnect declaration fixture is not checked out at ${XCONNECT_GITOPS_REF}" >&2
+      exit 1
+    }
+  fi
+  jq -e '
+    .kind == "XConnectLabTopology" and
+    .metadata.environment == "uat" and
+    .spec.gateway_transport.transport == "vless-xhttp" and
+    .spec.gateway_transport.profile.path == "/xconnect" and
+    .spec.gateway_transport.profile.host == "tw-xconnect.svc.plus" and
+    .spec.node_observation.mode == "until-expiry"
+  ' "${declaration}" >/dev/null
+fi
 
 if grep -Fq 'xconnect-zero-lab-linux-arm64' "${runner}" || grep -Fq 'xconnect-lab-zero.service' "${deploy}"; then
   echo "Formal UAT lab must not download or run the experimental Zero controller" >&2

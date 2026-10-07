@@ -40,7 +40,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: 9570b01959396e1d0e20331205b5cb5718f5c588
+          ref: d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
           path: contract/iac_modules
 
       - name: Checkout immutable Playbooks owner
@@ -65,6 +65,8 @@ jobs:
           python3 scripts/ci/tests/test_nested_owner_action_checkout.py -v
           python3 scripts/tests/test_gcp_owner_routing.py -v
           python3 scripts/tests/test_gcp_delivery_fact_routing.py -v
+          python3 scripts/tests/test_followup_iac_owner_routing.py -v
+          python3 scripts/tests/test_followup_host_xconnect.py -v
           python3 scripts/tests/test_setup_deployment_runner_owner_callers.py -v
           python3 scripts/tests/test_playbooks_owner_callers.py -v
 

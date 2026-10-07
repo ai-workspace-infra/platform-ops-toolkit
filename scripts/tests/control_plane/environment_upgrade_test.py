@@ -86,7 +86,7 @@ class EnvironmentUpgradeTests(unittest.TestCase):
                             "tag": snapshot, "image": "asia-east1-docker.pkg.dev/open-platform-uat/serverless/" + service}
                            for service in sorted(pipeline.SERVICES)]}
         manifest = json.loads(subprocess.check_output(
-            ["jq", "-f", str(ROOT / ".github/scripts/tests/fixtures/uat-upgrade-acceptance.jq")],
+            ["jq", "-f", str(ROOT / "scripts/tests/control_plane/fixtures/uat-upgrade-acceptance.jq")],
             input=json.dumps(base).encode()))
         manifest["migration_sha256"] = env["MIGRATION_SHA256"]
         manifest["upgrade_acceptance"]["migration"].update(

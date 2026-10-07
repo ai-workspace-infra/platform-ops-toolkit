@@ -254,7 +254,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: 9570b01959396e1d0e20331205b5cb5718f5c588
+          ref: d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
           path: iac_modules
           persist-credentials: false
           sparse-checkout: .github/actions/auth-gcp-cloud
@@ -355,7 +355,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: 9570b01959396e1d0e20331205b5cb5718f5c588
+          ref: d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
           path: iac_modules
           persist-credentials: false
           sparse-checkout: .github/actions/auth-gcp-cloud
@@ -429,7 +429,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: 9570b01959396e1d0e20331205b5cb5718f5c588
+          ref: d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
           path: iac_modules
           persist-credentials: false
           sparse-checkout: .github/actions/auth-gcp-cloud
@@ -533,7 +533,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: 9570b01959396e1d0e20331205b5cb5718f5c588
+          ref: d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
           path: iac_modules
           persist-credentials: false
           sparse-checkout: .github/actions/auth-gcp-cloud
@@ -646,7 +646,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: 9570b01959396e1d0e20331205b5cb5718f5c588
+          ref: d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
           path: iac_modules
           persist-credentials: false
           sparse-checkout: .github/actions/auth-gcp-cloud

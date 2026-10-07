@@ -1,0 +1,93 @@
+name: Control Plane Contracts
+
+on:
+  pull_request:
+    paths:
+      - .github/actions/**
+      - .github/scripts/**
+      - .github/workflows/**
+      - scripts/tests/control_plane/**
+      - scripts/vault/**
+  push:
+    branches: [main]
+    paths:
+      - .github/actions/**
+      - .github/scripts/**
+      - .github/workflows/**
+      - scripts/tests/control_plane/**
+      - scripts/vault/**
+
+permissions:
+  contents: read
+
+jobs:
+  offline-contracts:
+    name: Offline Toolkit caller contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Toolkit
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Checkout immutable Hybrid GitOps declarations
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: 4e052f34675a218df0179677088266c6e7f57f6c
+          path: contract/gitops-hybrid
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            topology/uat/hybrid/resource-matrix.yaml
+            resources/onwalk.net/uat/gcp/open-platform.yaml
+            resources/onwalk.net/uat/gcp/web-saas.yaml
+            resources/svc.plus/uat/gcp/ai-workspace.yaml
+            resources/svc.plus/uat/gcp/agent-proxy-us.yaml
+
+      - name: Checkout immutable XConnect GitOps declaration
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: 28430b835c4275eea1921aa7fd98c96dbc2c50ef
+          path: contract/gitops-xconnect
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: vpn-overlay/uat/xconnect-lab.json
+
+      - name: Install offline parser dependency
+        run: python3 -m pip install PyYAML==6.0.3
+
+      - name: Verify environment and receipt contracts
+        run: |
+          python3 scripts/tests/control_plane/environment_upgrade_test.py
+          python3 scripts/tests/control_plane/environment_data_operations_test.py
+          python3 scripts/tests/control_plane/import_receipt_test.py
+
+      - name: Verify release and workflow input contracts
+        run: |
+          bash scripts/tests/control_plane/daily_snapshot_tag_routing_test.sh
+          bash scripts/tests/control_plane/workflow_dispatch_input_limit_test.sh
+
+      - name: Verify XConnect caller contracts
+        env:
+          XCONNECT_GITOPS_ROOT: ${{ github.workspace }}/contract/gitops-xconnect
+          XCONNECT_GITOPS_REF: 28430b835c4275eea1921aa7fd98c96dbc2c50ef
+        run: |
+          bash scripts/tests/control_plane/xconnect_formal_uat_lab_contract_test.sh
+          bash scripts/tests/control_plane/xconnect_playbooks_observation_caller_contract_test.sh
+          bash scripts/tests/control_plane/xconnect_cloud_lab_vault_role_contract_test.sh
+          bash scripts/tests/control_plane/xconnect_gateway_dns_contract_test.sh
+          bash scripts/tests/control_plane/xconnect_ai_aggregator_matrix_contract_test.sh
+          bash scripts/tests/control_plane/xconnect_declared_network_contract_test.sh
+
+      - name: Verify frozen XHTTP helper contract pending Playbooks owner coverage
+        run: bash .github/scripts/tests/xconnect_xhttp_runtime_contract_test.sh
+
+      - name: Verify Hybrid caller matrix contract
+        env:
+          GITOPS_MATRIX_FILE: ${{ github.workspace }}/contract/gitops-hybrid/topology/uat/hybrid/resource-matrix.yaml
+          GITOPS_OPEN_PLATFORM_FILE: ${{ github.workspace }}/contract/gitops-hybrid/resources/onwalk.net/uat/gcp/open-platform.yaml
+          GITOPS_RESOURCE_ROOTS: ${{ github.workspace }}/contract/gitops-hybrid/resources/onwalk.net/uat/gcp:${{ github.workspace }}/contract/gitops-hybrid/resources/svc.plus/uat/gcp
+        run: bash scripts/tests/control_plane/hybrid_uat_matrix_contract_test.sh

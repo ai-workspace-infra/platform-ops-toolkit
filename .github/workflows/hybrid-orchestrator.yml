@@ -168,7 +168,7 @@ jobs:
           GITOPS_MATRIX_FILE: ${{ github.workspace }}/gitops/topology/uat/hybrid/resource-matrix.yaml
           GITOPS_OPEN_PLATFORM_FILE: ${{ github.workspace }}/gitops/resources/onwalk.net/uat/gcp/open-platform.yaml
           GITOPS_RESOURCE_ROOTS: ${{ github.workspace }}/gitops/resources/onwalk.net/uat/gcp:${{ github.workspace }}/gitops/resources/svc.plus/uat/gcp
-        run: ./.github/scripts/tests/hybrid_uat_matrix_contract_test.sh
+        run: ./scripts/tests/control_plane/hybrid_uat_matrix_contract_test.sh
       - name: Validate hybrid routing contract
         run: |
           ./.github/scripts/gitops/prepare_gitops_routing_config.sh

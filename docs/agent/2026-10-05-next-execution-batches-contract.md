@@ -19,7 +19,7 @@ Accounts API 或 Vault 写入，也不构成 UAT 完成。
 ## 2026-10-07 XConnect lab IaC lifecycle owner/caller 切换
 
 `xconnect-zero-cloud.yaml` 的 Terraform preflight/prepare/apply/cleanup 已切到固定
-IaC owner SHA `9570b01959396e1d0e20331205b5cb5718f5c588` 的
+IaC owner SHA `d7e49189a5de9c105a940f1c79abfb3b2b33bbd4` 的
 `xconnect-lab-lifecycle` action。owner 仅处理精确 run state、Terraform plan/apply/
 destroy/output/state evidence、AWS provider facts、租约对象 CRUD 和脱敏诊断；它不
 调用 Toolkit 脚本、SSH、Ansible、systemd 或 Accounts API。`run.sh` 继续承担输入、
