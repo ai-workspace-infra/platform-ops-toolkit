@@ -5,7 +5,7 @@
   "resource_accepted": true,
   "gitops_commit": "af4a651ecb79df937f487a07bc93ca5dd2223ed2",
   "iac_commit": "254dd6321449ab12b862220c8876b482d7032fcd",
-  "playbooks_commit": "bdab7b7be19ebb3dfbcd11dcf65f6b05337fa2f4",
+  "playbooks_commit": "e76133c10aa375ee44ee24cc667b4cae22f20b60",
   "resource": {
     "run_id": 37510999229,
     "run_attempt": 1,

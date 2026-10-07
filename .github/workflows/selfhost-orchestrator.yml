@@ -600,7 +600,7 @@ jobs:
           cmdb_sha256: ${{ steps.full_business_control.outputs.cmdb_sha256 }}
           access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Run only the explicit full-business mode through fixed Playbooks owner
-        uses: ai-workspace-infra/playbooks/.github/actions/prod-full-business@bdab7b7be19ebb3dfbcd11dcf65f6b05337fa2f4
+        uses: ai-workspace-infra/playbooks/.github/actions/prod-full-business@e76133c10aa375ee44ee24cc667b4cae22f20b60
         with:
           cmdb_dir: ${{ runner.temp }}/native-resource-cmdb
           cmdb_sha256: ${{ steps.full_business_control.outputs.cmdb_sha256 }}
