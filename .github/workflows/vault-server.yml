@@ -59,7 +59,7 @@ on:
         description: Reviewed iac_modules commit containing the GCP Vault renderer and VM modules.
         type: string
         required: true
-        default: 8b223cf01b8fca51ce8e84e7aa407941044561d5
+        default: f088b7615b6d190e260eab60625ab09b351a4c25
       confirm:
         description: Confirmation phrase for live Vault stages or DNS switch/rollback (SWITCH-VAULT-DNS / ROLLBACK-VAULT-DNS).
         type: string
@@ -237,6 +237,19 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Checkout fixed IaC GCP node-access owner
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: ${{ inputs.iac_ref }}
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/auth-gcp-cloud
+            .github/actions/node-access-gcp
+            scripts/node_deploy
+            scripts/pipeline
+
       - name: Checkout reviewed GitOps declaration
         uses: actions/checkout@v4
         with:
@@ -285,10 +298,23 @@ jobs:
       # Provider adapters: add one step per adapter. Each emits the same
       # contract/auth_adapter outputs for the shared one-run key and has a
       # close phase.
+      - name: Load target GCP identity through the scoped Vault role
+        id: gcp_identity
+        if: ${{ needs.declaration.outputs.open_new == 'true' && inputs.cloud_provider == 'gcp-cloud' }}
+        uses: ./.github/actions/load-gcp-cloud-identity
+        with:
+          environment: ${{ fromJSON(needs.declaration.outputs.provider_config).environment }}
+          credential_environment: ${{ fromJSON(needs.declaration.outputs.provider_config).environment }}
+          account_id: ${{ fromJSON(needs.declaration.outputs.provider_config).account_id }}
+          identity_path: ${{ fromJSON(needs.declaration.outputs.provider_config).runtime_identity_path }}
+          vault_addr: ${{ fromJSON(needs.declaration.outputs.provider_config).vault_addr }}
+          vault_role: ${{ fromJSON(needs.declaration.outputs.provider_config).node_role }}
+          load_state_contract: 'false'
+
       - name: Open node access through the GCP adapter
         id: gcp
         if: ${{ needs.declaration.outputs.open_new == 'true' && inputs.cloud_provider == 'gcp-cloud' }}
-        uses: ./.github/actions/node-access-gcp
+        uses: ./iac_modules/.github/actions/node-access-gcp
         with:
           phase: open
           contract_mode: target
@@ -299,6 +325,10 @@ jobs:
           connection_mode: bootstrap-public
           work_dir: ${{ runner.temp }}/node-access/gcp
           ssh_key: ${{ runner.temp }}/node-access/id_ed25519
+          identity_provider: ${{ steps.gcp_identity.outputs.provider }}
+          service_account: ${{ steps.gcp_identity.outputs.service_account }}
+          audience: ${{ steps.gcp_identity.outputs.audience }}
+          credential_project_id: ${{ steps.gcp_identity.outputs.project_id }}
 
       - name: Open access to the existing vault.svc.plus node
         id: legacy
@@ -310,10 +340,23 @@ jobs:
           service_manifest: ${{ inputs.service_manifest }}
           ssh_key: ${{ runner.temp }}/node-access/id_ed25519
 
+      - name: Load migration-source GCP identity through the scoped Vault role
+        id: gcp_source_identity
+        if: ${{ needs.declaration.outputs.open_legacy == 'true' && needs.declaration.outputs.source_provider == 'gcp-cloud' }}
+        uses: ./.github/actions/load-gcp-cloud-identity
+        with:
+          environment: ${{ fromJSON(needs.declaration.outputs.source_provider_config).environment }}
+          credential_environment: ${{ fromJSON(needs.declaration.outputs.source_provider_config).environment }}
+          account_id: ${{ fromJSON(needs.declaration.outputs.source_provider_config).account_id }}
+          identity_path: ${{ fromJSON(needs.declaration.outputs.source_provider_config).runtime_identity_path }}
+          vault_addr: ${{ fromJSON(needs.declaration.outputs.source_provider_config).vault_addr }}
+          vault_role: ${{ fromJSON(needs.declaration.outputs.source_provider_config).node_role }}
+          load_state_contract: 'false'
+
       - name: Open access to the GCP migration source
         id: gcp_source
         if: ${{ needs.declaration.outputs.open_legacy == 'true' && needs.declaration.outputs.source_provider == 'gcp-cloud' }}
-        uses: ./.github/actions/node-access-gcp
+        uses: ./iac_modules/.github/actions/node-access-gcp
         with:
           phase: open
           contract_mode: source
@@ -322,6 +365,10 @@ jobs:
           connection_mode: bootstrap-public
           work_dir: ${{ runner.temp }}/node-access/gcp-source
           ssh_key: ${{ runner.temp }}/node-access/id_ed25519
+          identity_provider: ${{ steps.gcp_source_identity.outputs.provider }}
+          service_account: ${{ steps.gcp_source_identity.outputs.service_account }}
+          audience: ${{ steps.gcp_source_identity.outputs.audience }}
+          credential_project_id: ${{ steps.gcp_source_identity.outputs.project_id }}
 
       - name: Select the prepared adapters
         id: access
@@ -649,7 +696,7 @@ jobs:
 
       - name: Close access to the GCP migration source
         if: ${{ always() && needs.declaration.outputs.open_legacy == 'true' && needs.declaration.outputs.source_provider == 'gcp-cloud' }}
-        uses: ./.github/actions/node-access-gcp
+        uses: ./iac_modules/.github/actions/node-access-gcp
         with:
           phase: close
           contract_mode: source
@@ -657,10 +704,14 @@ jobs:
           connection_mode: bootstrap-public
           work_dir: ${{ runner.temp }}/node-access/gcp-source
           ssh_key: ${{ runner.temp }}/node-access/id_ed25519
+          identity_provider: ${{ steps.gcp_source_identity.outputs.provider }}
+          service_account: ${{ steps.gcp_source_identity.outputs.service_account }}
+          audience: ${{ steps.gcp_source_identity.outputs.audience }}
+          credential_project_id: ${{ steps.gcp_source_identity.outputs.project_id }}
 
       - name: Close node access through the GCP adapter
         if: ${{ always() && needs.declaration.outputs.open_new == 'true' && inputs.cloud_provider == 'gcp-cloud' }}
-        uses: ./.github/actions/node-access-gcp
+        uses: ./iac_modules/.github/actions/node-access-gcp
         with:
           phase: close
           contract_mode: target
@@ -668,6 +719,10 @@ jobs:
           connection_mode: bootstrap-public
           work_dir: ${{ runner.temp }}/node-access/gcp
           ssh_key: ${{ runner.temp }}/node-access/id_ed25519
+          identity_provider: ${{ steps.gcp_identity.outputs.provider }}
+          service_account: ${{ steps.gcp_identity.outputs.service_account }}
+          audience: ${{ steps.gcp_identity.outputs.audience }}
+          credential_project_id: ${{ steps.gcp_identity.outputs.project_id }}
 
       - name: Remove runner-private node files
         if: ${{ always() }}
@@ -690,9 +745,35 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Checkout fixed IaC GCP node-access owner
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: ${{ inputs.iac_ref }}
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/auth-gcp-cloud
+            .github/actions/node-access-gcp
+            scripts/node_deploy
+            scripts/pipeline
+
+      - name: Load target GCP identity through the scoped Vault role
+        id: gcp_identity
+        if: ${{ needs.declaration.outputs.open_new == 'true' }}
+        uses: ./.github/actions/load-gcp-cloud-identity
+        with:
+          environment: ${{ fromJSON(needs.declaration.outputs.provider_config).environment }}
+          credential_environment: ${{ fromJSON(needs.declaration.outputs.provider_config).environment }}
+          account_id: ${{ fromJSON(needs.declaration.outputs.provider_config).account_id }}
+          identity_path: ${{ fromJSON(needs.declaration.outputs.provider_config).runtime_identity_path }}
+          vault_addr: ${{ fromJSON(needs.declaration.outputs.provider_config).vault_addr }}
+          vault_role: ${{ fromJSON(needs.declaration.outputs.provider_config).node_role }}
+          load_state_contract: 'false'
+
       - name: Close node access through the GCP adapter
         if: ${{ needs.declaration.outputs.open_new == 'true' }}
-        uses: ./.github/actions/node-access-gcp
+        uses: ./iac_modules/.github/actions/node-access-gcp
         with:
           phase: close
           contract_mode: target
@@ -700,10 +781,27 @@ jobs:
           connection_mode: bootstrap-public
           work_dir: ${{ runner.temp }}/node-access/gcp
           ssh_key: ${{ runner.temp }}/node-access/id_ed25519
+          identity_provider: ${{ steps.gcp_identity.outputs.provider }}
+          service_account: ${{ steps.gcp_identity.outputs.service_account }}
+          audience: ${{ steps.gcp_identity.outputs.audience }}
+          credential_project_id: ${{ steps.gcp_identity.outputs.project_id }}
+
+      - name: Load migration-source GCP identity through the scoped Vault role
+        id: gcp_source_identity
+        if: ${{ needs.declaration.outputs.open_legacy == 'true' && needs.declaration.outputs.source_provider == 'gcp-cloud' }}
+        uses: ./.github/actions/load-gcp-cloud-identity
+        with:
+          environment: ${{ fromJSON(needs.declaration.outputs.source_provider_config).environment }}
+          credential_environment: ${{ fromJSON(needs.declaration.outputs.source_provider_config).environment }}
+          account_id: ${{ fromJSON(needs.declaration.outputs.source_provider_config).account_id }}
+          identity_path: ${{ fromJSON(needs.declaration.outputs.source_provider_config).runtime_identity_path }}
+          vault_addr: ${{ fromJSON(needs.declaration.outputs.source_provider_config).vault_addr }}
+          vault_role: ${{ fromJSON(needs.declaration.outputs.source_provider_config).node_role }}
+          load_state_contract: 'false'
 
       - name: Close GCP migration source access
         if: ${{ needs.declaration.outputs.open_legacy == 'true' && needs.declaration.outputs.source_provider == 'gcp-cloud' }}
-        uses: ./.github/actions/node-access-gcp
+        uses: ./iac_modules/.github/actions/node-access-gcp
         with:
           phase: close
           contract_mode: source
@@ -711,6 +809,10 @@ jobs:
           connection_mode: bootstrap-public
           work_dir: ${{ runner.temp }}/node-access/gcp-source
           ssh_key: ${{ runner.temp }}/node-access/id_ed25519
+          identity_provider: ${{ steps.gcp_source_identity.outputs.provider }}
+          service_account: ${{ steps.gcp_source_identity.outputs.service_account }}
+          audience: ${{ steps.gcp_source_identity.outputs.audience }}
+          credential_project_id: ${{ steps.gcp_source_identity.outputs.project_id }}
 
   dns-discovery:
     name: Resolve reviewed Vault DNS targets

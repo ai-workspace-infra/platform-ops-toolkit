@@ -250,6 +250,14 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
+      - name: Checkout fixed IaC GCP authentication owner
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: f088b7615b6d190e260eab60625ab09b351a4c25
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: .github/actions/auth-gcp-cloud
       - name: Verify approved resource run and original CMDB artifact
         id: native_control
         env:
@@ -343,6 +351,14 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
+      - name: Checkout fixed IaC GCP authentication owner
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: f088b7615b6d190e260eab60625ab09b351a4c25
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: .github/actions/auth-gcp-cloud
       - name: Verify approved resource run and original CMDB artifact
         id: native_control
         env:
@@ -409,6 +425,14 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
+      - name: Checkout fixed IaC GCP authentication owner
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: f088b7615b6d190e260eab60625ab09b351a4c25
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: .github/actions/auth-gcp-cloud
       - name: Verify configured PROD data review policy and exact successful standby/resource evidence
         id: native_init_control
         env:
@@ -505,6 +529,14 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
+      - name: Checkout fixed IaC GCP authentication owner
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: f088b7615b6d190e260eab60625ab09b351a4c25
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: .github/actions/auth-gcp-cloud
       - name: Verify configured PROD data review policy and exact successful initialization/standby/resource evidence
         id: native_billing_control
         env:
@@ -610,6 +642,14 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
+      - name: Checkout fixed IaC GCP authentication owner
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: f088b7615b6d190e260eab60625ab09b351a4c25
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: .github/actions/auth-gcp-cloud
       - name: Prepare PROD source and target records before runtime checks
         id: full_business_control
         env:

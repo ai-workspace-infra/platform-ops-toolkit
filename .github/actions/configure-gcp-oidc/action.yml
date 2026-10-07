@@ -28,67 +28,54 @@ inputs:
 outputs:
   project_id:
     description: GCP project ID from the environment-scoped OIDC record.
-    value: ${{ steps.vault.outputs.GCP_PROJECT_ID }}
+    value: ${{ steps.identity.outputs.project_id }}
   provider:
     description: GCP Workload Identity Provider resource name.
-    value: ${{ steps.vault.outputs.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+    value: ${{ steps.identity.outputs.provider }}
   service_account:
     description: GCP deploy Service Account email.
-    value: ${{ steps.vault.outputs.GCP_SERVICE_ACCOUNT_EMAIL }}
+    value: ${{ steps.identity.outputs.service_account }}
   state_endpoint:
     description: Shared S3-compatible Terraform state endpoint.
-    value: ${{ steps.state.outputs.TF_STATE_ENDPOINT }}
+    value: ${{ steps.identity.outputs.state_endpoint }}
   state_bucket:
     description: Shared Terraform state bucket.
-    value: ${{ steps.state.outputs.TF_STATE_BUCKET }}
+    value: ${{ steps.identity.outputs.state_bucket }}
   state_access_key:
     description: Short-lived Terraform state access key.
-    value: ${{ steps.state.outputs.TF_STATE_ACCESS_KEY }}
+    value: ${{ steps.identity.outputs.state_access_key }}
   state_secret_key:
     description: Short-lived Terraform state secret key.
-    value: ${{ steps.state.outputs.TF_STATE_SECRET_KEY }}
+    value: ${{ steps.identity.outputs.state_secret_key }}
   state_region:
     description: Terraform state backend region.
-    value: ${{ steps.state.outputs.TF_STATE_REGION }}
+    value: ${{ steps.identity.outputs.state_region }}
 
 runs:
   using: composite
   steps:
-    - name: Login to Vault with GitHub OIDC JWT
-      id: vault
-      uses: hashicorp/vault-action@v4
+    - name: Load the environment-authorized GCP identity from Vault
+      id: identity
+      uses: ./.github/actions/load-gcp-cloud-identity
       with:
-        url: ${{ inputs.vault_addr }}
-        method: jwt
-        role: ${{ inputs.vault_role || format('github-actions-platform-ops-toolkit-{0}-gcp-oidc-{1}', inputs.environment, inputs.account_id) }}
-        jwtGithubAudience: vault
-        exportToken: false
-        secrets: |
-          kv/data/${{ inputs.credential_environment || inputs.environment }}/platform/oidc/${{ inputs.account_id }} gcp_workload_identity_provider | GCP_WORKLOAD_IDENTITY_PROVIDER ;
-          kv/data/${{ inputs.credential_environment || inputs.environment }}/platform/oidc/${{ inputs.account_id }} deploy_service_account | GCP_SERVICE_ACCOUNT_EMAIL ;
-          kv/data/${{ inputs.credential_environment || inputs.environment }}/platform/oidc/${{ inputs.account_id }} gcp_oidc_audience | GCP_OIDC_AUDIENCE ;
-          kv/data/${{ inputs.credential_environment || inputs.environment }}/platform/oidc/${{ inputs.account_id }} project_id | GCP_PROJECT_ID ;
-
-    - name: Load S3-compatible Terraform state contract
-      id: state
-      if: ${{ inputs.load_state_contract != 'false' }}
-      uses: hashicorp/vault-action@v4
-      with:
-        url: ${{ inputs.vault_addr }}
-        method: jwt
-        role: ${{ inputs.vault_role || format('github-actions-platform-ops-toolkit-{0}-gcp-oidc-{1}', inputs.environment, inputs.account_id) }}
-        jwtGithubAudience: vault
-        exportToken: false
-        secrets: |
-          kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
-          kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
-          kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
-          kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
-          kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_REGION | TF_STATE_REGION
+        environment: ${{ inputs.environment }}
+        credential_environment: ${{ inputs.credential_environment }}
+        account_id: ${{ inputs.account_id }}
+        vault_addr: ${{ inputs.vault_addr }}
+        vault_role: ${{ inputs.vault_role }}
+        load_state_contract: ${{ inputs.load_state_contract }}
 
     - name: Exchange GitHub OIDC token through Google STS
-      uses: google-github-actions/auth@v2
+      uses: ./iac_modules/.github/actions/auth-gcp-cloud
       with:
-        workload_identity_provider: ${{ steps.vault.outputs.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-        service_account: ${{ steps.vault.outputs.GCP_SERVICE_ACCOUNT_EMAIL }}
-        audience: ${{ steps.vault.outputs.GCP_OIDC_AUDIENCE }}
+        provider: ${{ steps.identity.outputs.provider }}
+        service-account: ${{ steps.identity.outputs.service_account }}
+        audience: ${{ steps.identity.outputs.audience }}
+        reconcile: 'false'
+        cleanup-credentials: 'true'
+        load-state-contract: ${{ inputs.load_state_contract }}
+        state-endpoint: ${{ steps.identity.outputs.state_endpoint }}
+        state-bucket: ${{ steps.identity.outputs.state_bucket }}
+        state-access-key: ${{ steps.identity.outputs.state_access_key }}
+        state-secret-key: ${{ steps.identity.outputs.state_secret_key }}
+        state-region: ${{ steps.identity.outputs.state_region }}

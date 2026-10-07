@@ -178,8 +178,10 @@ class ProviderNeutralStageTests(unittest.TestCase):
 
     def test_adapter_opens_and_closes_access_and_host_keys_are_pinned(self):
         open_step = self.steps["Open node access through the GCP adapter"]
-        self.assertEqual(open_step["uses"], "./.github/actions/node-access-gcp")
+        self.assertEqual(open_step["uses"], "./iac_modules/.github/actions/node-access-gcp")
         self.assertEqual(open_step["with"]["phase"], "open")
+        for field in ("identity_provider", "service_account", "audience", "credential_project_id"):
+            self.assertIn("steps.gcp_identity.outputs", open_step["with"][field])
         close_step = self.steps["Close node access through the GCP adapter"]
         self.assertEqual(close_step["with"]["phase"], "close")
         self.assertIn("always()", close_step["if"])
@@ -230,7 +232,7 @@ class MigrationWiringTests(unittest.TestCase):
 
     def test_cross_project_migration_opens_two_gcp_oslogin_adapters(self):
         source = self.steps["Open access to the GCP migration source"]
-        self.assertEqual(source["uses"], "./.github/actions/node-access-gcp")
+        self.assertEqual(source["uses"], "./iac_modules/.github/actions/node-access-gcp")
         self.assertEqual(source["with"]["contract_mode"], "source")
         self.assertIn("source_provider_config", source["with"]["provider_config"])
         select = self.steps["Select the prepared adapters"]["run"]
@@ -297,21 +299,19 @@ class MigrationWiringTests(unittest.TestCase):
 
 
 class AdapterAndRunnerTests(unittest.TestCase):
-    def test_gcp_adapter_uses_short_lived_identities_and_cleans_up(self):
-        action = load(GCP_ADAPTER)
-        steps = steps_by_name(action["runs"]["steps"])
-        self.assertEqual(steps["Read GCP runtime identity with the scoped Vault JWT role"]["with"]["method"], "jwt")
-        self.assertIn("--ttl=65m", steps["Prepare one-run OS Login SSH identity"]["run"])
-        resolve = steps["Resolve live GCP nodes and the private Raft channel into a NodeDeployment"]["run"]
-        self.assertIn("firewall-rules list", resolve)
-        self.assertIn("--firewalls", resolve)
-        create = steps["Temporarily open SSH for the bootstrap job"]
-        self.assertIn("--source-ranges=0.0.0.0/0", create["run"])
-        self.assertIn("--rules=tcp:22", create["run"])
-        self.assertIn("inputs.connection_mode == 'bootstrap-public'", create["if"])
-        self.assertIn("firewall-rules delete", steps["Delete and verify the temporary public SSH rule"]["run"])
-        self.assertIn("os-login ssh-keys remove", steps["Revoke the OS Login key and remove discovery files"]["run"])
-        self.assertEqual(action["outputs"]["auth_adapter"]["value"], "gcp-oslogin-ephemeral")
+    def test_legacy_gcp_adapter_is_frozen_and_no_longer_called(self):
+        self.assertTrue(GCP_ADAPTER.is_file())
+        workflow = load(ENTRY)
+        uses = [
+            step.get("uses")
+            for job in workflow["jobs"].values()
+            if isinstance(job, dict)
+            for step in job.get("steps", [])
+        ]
+        self.assertNotIn("./.github/actions/node-access-gcp", uses)
+        registry = (ROOT / "scripts/ci/control-plane-legacy.yaml").read_text(encoding="utf-8")
+        self.assertIn('path: ".github/actions/node-access-gcp/action.yml"', registry)
+        self.assertIn("status: requires-owner-split", registry)
 
     def test_node_stage_gates_before_and_after_the_playbook(self):
         action = load(NODE_STAGE)

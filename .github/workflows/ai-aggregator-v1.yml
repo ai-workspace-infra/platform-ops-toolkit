@@ -366,9 +366,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: main
+          ref: f088b7615b6d190e260eab60625ab09b351a4c25
           path: iac_modules
           sparse-checkout: |
+            .github/actions/auth-gcp-cloud
             terraform-hcl-standard
       - name: Set up Terraform and Python
         uses: hashicorp/setup-terraform@v3
