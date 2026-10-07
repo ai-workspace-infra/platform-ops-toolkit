@@ -67,8 +67,13 @@ def validate_core_receipt(receipt, run):
 def dispatch_inputs(tag):
     return {
         "runner_type": "ubuntu-latest",
-        "deploy_tag": tag,
-        "source_ref": tag,
+        # Native core-user transfer does not deploy application images; the
+        # workflow ref above is the sole release selector.
+        "deploy_tag": "",
+        # The workflow ref is the immutable release tag. Native owner
+        # validation accepts only an empty source override or the resolved
+        # commit SHA, so do not duplicate the tag in source_ref.
+        "source_ref": "",
         "offline_mode": "off",
         "source_host": "install.svc.plus",
         "source_domain_base": "svc.plus",
