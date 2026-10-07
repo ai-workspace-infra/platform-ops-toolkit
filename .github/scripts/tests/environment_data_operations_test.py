@@ -51,7 +51,7 @@ class DataControlPlaneTests(unittest.TestCase):
             self.assertNotIn('do-not-leak', result.stdout + result.stderr)
 
     def test_unsafe_modes_and_unknown_environment(self):
-        for mode in ('legacy_import', 'akamai_preflight', 'rehearsal', 'baseline', 'migrate', 'selfhost_init'):
+        for mode in ('legacy_import', 'akamai_preflight', 'rehearsal', 'baseline', 'migrate', 'selfhost_init', 'core_users'):
             self.assertNotEqual(self.guard(mode, environment='prod').returncode, 0)
         self.assertNotEqual(self.guard('probe', environment='sit').returncode, 0)
         self.assertNotEqual(self.guard('unknown').returncode, 0)
@@ -96,6 +96,14 @@ class DataControlPlaneTests(unittest.TestCase):
             if owner == 'playbooks':
                 self.assertEqual(uses.rsplit('@', 1)[1], {'selfhost_database': '7d660cdb4066e2a4cf3fed68bccafea939771e64', 'legacy_import': 'b82d727808696278613df248e01c29059048be35'}.get(job, REVIEWED_PLAYBOOKS_HEAD))
         self.assertLessEqual(len(entry['on']['workflow_dispatch']['inputs']), 25)
+        self.assertIn('core_users', entry['on']['workflow_dispatch']['inputs']['mode']['options'])
+        self.assertIn('core_users', entry['jobs'])
+        self.assertIn("inputs.mode == 'core_users'", entry['jobs']['core_users']['if'])
+
+    def test_core_users_requires_readonly_contract_and_prod(self):
+        config = {'execution_path': 'selfhost_core_users', 'source_read_only': True}
+        self.assertNotEqual(self.guard('core_users', config).returncode, 0)
+        self.assertNotEqual(self.guard('core_users', {'source_read_only': True}, 'prod').returncode, 0)
 
     def test_parent_orchestrators_dispatch_and_wait(self):
         for name in ('hybrid-orchestrator.yml', 'selfhost-orchestrator.yml', 'serverless-orchestrator.yml'):

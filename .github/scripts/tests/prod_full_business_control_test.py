@@ -39,6 +39,10 @@ class FullBusinessControlTests(unittest.TestCase):
                 batch_size=1000, source_identity_sha256=c['source']['identity_sha256'], source_snapshot_sha256='2' * 64,
                 source_catalog_sha256='3' * 64, source_read_only=True, full_business_equal=True, target_writes=True,
                 source_writers_paused=False, final_catchup_complete=False, source_table_count=44, user_count=24,
+                core_users={'source': {'count': 24, 'email_sha256': '5' * 64, 'password_hash_sha256': '6' * 64,
+                                      'email_proxy_sha256': '7' * 64},
+                            'target': {'count': 24, 'email_sha256': '5' * 64, 'password_hash_sha256': '6' * 64,
+                                       'email_proxy_sha256': '7' * 64}},
                 snapshot_started_at='2026-10-07T00:00:00Z', completed_at='2026-10-07T00:01:00Z',
                 tables={t: {'rows': 24 if t == 'users' else 0, 'sha256': '4' * 64} for t in transfer['business_tables']})
             key, flag, name = 'copied', 'copy_accepted', 'prod-full-business-receipt'

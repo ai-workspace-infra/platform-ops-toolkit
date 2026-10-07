@@ -14,7 +14,7 @@ on:
         description: "Single data control plane; imports explicit UAT-only"
         required: true
         type: "choice"
-        options: ["preflight","backup","rehearsal","upgrade","rollback","legacy_import","akamai_preflight","checkpoint","probe","baseline","migrate","selfhost_probe","selfhost_init","selfhost_verify"]
+        options: ["preflight","backup","rehearsal","upgrade","rollback","legacy_import","akamai_preflight","checkpoint","probe","baseline","migrate","selfhost_probe","selfhost_init","selfhost_verify","core_users"]
         default: "preflight"
       release_tag:
         description: "Immutable release tag"
@@ -199,6 +199,32 @@ jobs:
       expected_schema_version: ${{ inputs.expected_schema_version }}
       config_json: ${{ needs.request_gate.outputs.config_json }}
 
+  core_users:
+    name: Selfhost / latest core-user synchronization evidence
+    needs: request_gate
+    if: ${{ inputs.mode == 'core_users' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Dispatch fixed PROD Selfhost owner and accept sanitized evidence
+        id: core_users
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DATA_CONFIG_JSON: ${{ needs.request_gate.outputs.config_json }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: python3 .github/scripts/environment-upgrade/dispatch_core_users.py
+      - name: Publish core-user evidence only
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-user-sync-${{ steps.core_users.outputs.child_run_id }}
+          path: ${{ runner.temp }}/core-user-sync/core-user-sync-receipt.json
+          if-no-files-found: error
+          retention-days: 30
+
   release_controller:
     name: Validate accepted release and reviewed execution capability
     needs: request_gate
@@ -245,8 +271,8 @@ jobs:
 
   verdict:
     name: Selected executor must succeed (dispatch is not acceptance)
-    if: ${{ always() && needs.request_gate.result != '' && needs.legacy_import.result != '' && needs.akamai_preflight.result != '' && needs.serverless_database.result != '' && needs.selfhost_database.result != '' && needs.selfhost_components.result != '' && needs.release_controller.result != '' }}
-    needs: [request_gate, legacy_import, akamai_preflight, serverless_database, selfhost_database, selfhost_components, release_controller]
+    if: ${{ always() && needs.request_gate.result != '' && needs.legacy_import.result != '' && needs.akamai_preflight.result != '' && needs.serverless_database.result != '' && needs.selfhost_database.result != '' && needs.selfhost_components.result != '' && needs.core_users.result != '' && needs.release_controller.result != '' }}
+    needs: [request_gate, legacy_import, akamai_preflight, serverless_database, selfhost_database, selfhost_components, core_users, release_controller]
     runs-on: ubuntu-latest
     steps:
       - env:
@@ -263,6 +289,7 @@ jobs:
                     "akamai_preflight" if mode == "akamai_preflight" else
                     "serverless_database" if mode in {"checkpoint","probe","baseline","migrate"} else
                     "selfhost_database" if mode in {"selfhost_probe","selfhost_init","selfhost_verify"} else
+                    "core_users" if mode == "core_users" else
                     "selfhost_components" if config.get("execution_path") == "selfhost_roles" else
                     "release_controller")
           if any(needs[job]["result"] != "success" for job in ("request_gate", target)):
