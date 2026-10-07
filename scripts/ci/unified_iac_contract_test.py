@@ -14,6 +14,11 @@ WF = ROOT / '.github/workflows'
 def load(name):
     return yaml.safe_load((WF / name).read_text())
 
+
+def triggers(workflow):
+    # PyYAML 1.1 may parse the unquoted key `on` as boolean True.
+    return workflow.get('on', workflow.get(True))
+
 class UnifiedWorkflowContract(unittest.TestCase):
     def test_independent_forward_reverse_dags_and_exact_terminal_gate(self):
         jobs = load('iac-pipeline-multi-cloud-master.yaml')['jobs']
@@ -42,6 +47,40 @@ class UnifiedWorkflowContract(unittest.TestCase):
         self.assertEqual(jobs['execute-iac']['uses'],'./.github/workflows/iac-pipeline-multi-cloud-master.yaml')
         self.assertFalse(any('iac-self-check-matrix' in j.get('uses','') for j in load('iac-pipeline-multi-cloud-master.yaml')['jobs'].values()))
         self.assertTrue(gates.terminal_iac_evidence_gate(jobs['summary'],jobs['summary']['needs']))
+
+    def test_static_events_are_centralized_and_compatibility_entries_remain_callable(self):
+        matrix_events = triggers(load('iac-self-check-matrix.yml'))
+        self.assertEqual(set(matrix_events), {'workflow_dispatch','workflow_call','pull_request','push'})
+        self.assertEqual(set(matrix_events['push']['branches']), {'main','release/**'})
+        for event in ('push','pull_request'):
+            paths = set(matrix_events[event]['paths'])
+            self.assertIn('.github/workflows/iac-*', paths)
+            self.assertIn('terraform-hcl-standard/**', paths)
+
+        wrappers = (
+            'iac-pipeline-multi-cloud-landingzone-baseline.yaml',
+            'iac-pipeline-multi-cloud-account-matrix.yaml',
+            'iac-pipeline-multi-cloud-resources-matrix.yaml',
+        )
+        for name in wrappers:
+            workflow = load(name)
+            self.assertEqual(set(triggers(workflow)), {'workflow_dispatch','workflow_call'}, name)
+            self.assertEqual(set(workflow['jobs']), {'resolve','pipeline'}, name)
+
+    def test_retired_toolkit_copies_are_absent_and_aws_recovery_waits_for_evidence(self):
+        retired = (
+            '.github/actions/terraform-command/action.yml',
+            '.github/actions/setup-iac-env/action.yml',
+            '.github/scripts/platform-ops/observe/platform-ops_iac-self-check.py',
+            '.github/scripts/lib/cmdb-ssh-login.sh',
+        )
+        for relative in retired:
+            self.assertFalse((ROOT / relative).exists(), relative)
+        for relative in (
+            'scripts/cloud/bootstrap/aws/reconcile_github_oidc_trust.sh',
+            'scripts/cloud/bootstrap/aws/adopt_github_oidc_terraform_state.sh',
+        ):
+            self.assertTrue((ROOT / relative).is_file(), relative)
 
     def test_orchestrators_preserve_inputs_and_gate_exact_receipt(self):
         for name, gate in [('selfhost-orchestrator.yml','provision'),('serverless-orchestrator.yml','iac-verified')]:

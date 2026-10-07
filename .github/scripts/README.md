@@ -15,7 +15,7 @@ repository that owns the thing it operates on:
 
 | Directory | Contents |
 |-----------|----------|
-| `lib/` | sourced helpers: `require-env.sh` (`require_env`), `cmdb-ssh-login.sh` |
+| `lib/` | sourced helpers: `require-env.sh` (`require_env`) |
 | `gitops/` | readers and validators for GitOps manifests and routing config |
 | `platform-ops/` | selfhost orchestration: `provision/` (routing, dispatch, OIDC, key derivation), `deploy/`, `dns/`, `observe/` |
 | `environment-upgrade/` | data-operation dispatch and release evidence validation only |

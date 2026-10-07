@@ -8,11 +8,17 @@
 
 `iac-pipeline-multi-cloud-stages.yaml` 只有 bootstrap/account/resources 三个可复用 job，没有内部固定 needs。master 为六个执行位置选 stage/action，传递固定 GitOps/IaC SHA、契约摘要和前置证据。各阶段 runner 和保护环境归 Toolkit；IaC-specific actions 均从同一固定版本 IaC checkout 本地调用。namespace 身份摘要和 Terraform backend lock 同时防止并发 state 写入。
 
-`iac-self-check-matrix.yml` 四个 job：prepare/self-check/execute-iac/summary。PR/push 强制 check；check 仅静态报告六云覆盖，不登录 Vault。显式 plan/apply/destroy 调用 master，master 不调用矩阵入口。终端 summary 核验当前运行报告/receipt，不以 skipped 掩盖失败。
+`iac-self-check-matrix.yml` 四个 job：prepare/self-check/execute-iac/summary。它是 IaC PR/push 静态事件的唯一入口，覆盖 `main`、`release/**`、`terraform-hcl-standard/**` 和所有 `iac-*` workflow 变更；check 仅静态报告六云覆盖，不登录 Vault。显式 plan/apply/destroy 调用 master，master 不调用矩阵入口。终端 summary 核验当前运行报告/receipt，不以 skipped 掩盖失败。
 
 运行需要 `environment` 与 GitOps `target_manifest`。`stage_scope` 默认为 resources；完整三层须显式 all；bootstrap_mode 默认 verify，reconcile 必须显式 bootstrap/all。可传 GitOps/IaC revision，但入口只解析一次并固定完整 SHA，随后所有认证、模块与证据使用这两个 SHA。
 
-旧 baseline/account/resources 名称仅作兼容 wrapper；GCP/UCloud/Akamai 独立资源入口转发矩阵；AWS/GCP OIDC 原名保留身份恢复授权。旧参数只校验身份或映射目标，不能覆盖 GitOps；组件选择、隐式 adoption、state migration、跨云默认账号不再授权部署。
+旧 baseline/account/resources 名称仅作兼容 wrapper，只保留 `workflow_dispatch`/`workflow_call`；它们不再各自监听 PR/push 或重复调用静态门禁。GCP/UCloud/Akamai 独立资源入口转发矩阵；AWS/GCP OIDC 原名保留身份恢复授权。旧参数只校验身份或映射目标，不能覆盖 GitOps；组件选择、隐式 adoption、state migration、跨云默认账号不再授权部署。
+
+## 第一批基础清理与保留项
+
+统一 owner/caller 切换后，Toolkit 内无当前 caller、恢复职责或 UAT gate 的 `terraform-command`、`setup-iac-env`、旧 `platform-ops_iac-self-check.py` 和 `cmdb-ssh-login.sh` 已删除。静态自检由固定 IaC owner ref 的 `.github/actions/iac-self-check` 提供；阶段执行继续由固定 IaC actions 承担，没有把 Terraform 或 SSH 实现留在 Toolkit。
+
+Toolkit 的 `scripts/cloud/bootstrap/aws/reconcile_github_oidc_trust.sh` 与 `adopt_github_oidc_terraform_state.sh` 暂时保留并标记为待退休。固定 IaC owner SHA `be8456282f7495e098170e0894e742605a94dae6` 已分别通过 `iac-aws-cloud-bootstrap` 与 `iac-maintenance` action 提供替代调用，但替代脚本不是字节等价副本：owner reconcile 增加临时 session credential 限制，owner adoption 去掉三个 Terraform target 限制。删除前仍需逐项确认行为等价或明确接受差异，完成精确 caller 收敛，并记录相同 environment/account/state 的 UAT receipt 与收敛结果；布局测试和静态引用本身不构成退休证据。
 
 ## Caller 与保护
 

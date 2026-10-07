@@ -7,7 +7,7 @@ identity. They do not silently create application resources.
 
 | Provider directory | Canonical responsibilities | Credential contract |
 | --- | --- | --- |
-| `aws/` | AWS GitHub OIDC recovery, state adoption, bootstrap KV | `kv/CICD/<env>/aws-bootstrap` for the one-time recovery credential; normal state uses `kv/CICD/<env>/iac_state` |
+| `aws/` | AWS GitHub OIDC recovery, state adoption, bootstrap KV; Toolkit recovery/adoption executors are pending retirement | `kv/CICD/<env>/aws-bootstrap` for the one-time recovery credential; normal state uses `kv/CICD/<env>/iac_state` |
 | `gcp/` | GCP bootstrap KV, shared state KV, account migration, OIDC declaration resolution | `kv/CICD/<env>/gcp-bootstrap/<account>` |
 | `Akamai-Cloud/` | Akamai Cloud/Linode token and Vault JWT role bootstrap | `kv/CICD/<env>/akamai-cloud/<account>` with `LINODE_TOKEN` |
 | `vultr-VPS/` | Vultr provider credential bootstrap; state remains separate | `kv/CICD/<env>` with `VULTR_API_KEY` |
@@ -29,6 +29,14 @@ All Terraform backends consume the shared `TF_STATE_*` contract from
 `kv/CICD/<env>/iac_state`; provider credentials and state credentials must not
 be conflated. The scripts default to read-only checks where practical. Any
 write, apply, revoke, or state-adoption operation must be explicitly selected.
+
+The fixed IaC owner SHA `be8456282f7495e098170e0894e742605a94dae6`
+contains the replacement AWS recovery and maintenance actions. The Toolkit
+`reconcile_github_oidc_trust.sh` and `adopt_github_oidc_terraform_state.sh`
+copies remain pending retirement because their owner replacements differ in
+credential and Terraform target behavior. Keep them until caller convergence,
+behavior-difference review, and exact UAT receipt/convergence evidence are all
+recorded; a layout test alone is not deletion evidence.
 
 ## Retired paths
 

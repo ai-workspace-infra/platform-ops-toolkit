@@ -139,12 +139,15 @@ name: Multi-cloud IaC Matrix
   pull_request:
     paths:
       - .github/workflows/iac-*
+      - terraform-hcl-standard/**
       - scripts/ci/unified_iac_contract_test.py
   push:
     branches:
       - main
+      - release/**
     paths:
       - .github/workflows/iac-*
+      - terraform-hcl-standard/**
       - scripts/ci/unified_iac_contract_test.py
 permissions:
   contents: read
