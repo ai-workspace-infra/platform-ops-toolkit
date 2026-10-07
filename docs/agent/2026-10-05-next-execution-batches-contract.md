@@ -63,6 +63,30 @@ Playbooks 已存在 `deploy_xconnect_one.yml`（`roles/vhosts/xconnect_one`）�
 
 验收矩阵至少覆盖：fake Accounts API + fixture inventory、missing/mismatched target、错 device/network、expired/used invite、owner missing、SSH trust failure、service/handshake failure、幂等保留 identity、always secret cleanup。真实验收须记录 owner/Toolkit/binary SHA、environment/target/run、实际 Role 与 overlay handshake/private traffic；未覆盖 caller 的旧脚本保留。
 
+### 2026-10-07 host/service caller 切换 gate
+
+以下 gate 是下一子批次的执行清单。当前 Playbooks SHA
+`fda67822d3d9461567238606256dbe3610a8759f` 已有 `xconnect_one`、
+`xconnect_gateway`、`xconnect_lab_runtime` Roles，但只覆盖
+`gateway_identity/gateway/one/gateway_verify/one_verify`；它还没有等价覆盖旧 runner
+的邀请、peer reconcile 和端到端 receipt。因此 `run.sh setup/bootstrap/gateway/one/verify`、
+`xconnect-existing-one-uat/deploy.sh`、`enroll-node.sh` 仍是冻结 caller，不能以 Role
+文件存在或 syntax-check 通过为理由删除。
+
+| Gate | owner 完成条件 | 离线证据 | 真实 UAT receipt | 当前状态 |
+| --- | --- | --- | --- | --- |
+| H1 可信 target handoff | Toolkit 交付精确 host/user、私有 key 与预先审查的 known_hosts；Playbooks 拒绝空 target、通配发现和 accept-new | fake inventory 覆盖 missing/mismatch/host-key failure | owner SHA、target、host-key fingerprint、Ansible recap | BLOCKED：现 caller 仍有 EC2 Name wildcard 与 accept-new |
+| H2 Accounts device invite | Playbooks 参数化 service owner 支持 gateway/one、固定 network/device/role/TTL，并输出 0600 handoff；Toolkit 只做 Vault token 交接 | fake HTTP 覆盖 201/409/timeout/响应绑定/always cleanup | HTTP 201、精确 network/device/role、invite consumed once | BLOCKED：现 owner action 只覆盖 declared-network Gateway bootstrap |
+| H3 Gateway identity/enroll/reconcile | `xconnect_lab_runtime` 分开 identity、join、peer reconcile；已有 credential 重跑不消耗 invite，401 轮换须显式操作 | role contract + mock command 覆盖 existing/empty/401/non-401 | gateway identity 保持、signed generation、timer active | BLOCKED：缺独立 peer-reconcile/401 rotation operation |
+| H4 One deploy | `xconnect_one` 消费 immutable binary、CA、一次性 invite 和精确 target，失败也删除 runner/remote invite | fake Ansible 覆盖 wrong network/device、used invite、always cleanup | joined device/network、credential valid、runtime applied | READY-PARTIAL：Role 已有，caller 仍混在 deploy scripts |
+| H5 数据面验收 | Playbooks owner 返回脱敏 receipt，包含 One/Gateway status、精确 peer handshake age、TLS/SNI、private ping/HTTP；任一缺失即失败 | fixture receipt 覆盖 stale handshake/TLS/private path failure | 同一 run 的 handshake、private traffic 与 signed config receipt | BLOCKED：现 runtime Role 只有基础 status，不等价于旧 verify |
+| H6 existing-One 拆分 | release 获取/校验留 Toolkit；Accounts 写归 service owner；Gateway/One 主机操作归 Roles；观察 owner 继续复用现有 action | 每个 owner 单独 mock，不调用 Toolkit 脚本 | fixed owner/binary SHA + exact host/network + H2-H5 receipts | BLOCKED：旧 527 行脚本仍混合四类副作用 |
+
+执行顺序必须是 H1 → H2 → H3/H4 → H5 → caller 切换 → 真实 UAT → legacy
+删除。H2 的 HTTP 201、H3/H4 的 Ansible success 或现有观测 action 的 SUMMARY_ONLY
+均不能单独满足 H5。迁移完成前，本仓合同测试继续断言五个 lab host stage 与两个独立
+legacy caller 仍在，防止只删调用来让 scanner 变绿。
+
 ## P4：SMTP Secret Manager 与 Vault 分离
 
 唯一已发现主 caller 为 `serverless-orchestrator.yml` 的 Accounts-only SMTP sync step。它在 Cloud Run deploy 前执行，共用已校验 GitOps project 和 Google authentication。LandingZone 的 SMTP 通知读取是另一合同，不在此批次中顺手迁移。

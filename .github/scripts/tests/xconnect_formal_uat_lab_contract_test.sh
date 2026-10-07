@@ -107,6 +107,15 @@ fi
 for stage in setup bootstrap gateway one verify; do
   grep -Fq "run.sh ${stage}" "${workflow}"
 done
+# These host/service callers remain frozen until H1-H6 in the execution
+# contract have both an owner caller and same-run UAT receipts. Keeping this
+# assertion prevents a scanner-only cleanup from silently dropping coverage.
+grep -Fq 'bash .github/scripts/xconnect-existing-one-uat/deploy.sh' "${workflow}"
+grep -Fq 'bash .github/scripts/xconnect-lab/enroll-node.sh' "${workflow}"
+gates="${repo_root}/docs/agent/2026-10-05-next-execution-batches-contract.md"
+for gate in H1 H2 H3 H4 H5 H6; do
+  grep -Fq "| ${gate} " "${gates}"
+done
 grep -Fq 'gateway_release_tag:$gateway' "${repo_root}/.github/scripts/xconnect-lab/lease.sh"
 grep -Fq 'wireguard-handshake' "${repo_root}/gitops/vpn-overlay/uat/xconnect-lab.json" 2>/dev/null || true
 
