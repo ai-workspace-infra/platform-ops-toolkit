@@ -394,7 +394,7 @@ jobs:
           cmdb_sha256: ${{ steps.native_init_control.outputs.cmdb_sha256 }}
           access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Preview or initialize only the absent or empty account schema through fixed Playbooks owner
-        uses: ai-workspace-infra/playbooks/.github/actions/prod-native-init@ff7b09e135f52301e7605dcdf6f3b303c9c2dd32
+        uses: ai-workspace-infra/playbooks/.github/actions/prod-native-init@603cb0c37767b0f0bf0ff113bbab8f392817c592
         with:
           cmdb_dir: ${{ runner.temp }}/native-resource-cmdb
           cmdb_sha256: ${{ steps.native_init_control.outputs.cmdb_sha256 }}
@@ -600,7 +600,7 @@ jobs:
           cmdb_sha256: ${{ steps.full_business_control.outputs.cmdb_sha256 }}
           access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Run only the explicit full-business mode through fixed Playbooks owner
-        uses: ai-workspace-infra/playbooks/.github/actions/prod-full-business@4e9d0965ccc431dc634f2047eed7bde1fbb6206f
+        uses: ai-workspace-infra/playbooks/.github/actions/prod-full-business@603cb0c37767b0f0bf0ff113bbab8f392817c592
         with:
           cmdb_dir: ${{ runner.temp }}/native-resource-cmdb
           cmdb_sha256: ${{ steps.full_business_control.outputs.cmdb_sha256 }}
