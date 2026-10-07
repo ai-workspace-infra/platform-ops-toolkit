@@ -50,7 +50,9 @@ def validate_contract(contract, require_source=True):
         transfer.get('business_tables') == sorted(initial['business_tables'] + ['cloud_vendor_costs']) and
         transfer.get('database_cutover_approved') is False, 'full-business image/table/version scope differs')
     identity = source.get('identity_sha256')
-    require(source.get('role') == 'readonly_release' and source.get('tls_required') is True and
+    require(source.get('role') == 'serverless_supabase' and source.get('endpoint') in ('direct', 'session_pooler') and
+        source.get('tls_required') is True and
+        re.fullmatch('[a-z0-9]{20}', source.get('project_ref', '')) and
         source.get('direction') == 'prod-supabase-to-prod-selfhost' and type(source.get('ready')) is bool and
         ((source.get('ready') is False and identity is None) or
          (source.get('ready') is True and re.fullmatch('[0-9a-f]{64}', identity or ''))),

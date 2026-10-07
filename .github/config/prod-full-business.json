@@ -5,7 +5,7 @@
   "resource_accepted": true,
   "gitops_commit": "af4a651ecb79df937f487a07bc93ca5dd2223ed2",
   "iac_commit": "254dd6321449ab12b862220c8876b482d7032fcd",
-  "playbooks_commit": "2a33d7a0cd8505c64a3021587e78ddcb4f4233ce",
+  "playbooks_commit": "bdab7b7be19ebb3dfbcd11dcf65f6b05337fa2f4",
   "resource": {
     "run_id": 37510999229,
     "run_attempt": 1,
@@ -143,9 +143,9 @@
     "environment": "prod",
     "host": "web-saas-prod",
     "database": "account",
-    "accounts_commit": "7b3112eb09ec1e7fbb9d35f25029818d8500980f",
-    "image": "ghcr.io/ai-workspace-services/accounts:sha-7b3112eb09ec1e7fbb9d35f25029818d8500980f",
-    "image_digest": "sha256:339e7e840a5de627833e67f6dce74145a8db8c22f6ebe11a6dca9cc9cd3e35cd",
+    "accounts_commit": "dbf3c0168ca3f29da19909fc500c34476b838930",
+    "image": "ghcr.io/ai-workspace-services/accounts:sha-dbf3c0168ca3f29da19909fc500c34476b838930",
+    "image_digest": "sha256:d2e39fb0bcca9b0ccba5e897703c0f36412be1913cf992b77b4317f13f6d5117",
     "schema_sha256": "842cef3beb98ef819dc854ecdf5f85683233641a0cd85a9156b30ad59f7e0206",
     "migration_version": 2026100701,
     "business_tables": [
@@ -209,7 +209,9 @@
   },
   "source": {
     "ready": false,
-    "role": "readonly_release",
+    "role": "serverless_supabase",
+    "endpoint": "session_pooler",
+    "project_ref": "yvzaumvzaotopomwtvqx",
     "tls_required": true,
     "identity_sha256": null,
     "direction": "prod-supabase-to-prod-selfhost"
