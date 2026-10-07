@@ -949,6 +949,7 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         artifact-ids: ${{ needs.iac.outputs.receipt_artifact_id }}
+        merge-multiple: true
         path: ${{ runner.temp }}/iac-summary
     - id: verified_iac
       if: needs.iac.result == 'success'

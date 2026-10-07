@@ -249,11 +249,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           artifact-ids: ${{ needs.self-check.outputs.artifact_id }}
+          merge-multiple: true
           path: ${{ runner.temp }}/iac-static
       - if: needs.prepare.outputs.action != 'check' && needs.execute-iac.result == 'success'
         uses: actions/download-artifact@v4
         with:
           artifact-ids: ${{ needs.execute-iac.outputs.receipt_artifact_id }}
+          merge-multiple: true
           path: ${{ runner.temp }}/iac-summary
       - id: verify
         uses: ./iac_modules/.github/actions/iac-entry-summary

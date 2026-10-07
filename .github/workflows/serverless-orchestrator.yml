@@ -294,6 +294,7 @@ jobs:
     - uses: actions/download-artifact@v4
       with:
         artifact-ids: ${{ needs.iac.outputs.receipt_artifact_id }}
+        merge-multiple: true
         path: ${{ runner.temp }}/iac-summary
     - uses: ./iac_modules/.github/actions/iac-receipt-verify
       with:

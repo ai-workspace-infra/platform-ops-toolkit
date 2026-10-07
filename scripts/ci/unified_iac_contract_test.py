@@ -59,6 +59,16 @@ class UnifiedWorkflowContract(unittest.TestCase):
         init = next(i for i,s in enumerate(steps) if s.get('name')=='Initialize Databases Credentials')
         self.assertLess(vault,init)
 
+    def test_exact_artifact_id_download_uses_expected_flat_directory(self):
+        # download-artifact ID mode creates a name subdirectory unless merging
+        # is explicit, even for one ID. Consumers read report/summary at root.
+        for name in ('iac-self-check-matrix.yml','selfhost-orchestrator.yml','serverless-orchestrator.yml'):
+            for job in load(name)['jobs'].values():
+                for step in job.get('steps',[]):
+                    if 'artifact-ids' in step.get('with',{}):
+                        self.assertIs(step['with'].get('merge-multiple'),True,name)
+                        self.assertNotIn(',',step['with']['artifact-ids'])
+
     def test_generated_shell_and_python_parse(self):
         names = ['iac-pipeline-multi-cloud-master.yaml','iac-pipeline-multi-cloud-stages.yaml','iac-self-check-matrix.yml','gcp-iac-pipeline.yml','gcp-oidc-bootstrap.yml','ucloud-iac.yml','aws-oidc-bootstrap.yml','akamai-cloud-iac.yml']
         for name in names:
