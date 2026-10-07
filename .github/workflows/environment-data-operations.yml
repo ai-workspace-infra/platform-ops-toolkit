@@ -14,7 +14,7 @@ on:
         description: "Single data control plane; imports explicit UAT-only"
         required: true
         type: "choice"
-        options: ["preflight","backup","rehearsal","upgrade","rollback","legacy_import","akamai_preflight","checkpoint","probe","baseline","migrate","selfhost_probe","selfhost_init","selfhost_verify","core_users"]
+        options: ["preflight","backup","rehearsal","upgrade","rollback","legacy_import","akamai_preflight","checkpoint","probe","baseline","migrate","selfhost_probe","selfhost_init","selfhost_verify","core_users","selfhost_availability"]
         default: "preflight"
       release_tag:
         description: "Immutable release tag"
@@ -45,7 +45,7 @@ on:
         type: "string"
         default: "main"
       config_json:
-        description: "Non-secret JSON operation config; import requires confirm_legacy_import:true"
+        description: "Non-secret config; core_users action defaults to compare, copy is explicit; availability never writes"
         type: "string"
         default: "{}"
       correlation_id:
@@ -93,7 +93,7 @@ on:
         type: "string"
         default: "main"
       config_json:
-        description: "Non-secret JSON operation config; import requires confirm_legacy_import:true"
+        description: "Non-secret config; core_users action defaults to compare, copy is explicit; availability never writes"
         type: "string"
         default: "{}"
       correlation_id:
@@ -200,9 +200,9 @@ jobs:
       config_json: ${{ needs.request_gate.outputs.config_json }}
 
   core_users:
-    name: Selfhost / latest core-user synchronization evidence
+    name: Selfhost / availability or four-field DB evidence
     needs: request_gate
-    if: ${{ inputs.mode == 'core_users' }}
+    if: ${{ inputs.mode == 'core_users' || inputs.mode == 'selfhost_availability' }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -289,7 +289,7 @@ jobs:
                     "akamai_preflight" if mode == "akamai_preflight" else
                     "serverless_database" if mode in {"checkpoint","probe","baseline","migrate"} else
                     "selfhost_database" if mode in {"selfhost_probe","selfhost_init","selfhost_verify"} else
-                    "core_users" if mode == "core_users" else
+                    "core_users" if mode in {"core_users", "selfhost_availability"} else
                     "selfhost_components" if config.get("execution_path") == "selfhost_roles" else
                     "release_controller")
           if any(needs[job]["result"] != "success" for job in ("request_gate", target)):

@@ -31,13 +31,13 @@ def require(condition, message):
         raise SystemExit(message)
 
 
-def validate_core_receipt(receipt, run):
+def validate_core_receipt(receipt, run, compare=False):
     require(receipt.get("environment") == "prod", "core receipt environment differs")
-    require(receipt.get("scope") == "core_users" and receipt.get("stage") == "core_users_copied",
+    require(receipt.get("scope") == "core_users" and receipt.get("stage") == ("core_users_compared" if compare else "core_users_copied"),
             "core receipt scope differs")
     require(receipt.get("host") == "web-saas-prod" and receipt.get("database") == "account",
             "core receipt target differs")
-    require(receipt.get("source_read_only") is True and receipt.get("target_writes") is True,
+    require(receipt.get("source_read_only") is True and receipt.get("target_writes") is (not compare),
             "core receipt does not prove read-only source and writable target")
     core = receipt.get("core_users")
     require(isinstance(core, dict) and set(core) == {"source", "target"},
@@ -64,7 +64,8 @@ def validate_core_receipt(receipt, run):
     return core
 
 
-def dispatch_inputs(tag):
+def dispatch_inputs(tag, action="compare"):
+    require(action in ("copy", "compare", "availability"), "unsupported Selfhost action")
     return {
         "runner_type": "ubuntu-latest",
         # Native core-user transfer does not deploy application images; the
@@ -80,7 +81,7 @@ def dispatch_inputs(tag):
         "target_domain_base": "svc.plus",
         "observability_endpoint": "https://observability.svc.plus",
         "xray_exporter_image": "",
-        "operation": "native-core-users",
+        "operation": {"copy": "native-core-users", "compare": "native-core-users-compare", "availability": "native-availability"}[action],
         "target_domains": "web-saas",
         "open_platform_service": "all",
         "cloud_provider": "gcp-cloud",
@@ -105,9 +106,10 @@ def main():
     config = json.loads(os.environ.get("DATA_CONFIG_JSON", "{}"))
     require(config.get("execution_path", "selfhost_core_users") == "selfhost_core_users",
             "unexpected core_users execution path")
-    require(config.get("source_read_only") is True, "source_read_only contract is required")
+    require(config.get("source_read_only") is True or config.get("action") == "availability", "source_read_only contract is required")
     created = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    payload = {"ref": tag, "inputs": dispatch_inputs(tag)}
+    action = config.get("action", "compare")
+    payload = {"ref": tag, "inputs": dispatch_inputs(tag, action)}
     gh("api", "--method", "POST", f"repos/{REPOSITORY}/actions/workflows/{WORKFLOW}/dispatches",
        "--input", "-", payload=payload)
     deadline = time.monotonic() + int(os.environ.get("DATA_WAIT_SECONDS", "7200"))
@@ -131,12 +133,25 @@ def main():
     temp.mkdir(mode=0o700, parents=True, exist_ok=True)
     archive = temp / "owner-receipt"
     archive.mkdir(mode=0o700, exist_ok=True)
-    gh("run", "download", str(child["id"]), "--repo", REPOSITORY, "--name", RECEIPT_NAME,
+    gh("run", "download", str(child["id"]), "--repo", REPOSITORY, "--name", "prod-availability-receipt" if action == "availability" else RECEIPT_NAME,
        "--dir", str(archive))
-    source = archive / "prod-full-business-receipt.json"
+    source = archive / ("prod-availability-receipt.json" if action == "availability" else "prod-full-business-receipt.json")
     require(source.is_file() and source.stat().st_size <= 65536, "missing or oversized owner receipt")
     receipt = json.loads(source.read_text())
-    core = validate_core_receipt(receipt, child)
+    if action == "availability":
+        require(receipt.get('environment') == 'prod' and receipt.get('host') == 'web-saas-prod' and
+            receipt.get('result') == 'available' and receipt.get('target_writes') is False and
+            receipt.get('database_cutover_approved') is False and all(receipt.get(k) is True for k in
+            ('doco_synced','containers_healthy','caddy_running','https_available','api_available','db_available')),
+            'Selfhost availability evidence is incomplete')
+        public = {**receipt, 'run_id': child['id'], 'workflow_sha': child['head_sha'], 'release_tag': tag}
+        (temp / 'core-user-sync-receipt.json').write_text(json.dumps(public, sort_keys=True) + '\n')
+        if os.environ.get('GITHUB_OUTPUT'):
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+                output.write(f"child_run_id={child['id']}\n")
+        print('Availability accepted; no data writes or DNS change')
+        return
+    core = validate_core_receipt(receipt, child, compare=action == "compare")
     public = {
         "schema": "edge-gateway-cutover/v2",
         "evidence": "core-user-sync",

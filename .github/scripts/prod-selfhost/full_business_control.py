@@ -20,7 +20,7 @@ BILLING = importlib.util.module_from_spec(_loader)
 _loader.loader.exec_module(BILLING)
 INIT, BASE, require = BILLING.INIT, BILLING.BASE, BILLING.require
 MODES = {'native-business-plan': 'preview', 'native-business-copy': 'copy',
-         'native-business-compare': 'compare', 'native-core-users': 'core_users'}
+         'native-business-compare': 'compare', 'native-core-users': 'core_users', 'native-core-users-compare': 'core_users_compare'}
 ACCOUNTS_SQL = '842cef3beb98ef819dc854ecdf5f85683233641a0cd85a9156b30ad59f7e0206'
 BILLING_SQL = 'a7133f3ef2ea9013a055cfd1442a7488d2b837f289e0f5d9b61624d4fde9bc53'
 
@@ -174,27 +174,38 @@ def main():
     INIT.validate_data_review(environment, run, approvals, run_id, os.environ['GITHUB_SHA'],
         os.environ['GITHUB_REF'], review_required)
     validate_contract(contract)
-    require(contract.get('initialization_accepted') is True, 'real initialization acceptance is pending')
-    source, standby, initialized = (contract[key] for key in ('resource', 'standby', 'initialized'))
-    checks = [(source, BASE.validate_provenance), (standby, INIT.validate_standby), (initialized, BILLING.validate_initialized)]
-    for kind in ('billing', 'copy') if mode == 'compare' else ('billing',):
-        parent, _ = parent_details(contract, kind)
-        checks.append((parent, lambda c, r, w, a, kind=kind: validate_parent(c, kind, r, w, a)))
-    for parent, check in checks:
-        run = get('/actions/runs/' + str(parent['run_id']))
-        check(contract, run, get('/actions/workflows/' + str(run['workflow_id'])), get('/actions/artifacts/' + str(parent['artifact_id'])))
-    with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP'], prefix='full-business-evidence-') as directory:
-        path = Path(directory)
+    source = contract['resource']
+    if mode in ('core_users', 'core_users_compare'):
+        resource_run = get('/actions/runs/' + str(source['run_id']))
+        BASE.validate_provenance(contract, resource_run,
+            get('/actions/workflows/' + str(resource_run['workflow_id'])),
+            get('/actions/artifacts/' + str(source['artifact_id'])))
+        with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP']) as directory:
+            archive = Path(directory) / 'resource.zip'
+            INIT.download(source['artifact_id'], archive)
+            BASE.stage_archive(contract, archive, args.destination)
+    else:
+        require(contract.get('initialization_accepted') is True, 'real initialization acceptance is pending')
+        source, standby, initialized = (contract[key] for key in ('resource', 'standby', 'initialized'))
+        checks = [(source, BASE.validate_provenance), (standby, INIT.validate_standby), (initialized, BILLING.validate_initialized)]
         for kind in ('billing', 'copy') if mode == 'compare' else ('billing',):
             parent, _ = parent_details(contract, kind)
-            INIT.download(parent['artifact_id'], path / (kind + '.zip'))
-            validate_parent_receipt(contract, kind, path / (kind + '.zip'))
-        INIT.download(initialized['artifact_id'], path / 'initialized.zip')
-        BILLING.validate_initialized_receipt(contract, path / 'initialized.zip')
-        INIT.download(standby['artifact_id'], path / 'standby.zip')
-        INIT.validate_receipt(contract, path / 'standby.zip')
-        INIT.download(source['artifact_id'], path / 'resource.zip')
-        BASE.stage_archive(contract, path / 'resource.zip', args.destination)
+            checks.append((parent, lambda c, r, w, a, kind=kind: validate_parent(c, kind, r, w, a)))
+        for parent, check in checks:
+            run = get('/actions/runs/' + str(parent['run_id']))
+            check(contract, run, get('/actions/workflows/' + str(run['workflow_id'])), get('/actions/artifacts/' + str(parent['artifact_id'])))
+        with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP'], prefix='full-business-evidence-') as directory:
+            path = Path(directory)
+            for kind in ('billing', 'copy') if mode == 'compare' else ('billing',):
+                parent, _ = parent_details(contract, kind)
+                INIT.download(parent['artifact_id'], path / (kind + '.zip'))
+                validate_parent_receipt(contract, kind, path / (kind + '.zip'))
+            INIT.download(initialized['artifact_id'], path / 'initialized.zip')
+            BILLING.validate_initialized_receipt(contract, path / 'initialized.zip')
+            INIT.download(standby['artifact_id'], path / 'standby.zip')
+            INIT.validate_receipt(contract, path / 'standby.zip')
+            INIT.download(source['artifact_id'], path / 'resource.zip')
+            BASE.stage_archive(contract, path / 'resource.zip', args.destination)
     if os.environ.get('GITHUB_OUTPUT'):
         with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
             for key, value in dict(mode=mode, gitops_commit=contract['gitops_commit'],
@@ -202,7 +213,7 @@ def main():
                 output.write(key + '=' + value + '\n')
     review_message = ('Independent approval' if review_required else
                       'Controlled independent data review requirement disabled')
-    print(review_message + ', reviewed source and real immutable parents verified; no database action or cutover authorized.')
+    print(review_message + ', reviewed source and original target identity prepared; runtime result determines acceptance.')
 
 
 if __name__ == '__main__':
