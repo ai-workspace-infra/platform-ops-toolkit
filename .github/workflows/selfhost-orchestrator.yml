@@ -837,7 +837,7 @@ jobs:
 
     - name: Render existing AI Workspace CMDB through IaC
       if: steps.route.outputs.reuse_existing_host == 'true' && steps.route.outputs.run_application_deploy == 'true'
-      uses: ai-workspace-infra/iac_modules/.github/actions/platform-resource-operations@d6174eec8e7757736e9b61b9d65a17c41cd455b8
+      uses: ai-workspace-infra/iac_modules/.github/actions/platform-resource-operations@bd098cba5acde525f2f1c4d3bc3a7bd6338c9077
       with:
         operation: existing-host
         environment: ${{ steps.route.outputs.deployment_env }}
@@ -2218,7 +2218,7 @@ jobs:
         TARGET_DOMAIN_BASE: ${{ needs.provision.outputs.target_domain_base }}
         DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
         CMDB_FILE: cmdb/cmdb.json
-      uses: ai-workspace-infra/iac_modules/.github/actions/platform-resource-operations@d6174eec8e7757736e9b61b9d65a17c41cd455b8
+      uses: ai-workspace-infra/iac_modules/.github/actions/platform-resource-operations@bd098cba5acde525f2f1c4d3bc3a7bd6338c9077
       with:
         operation: sit-dns
         environment: sit

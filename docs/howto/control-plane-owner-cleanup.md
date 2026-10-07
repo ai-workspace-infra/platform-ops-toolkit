@@ -16,8 +16,8 @@
 
 审阅中的 owner pins：
 
-- IaC Modules：d6174eec8e7757736e9b61b9d65a17c41cd455b8
-- Playbooks：c3fcb3396882283d8840178261883f5041ee77f8
+- IaC Modules：bd098cba5acde525f2f1c4d3bc3a7bd6338c9077
+- Playbooks：8b29bd81f03c7726f28698ea7c78471827d3c961
 - GitOps cleanup declaration：7edb3b5b779aefea2ecab0ecf559357e390b6e4e
 
 这些 SHA 属于待审核依赖；合并次序为 GitOps/owner 审核与合并，再审 Toolkit caller。若重新生成 owner commits，必须同步所有 action/workflow pin、summary pin 和精确 Vault workflow allowlist。

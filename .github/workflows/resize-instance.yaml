@@ -167,7 +167,7 @@ jobs:
           # 标识现查真实 ID。target_domain 就是主机 label(命名约定保证),
           # 是自愈的主线索。
           EXPECTED_HOSTNAME: ${{ inputs.target_domain }}
-        uses: ai-workspace-infra/iac_modules/.github/actions/platform-resource-operations@d6174eec8e7757736e9b61b9d65a17c41cd455b8
+        uses: ai-workspace-infra/iac_modules/.github/actions/platform-resource-operations@bd098cba5acde525f2f1c4d3bc3a7bd6338c9077
         with:
           operation: resize-preflight
           environment: ${{ inputs.vault_env_path }}
@@ -210,7 +210,7 @@ jobs:
         env:
           REPLACEMENT_IP: ${{ steps.terraform.outputs.replacement_ip }}
           TARGET_DOMAIN: ${{ inputs.target_domain }}
-        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@c3fcb3396882283d8840178261883f5041ee77f8
+        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@8b29bd81f03c7726f28698ea7c78471827d3c961
         with:
           operation: resize-health
           environment: ${{ inputs.vault_env_path }}

@@ -477,7 +477,7 @@ jobs:
       - uses: ./.github/actions/setup-yq
 
       - name: Verify target Artifact Registry through the IaC owner
-        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@d6174eec8e7757736e9b61b9d65a17c41cd455b8
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@bd098cba5acde525f2f1c4d3bc3a7bd6338c9077
         with:
           operation: registry-preflight
           environment: ${{ inputs.vault_env_path || 'uat' }}
@@ -527,7 +527,7 @@ jobs:
       - name: Sync SMTP credentials from Vault to Secret Manager
         id: smtp
         if: ${{ matrix.service == 'accounts' }}
-        uses: ai-workspace-infra/iac_modules/.github/actions/platform-resource-operations@d6174eec8e7757736e9b61b9d65a17c41cd455b8
+        uses: ai-workspace-infra/iac_modules/.github/actions/platform-resource-operations@bd098cba5acde525f2f1c4d3bc3a7bd6338c9077
         with:
           operation: smtp-sync
           environment: ${{ inputs.vault_env_path || 'uat' }}
@@ -547,7 +547,7 @@ jobs:
           GITOPS_OAUTH_GITHUB_CONFIG: ${{ runner.temp }}/accounts-github-oauth.json
 
       - name: Deploy Cloud Run service through the Provider owner
-        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@d6174eec8e7757736e9b61b9d65a17c41cd455b8
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@bd098cba5acde525f2f1c4d3bc3a7bd6338c9077
         with:
           operation: cloud-run
           environment: ${{ inputs.vault_env_path || 'uat' }}
@@ -735,7 +735,7 @@ jobs:
             kv/data/WEB_SAAS INTERNAL_SERVICE_TOKEN | INTERNAL_SERVICE_TOKEN
 
       - name: Deploy SSR Worker boundary
-        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@d6174eec8e7757736e9b61b9d65a17c41cd455b8
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@bd098cba5acde525f2f1c4d3bc3a7bd6338c9077
         with:
           operation: ssr
           environment: ${{ inputs.vault_env_path || 'uat' }}
@@ -826,7 +826,7 @@ jobs:
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN ;
 
       - name: Deploy Frontend Router Worker
-        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@d6174eec8e7757736e9b61b9d65a17c41cd455b8
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@bd098cba5acde525f2f1c4d3bc3a7bd6338c9077
         with:
           operation: frontend-router
           environment: ${{ inputs.vault_env_path || 'uat' }}
@@ -923,7 +923,7 @@ jobs:
             kv/data/WEB_SAAS INTERNAL_SERVICE_TOKEN | INTERNAL_SERVICE_TOKEN
 
       - name: Deploy edge-gateway Worker boundary
-        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@d6174eec8e7757736e9b61b9d65a17c41cd455b8
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@bd098cba5acde525f2f1c4d3bc3a7bd6338c9077
         with:
           operation: edge-gateway
           environment: ${{ inputs.vault_env_path || 'uat' }}
@@ -1011,7 +1011,7 @@ jobs:
           path: ${{ runner.temp }}/edge-assets
 
       - name: Deploy Cloudflare Pages static assets
-        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@d6174eec8e7757736e9b61b9d65a17c41cd455b8
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@bd098cba5acde525f2f1c4d3bc3a7bd6338c9077
         with:
           operation: static-pages
           environment: ${{ inputs.vault_env_path || 'uat' }}
@@ -1043,7 +1043,7 @@ jobs:
       (needs.frontend_router.result == 'success' || needs.frontend_router.result == 'skipped') &&
       (needs.edge_gateway.result == 'success' || needs.edge_gateway.result == 'skipped') &&
       (needs.static_pages.result == 'success' || needs.static_pages.result == 'skipped') }}
-    uses: ai-workspace-infra/iac_modules/.github/workflows/cloudflare-serverless-domains.yml@d6174eec8e7757736e9b61b9d65a17c41cd455b8
+    uses: ai-workspace-infra/iac_modules/.github/workflows/cloudflare-serverless-domains.yml@bd098cba5acde525f2f1c4d3bc3a7bd6338c9077
     with:
       environment: ${{ inputs.vault_env_path || 'uat' }}
       dns_mode: ${{ inputs.dns_mode || 'none' }}
@@ -1081,7 +1081,7 @@ jobs:
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
 
       - name: Verify public Console to Accounts CORS chain
-        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@c3fcb3396882283d8840178261883f5041ee77f8
+        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@8b29bd81f03c7726f28698ea7c78471827d3c961
         with:
           operation: public-chain
           environment: ${{ inputs.vault_env_path || 'uat' }}
@@ -1091,7 +1091,7 @@ jobs:
           SERVERLESS_DNS_MODE: ${{ inputs.dns_mode || 'none' }}
 
       - name: Verify Frontend Router boundary assets
-        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@c3fcb3396882283d8840178261883f5041ee77f8
+        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@8b29bd81f03c7726f28698ea7c78471827d3c961
         with:
           operation: frontend-assets
           environment: ${{ inputs.vault_env_path || 'uat' }}
@@ -1104,7 +1104,7 @@ jobs:
       # in place on the brand domain, legal name, company-domain email, no
       # legacy branding). Spec: store-and-startup-homepage-spec skill.
       - name: Verify brand website review readiness
-        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@c3fcb3396882283d8840178261883f5041ee77f8
+        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@8b29bd81f03c7726f28698ea7c78471827d3c961
         with:
           operation: brand-entry
           environment: ${{ inputs.vault_env_path || 'uat' }}
@@ -1292,7 +1292,7 @@ jobs:
 
       - name: Run immutable UAT cleanup owner
         id: cleanup
-        uses: ai-workspace-infra/iac_modules/.github/actions/uat-compute-cleanup@d6174eec8e7757736e9b61b9d65a17c41cd455b8
+        uses: ai-workspace-infra/iac_modules/.github/actions/uat-compute-cleanup@bd098cba5acde525f2f1c4d3bc3a7bd6338c9077
         with:
           policy: ${{ github.workspace }}/gitops/topology/uat/serverless/cleanup-policy.yaml
           mode: apply
@@ -1339,8 +1339,8 @@ jobs:
         env:
           RELEASE_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}
           RELEASE_TAG: ${{ inputs.tag_ref }}
-          PROVIDER_OWNER_SHA: d6174eec8e7757736e9b61b9d65a17c41cd455b8
-          PLAYBOOKS_OWNER_SHA: c3fcb3396882283d8840178261883f5041ee77f8
+          PROVIDER_OWNER_SHA: bd098cba5acde525f2f1c4d3bc3a7bd6338c9077
+          PLAYBOOKS_OWNER_SHA: 8b29bd81f03c7726f28698ea7c78471827d3c961
           DEPLOYS_CLOUD_RUN: ${{ inputs.deploy_cloud_run }}
           DEPLOYS_CLOUDFLARE: ${{ inputs.deploy_cloudflare }}
           GUARDED_API_GATEWAY: ${{ needs.preflight.outputs.guarded_api_gateway }}

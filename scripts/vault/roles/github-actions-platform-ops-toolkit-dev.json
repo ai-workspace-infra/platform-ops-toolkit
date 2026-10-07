@@ -24,7 +24,7 @@
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-orchestrator.yml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/hybrid-orchestrator.yml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/gcp-oidc-bootstrap.yml@*",
-      "ai-workspace-infra/iac_modules/.github/workflows/cloudflare-serverless-domains.yml@d6174eec8e7757736e9b61b9d65a17c41cd455b8"
+      "ai-workspace-infra/iac_modules/.github/workflows/cloudflare-serverless-domains.yml@bd098cba5acde525f2f1c4d3bc3a7bd6338c9077"
     ],
     "ref": [
       "refs/heads/main",

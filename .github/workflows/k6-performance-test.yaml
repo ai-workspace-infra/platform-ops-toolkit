@@ -90,7 +90,7 @@ jobs:
         env:
           K6_PROMETHEUS_RW_USERNAME: ${{ steps.vault.outputs.K6_PROMETHEUS_RW_USERNAME }}
           K6_PROMETHEUS_RW_PASSWORD: ${{ steps.vault.outputs.K6_PROMETHEUS_RW_PASSWORD }}
-        uses: ai-workspace-infra/playbooks/.github/actions/k6-performance@c3fcb3396882283d8840178261883f5041ee77f8
+        uses: ai-workspace-infra/playbooks/.github/actions/k6-performance@8b29bd81f03c7726f28698ea7c78471827d3c961
         with:
           environment: ${{ inputs.target_env }}
           profile: ${{ inputs.test_profile }}
