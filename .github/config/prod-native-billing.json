@@ -117,5 +117,15 @@
     "no_business_seeds": true,
     "database_cutover_approved": false,
     "commit": "5b7285bf49af12983027f7624d196ab3f2b1804f"
+  },
+  "billing_accepted": true,
+  "billing_receipt": {
+    "run_id": 37572248602,
+    "run_attempt": 1,
+    "toolkit_commit": "347178891c74daf8becb583a1e7fbe8b80bfc256",
+    "release_tag": "v2026.10.07-r8",
+    "artifact_id": 11461437231,
+    "artifact_digest": "sha256:8f0f2dc93ecfe24042c5a3e1a1493f2cfd2abaf508d239f83e5df7bf13d0eaa9",
+    "receipt_sha256": "9b674f16651095380b829e73f142a5f745b6b11f47f1fe757967776fbf7ca4fe"
   }
 }
