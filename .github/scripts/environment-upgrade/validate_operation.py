@@ -89,12 +89,20 @@ def main():
         require(isinstance(config.get("account"), str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,62}", config["account"]),
                 "explicit Akamai account required")
     if environment == "prod":
-        result = subprocess.run(["gh", "api", f"repos/{os.environ['GITHUB_REPOSITORY']}/environments/prod"],
-                                check=True, capture_output=True, text=True)
-        protection = json.loads(result.stdout).get("protection_rules", [])
-        require(any(rule.get("type") == "required_reviewers" and rule.get("reviewers")
-                    and rule.get("prevent_self_review") is True for rule in protection),
-                "PROD requires configured reviewers and prevent_self_review=true")
+        # Core-user synchronization is released only from an immutable tag.
+        # The tag is the release approval boundary for this narrowly scoped,
+        # read-only-source operation; it must not inherit an environment
+        # reviewer requirement that would make the release rule unusable.
+        if mode == "core_users":
+            require(os.environ.get("GITHUB_REF") == f"refs/tags/{os.environ.get('RELEASE_TAG', '')}",
+                    "core_users PROD runs must be dispatched from their immutable release tag")
+        else:
+            result = subprocess.run(["gh", "api", f"repos/{os.environ['GITHUB_REPOSITORY']}/environments/prod"],
+                                    check=True, capture_output=True, text=True)
+            protection = json.loads(result.stdout).get("protection_rules", [])
+            require(any(rule.get("type") == "required_reviewers" and rule.get("reviewers")
+                        and rule.get("prevent_self_review") is True for rule in protection),
+                    "PROD requires configured reviewers and prevent_self_review=true")
     for field in ("expected_schema_version", "target_schema_version", "migration_sha256"):
         if os.environ.get(field.upper()):
             config[field] = os.environ[field.upper()]

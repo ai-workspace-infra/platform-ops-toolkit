@@ -105,6 +105,22 @@ class DataControlPlaneTests(unittest.TestCase):
         self.assertNotEqual(self.guard('core_users', config).returncode, 0)
         self.assertNotEqual(self.guard('core_users', {'source_read_only': True}, 'prod').returncode, 0)
 
+        env = dict(os.environ, OPERATION_MODE='core_users', DEPLOY_ENV='prod',
+                   DATA_CONFIG_JSON=json.dumps(config), RELEASE_TAG='v2026.10.07-r15',
+                   GITHUB_REF='refs/tags/v2026.10.07-r15')
+        env.pop('GITHUB_OUTPUT', None)
+        result = subprocess.run([
+            'python3', str(ROOT / '.github/scripts/environment-upgrade/validate_operation.py')
+        ], env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        env['GITHUB_REF'] = 'refs/heads/main'
+        result = subprocess.run([
+            'python3', str(ROOT / '.github/scripts/environment-upgrade/validate_operation.py')
+        ], env=env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('immutable release tag', result.stderr)
+
     def test_parent_orchestrators_dispatch_and_wait(self):
         for name in ('hybrid-orchestrator.yml', 'selfhost-orchestrator.yml', 'serverless-orchestrator.yml'):
             value = workflow(name)
