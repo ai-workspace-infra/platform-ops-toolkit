@@ -12,9 +12,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 helper="${repo_root}/.github/scripts/snapshots/read-ref-sha.sh"
-promote="${repo_root}/.github/scripts/snapshots/promote-uat-snapshot-tag.sh"
 resolver="${repo_root}/.github/scripts/snapshots/resolve-snapshot-tag.sh"
-build_config="${repo_root}/.github/daily-snapshot-builds.json"
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
 
@@ -100,51 +98,6 @@ failed_with_sha() { sha_for two; return 1; }
 # The exact shape that broke Daily 36847896719: the old `|| true` lookup.
 old_lookup="$(lookup missing 2>/dev/null || true)"
 [[ "${old_lookup}" == *'"Not Found"'* ]] || fail "the fake must reproduce gh's 404 body on stdout"
-
-# --- promote-uat-snapshot-tag.sh ------------------------------------------------
-uat_tag='daily-build-2026.10.01-r7'
-release_tag='v2026.10.01-r7'
-control_plane='ai-workspace-infra/platform-ops-toolkit'
-control_plane_sha="$(sha_for control-plane)"
-mapfile -t services < <(jq -r '.repositories[] | select(.repository | startswith("ai-workspace-services/")) | .repository' "${build_config}")
-[[ "${#services[@]}" -gt 0 ]] || fail "the build config lists no services repositories"
-
-seed_uat() {
-  reset_store
-  local repository
-  for repository in "${services[@]}"; do put_tag "${repository}" "${uat_tag}" "$(sha_for "${repository}")"; done
-}
-run_promote() {
-  : > "${work}/output"
-  env "${gh_env[@]}" UAT_TAG="${uat_tag}" BUILD_CONFIG="${build_config}" CONTROL_PLANE_SHA="${control_plane_sha}" \
-    GH_TOKEN_INFRA=infra GH_TOKEN_SERVICES=services GITHUB_OUTPUT="${work}/output" \
-    bash "${promote}" > "${work}/promote.out" 2>&1
-}
-
-# Missing release tags -> created at the UAT commits.
-seed_uat
-run_promote || { cat "${work}/promote.out" >&2; fail "missing release tags must be created"; }
-for repository in "${services[@]}"; do
-  [[ "$(tag_of "${repository}" "${release_tag}")" == "$(sha_for "${repository}")" ]] \
-    || fail "${repository}:${release_tag} must point at its UAT commit"
-done
-[[ "$(tag_of "${control_plane}" "${release_tag}")" == "${control_plane_sha}" ]] || fail "control-plane tag missing"
-grep -Fxq "release_tag=${release_tag}" "${work}/output" || fail "release_tag output missing"
-
-# Release tags already at the same commits -> verified, nothing created.
-: > "${work}/gh.log"
-run_promote || { cat "${work}/promote.out" >&2; fail "existing identical release tags must be accepted"; }
-! grep -q '^CREATED\|^POST' "${work}/gh.log" || fail "an existing identical tag must not be recreated"
-grep -Fq "Verified ai-workspace-services/accounts:${release_tag}" "${work}/promote.out" || fail "verification not reported"
-
-# A release tag at a different commit -> refused before anything is created.
-seed_uat
-put_tag ai-workspace-services/portal "${release_tag}" "$(sha_for elsewhere)"
-run_promote && fail "a release tag at another commit must not be moved"
-grep -Fq "Refusing to move ai-workspace-services/portal:${release_tag}; it points to $(sha_for elsewhere)" "${work}/promote.out" \
-  || fail "the refusal must name the conflicting commit"
-! grep -q '^POST' "${work}/gh.log" || fail "the refusal must come before any tag is created"
-[[ "$(tag_of ai-workspace-services/portal "${release_tag}")" == "$(sha_for elsewhere)" ]] || fail "the existing tag was moved"
 
 # --- resolve-snapshot-tag.sh -----------------------------------------------------
 resolver_repos=(ai-workspace-services/accounts ai-workspace-services/portal)

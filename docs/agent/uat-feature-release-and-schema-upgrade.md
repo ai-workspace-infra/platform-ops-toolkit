@@ -14,7 +14,7 @@
 1. **定范围**：Issue 写清目标、受影响仓库、验收断言、不能改变的数据/接口。跨仓 PR 互链，并标明合并顺序。
 2. **候选代码**：PR 先跑静态检查、测试和必要的隔离 PostgreSQL 升级/重放测试。数据库变更优先 expand-only；不得依赖重建 public schema 或 `init-schema` 来修复现存 UAT。
 3. **发布前检查**：只读探针记录目标库版本、缺失列/约束、脏版本标记；核对每个参与仓库的源 SHA、tag 与制品清单。脚本验证前置状态，不匹配则事务回滚并停止部署。
-4. **UAT 发版**：从受信任的 `platform-ops-toolkit@main` 派发完整 `daily-main-snapshot.yaml`；保持 `enable_migration=false`。仅在本次确有已审核 SQL 时显式打开相应 UAT schema 入口；基线采纳和常规增量迁移不可同时开启。当前实现只能用完整主线快照；需要 PR 分支先验收的业务特性应等待下述候选版能力，不能提前合并后再称作“合并前 UAT 验证”。
+4. **UAT 发版**：从受信任的 `platform-ops-toolkit@main` 派发完整 `daily-main-snapshot.yaml`；选择 `deploy_env=uat`。Daily 不接受迁移或 schema 参数；确有已审核 SQL 时，另行派发 `environment-data-operations.yml`，由 Playbooks role 按 GitOps 拓扑校验并执行。当前实现只能用完整主线快照；需要 PR 分支先验收的业务特性应等待下述候选版能力，不能提前合并后再称作“合并前 UAT 验证”。
 5. **机器验证**：检查各仓 tag/SHA、CI 制品、serverless 与 selfhost run、DB 迁移版本及脏标记、列/约束、旧行不变性，以及关键 API/页面。失败时保留失败 tag 与证据，修复后生成新 tag；不覆盖旧 tag。
 6. **人工闸门**：把 UAT URL、tag、运行记录、迁移前后断言交给用户测试。只有明确验收通过，才关闭相应 Issue、继续下一项。单仓 PR 分支候选版能力上线后，才可把“验收通过→合并该业务 PR”作为强制顺序；当前主线快照模式必须如实记录业务 PR 是否已经合并。平台发布工具修复 PR 与业务特性 PR 分开处理。
 

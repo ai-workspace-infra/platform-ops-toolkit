@@ -62,7 +62,7 @@ graph TD
 
     GitOps_Control --> CI_Execution
     Daily -->|PROD 默认 upgrade / 禁用迁移| Serverless
-    Daily -->|UAT 默认 deploy+migrate / 直连合流| Serverless
+    Daily -->|按 deploy_env 选择环境，仅负责部署派发| Serverless
     Serverless -->|前置备份门禁| Ledger
     RollbackOrch -->|状态回退与快照还原| Ledger
 ```
@@ -71,17 +71,16 @@ graph TD
 
 ### 1.2 流水线触发机制优化与防护
 
-针对生产（PROD）与测试（UAT）的不同诉求实施差异化控制流：
+生产数据操作与日常快照部署现在分离，实施显式、环境参数化控制流：
 
-| 环境 | 默认操作 (`operation`) | 数据迁移策略 (`enable_migration`) | 目标源与行为 |
+| 环境 | 默认操作 (`operation`) | 数据迁移入口 | 目标源与行为 |
 | :--- | :---: | :---: | :--- |
-| **PROD** | `upgrade` | **默认禁用 (`false`)** | 仅升级全量无状态计算与接入服务（Cloud Run、Cloudflare SSR、Worker 边缘网关、前端静态资源等）。**强阻断自动数据迁移**，杜绝误触。仅在显式传入 `ENABLE_MIGRATION=true` 时方可执行。 |
-| **UAT** | `deploy+migrate` | **默认启用 (`true`)** | 每日自动拉取 PROD Supabase 最新快照进行单向增量合流，开箱即用，自动提供最新基准测试数据。 |
+| **SIT/UAT** | `deploy` | Daily 不提供迁移参数；独立入口显式选择 mode | 快照矩阵按 `deploy_env` 选择 Serverless 或 Hybrid，并从 GitOps 读取拓扑目标。 |
+| **PROD** | 受保护发布入口决定 | Playbooks role + GitOps 显式校验 | 生产发布不由 Daily Snapshot 触发，也不从 Daily 隐式复制数据。 |
 
 **核心控制脚本改动**：
-- [dispatch-prod-combined.sh](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/scripts/snapshots/dispatch-prod-combined.sh)：生产调度入口，强制设 `ENABLE_MIGRATION=false` 与 `serverless_operation=upgrade`。
-- [dispatch-uat-combined.sh](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/scripts/snapshots/dispatch-uat-combined.sh)：UAT 调度入口，默认设置 `serverless_operation=deploy+migrate` 并指定 `-f accounts_source_backend=supabase`。
-- [daily-main-snapshot.yaml](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/workflows/daily-main-snapshot.yaml)：提供主控布尔开关 `enable_migration`，分别透传给调度脚本。
+- [dispatch-environment-combined.sh](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/scripts/snapshots/dispatch-environment-combined.sh)：按 `DEPLOY_ENV` 选择 Serverless/Hybrid，使用不可变快照 tag 派发并等待。
+- [daily-main-snapshot.yaml](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/workflows/daily-main-snapshot.yaml)：提供环境选择矩阵，不提供迁移或 PROD 晋级开关。
 - [serverless-orchestrator.yml](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-orchestrator.yml)：在 `upgrade` 操作下运行全套微服务部署，但跳过 `trigger_data_migration` 任务。
 
 ---
@@ -170,10 +169,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_release_checkpoints_unique
 本地与 CI 流水线测试全部通过（**7 / 7 PASS**）：
 1. `database_release_checkpoint_contract_test.sh`: **PASS**（账本 DDL、安全栓、参数校验全覆盖）
 2. `workflow_dispatch_input_limit_test.sh`: **PASS**（全部工作流输入数 $\le 25$）
-3. `daily_snapshot_combined_dispatch_test.sh`: **PASS**（覆盖 PROD upgrade、UAT migrate 各分支）
+3. `daily_snapshot_environment_dispatch_test.sh`: **PASS**（覆盖 SIT/UAT 参数选择与派发）
 4. `data_migration_mode_contract_test.sh`: **PASS**（校验源/目标后端类型分支）
 5. `supabase_target_strategy_contract_test.sh`: **PASS**（直连 Supabase 策略契约验证）
-6. `daily_snapshot_prod_manifest_test.sh`: **PASS**（生产环境调度语义验证）
+6. 生产发布由受保护的 Playbooks + GitOps 入口验证，不由 Daily manifest 派发。
 7. `serverless_dispatch_contract_test.sh`: **PASS**（`upgrade` 操作类型合规验证）
 
 ---
@@ -569,9 +568,8 @@ EOF
 | [`.github/scripts/tests/database_release_checkpoint_contract_test.sh`](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/scripts/tests/database_release_checkpoint_contract_test.sh) | **NEW** | 检查点与回滚契约测试套件 |
 | [`.github/workflows/serverless-orchestrator.yml`](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-orchestrator.yml) | **MODIFY** | 接入 `upgrade` 操作类型；在 Supabase 任务前插入版本检查点门禁与构建产物上传 |
 | [`.github/workflows/data-migration.yaml`](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/workflows/data-migration.yaml) | **MODIFY** | 拆分多源 Vault 凭据提取步骤；支持直连 Supabase 源；严控参数在 25 个以内 |
-| [`.github/workflows/daily-main-snapshot.yaml`](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/workflows/daily-main-snapshot.yaml) | **MODIFY** | 新增 `enable_migration` 调度开关并向下分发 |
-| [`.github/scripts/snapshots/dispatch-prod-combined.sh`](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/scripts/snapshots/dispatch-prod-combined.sh) | **MODIFY** | PROD 默认调用 `upgrade`，强制默认关闭数据迁移 |
-| [`.github/scripts/snapshots/dispatch-uat-combined.sh`](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/scripts/snapshots/dispatch-uat-combined.sh) | **MODIFY** | UAT 默认调用 `deploy+migrate` 并指定 `accounts_source_backend=supabase` |
+| [`.github/workflows/daily-main-snapshot.yaml`](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/workflows/daily-main-snapshot.yaml) | **MODIFY** | 由 `deploy_env` 选择 SIT/UAT 派发矩阵，不提供迁移开关 |
+| [`.github/scripts/snapshots/dispatch-environment-combined.sh`](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/scripts/snapshots/dispatch-environment-combined.sh) | **NEW** | 按环境选择对应 orchestrator，并等待明确成功结论 |
 | [`.github/scripts/data-migration/supabase_accounts_merge_migration.sh`](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/scripts/data-migration/supabase_accounts_merge_migration.sh) | **MODIFY** | 扩展支持 direct Supabase 源无 SSH 直连导出与增量冲突解决 |
 | [`.github/scripts/data-migration/validate_accounts_migration_target.sh`](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/scripts/data-migration/validate_accounts_migration_target.sh) | **MODIFY** | 扩展源后端参数校验逻辑 |
 | [`.github/scripts/serverless/validate_dispatch_inputs.sh`](file:///Users/shenlan/workspaces/ai-workspace-infra/platform-ops-toolkit/.github/scripts/serverless/validate_dispatch_inputs.sh) | **MODIFY** | 校验规则纳入 `upgrade` 操作类型 |
@@ -582,19 +580,15 @@ EOF
 
 #### 1. 日常 UAT 自动化调度验证
 ```bash
-# 触发 UAT 部署与单向数据合流（默认行为）
-bash .github/scripts/snapshots/dispatch-uat-combined.sh
-
-# 如需临时跳过数据迁移仅部署代码：
-ENABLE_MIGRATION=false bash .github/scripts/snapshots/dispatch-uat-combined.sh
+# Daily 环境矩阵由 workflow 根据 deploy_env 派发；数据操作必须走统一入口
+gh workflow run daily-main-snapshot.yaml -R ai-workspace-infra/platform-ops-toolkit \
+  --ref main -f deploy_env=uat
 ```
 
 #### 2. 生产环境安全发布
 ```bash
-# 默认触发安全升级（部署全量微服务，跳过数据迁移）
-bash .github/scripts/snapshots/dispatch-prod-combined.sh
-
-# 生产环境发布时，serverless-orchestrator 会自动执行：
+# 生产发布不从 Daily Snapshot 派发；使用受保护的 Playbooks + GitOps 入口。
+# 该入口会按其自身契约执行：
 # 1. 自动调用 create_release_checkpoint.sh 生成检查点并记录 public.system_release_checkpoints
 # 2. 校验备份归档，上传构建产物
 # 3. 继续执行无状态微服务平滑升级

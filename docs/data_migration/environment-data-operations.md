@@ -56,16 +56,13 @@ release tag 继续复用现有 native standby 的 `refs/tags/v\d[0-9.r-]*` 与 4
 不新增标签格式、不把 `v*` 字符串当作受保护 tag，也不改变 GitHub 环境、IAM、Vault、OIDC 或网络。
 当前仓库代码不提供远端 tag→SHA、tag protection 或 actor 权限的完整证明；本次改动不伪造这类证明。
 
-### Daily 的显式一次性导入
+### Daily 与数据操作的边界
 
-`daily-main-snapshot.yaml` 的 `enable_migration=true` 不传给 Hybrid，而是先派发
-本统一入口的 `mode=legacy_import`，绑定本次不可变 tag 为 `release_tag` 和
-`accounts_ref`，使用唯一关联 ID 等待最终成功；失败、取消、超时均停止，不能进入 Hybrid。
-`enable_migration=false`（默认）不派发任何导入。导入与 schema migration／baseline adoption
-互斥，只能目标 UAT；不会新增 PROD 导入或重新 bootstrap 共享服务。
+`daily-main-snapshot.yaml` 不再提供 `enable_migration`、`migration_config_json`、
+baseline 或 schema migration inputs，也不隐式派发数据操作。需要导入、迁移、基线
+或恢复时，操作者必须直接派发本工作流的明确 `environment` 与 `mode`，由对应
+Playbooks role 执行，并在执行前按 GitOps 拓扑校验环境、目标和主写入路径。
 
-`migration_config_json` 仅传非敏感配置。显式 enable 开关会补充
-`confirm_legacy_import=true`；默认 `dry_run=true`、`accounts_transport=direct`。
 预览成功也不部署应用，不能冒充实际迁移或升级验收。审核写入请求须显式
 `dry_run=false`，并提供执行 owner 所需的来源、目标、身份及备份条件；不推断 IP、
 数据库或替换策略。配置中的 DSN、密码、SQL 和命令会在派发前拒绝。

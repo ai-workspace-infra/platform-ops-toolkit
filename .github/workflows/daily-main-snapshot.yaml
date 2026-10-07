@@ -7,23 +7,22 @@ on:
   workflow_dispatch:
     inputs:
       snapshot_tag:
-        description: "要发布的 tag：SIT/UAT 填 daily-build-* 或 uat-daily-build-*；PROD 可留空，填写时必须等于已验收 UAT tag 晋级出的 v*。"
+        description: "要发布的 tag：SIT/UAT 填 daily-build-* 或 uat-daily-build-*。PROD 使用受保护的 v* / release/v* 发布流程。"
         required: false
         type: string
       snapshot_source_ref:
-        description: "引用的 tag/ref：SIT/UAT 留空才使用 main；PROD 可留空，填写时必须等于 uat_daily_run_id 验收的 daily-build-* tag。"
+        description: "引用的 tag/ref：SIT/UAT 留空才使用 main；PROD 使用受保护的 v* / release/v* 发布流程。"
         required: false
         default: ''
         type: string
       deploy_env:
-        description: "目标环境：sit、uat，或 prod（仅晋级 uat_daily_run_id 已验收的 UAT 制品，不从源码重建）。"
+        description: "目标环境：sit 或 uat；PROD 由受保护的 v* / release/v* 发布流程负责。"
         required: true
         default: uat
         type: choice
         options:
           - sit
           - uat
-          - prod
       repositories:
         description: "可选：精确仓库列表，逗号分隔，例如 ai-workspace-services/accounts"
         required: false
@@ -42,38 +41,6 @@ on:
         description: "可选：本次 UAT XConnect Lab 使用的 XConnect-Gateway Release tag；留空则使用 GitOps 声明"
         required: false
         default: ''
-        type: string
-      enable_migration:
-        description: "显式派发统一数据入口；默认 false。需提供迁移配置，默认只预览且不部署"
-        required: false
-        default: false
-        type: boolean
-      migration_config_json:
-        description: "一次性 legacy_import 的非敏感配置；confirm_legacy_import=true；dry_run 默认 true，实际导入须显式 false。禁止 DSN/密码/SQL"
-        required: false
-        default: '{}'
-        type: string
-      adopt_accounts_baseline:
-        description: "仅 UAT 一次性：原地补齐旧版订阅字段并接入迁移版本表；必须关闭数据迁移"
-        required: false
-        default: false
-        type: boolean
-      apply_accounts_schema_migration:
-        description: "仅 UAT：在部署前执行 Accounts tag 中的单个增量 schema 迁移；必须关闭数据迁移"
-        required: false
-        default: false
-        type: boolean
-      accounts_schema_expected_version:
-        description: "仅增量迁移：UAT schema_migrations 当前版本"
-        required: false
-        type: string
-      accounts_schema_target_version:
-        description: "仅增量迁移：Accounts tag 中目标迁移版本"
-        required: false
-        type: string
-      accounts_schema_sha256:
-        description: "仅增量迁移：目标 .up.sql 文件的 SHA-256"
-        required: false
         type: string
       shared_vault_endpoint:
         description: "只读 Shared Vault readiness endpoint；Daily 不会部署或修改 Shared"
@@ -100,16 +67,6 @@ on:
         required: false
         default: '20'
         type: string
-      promote_prod_after_uat:
-        description: "仅 UAT：UAT Hybrid 成功并通过 production approval 后，将 UAT tag 晋级为 v* 并发布 PROD"
-        required: false
-        default: false
-        type: boolean
-      uat_daily_run_id:
-        description: "仅 PROD：UAT Hybrid 已成功的 Daily run ID；只晋级该 run 验收的同一 digest，需 production approval"
-        required: false
-        default: ''
-        type: string
 permissions:
   contents: write
   actions: write
@@ -122,28 +79,12 @@ concurrency:
 jobs:
   resolve-snapshot-tag:
     name: Resolve immutable snapshot tag
-    # PROD promotes an accepted UAT run; it never tags or builds from source.
-    if: ${{ (inputs.deploy_env || 'uat') != 'prod' }}
     runs-on: ubuntu-latest
     outputs:
       snapshot_tag: ${{ steps.resolve.outputs.snapshot_tag }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-
-      - name: Validate optional UAT Accounts schema migration request
-        run: ./.github/scripts/snapshots/validate-uat-schema-migration-request.sh
-        env:
-          DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
-          SNAPSHOT_REPOS: ${{ inputs.repositories }}
-          SNAPSHOT_SOURCE_REF: ${{ inputs.snapshot_source_ref }}
-          APPLY_ACCOUNTS_SCHEMA_MIGRATION: ${{ inputs.apply_accounts_schema_migration || false }}
-          ADOPT_ACCOUNTS_BASELINE: ${{ inputs.adopt_accounts_baseline || false }}
-          ENABLE_MIGRATION: ${{ inputs.enable_migration }}
-          DATA_IMPORT_CONFIG_JSON: ${{ inputs.migration_config_json }}
-          ACCOUNTS_SCHEMA_EXPECTED_VERSION: ${{ inputs.accounts_schema_expected_version }}
-          ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
-          ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}
 
       - name: Load GitHub App private key from Vault
         id: vault
@@ -308,15 +249,175 @@ jobs:
           path: ${{ runner.temp }}/daily-snapshot-status/${{ matrix.organization }}.jsonl
           if-no-files-found: warn
 
+  resolve-built-snapshot-tag:
+    name: Resolve completed snapshot tag
+    needs: [resolve-snapshot-tag, snapshot]
+    if: >-
+      ${{
+        always() &&
+        needs.resolve-snapshot-tag.result == 'success' &&
+        needs.snapshot.result == 'success' &&
+        (inputs.repositories || '') == ''
+      }}
+    runs-on: ubuntu-latest
+    outputs:
+      snapshot_tag: ${{ steps.resolve.outputs.snapshot_tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Download all organization snapshot status artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: daily-snapshot-status-*
+          path: ${{ runner.temp }}/daily-snapshot-status
+          merge-multiple: true
+
+      - name: Resolve immutable completed snapshot tag
+        id: resolve
+        run: ./.github/scripts/snapshots/resolve-daily-snapshot-tag.sh
+        env:
+          SNAPSHOT_STATUS_DIRECTORY: ${{ runner.temp }}/daily-snapshot-status
+          SNAPSHOT_CANONICAL_ORGANIZATION: ai-workspace-services
+
+  shared-readiness:
+    name: Check shared platform readiness
+    needs: resolve-built-snapshot-tag
+    if: ${{ needs.resolve-built-snapshot-tag.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Check Shared platform readiness (read-only)
+        run: ./.github/scripts/snapshots/check-shared-readiness.sh
+        env:
+          SHARED_VAULT_ENDPOINT: ${{ inputs.shared_vault_endpoint || 'https://vault.svc.plus' }}
+          SHARED_OBSERVABILITY_ENDPOINT: ${{ inputs.shared_observability_endpoint || 'https://observability.svc.plus' }}
+          SHARED_IAM_ENDPOINT: ${{ inputs.shared_iam_endpoint || 'https://iam.svc.plus' }}
+          SHARED_IAM_ISSUER: ${{ inputs.shared_iam_issuer || 'https://iam.svc.plus' }}
+          SHARED_READINESS_TIMEOUT_SECONDS: ${{ inputs.shared_readiness_timeout_seconds || '20' }}
+
+  dispatch-environment:
+    name: ${{ matrix.environment }} ${{ matrix.name }}
+    needs: [resolve-built-snapshot-tag, shared-readiness]
+    if: >-
+      ${{
+        always() &&
+        needs.resolve-built-snapshot-tag.result == 'success' &&
+        needs.shared-readiness.result == 'success' &&
+        (inputs.repositories || '') == '' &&
+        matrix.environment == (inputs.deploy_env || 'uat')
+      }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - environment: sit
+            name: Serverless Orchestrator
+            workflow: serverless-orchestrator.yml
+            operation: deploy
+            target_domains: web-saas
+            topology_mode: serverless
+          - environment: uat
+            name: Hybrid Orchestrator
+            workflow: hybrid-orchestrator.yml
+            operation: deploy
+            target_domains: all
+            topology_mode: hybrid
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Load GitHub App private key from Vault
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: ${{ format('github-actions-platform-ops-toolkit-{0}', matrix.environment) }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
+
+      - name: Create GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: Iv23liNwStpQIiXajhpb
+          private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
+          owner: ai-workspace-infra
+          permission-contents: write
+          permission-actions: write
+
+      - name: Checkout selected GitOps topology
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: main
+          path: gitops
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
+          sparse-checkout: |
+            topology/${{ matrix.environment }}/${{ matrix.topology_mode }}/runtime-topology.yaml
+
+      - name: Resolve target domain from GitOps
+        id: gitops
+        env:
+          GITOPS_TOPOLOGY_FILE: ${{ github.workspace }}/gitops/topology/${{ matrix.environment }}/${{ matrix.topology_mode }}/runtime-topology.yaml
+          EXPECTED_ENVIRONMENT: ${{ matrix.environment }}
+          EXPECTED_MODE: ${{ matrix.topology_mode }}
+        run: ./.github/scripts/snapshots/resolve-dispatch-gitops-target.sh
+
+      - name: Dispatch ${{ matrix.name }}
+        id: dispatch
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RUN_STATUS_TOKEN: ${{ github.token }}
+          SNAPSHOT_TAG: ${{ needs.resolve-built-snapshot-tag.outputs.snapshot_tag }}
+          DEPLOY_ENV: ${{ matrix.environment }}
+          DISPATCH_WORKFLOW: ${{ matrix.workflow }}
+          DISPATCH_OPERATION: ${{ matrix.operation }}
+          DISPATCH_TARGET_DOMAINS: ${{ matrix.target_domains }}
+          TARGET_DOMAIN_BASE: ${{ steps.gitops.outputs.target_domain_base }}
+          SKIP_STRIPE_CATALOG: ${{ inputs.skip_stripe_catalog || false }}
+        run: ./.github/scripts/snapshots/dispatch-environment-combined.sh
+
+      - name: Write dispatch receipt
+        if: always()
+        env:
+          SNAPSHOT_TAG: ${{ needs.resolve-built-snapshot-tag.outputs.snapshot_tag }}
+          RUN_URL: ${{ steps.dispatch.outputs.run_url }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/environment-dispatch"
+          jq -n \
+            --arg environment "${{ matrix.environment }}" \
+            --arg operation "${{ matrix.operation }}" \
+            --arg workflow "${{ matrix.workflow }}" \
+            --arg tag "$SNAPSHOT_TAG" \
+            --arg url "${RUN_URL:-}" \
+            --arg result "${{ job.status }}" \
+            '{schema:1,environment:$environment,operation:$operation,workflow:$workflow,snapshot_tag:$tag,run_url:$url,result:$result}' \
+            > "$RUNNER_TEMP/environment-dispatch/${{ matrix.environment }}.json"
+
+      - name: Upload dispatch receipt
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: environment-dispatch-${{ matrix.environment }}
+          path: ${{ runner.temp }}/environment-dispatch/${{ matrix.environment }}.json
+          if-no-files-found: error
+
   snapshot-summary:
     name: Summarize daily snapshot status
-    needs: [resolve-snapshot-tag, snapshot]
-    if: ${{ always() && needs.resolve-snapshot-tag.result == 'success' && needs.snapshot.result != 'skipped' }}
-    # PROD promotion is a separate job so production approval is requested
-    # only after UAT Hybrid has completed successfully.
-    outputs:
-      uat_snapshot_tag: ${{ steps.resolve_snapshot_tag.outputs.snapshot_tag }}
-      uat_hybrid_outcome: ${{ steps.dispatch_uat_hybrid.outcome }}
+    needs: [resolve-snapshot-tag, snapshot, resolve-built-snapshot-tag, shared-readiness, dispatch-environment]
+    if: >-
+      ${{
+        always() &&
+        needs.resolve-snapshot-tag.result == 'success' &&
+        needs.snapshot.result != 'skipped'
+      }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -329,231 +430,44 @@ jobs:
           path: ${{ runner.temp }}/daily-snapshot-status
           merge-multiple: true
 
-      - name: Resolve immutable snapshot tag
-        # Never derive a deploy tag from a partial or filtered snapshot.
-        if: ${{ (inputs.deploy_env || 'uat') == 'uat' && needs.snapshot.result == 'success' && (inputs.repositories || '') == '' }}
-        id: resolve_snapshot_tag
-        run: ./.github/scripts/snapshots/resolve-daily-snapshot-tag.sh
-        env:
-          SNAPSHOT_STATUS_DIRECTORY: ${{ runner.temp }}/daily-snapshot-status
-          SNAPSHOT_CANONICAL_ORGANIZATION: ai-workspace-services
-
-      - name: Load GitHub App private key for UAT dispatch
-        if: ${{ (inputs.deploy_env || 'uat') == 'uat' }}
-        id: vault
-        uses: hashicorp/vault-action@v4
-        with:
-          url: https://vault.svc.plus
-          method: jwt
-          role: github-actions-platform-ops-toolkit-uat
-          jwtGithubAudience: vault
-          secrets: |
-            kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
-
-      - name: Create GitHub App installation token for UAT dispatch
-        if: ${{ (inputs.deploy_env || 'uat') == 'uat' }}
-        id: app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: Iv23liNwStpQIiXajhpb
-          private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
-          owner: ai-workspace-infra
-          permission-contents: write
-          permission-actions: write
-
-      - name: Check Shared platform readiness (read-only)
-        id: shared_readiness
-        if: ${{ (inputs.repositories || '') == '' && needs.snapshot.result == 'success' }}
-        run: ./.github/scripts/snapshots/check-shared-readiness.sh
-        env:
-          SHARED_VAULT_ENDPOINT: ${{ inputs.shared_vault_endpoint || 'https://vault.svc.plus' }}
-          SHARED_OBSERVABILITY_ENDPOINT: ${{ inputs.shared_observability_endpoint || 'https://observability.svc.plus' }}
-          SHARED_IAM_ENDPOINT: ${{ inputs.shared_iam_endpoint || 'https://iam.svc.plus' }}
-          SHARED_IAM_ISSUER: ${{ inputs.shared_iam_issuer || 'https://iam.svc.plus' }}
-          SHARED_READINESS_TIMEOUT_SECONDS: ${{ inputs.shared_readiness_timeout_seconds || '20' }}
-
-      - name: Dispatch UAT Hybrid Orchestrator
-        id: dispatch_uat_hybrid
-        if: ${{ (inputs.deploy_env || 'uat') == 'uat' && (inputs.repositories || '') == '' && needs.snapshot.result == 'success' && steps.shared_readiness.outcome == 'success' }}
-        run: ./.github/scripts/snapshots/dispatch-uat-combined.sh
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          # Child run status is read with the job token, which outlives the
-          # 60-minute GitHub App token used to dispatch (wait-for-workflow-run.sh).
-          RUN_STATUS_TOKEN: ${{ github.token }}
-          SNAPSHOT_TAG: ${{ steps.resolve_snapshot_tag.outputs.snapshot_tag }}
-          # Serverless Accounts is the controller for the separately deployed
-          # UAT Agent Proxy. This is a public endpoint, not a credential.
-          AGENT_CONTROLLER_URL: https://accounts-serverless-uat.onwalk.net
-          SKIP_STRIPE_CATALOG: ${{ inputs.skip_stripe_catalog || false }}
-          XCONNECT_ONE_RELEASE_TAG: ${{ inputs.xconnect_one_release_tag }}
-          XCONNECT_GATEWAY_RELEASE_TAG: ${{ inputs.xconnect_gateway_release_tag }}
-          ENABLE_MIGRATION: ${{ inputs.enable_migration }}
-          DATA_IMPORT_CONFIG_JSON: ${{ inputs.migration_config_json }}
-          APPLY_ACCOUNTS_SCHEMA_MIGRATION: ${{ inputs.apply_accounts_schema_migration || false }}
-          ADOPT_ACCOUNTS_BASELINE: ${{ inputs.adopt_accounts_baseline || false }}
-          ACCOUNTS_SCHEMA_EXPECTED_VERSION: ${{ inputs.accounts_schema_expected_version }}
-          ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
-          ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}
-          UAT_PROMOTION_MANIFEST_FILE: ${{ runner.temp }}/uat-promotion-manifest.json
-      - name: Upload interrupted data dispatch receipt
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: daily-data-dispatch-receipt
-          path: ${{ runner.temp }}/environment-data-dispatch/
-          if-no-files-found: ignore
-      - name: Upload the verified UAT promotion manifest
-        if: ${{ steps.dispatch_uat_hybrid.outcome == 'success' && steps.dispatch_uat_hybrid.outputs.promotion_manifest_verified == 'true' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: uat-promotion-manifest
-          path: ${{ runner.temp }}/uat-promotion-manifest.json
-          if-no-files-found: error
       - name: Publish unified snapshot matrix summary
-        # Also on failure: the per-repository matrix is the evidence needed to
-        # diagnose a failed readiness gate or UAT dispatch.
-        if: ${{ !cancelled() }}
         env:
           SNAPSHOT_STATUS_DIRECTORY: ${{ runner.temp }}/daily-snapshot-status
           DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
           SNAPSHOT_STATUS_OUTPUT: ${{ runner.temp }}/daily-snapshot-summary.json
         run: ${{ github.workspace }}/.github/scripts/snapshots/aggregate-daily-snapshot-status.sh
 
+      - name: Download environment dispatch receipts
+        if: ${{ needs.dispatch-environment.result != 'skipped' }}
+        uses: actions/download-artifact@v8
+        with:
+          pattern: environment-dispatch-*
+          path: ${{ runner.temp }}/environment-dispatch
+          merge-multiple: true
+
+      - name: Publish environment dispatch summary
+        if: ${{ needs.dispatch-environment.result != 'skipped' }}
+        env:
+          DISPATCH_STATUS_DIRECTORY: ${{ runner.temp }}/environment-dispatch
+          DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
+          DISPATCH_STATUS_OUTPUT: ${{ runner.temp }}/environment-dispatch-summary.json
+        run: ./.github/scripts/snapshots/aggregate-environment-dispatch-status.sh
+
       - name: Upload environment snapshot summary
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: daily-snapshot-summary-${{ inputs.deploy_env || 'uat' }}
-          path: ${{ runner.temp }}/daily-snapshot-summary.json
+          path: |
+            ${{ runner.temp }}/daily-snapshot-summary.json
+            ${{ runner.temp }}/environment-dispatch-summary.json
           if-no-files-found: warn
 
-  resolve-accepted-uat:
-    name: Verify the accepted UAT run for PROD promotion
-    # A failed PROD promotion can be retried on current main without rerunning
-    # UAT. This job is read-only and runs before production approval.
-    if: ${{ (inputs.deploy_env || 'uat') == 'prod' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      actions: read
-    outputs:
-      uat_snapshot_tag: ${{ steps.accepted.outputs.uat_snapshot_tag }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Verify the accepted UAT Daily run and its promotion manifest
-        id: accepted
-        run: ./.github/scripts/snapshots/resolve-accepted-uat-promotion.sh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_REPOSITORY: ${{ github.repository }}
-          UAT_DAILY_RUN_ID: ${{ inputs.uat_daily_run_id }}
-          SNAPSHOT_SOURCE_REF: ${{ inputs.snapshot_source_ref }}
-          SNAPSHOT_TAG: ${{ inputs.snapshot_tag }}
-          SNAPSHOT_REPOS: ${{ inputs.repositories }}
-          ENABLE_MIGRATION: ${{ inputs.enable_migration || false }}
-          APPLY_ACCOUNTS_SCHEMA_MIGRATION: ${{ inputs.apply_accounts_schema_migration || false }}
-          ADOPT_ACCOUNTS_BASELINE: ${{ inputs.adopt_accounts_baseline || false }}
-          XCONNECT_ONE_RELEASE_TAG: ${{ inputs.xconnect_one_release_tag }}
-          XCONNECT_GATEWAY_RELEASE_TAG: ${{ inputs.xconnect_gateway_release_tag }}
-          MANIFEST_OUTPUT: ${{ runner.temp }}/uat-promotion-manifest.json
-
-      - name: Upload the verified UAT promotion manifest
-        uses: actions/upload-artifact@v7
-        with:
-          name: uat-promotion-manifest
-          path: ${{ runner.temp }}/uat-promotion-manifest.json
-          if-no-files-found: error
-
-  promote-prod:
-    name: Promote verified UAT snapshot to PROD
-    needs: [snapshot, snapshot-summary, resolve-accepted-uat]
-    # PROD uses an earlier accepted UAT run. The optional UAT path promotes
-    # only after this run's complete Hybrid deployment succeeds. A filtered or
-    # failed UAT run can never reach the production approval.
-    if: ${{ !cancelled() && (inputs.repositories || '') == '' && (((inputs.deploy_env || 'uat') == 'uat' && inputs.promote_prod_after_uat && needs.snapshot.result == 'success' && needs.snapshot-summary.result == 'success' && needs.snapshot-summary.outputs.uat_hybrid_outcome == 'success') || ((inputs.deploy_env || 'uat') == 'prod' && needs.resolve-accepted-uat.result == 'success')) }}
-    environment: production
-    concurrency:
-      group: daily-main-snapshot-promote-prod
-      cancel-in-progress: false
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Re-check Shared platform readiness before PROD (read-only)
-        run: ./.github/scripts/snapshots/check-shared-readiness.sh
-        env:
-          SHARED_VAULT_ENDPOINT: ${{ inputs.shared_vault_endpoint || 'https://vault.svc.plus' }}
-          SHARED_OBSERVABILITY_ENDPOINT: ${{ inputs.shared_observability_endpoint || 'https://observability.svc.plus' }}
-          SHARED_IAM_ENDPOINT: ${{ inputs.shared_iam_endpoint || 'https://iam.svc.plus' }}
-          SHARED_IAM_ISSUER: ${{ inputs.shared_iam_issuer || 'https://iam.svc.plus' }}
-          SHARED_READINESS_TIMEOUT_SECONDS: ${{ inputs.shared_readiness_timeout_seconds || '20' }}
-
-      - name: Load GitHub App private key for UAT-to-PROD promotion
-        id: promote_vault
-        uses: hashicorp/vault-action@v4
-        with:
-          url: https://vault.svc.plus
-          method: jwt
-          role: github-actions-platform-ops-toolkit-prod-release
-          jwtGithubAudience: vault
-          secrets: |
-            kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
-
-      - name: Create GitHub App token for UAT-to-PROD promotion (infra)
-        id: promote_infra_token
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: Iv23liNwStpQIiXajhpb
-          private-key: ${{ steps.promote_vault.outputs.APP_PRIVATE_KEY }}
-          owner: ai-workspace-infra
-          permission-contents: write
-          permission-actions: write
-
-      - name: Create GitHub App token for UAT-to-PROD promotion (services)
-        id: promote_services_token
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: Iv23liNwStpQIiXajhpb
-          private-key: ${{ steps.promote_vault.outputs.APP_PRIVATE_KEY }}
-          owner: ai-workspace-services
-          repositories: |
-            accounts
-            billing-service
-            content-service
-            portal
-            edge-gateway
-            frontend-router
-            postgresql
-          permission-contents: write
-
-      - name: Promote verified UAT tag to PROD release tag
-        id: promote_release
-        run: ./.github/scripts/snapshots/promote-uat-snapshot-tag.sh
-        env:
-          UAT_TAG: ${{ (inputs.deploy_env || 'uat') == 'prod' && needs.resolve-accepted-uat.outputs.uat_snapshot_tag || needs.snapshot-summary.outputs.uat_snapshot_tag }}
-          BUILD_CONFIG: ${{ github.workspace }}/.github/daily-snapshot-builds.json
-          CONTROL_PLANE_SHA: ${{ github.sha }}
-          GH_TOKEN_INFRA: ${{ steps.promote_infra_token.outputs.token }}
-          GH_TOKEN_SERVICES: ${{ steps.promote_services_token.outputs.token }}
-
-      - name: Download the verified UAT promotion manifest
-        uses: actions/download-artifact@v8
-        with:
-          name: uat-promotion-manifest
-          path: ${{ runner.temp }}/uat-promotion
-
-      - name: Dispatch promoted PROD serverless and selfhost deployment
-        run: ./.github/scripts/snapshots/dispatch-prod-combined.sh
-        env:
-          PROMOTION_MANIFEST_FILE: ${{ runner.temp }}/uat-promotion/uat-promotion-manifest.json
-          UAT_SNAPSHOT_TAG: ${{ (inputs.deploy_env || 'uat') == 'prod' && needs.resolve-accepted-uat.outputs.uat_snapshot_tag || needs.snapshot-summary.outputs.uat_snapshot_tag }}
-          GH_TOKEN: ${{ steps.promote_infra_token.outputs.token }}
-          ARTIFACT_GH_TOKEN: ${{ github.token }}
-          RUN_STATUS_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.promote_release.outputs.release_tag }}
-          SKIP_STRIPE_CATALOG: ${{ inputs.skip_stripe_catalog || false }}
-          ENABLE_MIGRATION: false
+      - name: Fail when the selected environment dispatch failed
+        if: >-
+          ${{
+            needs.snapshot.result == 'failure' ||
+            needs.shared-readiness.result == 'failure' ||
+            needs.dispatch-environment.result == 'failure'
+          }}
+        run: exit 1
