@@ -8,6 +8,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 SERVERLESS = ROOT / ".github/workflows/serverless-orchestrator.yml"
 XCONNECT = ROOT / ".github/workflows/xconnect-zero-cloud.yaml"
+OWNER_SHA = "d7e49189a5de9c105a940f1c79abfb3b2b33bbd4"
 
 
 def load(path: Path):
@@ -36,8 +37,7 @@ class FollowupIacOwnerRoutingTests(unittest.TestCase):
             "frontend-router", "edge-gateway", "static-pages",
         }.issubset(operations))
         owner_refs = {step["uses"].rsplit("@", 1)[1] for step in owner_calls}
-        self.assertEqual(len(owner_refs), 1)
-        self.assertRegex(owner_refs.pop(), r"^[0-9a-f]{40}$")
+        self.assertEqual(owner_refs, {OWNER_SHA})
 
         source = SERVERLESS.read_text(encoding="utf-8")
         for legacy_executor in (
@@ -81,6 +81,7 @@ class FollowupIacOwnerRoutingTests(unittest.TestCase):
         )
         self.assertIsNotNone(default)
         owner_sha = default.group(1)
+        self.assertEqual(owner_sha, OWNER_SHA)
         self.assertIn(f"IAC_REF: ${{{{ inputs.iac_ref || '{owner_sha}' }}}}", source)
         self.assertGreaterEqual(
             source.count("uses: ./iac_modules/.github/actions/xconnect-lab-lifecycle"),

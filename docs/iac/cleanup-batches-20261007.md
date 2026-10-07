@@ -41,4 +41,4 @@
 | Playbooks | [#622](https://github.com/ai-workspace-infra/playbooks/pull/622) | main 已合并 | non-IaC inventory、Caddy restore、XConnect trusted-target runtime 与数据面证据 |
 | Toolkit | [#1375](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1375) | Draft；待身份策略与运行验收 | 精确 SHA caller、阶段放行、receipt 与审批；不把静态 CI 称为迁移验收 |
 
-当前 caller 固定 IaC `9570b01959396e1d0e20331205b5cb5718f5c588`、Playbooks `18fa333e5d76143f2a3a3ce94b1766a04003ebd8`；二者已在远端发布且对应 owner PR 通过 CI。新增能力不携带 live 环境配置，仍依赖 caller 提供 GitOps 声明和 runtime credentials。
+当前 caller 固定 IaC `d7e49189a5de9c105a940f1c79abfb3b2b33bbd4`、Playbooks `18fa333e5d76143f2a3a3ce94b1766a04003ebd8`；二者已在远端发布。新增能力不携带 live 环境配置，仍依赖 caller 提供 GitOps 声明和 runtime credentials；IaC follow-up 的 PR/CI 与 UAT 结论需在发布记录中另行留证。
