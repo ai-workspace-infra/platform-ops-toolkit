@@ -92,15 +92,15 @@
       "xworkmate_profiles"
     ]
   },
-  "initialization_accepted": false,
+  "initialization_accepted": true,
   "initialized": {
-    "run_id": null,
-    "run_attempt": null,
-    "toolkit_commit": null,
-    "release_tag": null,
-    "artifact_id": null,
-    "artifact_digest": null,
-    "receipt_sha256": null
+    "run_id": 37571123126,
+    "run_attempt": 1,
+    "toolkit_commit": "8ab6a6d6700f0b772bb4ce027e6ce373463d8930",
+    "release_tag": "v2026.10.07-r6",
+    "artifact_id": 11460434538,
+    "artifact_digest": "sha256:00caded3e1da8f87d096b63b95bdbfe1da1568dfc44ed9473acabb3eeaabe553",
+    "receipt_sha256": "15b9e2541e27286c8605ed6942a6d95a9ec28d6ce0ba7e2a808e59630ceec265"
   },
   "billing": {
     "format": 1,
