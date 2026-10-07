@@ -5,6 +5,9 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 
 canonical_scripts=(
   scripts/cloud/bootstrap/aws/bootstrap_aws_auth_kv.sh
+  # These two Toolkit executors remain pending retirement. The pinned IaC
+  # replacements differ in behavior, so presence here is preservation only;
+  # exact UAT and convergence evidence are still required before deletion.
   scripts/cloud/bootstrap/aws/reconcile_github_oidc_trust.sh
   scripts/cloud/bootstrap/aws/adopt_github_oidc_terraform_state.sh
   scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh

@@ -156,28 +156,11 @@ name: Compatibility / iac-pipeline-multi-cloud-resources-matrix
         type: string
         required: false
         default: ''
-  push:
-    branches:
-      - main
-      - release/**
-    paths:
-      - .github/workflows/iac-pipeline-multi-cloud-resources-matrix.yaml
-      - terraform-hcl-standard/**
-  pull_request:
-    paths:
-      - .github/workflows/iac-pipeline-multi-cloud-resources-matrix.yaml
-      - terraform-hcl-standard/**
 permissions:
   contents: read
   id-token: write
   actions: read
 jobs:
-  static-check:
-    if: github.event_name == 'push' || github.event_name == 'pull_request'
-    uses: ./.github/workflows/iac-self-check-matrix.yml
-    with:
-      action: check
-    secrets: inherit
   resolve:
     runs-on: ubuntu-latest
     outputs:
@@ -209,7 +192,6 @@ jobs:
           provider: ''
           iac-root: ${{ github.workspace }}/iac_modules
           gitops-root: ${{ github.workspace }}/gitops
-    if: github.event_name != 'push' && github.event_name != 'pull_request'
   pipeline:
     needs: resolve
     if: ${{ !cancelled() && needs.resolve.result == 'success' }}

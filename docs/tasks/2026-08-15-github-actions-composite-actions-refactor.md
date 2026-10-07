@@ -1,5 +1,9 @@
 # GitHub Actions Composite Actions 与 Vault SMTP 迁移
 
+> 当前状态（2026-10-07）：本文记录的是 2026-08-15 的实施历史。后续统一 IaC
+> owner/caller 已取代 `terraform-command` 与 `setup-iac-env`，两项无运行 caller 的
+> action 已删除；当前执行契约以 `docs/iac/unified-pipeline-v06-implementation.md` 为准。
+
 ## 目标
 
 减少 workflow 中重复的 runner 初始化与 Terraform 命令 step，同时保持业务
