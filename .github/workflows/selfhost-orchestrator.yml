@@ -380,6 +380,7 @@ jobs:
           role: github-actions-platform-ops-toolkit-prod
           jwtGithubAudience: vault
           exportToken: false
+          exportEnv: false
           secrets: |
             kv/data/prod/databases postgres_root_password | NATIVE_POSTGRES_PASSWORD ;
             kv/data/CICD GHCR_USERNAME | NATIVE_GHCR_USERNAME ;
@@ -393,7 +394,7 @@ jobs:
           cmdb_sha256: ${{ steps.native_init_control.outputs.cmdb_sha256 }}
           access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Preview or initialize only the absent or empty account schema through fixed Playbooks owner
-        uses: ai-workspace-infra/playbooks/.github/actions/prod-native-init@96065b03b2e0e3d329f6f9a5ed7aff5fe521dbd2
+        uses: ai-workspace-infra/playbooks/.github/actions/prod-native-init@ff7b09e135f52301e7605dcdf6f3b303c9c2dd32
         with:
           cmdb_dir: ${{ runner.temp }}/native-resource-cmdb
           cmdb_sha256: ${{ steps.native_init_control.outputs.cmdb_sha256 }}
@@ -484,6 +485,7 @@ jobs:
           role: github-actions-platform-ops-toolkit-prod
           jwtGithubAudience: vault
           exportToken: false
+          exportEnv: false
           secrets: |
             kv/data/prod/databases postgres_root_password | NATIVE_POSTGRES_PASSWORD ;
             kv/data/CICD GHCR_USERNAME | NATIVE_GHCR_USERNAME ;
@@ -497,7 +499,7 @@ jobs:
           cmdb_sha256: ${{ steps.native_billing_control.outputs.cmdb_sha256 }}
           access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Preview or apply only the reviewed Billing additive schema through fixed Playbooks owner
-        uses: ai-workspace-infra/playbooks/.github/actions/prod-native-billing-upgrade@96065b03b2e0e3d329f6f9a5ed7aff5fe521dbd2
+        uses: ai-workspace-infra/playbooks/.github/actions/prod-native-billing-upgrade@ff7b09e135f52301e7605dcdf6f3b303c9c2dd32
         with:
           cmdb_dir: ${{ runner.temp }}/native-resource-cmdb
           cmdb_sha256: ${{ steps.native_billing_control.outputs.cmdb_sha256 }}
