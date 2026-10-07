@@ -27,11 +27,21 @@ jobs:
           path: gitops
           sparse-checkout: |
             resources/svc.plus/prod/aws
+      - uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: 8373e926a6f7ba37a59a7b7ee864c7e87b102f58
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/gitops-aws-oidc
+            scripts/pipeline/gitops_cloud_targets.py
       - id: aws_oidc
-        run: .github/scripts/gitops/resolve_gitops_aws_oidc_config.sh
-        env:
-          GITOPS_AWS_OIDC_CONFIG: gitops/resources/svc.plus/prod/aws/github-actions-oidc.yaml
-          EXPECTED_DEPLOYMENT_ENV: prod
+        uses: ./iac_modules/.github/actions/gitops-aws-oidc
+        with:
+          manifest: gitops/resources/svc.plus/prod/aws/github-actions-oidc.yaml
+          environment: prod
+          account: '950604983695'
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ steps.aws_oidc.outputs.region }}

@@ -436,6 +436,18 @@ jobs:
             services/accounts/${{ inputs.vault_env_path || 'uat' }}/oauth/github.yaml
             resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
 
+      - name: Checkout IaC delivery fact and registry owners
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: 8373e926a6f7ba37a59a7b7ee864c7e87b102f58
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/cloud-run-serving-facts
+            .github/actions/gitops-gcp-target
+            scripts/pipeline
+
       - name: Render OAuth metadata for the deployment consumer
         uses: ./.github/actions/gitops-yaml-json
         with:
@@ -443,9 +455,10 @@ jobs:
           output: ${{ runner.temp }}/accounts-github-oauth.json
       - name: Read GitOps GCP target
         id: gitops_gcp
-        run: ruby ./.github/scripts/gitops/read_gcp_gitops_target.rb
-        env:
-          GCP_GITOPS_MANIFEST: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
+        uses: ./iac_modules/.github/actions/gitops-gcp-target
+        with:
+          manifest: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
+          mode: read
 
       # accounts rejects any browser Origin that is not on its CORS allowlist,
       # so the deploy has to pass this environment's console host through.
@@ -492,27 +505,14 @@ jobs:
           token: ${{ steps.source_token.outputs.token }}
           path: service-source
 
-      # Registry readiness and digest promotion are IaC Modules operations
-      # (ai-workspace-infra/iac_modules#389). The pin is a merge commit, so a
-      # later change to those scripts cannot alter a release without a reviewed
-      # Toolkit change; this job still chooses the target, holds the OIDC
-      # identity and verifies what Cloud Run actually serves.
-      - name: Checkout IaC Modules registry operations
-        uses: actions/checkout@v7
-        with:
-          repository: ai-workspace-infra/iac_modules
-          ref: 1a7d2e000314207d2f13901da8e15a98a9bf252b
-          path: iac_modules
-          persist-credentials: false
-          sparse-checkout: scripts/pipeline
-
       - name: Verify Vault GCP target matches GitOps project declaration
-        run: ruby ./.github/scripts/gitops/validate_gcp_gitops_contract.rb
-        env:
-          GCP_GITOPS_MANIFEST: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
-          GCP_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}
-          GCP_PROJECT_ID: ${{ steps.gitops_gcp.outputs.project_id }}
-          GCP_REGION: ${{ steps.gitops_gcp.outputs.region }}
+        uses: ./iac_modules/.github/actions/gitops-gcp-target
+        with:
+          manifest: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
+          mode: validate
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          project-id: ${{ steps.gitops_gcp.outputs.project_id }}
+          region: ${{ steps.gitops_gcp.outputs.region }}
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -623,14 +623,25 @@ jobs:
 
       # A tag is not evidence: the serving revision must run the digest UAT
       # built, or in PROD the digest UAT accepted.
+      - name: Query the serving revision through the IaC owner
+        id: cloud_run_facts
+        uses: ./iac_modules/.github/actions/cloud-run-serving-facts
+        with:
+          project-id: ${{ steps.gitops_gcp.outputs.project_id }}
+          region: ${{ steps.gitops_gcp.outputs.region }}
+          service: ${{ inputs.vault_env_path || 'uat' }}-${{ matrix.service }}
+          image: ${{ steps.gitops_gcp.outputs.region }}-docker.pkg.dev/${{ steps.gitops_gcp.outputs.project_id }}/serverless/${{ matrix.service }}
+          artifact-digest: ${{ inputs.vault_env_path == 'prod' && steps.promoted.outputs.digest || steps.build.outputs.digest }}
+
       - name: Verify the serving revision runs the expected digest
-        run: ./.github/scripts/serverless/verify_cloud_run_image_digest.sh
+        run: ./.github/scripts/serverless/verify_cloud_run_digest_facts.sh
         env:
-          GCP_PROJECT_ID: ${{ steps.gitops_gcp.outputs.project_id }}
-          GCP_REGION: ${{ steps.gitops_gcp.outputs.region }}
           CLOUD_RUN_SERVICE_NAME: ${{ inputs.vault_env_path || 'uat' }}-${{ matrix.service }}
-          IMAGE: ${{ steps.gitops_gcp.outputs.region }}-docker.pkg.dev/${{ steps.gitops_gcp.outputs.project_id }}/serverless/${{ matrix.service }}
           EXPECTED_DIGEST: ${{ inputs.vault_env_path == 'prod' && steps.promoted.outputs.digest || steps.build.outputs.digest }}
+          LATEST_READY_REVISION: ${{ steps.cloud_run_facts.outputs.latest_ready_revision }}
+          TRAFFIC_REVISIONS: ${{ steps.cloud_run_facts.outputs.traffic_revisions }}
+          SERVING_DIGEST: ${{ steps.cloud_run_facts.outputs.serving_digest }}
+          LINUX_AMD64_CHILD_DIGEST: ${{ steps.cloud_run_facts.outputs.linux_amd64_child_digest }}
 
       - name: Record the UAT image digest
         if: ${{ inputs.vault_env_path != 'prod' }}
@@ -1301,11 +1312,23 @@ jobs:
             topology/uat/serverless/cleanup-policy.yaml
             resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
 
+      - name: Checkout IaC GCP target reader
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: 8373e926a6f7ba37a59a7b7ee864c7e87b102f58
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/gitops-gcp-target
+            scripts/pipeline/gitops_cloud_targets.py
+
       - name: Read GitOps GCP target
         id: gitops_gcp
-        run: ruby ./.github/scripts/gitops/read_gcp_gitops_target.rb
-        env:
-          GCP_GITOPS_MANIFEST: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
+        uses: ./iac_modules/.github/actions/gitops-gcp-target
+        with:
+          manifest: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
+          mode: read
 
       - name: Load GCP deployment identity from Vault
         id: vault
@@ -1321,12 +1344,13 @@ jobs:
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL
 
       - name: Verify Vault GCP target matches GitOps project declaration
-        run: ruby ./.github/scripts/gitops/validate_gcp_gitops_contract.rb
-        env:
-          GCP_GITOPS_MANIFEST: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
-          GCP_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}
-          GCP_PROJECT_ID: ${{ steps.gitops_gcp.outputs.project_id }}
-          GCP_REGION: ${{ steps.gitops_gcp.outputs.region }}
+        uses: ./iac_modules/.github/actions/gitops-gcp-target
+        with:
+          manifest: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
+          mode: validate
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          project-id: ${{ steps.gitops_gcp.outputs.project_id }}
+          region: ${{ steps.gitops_gcp.outputs.region }}
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
