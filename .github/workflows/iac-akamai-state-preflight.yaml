@@ -51,6 +51,17 @@ jobs:
         with:
           python-version: '3.12'
       - run: python3 -m pip install PyYAML==6.0.2 Jinja2==3.1.6
+      - name: Validate fixed owner, declaration and parent caller before Vault
+        uses: ./iac_modules/.github/actions/akamai-state-preflight
+        with:
+          phase: validate
+          environment: ${{ inputs.environment }}
+          account: ${{ inputs.account }}
+          correlation-id: ${{ inputs.correlation_id }}
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          gitops-sha: ${{ steps.declaration.outputs.sha }}
+          output: ${{ runner.temp }}/akamai-state-preflight.json
       - name: Authorize read-only state and resource access
         id: vault
         uses: hashicorp/vault-action@v4
