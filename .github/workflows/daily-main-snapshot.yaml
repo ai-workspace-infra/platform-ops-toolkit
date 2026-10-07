@@ -254,10 +254,10 @@ jobs:
     needs: [resolve-snapshot-tag, snapshot]
     if: >-
       ${{
-        always() &&
-        needs.resolve-snapshot-tag.result == 'success' &&
-        needs.snapshot.result == 'success' &&
-        (inputs.repositories || '') == ''
+      always() &&
+      needs.resolve-snapshot-tag.result == 'success' &&
+      needs.snapshot.result == 'success' &&
+      (inputs.repositories || '') == ''
       }}
     runs-on: ubuntu-latest
     outputs:
@@ -283,7 +283,7 @@ jobs:
   shared-readiness:
     name: Check shared platform readiness
     needs: resolve-built-snapshot-tag
-    if: ${{ needs.resolve-built-snapshot-tag.result == 'success' }}
+    if: ${{ always() && needs.resolve-built-snapshot-tag.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -303,11 +303,11 @@ jobs:
     needs: [resolve-built-snapshot-tag, shared-readiness]
     if: >-
       ${{
-        always() &&
-        needs.resolve-built-snapshot-tag.result == 'success' &&
-        needs.shared-readiness.result == 'success' &&
-        (inputs.repositories || '') == '' &&
-        matrix.environment == (inputs.deploy_env || 'uat')
+      always() &&
+      needs.resolve-built-snapshot-tag.result == 'success' &&
+      needs.shared-readiness.result == 'success' &&
+      (inputs.repositories || '') == '' &&
+      matrix.environment == (inputs.deploy_env || 'uat')
       }}
     strategy:
       fail-fast: false
@@ -414,9 +414,12 @@ jobs:
     needs: [resolve-snapshot-tag, snapshot, resolve-built-snapshot-tag, shared-readiness, dispatch-environment]
     if: >-
       ${{
-        always() &&
-        needs.resolve-snapshot-tag.result == 'success' &&
-        needs.snapshot.result != 'skipped'
+      always() &&
+      needs.resolve-snapshot-tag.result == 'success' &&
+      needs.snapshot.result != 'skipped' &&
+      needs.resolve-built-snapshot-tag.result != 'failure' &&
+      needs.shared-readiness.result != 'failure' &&
+      needs.dispatch-environment.result != 'failure'
       }}
     runs-on: ubuntu-latest
     steps:
