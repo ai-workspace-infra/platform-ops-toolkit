@@ -3,12 +3,17 @@
   "description": "Runtime GCP OIDC role for the shared Vault stack in open-platform-prod; only the protected prod GitHub Environment and reusable GCP IAC workflow may assume it.",
   "role_type": "jwt",
   "user_claim": "sub",
-  "bound_audiences": ["vault"],
+  "bound_audiences": [
+    "vault"
+  ],
   "bound_claims_type": "glob",
   "bound_claims": {
     "repository": "ai-workspace-infra/platform-ops-toolkit",
     "environment": "prod",
-    "job_workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/gcp-iac-pipeline.yml@*",
+    "job_workflow_ref": [
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/gcp-iac-pipeline.yml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/heads/main"
+    ],
     "ref": "refs/heads/main"
   },
   "token_policies": [

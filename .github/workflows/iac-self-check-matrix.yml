@@ -1,186 +1,276 @@
-name: IAC Self Check Matrix
-
-on:
+name: Multi-cloud IaC Matrix
+'on':
   workflow_dispatch:
     inputs:
-      dry_run:
-        description: "Only dry-run is supported; keep this true"
-        required: true
-        default: true
-        type: boolean
-      vault_env_path:
-        description: "Environment whose GitOps coverage is inspected"
-        required: true
-        default: uat
+      action:
+        description: check/plan/apply/destroy
         type: choice
-        options: [sit, uat, prod]
-      project:
-        description: "GitOps project/base domain"
-        required: true
-        default: svc.plus
-        type: string
-      cloud_providers:
-        description: "Comma-separated providers; empty means every Terraform provider in the registry"
         required: false
-        default: "aws-cloud,gcp-cloud,azure-cloud,vultr-vps,akamai-cloud"
+        default: check
+        options:
+          - check
+          - plan
+          - apply
+          - destroy
+      environment:
+        description: sit/uat/prod/shared
+        type: choice
+        required: false
+        default: uat
+        options:
+          - sit
+          - uat
+          - prod
+          - shared
+      target_manifest:
+        description: GitOps IaCPipelineTargets path; no implicit target fallback
         type: string
+        required: false
+        default: ''
+      gitops_ref:
+        description: Resolved once to a full declaration SHA
+        type: string
+        default: 4e052f34675a218df0179677088266c6e7f57f6c
+        required: false
+      iac_ref:
+        description: Owner actions and modules from one resolved SHA
+        type: string
+        default: be8456282f7495e098170e0894e742605a94dae6
+        required: false
+      stage_scope:
+        description: all/bootstrap/account/resources
+        type: string
+        default: resources
+        required: false
+      bootstrap_mode:
+        description: verify/reconcile
+        type: string
+        default: verify
+        required: false
+      correlation_id:
+        description: Root caller correlation
+        type: string
+        default: ''
+        required: false
+      selectors:
+        description: Optional legacy identity selectors as JSON; cannot override GitOps
+        type: string
+        default: '{}'
+        required: false
+      cloud_providers:
+        description: Static provider selection; empty means all six
+        type: string
+        default: aws-cloud,azure-cloud,vultr-vps,gcp-cloud,ucloud,akamai-cloud
+        required: false
+  workflow_call:
+    inputs:
+      action:
+        description: check/plan/apply/destroy
+        type: string
+        required: false
+        default: check
+      environment:
+        description: sit/uat/prod/shared
+        type: string
+        required: false
+        default: uat
+      target_manifest:
+        description: GitOps IaCPipelineTargets path; no implicit target fallback
+        type: string
+        required: false
+        default: ''
+      gitops_ref:
+        description: Resolved once to a full declaration SHA
+        type: string
+        default: 4e052f34675a218df0179677088266c6e7f57f6c
+        required: false
+      iac_ref:
+        description: Owner actions and modules from one resolved SHA
+        type: string
+        default: be8456282f7495e098170e0894e742605a94dae6
+        required: false
+      stage_scope:
+        description: all/bootstrap/account/resources
+        type: string
+        default: resources
+        required: false
+      bootstrap_mode:
+        description: verify/reconcile
+        type: string
+        default: verify
+        required: false
+      correlation_id:
+        description: Root caller correlation
+        type: string
+        default: ''
+        required: false
+      selectors:
+        description: Optional legacy identity selectors as JSON; cannot override GitOps
+        type: string
+        default: '{}'
+        required: false
+      cloud_providers:
+        description: Static provider selection; empty means all six
+        type: string
+        default: aws-cloud,azure-cloud,vultr-vps,gcp-cloud,ucloud,akamai-cloud
+        required: false
+    outputs:
+      result:
+        description: result
+        value: ${{ jobs.summary.outputs.result }}
+      gitops_sha:
+        description: gitops_sha
+        value: ${{ jobs.summary.outputs.gitops_sha }}
+      iac_sha:
+        description: iac_sha
+        value: ${{ jobs.summary.outputs.iac_sha }}
+      receipt_sha256:
+        description: receipt_sha256
+        value: ${{ jobs.summary.outputs.receipt_sha256 }}
+      receipt_artifact_id:
+        description: receipt_artifact_id
+        value: ${{ jobs.summary.outputs.receipt_artifact_id }}
+      inventory_artifact_id:
+        description: inventory_artifact_id
+        value: ${{ jobs.summary.outputs.inventory_artifact_id }}
+      deploy_matrix:
+        description: deploy_matrix
+        value: ${{ jobs.summary.outputs.deploy_matrix }}
   pull_request:
     paths:
-      - ".github/workflows/iac-self-check-matrix.yml"
-      - ".github/scripts/platform-ops/observe/platform-ops_iac-self-check.py"
-      - "config/iac_provider_registry.json"
-      - "config/iac_environment_defaults.json"
+      - .github/workflows/iac-*
+      - scripts/ci/unified_iac_contract_test.py
   push:
-    branches: [main]
+    branches:
+      - main
     paths:
-      - ".github/workflows/iac-self-check-matrix.yml"
-      - ".github/scripts/platform-ops/observe/platform-ops_iac-self-check.py"
-      - "config/iac_provider_registry.json"
-      - "config/iac_environment_defaults.json"
-
+      - .github/workflows/iac-*
+      - scripts/ci/unified_iac_contract_test.py
 permissions:
   contents: read
-
+  id-token: write
+  actions: read
 jobs:
   prepare:
-    name: Prepare dry-run matrix
     runs-on: ubuntu-latest
     outputs:
-      providers: ${{ steps.matrix.outputs.providers }}
-      environment: ${{ steps.matrix.outputs.environment }}
-      project: ${{ steps.matrix.outputs.project }}
+      action: ${{ steps.mode.outputs.action }}
+      providers: ${{ steps.mode.outputs.providers }}
     steps:
-      - name: Checkout toolkit
-        uses: actions/checkout@v4
-
-      - name: Enforce dry-run-only mode and build provider matrix
-        id: matrix
+      - id: mode
+        shell: bash
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_DRY_RUN: ${{ inputs.dry_run || github.event.inputs.dry_run || 'true' }}
-          INPUT_ENVIRONMENT: ${{ inputs.vault_env_path || github.event.inputs.vault_env_path || 'uat' }}
-          INPUT_PROJECT: ${{ inputs.project || github.event.inputs.project || 'svc.plus' }}
-          INPUT_PROVIDERS: ${{ inputs.cloud_providers || github.event.inputs.cloud_providers || 'aws-cloud,gcp-cloud,azure-cloud,vultr-vps,akamai-cloud' }}
-        run: |
-          set -euo pipefail
-          if [[ "${EVENT_NAME}" == "workflow_dispatch" && "${INPUT_DRY_RUN}" != "true" ]]; then
-            echo "::error::IAC self-check is dry-run-only; dry_run must remain true." >&2
-            exit 1
-          fi
-          python3 - <<'PY'
-          import json
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ inputs.action }}
+          PROVIDERS: ${{ inputs.cloud_providers }}
+          MANIFEST: ${{ inputs.target_manifest }}
+        run: |-
+          python3 - <<'PYCODE'
           import os
-          from pathlib import Path
-
-          registry = json.loads(Path("config/iac_provider_registry.json").read_text())
-          requested = [item.strip() for item in os.environ["INPUT_PROVIDERS"].split(",") if item.strip()]
-          providers = [
-              name for name, metadata in registry.items()
-              if metadata.get("provisioner") == "terraform"
-              and (not requested or name in requested)
-          ]
-          unknown = sorted(set(requested) - set(registry))
-          existing = sorted(
-              name for name in requested
-              if name in registry and registry[name].get("provisioner") != "terraform"
-          )
-          if unknown:
-              raise SystemExit(f"unsupported providers: {', '.join(unknown)}")
-          if existing:
-              raise SystemExit(f"existing-resource providers are excluded from Terraform self-check: {', '.join(existing)}")
-          if not providers:
-              raise SystemExit("provider matrix is empty")
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write(f"providers={json.dumps(providers, separators=(',', ':'))}\n")
-              output.write(f"environment={os.environ['INPUT_ENVIRONMENT']}\n")
-              output.write(f"project={os.environ['INPUT_PROJECT']}\n")
-          print(f"dry-run matrix: {', '.join(providers)}")
-          PY
-
+          mode='check' if os.environ['EVENT'] in ('push','pull_request') else (os.environ['ACTION'] or 'check')
+          assert mode in ('check','plan','apply','destroy')
+          assert mode == 'check' or os.environ['MANIFEST']
+          providers=os.environ['PROVIDERS'] or 'aws-cloud,azure-cloud,vultr-vps,gcp-cloud,ucloud,akamai-cloud'
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write('action='+mode+'\nproviders='+providers+'\n')
+          PYCODE
   self-check:
-    name: "${{ matrix.provider }} :: dry-run coverage"
     needs: prepare
-    if: needs.prepare.result == 'success'
+    if: needs.prepare.outputs.action == 'check'
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        provider: ${{ fromJSON(needs.prepare.outputs.providers) }}
     steps:
-      - name: Checkout toolkit
-        uses: actions/checkout@v4
-
-      - name: Checkout IAC modules
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
+          ref: ${{ inputs.iac_ref || 'be8456282f7495e098170e0894e742605a94dae6' }}
           path: iac_modules
-
-      - name: Checkout GitOps declarations
-        uses: actions/checkout@v4
+          persist-credentials: false
+      - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_ref || '4e052f34675a218df0179677088266c6e7f57f6c' }}
           path: gitops
-
-      - name: Run static provider self-check
-        env:
-          PROVIDER: ${{ matrix.provider }}
-          ENVIRONMENT: ${{ needs.prepare.outputs.environment }}
-          PROJECT: ${{ needs.prepare.outputs.project }}
-        run: |
-          set -euo pipefail
-          python3 .github/scripts/platform-ops/observe/platform-ops_iac-self-check.py \
-            --registry config/iac_provider_registry.json \
-            --defaults config/iac_environment_defaults.json \
-            --iac-root iac_modules \
-            --gitops-root gitops \
-            --environment "${ENVIRONMENT}" \
-            --project "${PROJECT}" \
-            --provider "${PROVIDER}" \
-            --output-json "iac-self-check-${PROVIDER}.json" \
-            --summary-file "iac-self-check-${PROVIDER}.md"
-
-      - name: Publish provider summary
-        if: always()
-        run: |
-          if [[ -f "iac-self-check-${{ matrix.provider }}.md" ]]; then
-            cat "iac-self-check-${{ matrix.provider }}.md" >> "${GITHUB_STEP_SUMMARY}"
-          fi
-
-      - name: Upload provider report
-        if: always()
-        uses: actions/upload-artifact@v4
+          persist-credentials: false
+      - uses: ./iac_modules/.github/actions/iac-self-check
         with:
-          name: iac-self-check-${{ matrix.provider }}
-          path: |
-            iac-self-check-${{ matrix.provider }}.json
-            iac-self-check-${{ matrix.provider }}.md
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          providers: ${{ needs.prepare.outputs.providers }}
+          report-file: ${{ runner.temp }}/iac-static/report.json
+        id: check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iac-static-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/iac-static
           if-no-files-found: error
-
+        id: artifact
+    outputs:
+      report_sha256: ${{ steps.check.outputs.report_sha256 }}
+      iac_sha: ${{ steps.check.outputs.iac_sha }}
+      gitops_sha: ${{ steps.check.outputs.gitops_sha }}
+      artifact_id: ${{ steps.artifact.outputs.artifact-id }}
+  execute-iac:
+    needs: prepare
+    if: needs.prepare.outputs.action != 'check'
+    uses: ./.github/workflows/iac-pipeline-multi-cloud-master.yaml
+    with:
+      action: ${{ inputs.action }}
+      environment: ${{ inputs.environment }}
+      target_manifest: ${{ inputs.target_manifest }}
+      gitops_ref: ${{ inputs.gitops_ref }}
+      iac_ref: ${{ inputs.iac_ref }}
+      stage_scope: ${{ inputs.stage_scope }}
+      bootstrap_mode: ${{ inputs.bootstrap_mode }}
+      correlation_id: ${{ inputs.correlation_id }}
+      selectors: ${{ inputs.selectors }}
+    secrets: inherit
   summary:
-    name: IAC self-check summary
-    needs: [prepare, self-check]
-    if: ${{ always() && needs.prepare.result == 'success' && (needs.self-check.result == 'success' || needs.self-check.result == 'failure') }}
+    if: ${{ always() }}
+    needs:
+      - prepare
+      - self-check
+      - execute-iac
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout toolkit
-        uses: actions/checkout@v4
-
-      - name: Download provider reports
+      - name: Require successful preparation
+        if: needs.prepare.result != 'success'
+        run: |-
+          echo "::error::Matrix preparation failed"
+          exit 1
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: ${{ needs.self-check.outputs.iac_sha || needs.execute-iac.outputs.iac_sha }}
+          path: iac_modules
+          persist-credentials: false
+      - if: needs.prepare.outputs.action == 'check' && needs.self-check.result == 'success'
         uses: actions/download-artifact@v4
         with:
-          pattern: iac-self-check-*
-          path: reports
+          artifact-ids: ${{ needs.self-check.outputs.artifact_id }}
           merge-multiple: true
-
-      - name: Write matrix summary
-        env:
-          ENVIRONMENT: ${{ needs.prepare.outputs.environment }}
-          PROJECT: ${{ needs.prepare.outputs.project }}
-        run: |
-          set -euo pipefail
-          python3 .github/scripts/platform-ops/observe/platform-ops_iac-self-check.py \
-            --aggregate-dir reports \
-            --environment "${ENVIRONMENT}" \
-            --project "${PROJECT}" \
-            >> "${GITHUB_STEP_SUMMARY}"
+          path: ${{ runner.temp }}/iac-static
+      - if: needs.prepare.outputs.action != 'check' && needs.execute-iac.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.execute-iac.outputs.receipt_artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/iac-summary
+      - id: verify
+        uses: ./iac_modules/.github/actions/iac-entry-summary
+        with:
+          needs-json: ${{ toJSON(needs) }}
+          iac-root: ${{ github.workspace }}/iac_modules
+          report-file: ${{ runner.temp }}/iac-static/report.json
+          summary-file: ${{ runner.temp }}/iac-summary/summary.json
+          target-manifest: ${{ inputs.target_manifest }}
+          correlation-id: ${{ inputs.correlation_id }}
+    outputs:
+      result: ${{ steps.verify.outputs.result }}
+      gitops_sha: ${{ steps.verify.outputs.gitops_sha }}
+      iac_sha: ${{ steps.verify.outputs.iac_sha }}
+      receipt_sha256: ${{ steps.verify.outputs.receipt_sha256 }}
+      receipt_artifact_id: ${{ steps.verify.outputs.receipt_artifact_id }}
+      inventory_artifact_id: ${{ steps.verify.outputs.inventory_artifact_id }}
+      deploy_matrix: ${{ steps.verify.outputs.deploy_matrix }}

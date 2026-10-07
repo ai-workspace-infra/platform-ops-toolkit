@@ -98,7 +98,7 @@ esac
 # selfhost/IaC workflows; this validator only accepts the shared provider
 # registry values.
 case "${cloud_provider}" in
-  aws-cloud|gcp-cloud|azure-cloud|vultr-vps|akamai-cloud)
+  aws-cloud|gcp-cloud|azure-cloud|vultr-vps|akamai-cloud|ucloud)
     ;;
   *)
     echo "CLOUD_PROVIDER=${cloud_provider} is not registered for the hybrid environment" >&2

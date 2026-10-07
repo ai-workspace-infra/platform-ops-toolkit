@@ -3,19 +3,30 @@
   "description": "Akamai Cloud/Linode PROD IaC role for the concrete account __ACCOUNT__.",
   "role_type": "jwt",
   "user_claim": "sub",
-  "bound_audiences": ["vault"],
+  "bound_audiences": [
+    "vault"
+  ],
   "bound_claims_type": "glob",
   "bound_claims": {
     "repository": "ai-workspace-infra/platform-ops-toolkit",
     "job_workflow_ref": [
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/akamai-cloud-iac.yml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/ai-aggregator-v1.yml@*",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-orchestrator.yml@*"
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-orchestrator.yml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/heads/main",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/tags/v*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/heads/release/v*"
     ],
-    "ref": ["refs/heads/main", "refs/tags/v*", "refs/heads/release/v*"],
+    "ref": [
+      "refs/heads/main",
+      "refs/tags/v*",
+      "refs/heads/release/v*"
+    ],
     "environment": "prod"
   },
-  "token_policies": ["github-actions-platform-ops-toolkit-prod-akamai-oidc-bootstrap-__ACCOUNT__"],
+  "token_policies": [
+    "github-actions-platform-ops-toolkit-prod-akamai-oidc-bootstrap-__ACCOUNT__"
+  ],
   "token_no_default_policy": true,
   "token_type": "batch",
   "token_ttl": "20m",

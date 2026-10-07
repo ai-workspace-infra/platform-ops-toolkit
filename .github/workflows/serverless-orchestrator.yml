@@ -46,6 +46,7 @@ on:
           - azure-cloud
           - vultr-vps
           - akamai-cloud
+          - ucloud
       vault_env_path:
         description: 'Target environment'
         required: false
@@ -173,85 +174,139 @@ jobs:
     outputs:
       gitops_ref: ${{ steps.topology.outputs.gitops_ref }}
       guarded_api_gateway: ${{ steps.topology.outputs.guarded_api_gateway }}
+      target_manifest: ${{ steps.iac_target.outputs.target_manifest }}
+      iac_sha: ${{ steps.iac_target.outputs.iac_sha }}
+      selectors: ${{ steps.iac_target.outputs.selectors }}
     steps:
-      - name: Checkout platform toolkit
-        uses: actions/checkout@v7
+    - name: Checkout platform toolkit
+      uses: actions/checkout@v7
+    - name: Checkout GitOps serverless runtime topology
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/gitops
+        ref: main
+        path: gitops
+    - name: Checkout Portal runtime configuration
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-services/portal
+        ref: ${{ inputs.tag_ref || 'main' }}
+        path: portal-runtime-config
+        sparse-checkout-cone-mode: false
+        sparse-checkout: 'src/config/runtime-service-config.${{ inputs.vault_env_path || ''uat'' }}.yaml
 
-      - name: Checkout GitOps serverless runtime topology
-        uses: actions/checkout@v7
-        with:
-          repository: ai-workspace-infra/gitops
-          ref: main
-          path: gitops
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
-
-      - name: Checkout Portal runtime configuration
-        uses: actions/checkout@v7
-        with:
-          repository: ai-workspace-services/portal
-          ref: ${{ inputs.tag_ref || 'main' }}
-          path: portal-runtime-config
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            src/config/runtime-service-config.${{ inputs.vault_env_path || 'uat' }}.yaml
-
-      - name: Render GitOps serverless runtime topology
-        run: ./.github/scripts/gitops/prepare_gitops_routing_config.sh
-        env:
-          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
-          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
-
-      - name: Freeze the GitOps revision and select the API publisher
-        id: topology
-        run: python3 .github/scripts/serverless/select-domain-owner.py
-        env:
-          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
-          GITOPS_DIR: ${{ github.workspace }}/gitops
-          REQUESTED_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}
-
-      - name: Validate Portal and GitOps public domains
-        run: ./.github/scripts/serverless/validate_portal_runtime_domains.sh
-        env:
-          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
-          PORTAL_DIR: ${{ github.workspace }}/portal-runtime-config
-          PORTAL_ENV: ${{ inputs.vault_env_path || 'uat' }}
-
-      - name: Validate serverless GitOps contract
-        run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
-        env:
-          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
-          REQUIRED_RUNTIME_MODE: serverless
-
-      - name: Validate serverless dispatch
-        run: ./.github/scripts/serverless/validate_dispatch_inputs.sh
-        env:
-          OPERATION: ${{ inputs.operation || 'plan' }}
-          TARGET_DOMAINS: ${{ inputs.target_domains || 'all' }}
-          CLOUD_PROVIDER: ${{ inputs.cloud_provider || 'vultr-vps' }}
-          VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
-          TAG_REF: ${{ inputs.tag_ref }}
-          DEPLOY_CLOUDFLARE: ${{ inputs.deploy_cloudflare }}
-          DEPLOY_CLOUD_RUN: ${{ inputs.deploy_cloud_run }}
-          SERVERLESS_DNS_MODE: ${{ inputs.dns_mode || 'none' }}
-          APPLY_ACCOUNTS_SCHEMA_MIGRATION: ${{ inputs.apply_accounts_schema_migration || false }}
-          ADOPT_ACCOUNTS_BASELINE: ${{ inputs.adopt_accounts_baseline || false }}
-          ACCOUNTS_SCHEMA_EXPECTED_VERSION: ${{ inputs.accounts_schema_expected_version }}
-          ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
-          ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}
-          PROBE_ACCOUNTS_SCHEMA: ${{ inputs.probe_accounts_schema || false }}
-
-      # PROD Cloud Run promotes the digests a successful UAT Hybrid run
-      # accepted and never rebuilds from source (plan §7, GAP-16, TC-10).
-      - name: Validate the PROD promotion manifest
-        run: ./.github/scripts/serverless/validate_promotion_manifest.sh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
-          DEPLOYS_CLOUD_RUN: ${{ inputs.deploy_cloud_run == true && contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) }}
-          PROMOTION_MANIFEST: ${{ inputs.promotion_manifest }}
-          RELEASE_TAG: ${{ inputs.tag_ref }}
+          '
+    - name: Render GitOps serverless runtime topology
+      run: ./.github/scripts/gitops/prepare_gitops_routing_config.sh
+      env:
+        GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+        GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
+    - name: Freeze the GitOps revision and select the API publisher
+      id: topology
+      run: python3 .github/scripts/serverless/select-domain-owner.py
+      env:
+        CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+        GITOPS_DIR: ${{ github.workspace }}/gitops
+        REQUESTED_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}
+    - name: Validate Portal and GitOps public domains
+      run: ./.github/scripts/serverless/validate_portal_runtime_domains.sh
+      env:
+        CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+        PORTAL_DIR: ${{ github.workspace }}/portal-runtime-config
+        PORTAL_ENV: ${{ inputs.vault_env_path || 'uat' }}
+    - name: Validate serverless GitOps contract
+      run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
+      env:
+        CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+        REQUIRED_RUNTIME_MODE: serverless
+    - name: Validate serverless dispatch
+      run: ./.github/scripts/serverless/validate_dispatch_inputs.sh
+      env:
+        OPERATION: ${{ inputs.operation || 'plan' }}
+        TARGET_DOMAINS: ${{ inputs.target_domains || 'all' }}
+        CLOUD_PROVIDER: ${{ inputs.cloud_provider || 'vultr-vps' }}
+        VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
+        TAG_REF: ${{ inputs.tag_ref }}
+        DEPLOY_CLOUDFLARE: ${{ inputs.deploy_cloudflare }}
+        DEPLOY_CLOUD_RUN: ${{ inputs.deploy_cloud_run }}
+        SERVERLESS_DNS_MODE: ${{ inputs.dns_mode || 'none' }}
+        APPLY_ACCOUNTS_SCHEMA_MIGRATION: ${{ inputs.apply_accounts_schema_migration || false }}
+        ADOPT_ACCOUNTS_BASELINE: ${{ inputs.adopt_accounts_baseline || false }}
+        ACCOUNTS_SCHEMA_EXPECTED_VERSION: ${{ inputs.accounts_schema_expected_version }}
+        ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
+        ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}
+        PROBE_ACCOUNTS_SCHEMA: ${{ inputs.probe_accounts_schema || false }}
+    - name: Validate the PROD promotion manifest
+      run: ./.github/scripts/serverless/validate_promotion_manifest.sh
+      env:
+        GH_TOKEN: ${{ github.token }}
+        VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
+        DEPLOYS_CLOUD_RUN: ${{ inputs.deploy_cloud_run == true && contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) }}
+        PROMOTION_MANIFEST: ${{ inputs.promotion_manifest }}
+        RELEASE_TAG: ${{ inputs.tag_ref }}
+    - if: contains(fromJSON('["plan","deploy","upgrade","deploy+migrate","destroy"]'), inputs.operation)
+      uses: actions/checkout@v4
+      with:
+        repository: ai-workspace-infra/iac_modules
+        ref: be8456282f7495e098170e0894e742605a94dae6
+        path: iac_modules
+        persist-credentials: false
+    - id: iac_target
+      if: contains(fromJSON('["plan","deploy","upgrade","deploy+migrate","destroy"]'), inputs.operation)
+      uses: ./iac_modules/.github/actions/iac-caller-targets
+      with:
+        iac-root: ${{ github.workspace }}/iac_modules
+        gitops-root: ${{ github.workspace }}/gitops
+        target-manifest: ${{ '' }}
+        caller: serverless
+        topology-path: topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+        selectors: ${{ format('{{"environment":"{0}"}}', inputs.vault_env_path || 'uat') }}
+        state-key: ''
+  iac:
+    needs: preflight
+    if: needs.preflight.result == 'success' && contains(fromJSON('["plan","deploy","upgrade","deploy+migrate","destroy"]'), inputs.operation)
+    uses: ./.github/workflows/iac-pipeline-multi-cloud-master.yaml
+    with:
+      action: ${{ inputs.operation == 'plan' && 'plan' || (inputs.operation == 'destroy' && 'destroy' || 'apply') }}
+      environment: ${{ inputs.vault_env_path || 'uat' }}
+      target_manifest: ${{ needs.preflight.outputs.target_manifest }}
+      gitops_ref: ${{ needs.preflight.outputs.gitops_ref }}
+      iac_ref: ${{ needs.preflight.outputs.iac_sha }}
+      stage_scope: resources
+      bootstrap_mode: verify
+      correlation_id: ${{ github.run_id }}:${{ github.run_attempt }}:serverless
+      selectors: ${{ needs.preflight.outputs.selectors }}
+    secrets: inherit
+  iac-verified:
+    needs:
+    - preflight
+    - iac
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.iac.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        repository: ai-workspace-infra/iac_modules
+        ref: ${{ needs.preflight.outputs.iac_sha }}
+        path: iac_modules
+        persist-credentials: false
+    - uses: actions/download-artifact@v4
+      with:
+        artifact-ids: ${{ needs.iac.outputs.receipt_artifact_id }}
+        merge-multiple: true
+        path: ${{ runner.temp }}/iac-summary
+    - uses: ./iac_modules/.github/actions/iac-receipt-verify
+      with:
+        summary-file: ${{ runner.temp }}/iac-summary/summary.json
+        receipt-sha256: ${{ needs.iac.outputs.receipt_sha256 }}
+        run-id: ${{ github.run_id }}
+        run-attempt: ${{ github.run_attempt }}
+        gitops-sha: ${{ needs.preflight.outputs.gitops_ref }}
+        iac-sha: ${{ needs.preflight.outputs.iac_sha }}
+        target-manifest: ${{ needs.preflight.outputs.target_manifest }}
+        action: ${{ inputs.operation == 'plan' && 'plan' || (inputs.operation == 'destroy' && 'destroy' || 'apply') }}
+        correlation-id: ${{ github.run_id }}:${{ github.run_attempt }}:serverless
 
   supabase:
     name: Data Operations / checkpoint
@@ -351,8 +406,8 @@ jobs:
 
   cloud_run:
     name: Cloud Run / ${{ matrix.service }}
-    needs: [preflight, uat_accounts_baseline, uat_accounts_schema_migration]
-    if: ${{ always() && needs.preflight.result == 'success' && (!inputs.adopt_accounts_baseline || needs.uat_accounts_baseline.result == 'success') && (!inputs.apply_accounts_schema_migration || needs.uat_accounts_schema_migration.result == 'success') && contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloud_run == true }}
+    needs: [preflight, uat_accounts_baseline, uat_accounts_schema_migration, iac-verified]
+    if: ${{ always() && needs.preflight.result == 'success' && needs.iac-verified.result == 'success' && (!inputs.adopt_accounts_baseline || needs.uat_accounts_baseline.result == 'success') && (!inputs.apply_accounts_schema_migration || needs.uat_accounts_schema_migration.result == 'success') && contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloud_run == true }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -664,9 +719,9 @@ jobs:
 
   cloudflare_ssr:
     name: Cloudflare / SSR / ${{ matrix.boundary }}
-    needs: [preflight, backend_gate]
+    needs: [preflight, backend_gate, iac-verified]
     if: >-
-      ${{ always() && needs.preflight.result == 'success' &&
+      ${{ always() && needs.preflight.result == 'success' && needs.iac-verified.result == 'success' &&
       contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
       inputs.deploy_cloudflare == true &&
       (needs.backend_gate.result == 'success' || needs.backend_gate.result == 'skipped') }}
@@ -842,9 +897,9 @@ jobs:
 
   edge_gateway:
     name: Cloudflare / ${{ matrix.display_name }}
-    needs: [preflight, backend_gate]
+    needs: [preflight, backend_gate, iac-verified]
     if: >-
-      ${{ always() && needs.preflight.result == 'success' &&
+      ${{ always() && needs.preflight.result == 'success' && needs.iac-verified.result == 'success' &&
       needs.preflight.outputs.guarded_api_gateway != 'true' &&
       contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
       inputs.deploy_cloudflare == true &&
@@ -1228,8 +1283,8 @@ jobs:
 
   destroy:
     name: Destroy / Cloud Run ephemeral compute
-    needs: preflight
-    if: ${{ always() && needs.preflight.result == 'success' && inputs.operation == 'destroy' }}
+    needs: [preflight, iac-verified]
+    if: ${{ always() && needs.preflight.result == 'success' && needs.iac-verified.result == 'success' && inputs.operation == 'destroy' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout platform toolkit

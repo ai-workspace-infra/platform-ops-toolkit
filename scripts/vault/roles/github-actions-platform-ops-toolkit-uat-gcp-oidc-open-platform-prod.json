@@ -3,7 +3,9 @@
   "description": "UAT runtime GCP OIDC role for the open-platform-prod project; reads the shared platform identity record and UAT state credentials.",
   "role_type": "jwt",
   "user_claim": "sub",
-  "bound_audiences": ["vault"],
+  "bound_audiences": [
+    "vault"
+  ],
   "bound_claims_type": "glob",
   "bound_claims": {
     "repository": "ai-workspace-infra/platform-ops-toolkit",
@@ -12,11 +14,17 @@
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-account-matrix.yaml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-resources-matrix.yaml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/gcp-iac-pipeline.yml@*",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-orchestrator.yml@*"
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-orchestrator.yml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/heads/main"
     ],
-    "ref": ["refs/heads/main", "refs/tags/uat-*"]
+    "ref": [
+      "refs/heads/main",
+      "refs/tags/uat-*"
+    ]
   },
-  "token_policies": ["github-actions-platform-ops-toolkit-uat-gcp-oidc-open-platform-prod"],
+  "token_policies": [
+    "github-actions-platform-ops-toolkit-uat-gcp-oidc-open-platform-prod"
+  ],
   "token_no_default_policy": true,
   "token_type": "batch",
   "token_ttl": "20m",

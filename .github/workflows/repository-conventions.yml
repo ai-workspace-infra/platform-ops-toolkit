@@ -32,11 +32,11 @@ jobs:
       - name: Checkout platform toolkit
         uses: actions/checkout@v4
 
-      - name: Checkout iac_modules main
+      - name: Checkout immutable IaC owner
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: main
+          ref: be8456282f7495e098170e0894e742605a94dae6
           path: contract/iac_modules
 
       - name: Checkout playbooks main
@@ -46,12 +46,17 @@ jobs:
           ref: main
           path: contract/playbooks
 
-      - name: Checkout gitops main
+      - name: Checkout immutable GitOps declarations
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/gitops
-          ref: main
+          ref: 4e052f34675a218df0179677088266c6e7f57f6c
           path: contract/gitops
+
+      - name: Verify unified IaC delivery and evidence contracts
+        run: |
+          python3 -m pip install PyYAML==6.0.2
+          python3 scripts/ci/unified_iac_contract_test.py -v
 
       - name: Verify repository conventions
         run: >-
@@ -59,6 +64,11 @@ jobs:
           --iac-root contract/iac_modules
           --playbooks-root contract/playbooks
           --gitops-root contract/gitops
+
+      - name: Verify workflow gates and owner action checkouts
+        run: |
+          python3 scripts/ci/workflow_gating_verify.py
+          python3 scripts/ci/workflow_script_refs_verify.py --iac-root contract/iac_modules --playbooks-root contract/playbooks
 
       - name: Verify convention checker failure cases
         run: bash scripts/ci/tests/repository-conventions-verify-test.sh

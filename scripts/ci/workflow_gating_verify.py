@@ -114,6 +114,23 @@ def report(wf, job, check, msg):
     violations.append(f"{wf}: job `{job}`: [{check}] {msg}")
 
 
+def terminal_iac_evidence_gate(cfg, needs):
+    """A terminal reporter must run after failure, then reject it in the owner.
+
+    This is narrowly scoped to the two versioned IaC evidence contracts. It
+    does not exempt ordinary deployment jobs or arbitrary inline scripts.
+    Cross-repository checkout/action availability is checked by R2-R4.
+    """
+    contracts = {
+        "./iac_modules/.github/actions/iac-summary": {"prepare", "bootstrap", "account", "resources", "destroy-resources", "destroy-account", "destroy-bootstrap"},
+        "./iac_modules/.github/actions/iac-entry-summary": {"prepare", "self-check", "execute-iac"},
+    }
+    return any(step.get("uses") in contracts and set(needs) == contracts[step["uses"]]
+               and step.get("with", {}).get("needs-json") == "${{ toJSON(needs) }}"
+               and not step.get("continue-on-error")
+               for step in cfg.get("steps", []))
+
+
 def check_workflow(path, modes):
     doc = yaml.safe_load(path.read_text())
     if not isinstance(doc, dict):
@@ -189,7 +206,7 @@ def check_workflow(path, modes):
             # redundant. Demanding them anyway would push authors toward
             # deleting the guard instead -- which is the defect this file exists
             # to catch.
-            if has_guard(cond) and "failure()" not in cond:
+            if has_guard(cond) and "failure()" not in cond and not terminal_iac_evidence_gate(cfg, needs):
                 unasserted = [u for u in needs if u not in refs]
                 if unasserted:
                     report(wf, name, "C3",

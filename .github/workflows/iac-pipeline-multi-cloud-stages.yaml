@@ -1,0 +1,325 @@
+name: Multi-cloud IaC Stages
+'on':
+  workflow_call:
+    inputs:
+      stage:
+        description: stage
+        type: string
+        required: true
+      action:
+        description: action
+        type: string
+        required: true
+      target_id:
+        description: target_id
+        type: string
+        required: true
+      environment:
+        description: environment
+        type: string
+        required: true
+      gitops_sha:
+        description: gitops_sha
+        type: string
+        required: true
+      iac_sha:
+        description: iac_sha
+        type: string
+        required: true
+      contract_sha256:
+        description: contract_sha256
+        type: string
+        required: true
+      dependency_stages:
+        description: dependency_stages
+        type: string
+        required: true
+      provider:
+        description: Prepared provider ID; controls the protected Environment map
+        type: string
+        required: true
+      lock_key:
+        description: Prepared immutable namespace/state lock digest
+        type: string
+        required: true
+permissions:
+  contents: read
+  id-token: write
+  actions: read
+jobs:
+  bootstrap:
+    if: inputs.stage == 'bootstrap' || !contains(fromJSON('["bootstrap","account","resources"]'), inputs.stage)
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment == 'shared' && 'prod' || (inputs.environment == 'prod' && inputs.provider == 'aws-cloud' && 'production'
+      || inputs.environment) }}
+    concurrency:
+      group: iac-state-${{ inputs.lock_key }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: ${{ inputs.iac_sha }}
+          path: iac_modules
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_sha }}
+          path: gitops
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: iac-contract-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/iac-contract
+      - name: Verify prepared context checksum and selected stage
+        uses: ./iac_modules/.github/actions/iac-stage-context
+        with:
+          target-contract-file: ${{ runner.temp }}/iac-contract/context.json
+          contract-sha256: ${{ inputs.contract_sha256 }}
+          target-id: ${{ inputs.target_id }}
+          stage: ${{ inputs.stage }}
+          action: ${{ inputs.action }}
+          environment: ${{ inputs.environment }}
+          provider: ${{ inputs.provider }}
+          lock-key: ${{ inputs.lock_key }}
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          iac-sha: ${{ inputs.iac_sha }}
+          gitops-sha: ${{ inputs.gitops_sha }}
+      - if: contains(inputs.dependency_stages, 'bootstrap')
+        uses: actions/download-artifact@v4
+        with:
+          pattern: iac-stage-${{ github.run_id }}-${{ github.run_attempt }}-*-bootstrap
+          path: ${{ runner.temp }}/iac-dependencies/bootstrap
+          merge-multiple: false
+      - if: contains(inputs.dependency_stages, 'account')
+        uses: actions/download-artifact@v4
+        with:
+          pattern: iac-stage-${{ github.run_id }}-${{ github.run_attempt }}-*-account
+          path: ${{ runner.temp }}/iac-dependencies/account
+          merge-multiple: false
+      - if: contains(inputs.dependency_stages, 'resources')
+        uses: actions/download-artifact@v4
+        with:
+          pattern: iac-stage-${{ github.run_id }}-${{ github.run_attempt }}-*-resources
+          path: ${{ runner.temp }}/iac-dependencies/resources
+          merge-multiple: false
+      - id: execute
+        uses: ./iac_modules/.github/actions/iac-bootstrap
+        with:
+          target-contract-file: ${{ runner.temp }}/iac-contract/context.json
+          target-id: ${{ inputs.target_id }}
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          evidence-dir: ${{ runner.temp }}/iac-stage
+          private-dir: ${{ runner.temp }}/iac-private
+          dependencies-dir: ${{ runner.temp }}/iac-dependencies
+      - id: cleanup
+        if: ${{ always() }}
+        uses: ./iac_modules/.github/actions/iac-cleanup
+        with:
+          iac-root: ${{ github.workspace }}/iac_modules
+          evidence-dir: ${{ runner.temp }}/iac-stage
+          private-dir: ${{ runner.temp }}/iac-private
+      - id: receipt
+        if: ${{ always() }}
+        uses: ./iac_modules/.github/actions/iac-receipt
+        with:
+          evidence-dir: ${{ runner.temp }}/iac-stage
+          execution-result: ${{ steps.execute.outcome }}
+          cleanup-result: ${{ steps.cleanup.outcome }}
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: iac-stage-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.target_id }}-bootstrap
+          path: ${{ runner.temp }}/iac-stage
+          if-no-files-found: error
+          retention-days: 7
+  account:
+    if: inputs.stage == 'account'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment == 'shared' && 'prod' || (inputs.environment == 'prod' && inputs.provider == 'aws-cloud' && 'production'
+      || inputs.environment) }}
+    concurrency:
+      group: iac-state-${{ inputs.lock_key }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: ${{ inputs.iac_sha }}
+          path: iac_modules
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_sha }}
+          path: gitops
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: iac-contract-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/iac-contract
+      - name: Verify prepared context checksum and selected stage
+        uses: ./iac_modules/.github/actions/iac-stage-context
+        with:
+          target-contract-file: ${{ runner.temp }}/iac-contract/context.json
+          contract-sha256: ${{ inputs.contract_sha256 }}
+          target-id: ${{ inputs.target_id }}
+          stage: ${{ inputs.stage }}
+          action: ${{ inputs.action }}
+          environment: ${{ inputs.environment }}
+          provider: ${{ inputs.provider }}
+          lock-key: ${{ inputs.lock_key }}
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          iac-sha: ${{ inputs.iac_sha }}
+          gitops-sha: ${{ inputs.gitops_sha }}
+      - if: contains(inputs.dependency_stages, 'bootstrap')
+        uses: actions/download-artifact@v4
+        with:
+          pattern: iac-stage-${{ github.run_id }}-${{ github.run_attempt }}-*-bootstrap
+          path: ${{ runner.temp }}/iac-dependencies/bootstrap
+          merge-multiple: false
+      - if: contains(inputs.dependency_stages, 'account')
+        uses: actions/download-artifact@v4
+        with:
+          pattern: iac-stage-${{ github.run_id }}-${{ github.run_attempt }}-*-account
+          path: ${{ runner.temp }}/iac-dependencies/account
+          merge-multiple: false
+      - if: contains(inputs.dependency_stages, 'resources')
+        uses: actions/download-artifact@v4
+        with:
+          pattern: iac-stage-${{ github.run_id }}-${{ github.run_attempt }}-*-resources
+          path: ${{ runner.temp }}/iac-dependencies/resources
+          merge-multiple: false
+      - id: execute
+        uses: ./iac_modules/.github/actions/iac-account
+        with:
+          target-contract-file: ${{ runner.temp }}/iac-contract/context.json
+          target-id: ${{ inputs.target_id }}
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          evidence-dir: ${{ runner.temp }}/iac-stage
+          private-dir: ${{ runner.temp }}/iac-private
+          dependencies-dir: ${{ runner.temp }}/iac-dependencies
+      - id: cleanup
+        if: ${{ always() }}
+        uses: ./iac_modules/.github/actions/iac-cleanup
+        with:
+          iac-root: ${{ github.workspace }}/iac_modules
+          evidence-dir: ${{ runner.temp }}/iac-stage
+          private-dir: ${{ runner.temp }}/iac-private
+      - id: receipt
+        if: ${{ always() }}
+        uses: ./iac_modules/.github/actions/iac-receipt
+        with:
+          evidence-dir: ${{ runner.temp }}/iac-stage
+          execution-result: ${{ steps.execute.outcome }}
+          cleanup-result: ${{ steps.cleanup.outcome }}
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: iac-stage-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.target_id }}-account
+          path: ${{ runner.temp }}/iac-stage
+          if-no-files-found: error
+          retention-days: 7
+  resources:
+    if: inputs.stage == 'resources'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment == 'shared' && 'prod' || (inputs.environment == 'prod' && inputs.provider == 'aws-cloud' && 'production'
+      || inputs.environment) }}
+    concurrency:
+      group: iac-state-${{ inputs.lock_key }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: ${{ inputs.iac_sha }}
+          path: iac_modules
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_sha }}
+          path: gitops
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: iac-contract-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/iac-contract
+      - name: Verify prepared context checksum and selected stage
+        uses: ./iac_modules/.github/actions/iac-stage-context
+        with:
+          target-contract-file: ${{ runner.temp }}/iac-contract/context.json
+          contract-sha256: ${{ inputs.contract_sha256 }}
+          target-id: ${{ inputs.target_id }}
+          stage: ${{ inputs.stage }}
+          action: ${{ inputs.action }}
+          environment: ${{ inputs.environment }}
+          provider: ${{ inputs.provider }}
+          lock-key: ${{ inputs.lock_key }}
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          iac-sha: ${{ inputs.iac_sha }}
+          gitops-sha: ${{ inputs.gitops_sha }}
+      - if: contains(inputs.dependency_stages, 'bootstrap')
+        uses: actions/download-artifact@v4
+        with:
+          pattern: iac-stage-${{ github.run_id }}-${{ github.run_attempt }}-*-bootstrap
+          path: ${{ runner.temp }}/iac-dependencies/bootstrap
+          merge-multiple: false
+      - if: contains(inputs.dependency_stages, 'account')
+        uses: actions/download-artifact@v4
+        with:
+          pattern: iac-stage-${{ github.run_id }}-${{ github.run_attempt }}-*-account
+          path: ${{ runner.temp }}/iac-dependencies/account
+          merge-multiple: false
+      - if: contains(inputs.dependency_stages, 'resources')
+        uses: actions/download-artifact@v4
+        with:
+          pattern: iac-stage-${{ github.run_id }}-${{ github.run_attempt }}-*-resources
+          path: ${{ runner.temp }}/iac-dependencies/resources
+          merge-multiple: false
+      - id: execute
+        uses: ./iac_modules/.github/actions/iac-resources
+        with:
+          target-contract-file: ${{ runner.temp }}/iac-contract/context.json
+          target-id: ${{ inputs.target_id }}
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          evidence-dir: ${{ runner.temp }}/iac-stage
+          private-dir: ${{ runner.temp }}/iac-private
+          dependencies-dir: ${{ runner.temp }}/iac-dependencies
+      - id: cleanup
+        if: ${{ always() }}
+        uses: ./iac_modules/.github/actions/iac-cleanup
+        with:
+          iac-root: ${{ github.workspace }}/iac_modules
+          evidence-dir: ${{ runner.temp }}/iac-stage
+          private-dir: ${{ runner.temp }}/iac-private
+      - id: receipt
+        if: ${{ always() }}
+        uses: ./iac_modules/.github/actions/iac-receipt
+        with:
+          evidence-dir: ${{ runner.temp }}/iac-stage
+          execution-result: ${{ steps.execute.outcome }}
+          cleanup-result: ${{ steps.cleanup.outcome }}
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: iac-stage-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.target_id }}-resources
+          path: ${{ runner.temp }}/iac-stage
+          if-no-files-found: error
+          retention-days: 7

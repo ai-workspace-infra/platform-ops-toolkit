@@ -1,6 +1,5 @@
-name: GCP OIDC Bootstrap
-
-on:
+name: Compatibility / gcp-oidc-bootstrap
+'on':
   workflow_dispatch:
     inputs:
       environment:
@@ -8,475 +7,125 @@ on:
         type: choice
         required: true
         default: uat
-        options: [uat, prod, shared]
+        options:
+          - uat
+          - prod
+          - shared
       action:
         description: plan validates the declaration; apply reconciles GCP WIF and IAM.
         type: choice
         required: true
         default: plan
-        options: [plan, apply]
+        options:
+          - plan
+          - apply
       gcp_oidc_manifest:
         description: Optional GitOps OIDC declaration path for a concrete shared GCP account.
         type: string
         required: false
         default: ''
-
+      target_manifest:
+        description: Reviewed IaCPipelineTargets path; missing/ambiguous legacy identity fails closed
+        type: string
+        required: false
+        default: ''
+      iac_ref:
+        description: Owner code/module revision
+        type: string
+        required: false
+        default: ''
+      gitops_ref:
+        description: Fixed declaration revision or explicitly selected ref
+        type: string
+        required: false
+        default: ''
+      bootstrap_mode:
+        description: verify existing identity or explicitly reconcile using one-time credential
+        type: string
+        required: false
+        default: reconcile
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: false
+        default: uat
+      action:
+        type: string
+        required: false
+        default: plan
+      gcp_oidc_manifest:
+        type: string
+        required: false
+        default: ''
+      target_manifest:
+        description: Reviewed IaCPipelineTargets path; missing/ambiguous legacy identity fails closed
+        type: string
+        required: false
+        default: ''
+      iac_ref:
+        description: Owner code/module revision
+        type: string
+        required: false
+        default: ''
+      gitops_ref:
+        description: Fixed declaration revision or explicitly selected ref
+        type: string
+        required: false
+        default: ''
+      bootstrap_mode:
+        description: verify existing identity or explicitly reconcile using one-time credential
+        type: string
+        required: false
+        default: reconcile
 permissions:
   contents: read
   id-token: write
-
-concurrency:
-  group: gcp-oidc-bootstrap-${{ inputs.environment }}
-  cancel-in-progress: false
-
+  actions: read
 jobs:
-  bootstrap:
-    name: Bootstrap GCP GitHub OIDC trust (${{ inputs.environment }})
+  resolve:
     runs-on: ubuntu-latest
-    environment:
-      name: ${{ inputs.environment == 'shared' && 'prod' || inputs.environment }}
-    env:
-      GCP_ENVIRONMENT: ${{ inputs.environment }}
-      BOOTSTRAP_ACTION: ${{ inputs.action }}
+    outputs:
+      target_manifest: ${{ steps.normalize.outputs.target_manifest }}
+      selectors: ${{ steps.normalize.outputs.selectors }}
+      action: ${{ steps.normalize.outputs.action }}
+      environment: ${{ steps.normalize.outputs.environment }}
+      gitops_sha: ${{ steps.normalize.outputs.gitops_sha }}
+      iac_sha: ${{ steps.normalize.outputs.iac_sha }}
     steps:
-      - name: Checkout platform operations source
-        uses: actions/checkout@v4
-
-      - name: Checkout GitOps GCP OIDC declaration
-        uses: actions/checkout@v4
-        with:
-          repository: ai-workspace-infra/gitops
-          # Pin the declaration to the merged GitOps revision so bootstrap is
-          # reproducible and does not depend on a deleted short-lived branch.
-          ref: 2f1d764a98129630cc4afa0fe4985a99ba74ce06
-          path: gitops
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            resources/xworktech.com/uat/gcp/github-actions-oidc.yaml
-            resources/xworktech.com/prod/gcp/github-actions-oidc.yaml
-            resources/xworktech.com/shared/gcp/github-actions-oidc.yaml
-            resources/svc.plus/shared/gcp/github-actions-oidc-open-platform-shared.yaml
-
-      - name: Checkout GCP Terraform bootstrap module
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: 73305192f01b141e1a96c6aa5e00f2400b0f8494
+          ref: ${{ inputs.iac_ref || 'be8456282f7495e098170e0894e742605a94dae6' }}
           path: iac_modules
-
-      - name: Resolve and validate GitOps GCP OIDC declaration
-        id: config
-        env:
-          # Default compatibility path: resources/xworktech.com/${{ inputs.environment }}/gcp/github-actions-oidc.yaml
-          GCP_OIDC_CONFIG: ${{ github.workspace }}/gitops/${{ inputs.gcp_oidc_manifest || format('resources/xworktech.com/{0}/gcp/github-actions-oidc.yaml', inputs.environment) }}
-        run: scripts/cloud/bootstrap/gcp/resolve_github_oidc_config.sh
-
-      - name: Load short-lived Vault session and Terraform state credentials
-        id: vault
-        uses: hashicorp/vault-action@v3
+          persist-credentials: false
+      - uses: actions/checkout@v4
         with:
-          url: https://vault.svc.plus
-          method: jwt
-          role: github-actions-platform-ops-toolkit-${{ inputs.environment }}-gcp-bootstrap-${{ steps.config.outputs.account_id }}
-          jwtGithubAudience: vault
-          outputToken: true
-          secrets: |
-            kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
-            kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
-            kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
-            kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
-            kv/data/CICD/${{ inputs.environment }}/iac_state TF_STATE_REGION | TF_STATE_REGION
-
-      # The bootstrap secret at kv/data/CICD/<env>/gcp-bootstrap/<account> holds
-      # either GCP_AUTH_JSON (a one-time Admin SA key; see
-      # scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh --auth-json) or GCP_ACCESS_TOKEN (a
-      # short-lived token from an already-privileged human's ADC). Exactly one
-      # is present at a time, so this is read as raw JSON instead of through
-      # vault-action's static `secrets:` list, which fails if a listed key is
-      # absent.
-      - name: Load GCP bootstrap credential from Vault
-        id: credential
-        env:
-          VAULT_ADDR: https://vault.svc.plus
-          VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
-          ENVIRONMENT: ${{ inputs.environment }}
-          ACCOUNT_ID: ${{ steps.config.outputs.account_id }}
-        run: |
-          set -euo pipefail
-          secret_path="CICD/${ENVIRONMENT}/gcp-bootstrap/${ACCOUNT_ID}"
-          response="$(curl --fail --silent --show-error \
-            --header "X-Vault-Token: ${VAULT_TOKEN}" \
-            "${VAULT_ADDR}/v1/kv/data/${secret_path}")"
-          data="$(jq -c '.data.data' <<<"${response}")"
-
-          project_id="$(jq -r '.GCP_PROJECT_ID // empty' <<<"${data}")"
-          auth_json="$(jq -r '.GCP_AUTH_JSON // empty' <<<"${data}")"
-          access_token="$(jq -r '.GCP_ACCESS_TOKEN // empty' <<<"${data}")"
-          bootstrap_sa="$(jq -r '.GCP_BOOTSTRAP_SERVICE_ACCOUNT // empty' <<<"${data}")"
-          auth_key_id="$(jq -r '.GCP_AUTH_KEY_ID // empty' <<<"${data}")"
-
-          if [[ -z "${project_id}" ]]; then
-            echo "::error::kv/${secret_path} is missing GCP_PROJECT_ID" >&2
-            exit 1
-          fi
-          echo "project_id=${project_id}" >> "${GITHUB_OUTPUT}"
-
-          if [[ -n "${auth_json}" ]]; then
-            echo "::add-mask::${auth_json}"
-            echo "::add-mask::${bootstrap_sa}"
-            echo "::add-mask::${auth_key_id}"
-            echo "credential_mode=auth_json" >> "${GITHUB_OUTPUT}"
-            echo "bootstrap_service_account=${bootstrap_sa}" >> "${GITHUB_OUTPUT}"
-            echo "auth_key_id=${auth_key_id}" >> "${GITHUB_OUTPUT}"
-            {
-              echo "auth_json<<GCP_AUTH_JSON_EOF"
-              echo "${auth_json}"
-              echo "GCP_AUTH_JSON_EOF"
-            } >> "${GITHUB_OUTPUT}"
-          elif [[ -n "${access_token}" ]]; then
-            echo "::add-mask::${access_token}"
-            echo "credential_mode=token" >> "${GITHUB_OUTPUT}"
-            echo "access_token=${access_token}" >> "${GITHUB_OUTPUT}"
-          else
-            echo "::error::kv/${secret_path} has neither GCP_AUTH_JSON nor GCP_ACCESS_TOKEN" >&2
-            exit 1
-          fi
-
-      # GCP_AUTH_JSON is a one-time Admin SA key; it is exchanged for a
-      # short-lived access token in-memory and never written to disk
-      # (create_credentials_file: false). GCP_ACCESS_TOKEN is already such a
-      # token and needs no exchange.
-      - name: Exchange one-time GCP_AUTH_JSON for a short-lived access token
-        id: exchange
-        if: ${{ steps.credential.outputs.credential_mode == 'auth_json' }}
-        uses: google-github-actions/auth@v2
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_ref || '4e052f34675a218df0179677088266c6e7f57f6c' }}
+          path: gitops
+          persist-credentials: false
+      - id: normalize
+        uses: ./iac_modules/.github/actions/iac-legacy-inputs
         with:
-          credentials_json: ${{ steps.credential.outputs.auth_json }}
-          token_format: access_token
-          service_account: ${{ steps.credential.outputs.bootstrap_service_account }}
-          create_credentials_file: false
-
-      - name: Resolve bootstrap access token
-        id: token
-        env:
-          CREDENTIAL_MODE: ${{ steps.credential.outputs.credential_mode }}
-          TOKEN_MODE_ACCESS_TOKEN: ${{ steps.credential.outputs.access_token }}
-          AUTH_JSON_ACCESS_TOKEN: ${{ steps.exchange.outputs.access_token }}
-        run: |
-          set -euo pipefail
-          if [[ "${CREDENTIAL_MODE}" == "auth_json" ]]; then
-            token="${AUTH_JSON_ACCESS_TOKEN}"
-          else
-            token="${TOKEN_MODE_ACCESS_TOKEN}"
-          fi
-          if [[ -z "${token}" ]]; then
-            echo "::error::could not resolve a GCP bootstrap access token (mode: ${CREDENTIAL_MODE})" >&2
-            exit 1
-          fi
-          echo "::add-mask::${token}"
-          echo "access_token=${token}" >> "${GITHUB_OUTPUT}"
-
-      - name: Verify bootstrap project matches GitOps
-        env:
-          VAULT_PROJECT_ID: ${{ steps.credential.outputs.project_id }}
-          DECLARED_PROJECT_ID: ${{ steps.config.outputs.project_id }}
-        run: test "${VAULT_PROJECT_ID}" = "${DECLARED_PROJECT_ID}"
-
-      - name: Verify GCP project bootstrap permissions
-        env:
-          ACCESS_TOKEN: ${{ steps.token.outputs.access_token }}
-          PROJECT_ID: ${{ steps.config.outputs.project_id }}
-        run: |
-          set -euo pipefail
-          # projects.testIamPermissions is authoritative for permissions on the
-          # project resource. WIF pool/provider create permissions are checked
-          # by the IAM API when Terraform creates those resources; they cannot
-          # be authoritatively tested on a pool that does not exist yet.
-          required_permissions='[
-            "iam.serviceAccounts.create",
-            "iam.serviceAccounts.setIamPolicy",
-            "resourcemanager.projects.setIamPolicy",
-            "serviceusage.services.enable"
-          ]'
-          request_body="$(jq -nc --argjson permissions "${required_permissions}" '{permissions:$permissions}')"
-          response="$(curl --fail --silent --show-error \
-            --header "Authorization: Bearer ${ACCESS_TOKEN}" \
-            --header 'Content-Type: application/json' \
-            --request POST \
-            --data "${request_body}" \
-            "https://cloudresourcemanager.googleapis.com/v1/projects/${PROJECT_ID}:testIamPermissions")"
-          missing="$(jq -r --argjson required "${required_permissions}" \
-            '(.permissions // []) as $granted | ($required - $granted)[]' <<<"${response}")"
-          if [[ -n "${missing}" ]]; then
-            echo "::error::GCP bootstrap principal is missing required permissions in ${PROJECT_ID}:"
-            printf ' - %s\n' ${missing}
-            echo 'Grant the roles listed in the GCP OIDC bootstrap how-to using an existing project administrator, then retry UAT.'
-            exit 1
-          fi
-          echo "GCP project bootstrap permissions: OK (${PROJECT_ID})"
-          echo 'WIF pool/provider create permissions will be validated by the Terraform IAM API operation.'
-
-      - name: Write Terraform input file
-        env:
-          TFVARS_FILE: ${{ runner.temp }}/gcp-oidc-bootstrap.tfvars.json
-          PROJECT_ID: ${{ steps.config.outputs.project_id }}
-          ENVIRONMENT: ${{ steps.config.outputs.environment }}
-          REPOSITORY: ${{ steps.config.outputs.repository }}
-          POOL_ID: ${{ steps.config.outputs.pool_id }}
-          PROVIDER_ID: ${{ steps.config.outputs.provider_id }}
-          AUDIENCE: ${{ steps.config.outputs.audience }}
-          SERVICE_ACCOUNT_ID: ${{ steps.config.outputs.service_account_id }}
-          SUBJECTS_JSON: ${{ steps.config.outputs.subjects_json }}
-        run: |
-          ruby -rjson -e 'puts JSON.pretty_generate({
-            project_id: ENV.fetch("PROJECT_ID"),
-            environment: ENV.fetch("ENVIRONMENT"),
-            github_owner: ENV.fetch("REPOSITORY").split("/", 2).first,
-            github_repository: ENV.fetch("REPOSITORY").split("/", 2).last,
-            pool_id: ENV.fetch("POOL_ID"),
-            provider_id: ENV.fetch("PROVIDER_ID"),
-            audience: ENV.fetch("AUDIENCE"),
-            deploy_service_account_id: ENV.fetch("SERVICE_ACCOUNT_ID"),
-            allowed_subjects: JSON.parse(ENV.fetch("SUBJECTS_JSON"))
-          })' > "${TFVARS_FILE}"
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.10.5
-
-      - name: Terraform init and validate
-        env:
-          TF_VAR_access_token: ${{ steps.token.outputs.access_token }}
-          TF_VAR_project_id: ${{ steps.config.outputs.project_id }}
-          TF_STATE_ENDPOINT: ${{ steps.vault.outputs.TF_STATE_ENDPOINT }}
-          TF_STATE_BUCKET: ${{ steps.vault.outputs.TF_STATE_BUCKET }}
-          TF_STATE_ACCESS_KEY: ${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}
-          TF_STATE_SECRET_KEY: ${{ steps.vault.outputs.TF_STATE_SECRET_KEY }}
-          TF_STATE_REGION: ${{ steps.vault.outputs.TF_STATE_REGION }}
-        run: |
-          terraform -chdir=iac_modules/terraform-hcl-standard/gcp-cloud/bootstrap/identity init -input=false -reconfigure \
-            -backend-config="endpoint=${TF_STATE_ENDPOINT}" \
-            -backend-config="bucket=${TF_STATE_BUCKET}" \
-            -backend-config="key=${{ steps.config.outputs.state_key }}" \
-            -backend-config="access_key=${TF_STATE_ACCESS_KEY}" \
-            -backend-config="secret_key=${TF_STATE_SECRET_KEY}" \
-            -backend-config="region=${TF_STATE_REGION}" \
-            -backend-config="skip_credentials_validation=true" \
-            -backend-config="skip_metadata_api_check=true" \
-            -backend-config="skip_region_validation=true" \
-            -backend-config="use_path_style=true" \
-            -backend-config="use_lockfile=true"
-          terraform -chdir=iac_modules/terraform-hcl-standard/gcp-cloud/bootstrap/identity fmt -check
-          terraform -chdir=iac_modules/terraform-hcl-standard/gcp-cloud/bootstrap/identity validate -no-color
-
-      - name: Import existing GCP identities into Terraform state
-        env:
-          TF_VAR_access_token: ${{ steps.token.outputs.access_token }}
-          TF_VAR_project_id: ${{ steps.config.outputs.project_id }}
-          PROJECT_ID: ${{ steps.config.outputs.project_id }}
-          POOL_ID: ${{ steps.config.outputs.pool_id }}
-          PROVIDER_ID: ${{ steps.config.outputs.provider_id }}
-          BOOTSTRAP_SERVICE_ACCOUNT_ID: terraform-bootstrap
-          DEPLOY_SERVICE_ACCOUNT_ID: ${{ steps.config.outputs.service_account_id }}
-          TFVARS_FILE: ${{ runner.temp }}/gcp-oidc-bootstrap.tfvars.json
-        run: |
-          set -euo pipefail
-          tf_dir="iac_modules/terraform-hcl-standard/gcp-cloud/bootstrap/identity"
-
-          # A project may already contain identities created before the
-          # current remote state was initialized. Import only addresses that
-          # are absent from state; a missing GCP resource is left for the
-          # normal Terraform apply to create.
-          import_if_existing() {
-            local address="$1"
-            local import_id="$2"
-            local log_file
-            # Capture the complete state output before matching. Piping
-            # `terraform state list` into grep -q can close stdout early;
-            # Terraform's wrapper then reports EPIPE and the managed resource
-            # is incorrectly imported a second time.
-            local state_addresses
-            if ! state_addresses="$(terraform -chdir="${tf_dir}" state list 2>&1)"; then
-              if [[ "${state_addresses}" == *'No state file was found!'* ]]; then
-                # A newly created project has no remote state yet. Still probe
-                # for pre-existing identities below before planning creation.
-                state_addresses=""
-              else
-                printf '%s\n' "${state_addresses}" >&2
-                exit 1
-              fi
-            fi
-            if printf '%s\n' "${state_addresses}" | grep -Fqx "${address}"; then
-              return 0
-            fi
-            log_file="$(mktemp "${RUNNER_TEMP}/terraform-import.XXXXXX")"
-            if terraform -chdir="${tf_dir}" import -input=false -no-color \
-              -var-file="${TFVARS_FILE}" "${address}" "${import_id}" >"${log_file}" 2>&1; then
-              echo "Imported existing ${address}."
-            elif grep -Eqi '404|not found|does not exist|No matching .* found|Cannot import non-existent remote object' "${log_file}"; then
-              echo "${address} is absent; Terraform will create it."
-            else
-              cat "${log_file}" >&2
-              exit 1
-            fi
-          }
-
-          import_if_existing \
-            'google_service_account.bootstrap' \
-            "projects/${PROJECT_ID}/serviceAccounts/${BOOTSTRAP_SERVICE_ACCOUNT_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
-          import_if_existing \
-            'google_iam_workload_identity_pool.github' \
-            "projects/${PROJECT_ID}/locations/global/workloadIdentityPools/${POOL_ID}"
-          import_if_existing \
-            'google_iam_workload_identity_pool_provider.github' \
-            "projects/${PROJECT_ID}/locations/global/workloadIdentityPools/${POOL_ID}/providers/${PROVIDER_ID}"
-          import_if_existing \
-            'google_service_account.github_actions' \
-            "projects/${PROJECT_ID}/serviceAccounts/${DEPLOY_SERVICE_ACCOUNT_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
-
-      - name: Terraform plan
-        id: plan
-        env:
-          TF_VAR_access_token: ${{ steps.token.outputs.access_token }}
-          TF_VAR_project_id: ${{ steps.config.outputs.project_id }}
-        run: |
-          terraform -chdir=iac_modules/terraform-hcl-standard/gcp-cloud/bootstrap/identity plan \
-            -input=false -no-color \
-            -var-file="${{ runner.temp }}/gcp-oidc-bootstrap.tfvars.json"
-
-      - name: Terraform apply
-        if: ${{ inputs.action == 'apply' }}
-        env:
-          TF_VAR_access_token: ${{ steps.token.outputs.access_token }}
-          TF_VAR_project_id: ${{ steps.config.outputs.project_id }}
-        run: |
-          terraform -chdir=iac_modules/terraform-hcl-standard/gcp-cloud/bootstrap/identity apply \
-            -input=false -auto-approve \
-            -var-file="${{ runner.temp }}/gcp-oidc-bootstrap.tfvars.json"
-
-      - name: Capture bootstrapped identity outputs
-        id: terraform_outputs
-        if: ${{ inputs.action == 'apply' }}
-        working-directory: iac_modules/terraform-hcl-standard/gcp-cloud/bootstrap/identity
-        run: |
-          echo "provider_resource_name=$(terraform output -raw workload_identity_provider)" >> "${GITHUB_OUTPUT}"
-          echo "service_account_email=$(terraform output -raw service_account_email)" >> "${GITHUB_OUTPUT}"
-
-      # Runs even if a later step in this job fails, as long as apply actually
-      # ran with a one-time GCP_AUTH_JSON key: leaving that key live is a
-      # bigger risk than a redundant revoke attempt. Everything after this
-      # point authenticates through the runtime WIF identity Terraform just
-      # created, not through this bootstrap credential.
-      - name: Revoke one-time bootstrap credential
-        if: ${{ always() && inputs.action == 'apply' && steps.credential.outputs.credential_mode == 'auth_json' }}
-        env:
-          ACCESS_TOKEN: ${{ steps.token.outputs.access_token }}
-          SERVICE_ACCOUNT: ${{ steps.credential.outputs.bootstrap_service_account }}
-          KEY_ID: ${{ steps.credential.outputs.auth_key_id }}
-          VAULT_ADDR: https://vault.svc.plus
-          VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
-          ENVIRONMENT: ${{ inputs.environment }}
-          ACCOUNT_ID: ${{ steps.config.outputs.account_id }}
-          PROJECT_ID: ${{ steps.config.outputs.project_id }}
-        run: |
-          set -uo pipefail
-          echo "Revoking one-time GCP_AUTH_JSON bootstrap credential (${SERVICE_ACCOUNT}, key ${KEY_ID})..."
-
-          if curl --silent --show-error --request DELETE \
-            --header "Authorization: Bearer ${ACCESS_TOKEN}" \
-            "https://iam.googleapis.com/v1/projects/-/serviceAccounts/${SERVICE_ACCOUNT}/keys/${KEY_ID}"; then
-            echo "Key ${KEY_ID} deleted."
-          else
-            echo "::warning::could not delete key ${KEY_ID} (it may already be gone); continuing to disable the service account"
-          fi
-
-          if curl --fail --silent --show-error --request POST \
-            --header "Authorization: Bearer ${ACCESS_TOKEN}" --header 'Content-Type: application/json' --data '{}' \
-            "https://iam.googleapis.com/v1/projects/-/serviceAccounts/${SERVICE_ACCOUNT}:disable"; then
-            echo "Service account ${SERVICE_ACCOUNT} disabled."
-          else
-            echo "::error::failed to disable bootstrap service account ${SERVICE_ACCOUNT}; treat GCP_AUTH_JSON as still live and revoke it manually" >&2
-            exit 1
-          fi
-
-          curl --silent --show-error --request POST "https://oauth2.googleapis.com/revoke" \
-            --data "token=${ACCESS_TOKEN}" >/dev/null 2>&1 \
-            || echo "::warning::could not explicitly revoke the exchanged access token (it still expires naturally within its lifetime)"
-
-          if curl --fail --silent --show-error --request DELETE \
-            --header "X-Vault-Token: ${VAULT_TOKEN}" \
-            "${VAULT_ADDR}/v1/kv/metadata/CICD/${ENVIRONMENT}/gcp-bootstrap/${ACCOUNT_ID}"; then
-            payload="$(jq -n --arg project "${PROJECT_ID}" '{data:{GCP_PROJECT_ID:$project}}')"
-            curl --fail --silent --show-error --request POST \
-              --header "X-Vault-Token: ${VAULT_TOKEN}" --header 'Content-Type: application/json' \
-              --data "${payload}" "${VAULT_ADDR}/v1/kv/data/CICD/${ENVIRONMENT}/gcp-bootstrap/${ACCOUNT_ID}"
-            echo "Vault bootstrap credential versions destroyed; GCP_AUTH_JSON no longer stored."
-          else
-            echo "::warning::GCP key is revoked and the service account is disabled, but this workflow's Vault role (github-actions-platform-ops-toolkit-${ENVIRONMENT}-gcp-bootstrap-${ACCOUNT_ID}) lacks update/delete on kv/CICD/${ENVIRONMENT}/gcp-bootstrap/${ACCOUNT_ID}. GCP_AUTH_JSON is still stored in Vault (the key itself is already dead). Run scripts/create_vault_service_repo_roles.sh --apply with an admin Vault token to sync the widened policy, then purge the stale secret manually: GCP_BOOTSTRAP_ACTION=revoke GCP_ENVIRONMENT=${ENVIRONMENT} GCP_ACCOUNT_ID=${ACCOUNT_ID} GCP_PROJECT_ID=${PROJECT_ID} bash scripts/cloud/bootstrap/gcp/bootstrap_gcp_auth_kv.sh"
-          fi
-
-      - name: Scrub short-lived GCP bootstrap access token from Vault
-        if: ${{ always() && inputs.action == 'apply' && steps.credential.outputs.credential_mode == 'token' && steps.token.outputs.access_token != '' }}
-        env:
-          VAULT_ADDR: https://vault.svc.plus
-          VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
-          ENVIRONMENT: ${{ inputs.environment }}
-          ACCOUNT_ID: ${{ steps.config.outputs.account_id }}
-          PROJECT_ID: ${{ steps.config.outputs.project_id }}
-        run: |
-          set -euo pipefail
-          # Revoking an ADC-derived access token can revoke its parent refresh
-          # grant and log the human operator out. Let this short-lived token
-          # expire naturally; destroy every Vault version that held it.
-          secret_path="CICD/${ENVIRONMENT}/gcp-bootstrap/${ACCOUNT_ID}"
-          curl --fail --silent --show-error --request DELETE \
-            --header "X-Vault-Token: ${VAULT_TOKEN}" \
-            "${VAULT_ADDR}/v1/kv/metadata/${secret_path}"
-          payload="$(jq -n --arg project "${PROJECT_ID}" '{data:{GCP_PROJECT_ID:$project}}')"
-          curl --fail --silent --show-error --request POST \
-            --header "X-Vault-Token: ${VAULT_TOKEN}" \
-            --header 'Content-Type: application/json' \
-            --data "${payload}" "${VAULT_ADDR}/v1/kv/data/${secret_path}"
-          echo "Short-lived bootstrap token removed from Vault; project ID retained."
-
-      - name: Authenticate with bootstrapped GCP WIF
-        if: ${{ inputs.action == 'apply' }}
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ steps.terraform_outputs.outputs.provider_resource_name }}
-          service_account: ${{ steps.terraform_outputs.outputs.service_account_email }}
-          audience: ${{ steps.config.outputs.audience }}
-
-      - name: Verify bootstrapped GCP identity
-        if: ${{ inputs.action == 'apply' }}
-        env:
-          PROJECT_ID: ${{ steps.config.outputs.project_id }}
-          GCP_ENVIRONMENT: ${{ inputs.environment }}
-        run: gcloud projects describe "${PROJECT_ID}" --format='value(projectId)'
-
-      - name: Verify UAT cannot access PROD
-        if: ${{ inputs.action == 'apply' && inputs.environment == 'uat' }}
-        run: |
-          if gcloud projects describe open-platform-prod --format='value(projectId)' >/dev/null 2>&1; then
-            echo "UAT GCP identity unexpectedly has access to PROD." >&2
-            exit 1
-          fi
-
-      - name: Persist runtime OIDC outputs in Vault
-        if: ${{ inputs.action == 'apply' }}
-        env:
-          VAULT_ADDR: https://vault.svc.plus
-          VAULT_TOKEN: ${{ steps.vault.outputs.vault_token }}
-          ENVIRONMENT: ${{ inputs.environment }}
-          ACCOUNT_ID: ${{ steps.config.outputs.account_id }}
-          PROJECT_ID: ${{ steps.config.outputs.project_id }}
-          PROVIDER: ${{ steps.terraform_outputs.outputs.provider_resource_name }}
-          SERVICE_ACCOUNT: ${{ steps.terraform_outputs.outputs.service_account_email }}
-          AUDIENCE: ${{ steps.config.outputs.audience }}
-        run: |
-          payload="$(jq -n --arg provider "${PROVIDER}" --arg account "${SERVICE_ACCOUNT}" --arg project "${PROJECT_ID}" --arg audience "${AUDIENCE}" \
-            '{data:{gcp_workload_identity_provider:$provider,deploy_service_account:$account,gcp_oidc_audience:$audience,project_id:$project}}')"
-          curl --fail --silent --show-error --request POST \
-            --header "X-Vault-Token: ${VAULT_TOKEN}" --header 'Content-Type: application/json' \
-          --data "${payload}" "${VAULT_ADDR}/v1/kv/data/${ENVIRONMENT}/platform/oidc/${ACCOUNT_ID}"
+          inputs-json: ${{ toJSON(inputs) }}
+          stage: bootstrap
+          provider: gcp-cloud
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+  pipeline:
+    needs: resolve
+    if: ${{ !cancelled() && needs.resolve.result == 'success' }}
+    uses: ./.github/workflows/iac-pipeline-multi-cloud-master.yaml
+    with:
+      action: ${{ needs.resolve.outputs.action }}
+      environment: ${{ needs.resolve.outputs.environment }}
+      target_manifest: ${{ needs.resolve.outputs.target_manifest }}
+      gitops_ref: ${{ needs.resolve.outputs.gitops_sha }}
+      iac_ref: ${{ needs.resolve.outputs.iac_sha }}
+      stage_scope: bootstrap
+      bootstrap_mode: ${{ inputs.bootstrap_mode }}
+      selectors: ${{ needs.resolve.outputs.selectors }}
+      correlation_id: ${{ github.run_id }}:${{ github.run_attempt }}:compat
+    secrets: inherit

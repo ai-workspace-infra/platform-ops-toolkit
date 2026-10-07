@@ -3,12 +3,17 @@
   "description": "GCP WIF identity reader for the shared Observability service workflow. It cannot read Terraform state, deployment keys, application secrets, or any non-shared GCP account.",
   "role_type": "jwt",
   "user_claim": "sub",
-  "bound_audiences": ["vault"],
+  "bound_audiences": [
+    "vault"
+  ],
   "bound_claims_type": "glob",
   "bound_claims": {
     "repository": "ai-workspace-infra/platform-ops-toolkit",
     "environment": "prod",
-    "job_workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/observability-server.yml@refs/heads/main",
+    "job_workflow_ref": [
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/observability-server.yml@refs/heads/main",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/heads/main"
+    ],
     "ref": "refs/heads/main"
   },
   "token_policies": [

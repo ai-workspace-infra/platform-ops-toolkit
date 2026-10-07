@@ -3,7 +3,9 @@
   "description": "Akamai Cloud/Linode UAT IaC role for the concrete account __ACCOUNT__.",
   "role_type": "jwt",
   "user_claim": "sub",
-  "bound_audiences": ["vault"],
+  "bound_audiences": [
+    "vault"
+  ],
   "bound_claims_type": "glob",
   "bound_claims": {
     "repository": "ai-workspace-infra/platform-ops-toolkit",
@@ -11,12 +13,15 @@
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/akamai-cloud-iac.yml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/ai-aggregator-v1.yml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-orchestrator.yml@*",
-      "ai-workspace-infra/iac_modules/.github/workflows/akamai-state-preflight.yml@f8b3d52e4f2b6528fcf4fa762ea7bf83f8145d06"
+      "ai-workspace-infra/iac_modules/.github/workflows/akamai-state-preflight.yml@f8b3d52e4f2b6528fcf4fa762ea7bf83f8145d06",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/heads/main"
     ],
     "ref": "refs/heads/main",
     "environment": "uat"
   },
-  "token_policies": ["github-actions-platform-ops-toolkit-uat-akamai-oidc-bootstrap-__ACCOUNT__"],
+  "token_policies": [
+    "github-actions-platform-ops-toolkit-uat-akamai-oidc-bootstrap-__ACCOUNT__"
+  ],
   "token_no_default_policy": true,
   "token_type": "batch",
   "token_ttl": "20m",
