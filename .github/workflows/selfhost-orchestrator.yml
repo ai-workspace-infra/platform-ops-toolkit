@@ -1271,7 +1271,7 @@ jobs:
 
     - name: Setup deployment runner
       id: runner
-      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@2d326409ccfbd5f6e862c3dc08660e0ae12fb51d
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         matrix_host: ${{ matrix.host }}
@@ -1315,7 +1315,7 @@ jobs:
 
     - name: Restore domain TLS with pinned Playbooks owner
       if: ${{ steps.tls_record.outcome == 'success' }}
-      uses: ai-workspace-infra/playbooks/.github/actions/caddy-certificate-restore@feda3ef8bbf215b1f3fadb2fb801571f55090d2d
+      uses: ai-workspace-infra/playbooks/.github/actions/caddy-certificate-restore@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         inventory_file: cmdb/inventory.ini
         vault_response_file: ${{ steps.tls_record.outputs.response_file }}
@@ -1846,7 +1846,7 @@ jobs:
           ${{ env.VAULT_KV }} CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN
 
     - name: Setup DNS deployment runner
-      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@2d326409ccfbd5f6e862c3dc08660e0ae12fb51d
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         install_ansible: 'true'
@@ -2020,7 +2020,7 @@ jobs:
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64
 
     - name: Setup deployment runner
-      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@2d326409ccfbd5f6e862c3dc08660e0ae12fb51d
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         matrix_host: ${{ matrix.host }}
@@ -2108,7 +2108,7 @@ jobs:
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64
 
     - name: Setup deployment runner
-      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@2d326409ccfbd5f6e862c3dc08660e0ae12fb51d
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         matrix_host: ${{ matrix.host }}
@@ -2313,7 +2313,7 @@ jobs:
           ${{ runner.os }}-pip-
 
     - name: Setup deployment runner
-      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@2d326409ccfbd5f6e862c3dc08660e0ae12fb51d
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         matrix_host: ${{ matrix.host }}
@@ -2476,7 +2476,7 @@ jobs:
 
     - name: Setup deployment runner
       id: runner
-      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@2d326409ccfbd5f6e862c3dc08660e0ae12fb51d
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         matrix_host: ${{ matrix.host }}
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
@@ -2509,7 +2509,7 @@ jobs:
 
     - name: Render non-IaC Agent Proxy inventory
       id: inventory
-      uses: ai-workspace-infra/playbooks/.github/actions/non-iac-agent-proxy-inventory@feda3ef8bbf215b1f3fadb2fb801571f55090d2d
+      uses: ai-workspace-infra/playbooks/.github/actions/non-iac-agent-proxy-inventory@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         environment: ${{ needs.provision.outputs.deployment_env }}
         topology_file: ${{ github.workspace }}/gitops/topology/${{ needs.provision.outputs.deployment_env }}/selfhost/${{ needs.provision.outputs.deployment_env == 'uat' && 'xconnect-regional-pool.yaml' || 'xconnect-regional-pools.yaml' }}
@@ -2567,7 +2567,7 @@ jobs:
           "${status}" "${TLS_VAULT_RESPONSE_FILE}" >>"${GITHUB_OUTPUT}"
 
     - name: Restore domain TLS with pinned Playbooks owner
-      uses: ai-workspace-infra/playbooks/.github/actions/caddy-certificate-restore@feda3ef8bbf215b1f3fadb2fb801571f55090d2d
+      uses: ai-workspace-infra/playbooks/.github/actions/caddy-certificate-restore@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         inventory_file: ${{ steps.inventory.outputs.inventory }}
         vault_response_file: ${{ steps.tls_record.outputs.response_file }}
@@ -2761,7 +2761,7 @@ jobs:
           ${{ runner.os }}-pip-
 
     - name: Setup deployment runner
-      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@2d326409ccfbd5f6e862c3dc08660e0ae12fb51d
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         matrix_host: ${{ matrix.host }}

@@ -6,7 +6,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-OWNER_SHA = "feda3ef8bbf215b1f3fadb2fb801571f55090d2d"
+OWNER_SHA = "18fa333e5d76143f2a3a3ce94b1766a04003ebd8"
 
 
 class NonIaCOwnerHandoffContractTest(unittest.TestCase):

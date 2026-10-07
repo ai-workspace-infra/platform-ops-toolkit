@@ -5,7 +5,7 @@ import yaml
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-OWNER_SHA = "2d326409ccfbd5f6e862c3dc08660e0ae12fb51d"
+OWNER_SHA = "18fa333e5d76143f2a3a3ce94b1766a04003ebd8"
 
 
 class PlaybooksOwnerCallerTests(unittest.TestCase):

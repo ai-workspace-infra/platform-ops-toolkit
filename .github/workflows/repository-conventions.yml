@@ -43,11 +43,11 @@ jobs:
           ref: 9570b01959396e1d0e20331205b5cb5718f5c588
           path: contract/iac_modules
 
-      - name: Checkout playbooks main
+      - name: Checkout immutable Playbooks owner
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/playbooks
-          ref: main
+          ref: 18fa333e5d76143f2a3a3ce94b1766a04003ebd8
           path: contract/playbooks
 
       - name: Checkout immutable GitOps declarations

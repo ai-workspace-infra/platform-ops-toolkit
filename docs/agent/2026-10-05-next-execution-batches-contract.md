@@ -4,7 +4,7 @@
 
 `declared-network` 的 Accounts API invitation 已从混合 Toolkit bootstrap 路径切到
 Playbooks owner action `xconnect-network-bootstrap`，固定 owner SHA 为
-`2d326409ccfbd5f6e862c3dc08660e0ae12fb51d`。Playbooks 只消费 Toolkit 已校验的
+`18fa333e5d76143f2a3a3ce94b1766a04003ebd8`。Playbooks 只消费 Toolkit 已校验的
 私有请求和运行时 service token，调用 Accounts bootstrap API，并写出 mode `0600`
 的私有 handoff；它不登录 Vault，也不持久化 invitation。
 
@@ -65,21 +65,22 @@ Playbooks 已存在 `deploy_xconnect_one.yml`（`roles/vhosts/xconnect_one`）�
 
 ### 2026-10-07 host/service caller 切换 gate
 
-以下 gate 是下一子批次的执行清单。当前 Playbooks SHA
-`2d326409ccfbd5f6e862c3dc08660e0ae12fb51d` 已有 `xconnect_one`、
-`xconnect_gateway`、`xconnect_lab_runtime` Roles，但只覆盖
-`gateway_identity/gateway/one/gateway_verify/one_verify`；它还没有等价覆盖旧 runner
-的邀请、peer reconcile 和端到端 receipt。因此 `run.sh setup/bootstrap/gateway/one/verify`、
+以下 gate 保留逐链交接状态。Playbooks [#622](https://github.com/ai-workspace-infra/playbooks/pull/622) 已合并，固定 SHA
+`18fa333e5d76143f2a3a3ce94b1766a04003ebd8` 已有 `xconnect_one`、
+`xconnect_gateway`、`xconnect_lab_runtime` Roles，并新增 trusted-target runtime/evidence actions，覆盖
+`gateway_identity/gateway/gateway_reconcile/one/gateway_verify/one_verify`。Accounts device-bound
+invitation 复用已有 `scripts/node_deploy/xconnect_stage.py`，不再新增同等邀请实现。
+owner 的离线证据不替代 lab 的可信 host keys、private probe URL/marker 和真实运行证据。因此 `run.sh setup/bootstrap/gateway/one/verify`、
 `xconnect-existing-one-uat/deploy.sh`、`enroll-node.sh` 仍是冻结 caller，不能以 Role
 文件存在或 syntax-check 通过为理由删除。
 
 | Gate | owner 完成条件 | 离线证据 | 真实 UAT receipt | 当前状态 |
 | --- | --- | --- | --- | --- |
-| H1 可信 target handoff | Toolkit 交付精确 host/user、私有 key 与预先审查的 known_hosts；Playbooks 拒绝空 target、通配发现和 accept-new | fake inventory 覆盖 missing/mismatch/host-key failure | owner SHA、target、host-key fingerprint、Ansible recap | BLOCKED：现 caller 仍有 EC2 Name wildcard 与 accept-new |
-| H2 Accounts device invite | Playbooks 参数化 service owner 支持 gateway/one、固定 network/device/role/TTL，并输出 0600 handoff；Toolkit 只做 Vault token 交接 | fake HTTP 覆盖 201/409/timeout/响应绑定/always cleanup | HTTP 201、精确 network/device/role、invite consumed once | BLOCKED：现 owner action 只覆盖 declared-network Gateway bootstrap |
-| H3 Gateway identity/enroll/reconcile | `xconnect_lab_runtime` 分开 identity、join、peer reconcile；已有 credential 重跑不消耗 invite，401 轮换须显式操作 | role contract + mock command 覆盖 existing/empty/401/non-401 | gateway identity 保持、signed generation、timer active | BLOCKED：缺独立 peer-reconcile/401 rotation operation |
-| H4 One deploy | `xconnect_one` 消费 immutable binary、CA、一次性 invite 和精确 target，失败也删除 runner/remote invite | fake Ansible 覆盖 wrong network/device、used invite、always cleanup | joined device/network、credential valid、runtime applied | READY-PARTIAL：Role 已有，caller 仍混在 deploy scripts |
-| H5 数据面验收 | Playbooks owner 返回脱敏 receipt，包含 One/Gateway status、精确 peer handshake age、TLS/SNI、private ping/HTTP；任一缺失即失败 | fixture receipt 覆盖 stale handshake/TLS/private path failure | 同一 run 的 handshake、private traffic 与 signed config receipt | BLOCKED：现 runtime Role 只有基础 status，不等价于旧 verify |
+| H1 可信 target handoff | Toolkit 交付精确 host/user、私有 key 与预先审查的 known_hosts；Playbooks 拒绝空 target、通配发现和 accept-new | owner 已覆盖 missing/mismatch/host-key failure | owner SHA、target、host-key fingerprint、Ansible recap | OWNER-READY；caller 缺声明式可信 host-key 来源，仍冻结 |
+| H2 Accounts device invite | Playbooks 参数化 service owner 支持 gateway/one、固定 network/device/role/TTL，并输出私密 handoff；Toolkit 只做 Vault token 交接 | 复用已存在的 node-deploy invitation owner 与其测试 | HTTP 201、精确 network/device/role、invite consumed once | REUSE；lab 精确 target/contract 的 caller 交接与真实消费待验证 |
+| H3 Gateway identity/enroll/reconcile | `xconnect_lab_runtime` 分开 identity、join、peer reconcile；已有 credential 重跑不消耗 invite，401 轮换须显式操作 | Role contract、syntax 与 runtime action mock 已通过 | gateway identity 保持、实际 config generation、timer active | OWNER-PARTIAL；reconcile 已补，401 rotation 等价性和运行行为待验证 |
+| H4 One deploy | `xconnect_one` 消费 immutable binary、CA、一次性 invite 和精确 target，失败也删除 runner/remote invite | exact target runner 与私密输入清理反例已通过 | joined device/network、credential valid、runtime applied | OWNER-READY；caller 仍混在 deploy scripts，未真实验收 |
+| H5 数据面验收 | Playbooks owner 返回脱敏 receipt，包含 One/Gateway status、精确 peer handshake age、TLS/SNI、private ping/HTTP；任一缺失即失败 | CLI rc/state/credential、runtime peer binding、多配置、stale handshake 与 probe 负例已通过 | 同一 run/attempt 的 handshake、private traffic 与实际 runtime receipt | OWNER-READY；缺 private probe 声明；不宣称 Gateway CLI status 是 signed receipt |
 | H6 existing-One 拆分 | release 获取/校验留 Toolkit；Accounts 写归 service owner；Gateway/One 主机操作归 Roles；观察 owner 继续复用现有 action | 每个 owner 单独 mock，不调用 Toolkit 脚本 | fixed owner/binary SHA + exact host/network + H2-H5 receipts | BLOCKED：旧 527 行脚本仍混合四类副作用 |
 
 执行顺序必须是 H1 → H2 → H3/H4 → H5 → caller 切换 → 真实 UAT → legacy

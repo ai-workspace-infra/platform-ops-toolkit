@@ -69,7 +69,7 @@ on:
         description: Immutable Playbooks owner commit; overrides are rejected by the node-stage checkout contract.
         type: string
         required: true
-        default: 2d326409ccfbd5f6e862c3dc08660e0ae12fb51d
+        default: 18fa333e5d76143f2a3a3ce94b1766a04003ebd8
 
 permissions:
   contents: read
@@ -262,7 +262,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/playbooks
-          ref: 2d326409ccfbd5f6e862c3dc08660e0ae12fb51d
+          ref: 18fa333e5d76143f2a3a3ce94b1766a04003ebd8
           path: playbooks
           persist-credentials: false
 
@@ -271,7 +271,7 @@ jobs:
           REQUESTED_PLAYBOOKS_REF: ${{ inputs.playbooks_ref }}
         run: |
           set -euo pipefail
-          expected=2d326409ccfbd5f6e862c3dc08660e0ae12fb51d
+          expected=18fa333e5d76143f2a3a3ce94b1766a04003ebd8
           [[ "${REQUESTED_PLAYBOOKS_REF}" == "${expected}" ]] || {
             echo "::error::playbooks_ref must equal the reviewed owner SHA ${expected}" >&2
             exit 1
@@ -279,7 +279,7 @@ jobs:
           test "$(git -C playbooks rev-parse HEAD)" = "${expected}"
 
       - name: Prepare isolated Python and Ansible in the Playbooks owner
-        uses: ai-workspace-infra/playbooks/.github/actions/setup-node-stage-runner@2d326409ccfbd5f6e862c3dc08660e0ae12fb51d
+        uses: ai-workspace-infra/playbooks/.github/actions/setup-node-stage-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
         with:
           venv_path: ${{ runner.temp }}/node-stage-python
           python: python3
@@ -420,7 +420,7 @@ jobs:
       - name: Observe the automatic migration in the Playbooks owner
         id: migration_observation
         if: ${{ inputs.service_stage == 'migrate-auto' }}
-        uses: ai-workspace-infra/playbooks/.github/actions/vault-migration-observation@2d326409ccfbd5f6e862c3dc08660e0ae12fb51d
+        uses: ai-workspace-infra/playbooks/.github/actions/vault-migration-observation@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
         with:
           contract: ${{ steps.access.outputs.contract }}
           ssh_private_key: ${{ steps.access.outputs.ssh_private_key }}
@@ -615,7 +615,7 @@ jobs:
       - name: Execute provider-neutral Vault node stage
         id: node_deploy
         if: ${{ steps.access.outcome == 'success' && steps.stage.outputs.stage != '' }}
-        uses: ai-workspace-infra/playbooks/.github/actions/vault-node-stage@2d326409ccfbd5f6e862c3dc08660e0ae12fb51d
+        uses: ai-workspace-infra/playbooks/.github/actions/vault-node-stage@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
         env:
           VECTOR_AUTH_USER: ${{ steps.observability.outputs.VECTOR_AUTH_USER }}
           VECTOR_AUTH_PASSWORD: ${{ steps.observability.outputs.VECTOR_AUTH_PASSWORD }}
