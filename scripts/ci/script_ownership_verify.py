@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Freeze existing execution debt; new Toolkit code must remain control-plane-only."""
 import argparse
+import ast
 import hashlib
 import json
 from pathlib import Path
 import re
+import shlex
 import subprocess
 
 def command_pattern(commands):
@@ -18,9 +20,13 @@ def command_pattern(commands):
 
 MARKERS = {
     'database_execution': command_pattern('pg_dump|pg_restore|psql'),
-    'host_execution': command_pattern('ssh|sshpass|scp|ansible-playbook|ansible|docker|systemctl|sysctl|wg|apt-get'),
+    'host_execution': command_pattern('ssh|ssh-keyscan|sshpass|scp|ansible-playbook|ansible|docker|systemctl|sysctl|wg|apt-get'),
     'provider_execution': command_pattern('terraform|gcloud|wrangler|aws'),
 }
+HOST_COMMANDS = {'ssh', 'ssh-keyscan', 'sshpass', 'scp', 'ansible-playbook', 'ansible',
+                 'docker', 'systemctl', 'sysctl', 'wg', 'apt-get'}
+PROVIDER_COMMANDS = {'terraform', 'gcloud', 'wrangler', 'aws'}
+DATABASE_COMMANDS = {'pg_dump', 'pg_restore', 'psql'}
 
 # Only bounded read operations, not a filename/owner-label exemption. Other
 # invocations in the very same source are still classified normally.
@@ -48,8 +54,6 @@ def control_url(value, assignments, seen=()):
     if re.match(r'^\$\{VAULT_ADDR(?:%/)?\}/v1/', value):
         return True
     if re.match(r'^\$\{?ACTIONS_ID_TOKEN_REQUEST_URL\}?(?:&|$)', value):
-        return True
-    if re.match(r'^\$\{ACCOUNTS_API_URL(?:%/)?\}/api/internal/overlay/networks/bootstrap$', value):
         return True
     match = VARIABLE.fullmatch(value)
     if match:
@@ -90,9 +94,68 @@ def http_markers(source):
             risky = True
     if not risky:
         return []
+    if '/api/internal/overlay/networks/bootstrap' in source:
+        return ['service_execution', 'http_execution_review']
     if 'api.cloudflare.com/' in source or 'CLOUDFLARE_API_BASE' in source:
         return ['provider_execution']
     return ['http_execution_review']
+
+
+def python_markers(source):
+    """Find concrete subprocess commands and non-control service HTTP writes."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+    assignments = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    assignments[target.id] = node.value
+
+    def command(node, seen=()):
+        if isinstance(node, ast.Name) and node.id in assignments and node.id not in seen:
+            return command(assignments[node.id], (*seen, node.id))
+        if isinstance(node, (ast.List, ast.Tuple)) and node.elts:
+            return command(node.elts[0], seen)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            try:
+                return shlex.split(node.value)[0] if node.value.strip() else ''
+            except ValueError:
+                return ''
+        return ''
+
+    matched = set()
+    def dotted(node):
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            prefix = dotted(node.value)
+            return f'{prefix}.{node.attr}' if prefix else node.attr
+        return ''
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = dotted(node.func)
+        if name in {'subprocess.run', 'subprocess.Popen', 'subprocess.call',
+                    'subprocess.check_call', 'subprocess.check_output', 'os.system'} and node.args:
+            executable = command(node.args[0])
+            if executable in HOST_COMMANDS:
+                matched.add('host_execution')
+            elif executable in PROVIDER_COMMANDS:
+                matched.add('provider_execution')
+            elif executable in DATABASE_COMMANDS:
+                matched.add('database_execution')
+        if name == 'urllib.request.Request':
+            method = next((item.value for item in node.keywords
+                           if item.arg == 'method' and isinstance(item.value, ast.Constant)), '')
+            mutating = method in {'POST', 'PUT', 'PATCH', 'DELETE'} or any(item.arg == 'data' for item in node.keywords)
+            if mutating and '/api/internal/overlay/networks/bootstrap' in source:
+                matched.update(('service_execution', 'http_execution_review'))
+    return list(matched)
 
 
 def classify(source):
@@ -117,31 +180,86 @@ def classify(source):
                 r'\}|' + re.escape(match.group(1)) + r'\b)', commands):
             matched.add('host_execution' if value in {'ssh', 'scp', 'ansible-playbook', 'docker'} else 'provider_execution')
     matched.update(http_markers(source))
-    return [name for name in (*MARKERS, 'http_execution_review') if name in matched]
+    matched.update(python_markers(source))
+    if 'VAULT_DRILL_BIN' in source and '/v1/sys/storage/raft/snapshot' in source:
+        matched.add('service_execution')
+    return [name for name in (*MARKERS, 'service_execution', 'http_execution_review') if name in matched]
 
 
 def inferred_owner(markers):
-    if any(item in markers for item in ('database_execution', 'host_execution')):
+    if any(item in markers for item in ('database_execution', 'host_execution', 'service_execution')):
         return 'playbooks'
     if 'provider_execution' in markers:
         return 'iac_modules'
     return 'review_required'
 
 
+def inventory_paths(root):
+    paths = subprocess.check_output(
+        ['git', '-C', str(root), 'ls-files', '-co', '--exclude-standard',
+         '.github/scripts', 'scripts/node_deploy'], text=True
+    ).splitlines()
+    return [relative for relative in paths
+            if (root / relative).is_file()
+            and (root / relative).suffix in {'.sh', '.py', '.rb'}
+            and 'tests' not in (root / relative).parts
+            and not (root / relative).name.startswith('test_')
+            and not (root / relative).name.endswith('_test.sh')]
+
+
+def local_dependencies(root, relative, source, candidates):
+    path = root / relative
+    dependencies = set()
+    if path.suffix == '.py':
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            tree = None
+        for node in ast.walk(tree) if tree else ():
+            names = []
+            if isinstance(node, ast.ImportFrom) and node.module:
+                names.append(node.module.split('.')[0])
+            elif isinstance(node, ast.Import):
+                names.extend(alias.name.split('.')[0] for alias in node.names)
+            for name in names:
+                candidate = str((path.parent / f'{name}.py').relative_to(root))
+                if candidate in candidates:
+                    dependencies.add(candidate)
+    elif path.suffix == '.sh':
+        for token in re.findall(r'(?m)^\s*(?:source|\.)\s+["\x27]?([^"\x27\s;]+)', source):
+            token = token.replace('${script_dir}/', '').replace('$script_dir/', '')
+            candidate = str((path.parent / token).resolve().relative_to(root.resolve()))
+            if candidate in candidates:
+                dependencies.add(candidate)
+    return dependencies
+
+
 def inventory(root):
-    paths = subprocess.check_output(['git', '-C', str(root), 'ls-files', '.github/scripts'], text=True).splitlines()
+    paths = inventory_paths(root)
+    candidates = set(paths)
+    sources = {relative: (root / relative).read_text(errors='replace') for relative in paths}
+    markers = {relative: set(classify(source)) for relative, source in sources.items()}
+    dependencies = {relative: local_dependencies(root, relative, sources[relative], candidates) for relative in paths}
+    changed = True
+    while changed:
+        changed = False
+        for relative, imported in dependencies.items():
+            inherited = set().union(*(markers[item] for item in imported)) if imported else set()
+            if not inherited.issubset(markers[relative]):
+                markers[relative].update(inherited)
+                changed = True
     found = {}
     for relative in paths:
         path = root / relative
-        if not path.is_file() or path.suffix not in {'.sh', '.py', '.rb'}:
-            continue
-        if 'tests' in path.parts or path.name.startswith('test_') or path.name.endswith('_test.sh'):
-            continue
-        matched = classify(path.read_text())
+        matched = [name for name in (*MARKERS, 'service_execution', 'http_execution_review')
+                   if name in markers[relative]]
         if not matched:
             continue
-        found[relative] = {'owner': inferred_owner(matched),
-                           'markers': matched, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+        entry = {'owner': inferred_owner(matched), 'markers': matched,
+                 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+        if relative.startswith('scripts/node_deploy/') or relative == '.github/scripts/xconnect-network/bootstrap.sh':
+            entry['status'] = 'pending-owner-uat'
+        found[relative] = entry
     return found
 
 

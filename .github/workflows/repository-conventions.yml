@@ -9,10 +9,8 @@ on:
       - ".github/workflows/**"
       - ".github/workflows/repository-conventions.yml"
       - "scripts/ci/**"
-      - "scripts/node_deploy/stage_plan.py"
-      - "scripts/node_deploy/README.md"
-      - "scripts/tests/test_stage_plan.py"
-      - "scripts/tests/test_vault_shared_workflow_contract.py"
+      - "scripts/node_deploy/**"
+      - "scripts/tests/**"
       - "scripts/cloud/bootstrap/gcp/bootstrap_prod_selfhost.sh"
   push:
     branches: [main]
@@ -23,10 +21,8 @@ on:
       - ".github/workflows/**"
       - ".github/workflows/repository-conventions.yml"
       - "scripts/ci/**"
-      - "scripts/node_deploy/stage_plan.py"
-      - "scripts/node_deploy/README.md"
-      - "scripts/tests/test_stage_plan.py"
-      - "scripts/tests/test_vault_shared_workflow_contract.py"
+      - "scripts/node_deploy/**"
+      - "scripts/tests/**"
       - "scripts/cloud/bootstrap/gcp/bootstrap_prod_selfhost.sh"
 
 permissions:

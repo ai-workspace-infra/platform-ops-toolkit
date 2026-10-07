@@ -21,6 +21,16 @@ class OwnershipTests(unittest.TestCase):
         subprocess.run(['git', '-C', str(root), 'add', '.'], check=True)
         return root, path
 
+    def node_fixture(self, directory, files):
+        root = Path(directory)
+        for name, content in files.items():
+            path = root / 'scripts/node_deploy' / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+        subprocess.run(['git', 'init', '-q', str(root)], check=True)
+        subprocess.run(['git', '-C', str(root), 'add', '.'], check=True)
+        return root
+
     def test_new_database_and_host_execution_rejected(self):
         for content in ('pg_dump account\n', 'ssh target restart\n', 'gcloud run deploy service\n'):
             with tempfile.TemporaryDirectory() as directory:
@@ -86,6 +96,46 @@ class OwnershipTests(unittest.TestCase):
         ):
             self.assertIn('provider_execution', module.classify(source))
 
+    def test_root_python_subprocess_ssh_and_provider_are_rejected(self):
+        for command, marker in (('ssh', 'host_execution'), ('gcloud', 'provider_execution')):
+            with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:
+                root = self.node_fixture(directory, {
+                    'new_executor.py': f'import subprocess\nsubprocess.run(["{command}", "target"], check=True)\n'
+                })
+                self.assertIn(marker, module.inventory(root)['scripts/node_deploy/new_executor.py']['markers'])
+                with self.assertRaises(SystemExit):
+                    module.verify(root, {'legacy_execution': {}})
+
+    def test_imported_execution_wrapper_inherits_owner_marker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.node_fixture(directory, {
+                'executor.py': 'import subprocess\ndef execute():\n    subprocess.run(["ssh", "target", "true"], check=True)\n',
+                'wrapper.py': 'from executor import execute\ndef main():\n    execute()\n',
+            })
+            found = module.inventory(root)
+            self.assertIn('host_execution', found['scripts/node_deploy/executor.py']['markers'])
+            self.assertIn('host_execution', found['scripts/node_deploy/wrapper.py']['markers'])
+
+    def test_sourced_shell_execution_wrapper_inherits_owner_marker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.node_fixture(directory, {
+                'executor.sh': 'ssh target true\n',
+                'wrapper.sh': 'source executor.sh\necho dispatched\n',
+            })
+            found = module.inventory(root)
+            self.assertIn('host_execution', found['scripts/node_deploy/wrapper.sh']['markers'])
+
+    def test_frozen_node_executor_bytes_cannot_change(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.node_fixture(directory, {
+                'executor.py': 'import subprocess\nsubprocess.run(["ssh", "target", "true"], check=True)\n'
+            })
+            registry = {'legacy_execution': module.inventory(root)}
+            module.verify(root, registry)
+            (root / 'scripts/node_deploy/executor.py').write_text('print("marker removed")\n')
+            with self.assertRaisesRegex(SystemExit, 'legacy bytes changed'):
+                module.verify(root, registry)
+
     def test_bounded_readonly_release_gates(self):
         source = '''service=$(gcloud run services describe service --format=json)
 revision=$(gcloud run revisions describe revision --format=json)
@@ -102,9 +152,15 @@ account=$(aws sts get-caller-identity --query Account)
             'URL="${VAULT_ADDR}/v1/kv/data/${ENV}/agent-proxy"\ncurl -X POST "$URL"\n',
             'curl --data-binary "@payload" "${VAULT_ADDR%/}/v1/auth/jwt/login"\n',
             'oidc_url="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=vault"\ncurl --request GET "$oidc_url"\n',
-            'curl --data-binary "@invite" "${ACCOUNTS_API_URL%/}/api/internal/overlay/networks/bootstrap"\n',
         ):
             self.assertEqual([], module.classify(source))
+
+    def test_accounts_bootstrap_is_playbooks_http_debt(self):
+        source = 'curl --data-binary "@invite" "${ACCOUNTS_API_URL%/}/api/internal/overlay/networks/bootstrap"\n'
+        markers = module.classify(source)
+        self.assertIn('service_execution', markers)
+        self.assertIn('http_execution_review', markers)
+        self.assertEqual('playbooks', module.inferred_owner(markers))
 
     def test_vault_header_or_other_request_never_grants_exemption(self):
         for source in (
@@ -153,6 +209,13 @@ account=$(aws sts get-caller-identity --query Account)
             'xconnect-lab/gateway.sh',
         ):
             self.assertIn('.github/scripts/' + relative, found)
+        for relative in (
+            'auto_migration.py', 'prepare_known_hosts.py', 'run_stage.sh',
+            'verify_vault_stage.py', 'xconnect_stage.py',
+        ):
+            self.assertIn('scripts/node_deploy/' + relative, found)
+            self.assertEqual(found['scripts/node_deploy/' + relative]['status'], 'pending-owner-uat')
+        self.assertEqual(found['.github/scripts/xconnect-network/bootstrap.sh']['owner'], 'playbooks')
         self.assertFalse((root / '.github/scripts/platform-ops/dns/platform-ops_uat_dns_reconcile.sh').exists())
         for relative in (
             'platform-ops/provision/platform-ops_provision_initialize-agent-proxy-credentials.sh',
