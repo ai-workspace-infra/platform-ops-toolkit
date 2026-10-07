@@ -26,12 +26,22 @@ def validate_inputs(event, ref, sha, repository, attempt):
     return operation == 'native-init-plan'
 
 
-def validate_data_review(environment, run, reviews, run_id, sha, ref):
+def validate_data_review_config(contract, expected_scope):
+    require(isinstance(contract, dict) and contract.get('scope') == expected_scope,
+            'native data review contract scope differs')
+    required = contract.get('independent_data_review_required')
+    require(type(required) is bool, 'native data review policy must be an explicit boolean')
+    return required
+
+
+def validate_data_review(environment, run, reviews, run_id, sha, ref, require_independent=True):
     require(run.get('id') == int(run_id) and run.get('run_attempt') == 1 and
             run.get('event') == 'workflow_dispatch' and run.get('head_sha') == sha and
             run.get('head_branch') == ref.removeprefix('refs/tags/') and
             run.get('repository', {}).get('full_name') == BASE.REPOSITORY,
             'current native data run provenance differs')
+    if not require_independent:
+        return
     require(environment.get('name') == 'prod' and any(rule.get('type') == 'required_reviewers' and
             rule.get('prevent_self_review') is True and rule.get('reviewers')
             for rule in environment.get('protection_rules', [])),
@@ -108,11 +118,13 @@ def main():
     require(os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch', 'native schema must be explicitly dispatched')
     dry_run = validate_inputs(json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text()),
         os.environ['GITHUB_REF'], os.environ['GITHUB_SHA'], os.environ['GITHUB_REPOSITORY'], os.environ['GITHUB_RUN_ATTEMPT'])
+    contract = json.loads(args.contract.read_text())
+    review_required = validate_data_review_config(contract, 'prod-native-init-only')
     get = BASE.get_json
     run_id = os.environ['GITHUB_RUN_ID']
     validate_data_review(get('/environments/prod'), get('/actions/runs/' + run_id),
-        get('/actions/runs/' + run_id + '/approvals'), run_id, os.environ['GITHUB_SHA'], os.environ['GITHUB_REF'])
-    contract = json.loads(args.contract.read_text())
+        get('/actions/runs/' + run_id + '/approvals'), run_id, os.environ['GITHUB_SHA'], os.environ['GITHUB_REF'],
+        review_required)
     validate_initialization(contract['initialization'])
     for key in ('gitops_commit', 'iac_commit', 'playbooks_commit'):
         require(re.fullmatch('[0-9a-f]{40}', contract.get(key, '')), 'fixed execution owner SHA missing')
@@ -136,7 +148,9 @@ def main():
             output.write('gitops_commit=' + contract['gitops_commit'] + '\n')
             output.write('cmdb_sha256=' + source['cmdb_sha256'] + '\n')
             output.write('data_gate_verified=true\n')
-    print('Independent PROD approval, real standby and original resource evidence verified; no database action performed.')
+    review_message = ('Independent PROD approval' if review_required else
+                      'Controlled independent PROD data review requirement disabled')
+    print(review_message + ', real standby and original resource evidence verified; no database action performed.')
 
 
 if __name__ == '__main__':

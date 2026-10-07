@@ -85,6 +85,43 @@ class NativeInitControlTests(unittest.TestCase):
     def validate_review(self, environment, run, reviews):
         return CONTROL.validate_data_review(environment, run, reviews, '999', 'd' * 40, 'refs/tags/v2026.10.07-r3')
 
+    def test_repo_controlled_review_policy_defaults_off_without_skipping_provenance(self):
+        contracts = (
+            ('prod-native-init.json', 'prod-native-init-only'),
+            ('prod-native-billing.json', 'prod-native-billing-only'),
+            ('prod-full-business.json', 'prod-full-business-only'),
+        )
+        for filename, scope in contracts:
+            with self.subTest(filename=filename):
+                contract = json.loads((ROOT / '.github/config' / filename).read_text())
+                self.assertFalse(contract['independent_data_review_required'])
+                required = CONTROL.validate_data_review_config(contract, scope)
+                event = {'inputs': dict(operation='native-init-plan', vault_env_path='prod',
+                    target_domains='web-saas', cloud_provider='gcp-cloud', cloud_account='xworktech',
+                    target_domain_base='svc.plus', dns_mode='none', runner_type='ubuntu-latest',
+                    offline_mode='off')}
+                CONTROL.validate_inputs(event, 'refs/tags/v2026.10.07-r3', 'd' * 40,
+                                        CONTROL.BASE.REPOSITORY, '1')
+                environment, run, _ = self.review()
+                environment['protection_rules'] = []
+                CONTROL.validate_data_review(environment, run, [], '999', 'd' * 40,
+                                             'refs/tags/v2026.10.07-r3', required)
+                run['head_sha'] = 'e' * 40
+                with self.assertRaises(ValueError):
+                    CONTROL.validate_data_review(environment, run, [], '999', 'd' * 40,
+                                                 'refs/tags/v2026.10.07-r3', required)
+
+    def test_review_policy_is_explicit_and_fail_closed(self):
+        valid = {'scope': 'prod-native-init-only', 'independent_data_review_required': False}
+        self.assertFalse(CONTROL.validate_data_review_config(valid, 'prod-native-init-only'))
+        for invalid in (
+            {'scope': 'prod-native-init-only'},
+            {'scope': 'prod-native-init-only', 'independent_data_review_required': 'false'},
+            {'scope': 'other', 'independent_data_review_required': False},
+        ):
+            with self.assertRaises(ValueError):
+                CONTROL.validate_data_review_config(invalid, 'prod-native-init-only')
+
     def test_current_independent_review_is_required(self):
         environment, run, reviews = self.review()
         self.validate_review(environment, run, reviews)
@@ -124,6 +161,10 @@ class NativeInitControlTests(unittest.TestCase):
         event['inputs']['dns_mode'] = 'prod-cutover'
         with self.assertRaises(ValueError):
             CONTROL.validate_inputs(event, *args)
+        event['inputs']['dns_mode'] = 'none'
+        for ref in ('refs/heads/main', 'refs/tags/not-a-release'):
+            with self.assertRaises(ValueError):
+                CONTROL.validate_inputs(event, ref, *args[1:])
 
     def test_review_precedes_credentials_and_cleanup_precedes_artifacts(self):
         config = json.loads((ROOT / '.github/config/prod-native-init.json').read_text())

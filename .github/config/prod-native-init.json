@@ -1,6 +1,7 @@
 {
   "schema": 1,
   "scope": "prod-native-init-only",
+  "independent_data_review_required": false,
   "resource_accepted": true,
   "gitops_commit": "af4a651ecb79df937f487a07bc93ca5dd2223ed2",
   "iac_commit": "254dd6321449ab12b862220c8876b482d7032fcd",

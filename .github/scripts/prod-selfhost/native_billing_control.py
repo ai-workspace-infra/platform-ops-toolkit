@@ -97,11 +97,13 @@ def main():
     require(os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch', 'Billing schema requires explicit dispatch')
     dry_run = validate_inputs(json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text()),
         os.environ['GITHUB_REF'], os.environ['GITHUB_SHA'], os.environ['GITHUB_REPOSITORY'], os.environ['GITHUB_RUN_ATTEMPT'])
+    contract = json.loads(args.contract.read_text())
+    review_required = INIT.validate_data_review_config(contract, 'prod-native-billing-only')
     get = BASE.get_json
     run_id = os.environ['GITHUB_RUN_ID']
     INIT.validate_data_review(get('/environments/prod'), get('/actions/runs/' + run_id),
-        get('/actions/runs/' + run_id + '/approvals'), run_id, os.environ['GITHUB_SHA'], os.environ['GITHUB_REF'])
-    contract = json.loads(args.contract.read_text())
+        get('/actions/runs/' + run_id + '/approvals'), run_id, os.environ['GITHUB_SHA'], os.environ['GITHUB_REF'],
+        review_required)
     validate_billing(contract)
     require(contract.get('initialization_accepted') is True, 'successful real native initialization acceptance is pending')
     for key in ('gitops_commit', 'iac_commit', 'playbooks_commit'):
@@ -133,7 +135,9 @@ def main():
             output.write('billing_commit=' + contract['billing']['commit'] + '\n')
             output.write('cmdb_sha256=' + source['cmdb_sha256'] + '\n')
             output.write('data_gate_verified=true\n')
-    print('Independent approval and actual parent initialization/standby/resource evidence verified; no database action performed.')
+    review_message = ('Independent approval' if review_required else
+                      'Controlled independent data review requirement disabled')
+    print(review_message + ' and actual parent initialization/standby/resource evidence verified; no database action performed.')
 
 
 if __name__ == '__main__':
