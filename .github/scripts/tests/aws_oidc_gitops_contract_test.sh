@@ -11,7 +11,7 @@ test -x "${resolver}" || {
 }
 
 for required in \
-  "resources/svc.plus/\${{ steps.route.outputs.deployment_env }}/aws/github-actions-oidc.json" \
+  "resources/svc.plus/\${{ steps.route.outputs.deployment_env }}/aws/github-actions-oidc.yaml" \
   "Resolve AWS OIDC deployment configuration from GitOps" \
   "steps.aws_oidc.outputs.role_arn" \
   "steps.aws_oidc.outputs.region" \

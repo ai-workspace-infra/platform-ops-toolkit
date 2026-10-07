@@ -46,7 +46,13 @@ jobs:
         path: gitops
         sparse-checkout-cone-mode: false
         sparse-checkout: |
-          resources/svc.plus/${{ inputs.vault_env_path }}/aws/github-actions-oidc.json
+          resources/svc.plus/${{ inputs.vault_env_path }}/aws/github-actions-oidc.yaml
+
+    - name: Render OIDC metadata for the bootstrap consumer
+      uses: ./.github/actions/gitops-yaml-json
+      with:
+        source: ${{ github.workspace }}/gitops/resources/svc.plus/${{ inputs.vault_env_path }}/aws/github-actions-oidc.yaml
+        output: ${{ runner.temp }}/aws-oidc-bootstrap.json
 
     - name: Checkout AWS IaC identity module
       if: ${{ inputs.action == 'apply' && inputs.vault_env_path == 'prod' }}
@@ -112,7 +118,7 @@ jobs:
         BOOTSTRAP_ACTION: ${{ inputs.action }}
         ALLOW_ROOT_BREAK_GLASS: ${{ inputs.allow_root_break_glass }}
         DEPLOYMENT_ENV: ${{ inputs.vault_env_path }}
-        GITOPS_AWS_OIDC_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/${{ inputs.vault_env_path }}/aws/github-actions-oidc.json
+        GITOPS_AWS_OIDC_CONFIG: ${{ runner.temp }}/aws-oidc-bootstrap.json
       run: scripts/cloud/bootstrap/aws/reconcile_github_oidc_trust.sh
 
     - name: Configure AWS credentials through the new GitHub OIDC role
@@ -131,7 +137,7 @@ jobs:
       if: ${{ inputs.action == 'apply' && inputs.vault_env_path == 'prod' }}
       env:
         IAC_MODULES_ROOT: ${{ github.workspace }}/iac_modules
-        GITOPS_AWS_OIDC_CONFIG: ${{ github.workspace }}/gitops/resources/svc.plus/${{ inputs.vault_env_path }}/aws/github-actions-oidc.json
+        GITOPS_AWS_OIDC_CONFIG: ${{ runner.temp }}/aws-oidc-bootstrap.json
         IAC_BOOTSTRAP_CONFIG: ${{ github.workspace }}/iac_modules/terraform-hcl-standard/aws-cloud/config/bootstrap/prod.yaml
         TF_STATE_ENDPOINT: ${{ steps.iac_state.outputs.TF_STATE_ENDPOINT }}
         TF_STATE_BUCKET: ${{ steps.iac_state.outputs.TF_STATE_BUCKET }}

@@ -378,9 +378,14 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
-            services/accounts/${{ inputs.vault_env_path || 'uat' }}/oauth/github.json
+            services/accounts/${{ inputs.vault_env_path || 'uat' }}/oauth/github.yaml
             resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
 
+      - name: Render OAuth metadata for the deployment consumer
+        uses: ./.github/actions/gitops-yaml-json
+        with:
+          source: ${{ github.workspace }}/gitops/services/accounts/${{ inputs.vault_env_path || 'uat' }}/oauth/github.yaml
+          output: ${{ runner.temp }}/accounts-github-oauth.json
       - name: Read GitOps GCP target
         id: gitops_gcp
         run: ruby ./.github/scripts/gitops/read_gcp_gitops_target.rb
@@ -534,7 +539,7 @@ jobs:
           VERIFY_SUPABASE: 'false'
           CLOUD_RUN_SERVICE: ${{ matrix.service }}
           CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
-          GITOPS_OAUTH_GITHUB_CONFIG: ${{ github.workspace }}/gitops/services/accounts/${{ inputs.vault_env_path || 'uat' }}/oauth/github.json
+          GITOPS_OAUTH_GITHUB_CONFIG: ${{ runner.temp }}/accounts-github-oauth.json
 
       # A tag is not evidence: the serving revision must run the digest UAT
       # built, or in PROD the digest UAT accepted.

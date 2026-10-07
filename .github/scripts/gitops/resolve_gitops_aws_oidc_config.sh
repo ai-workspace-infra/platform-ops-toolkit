@@ -38,6 +38,8 @@ command -v jq >/dev/null 2>&1 || {
   exit 1
 }
 
+config_json="$(ruby -ryaml -rjson -e 'print JSON.generate(YAML.safe_load(File.read(ARGV.fetch(0)), aliases: false))' "${config_file}")"
+
 jq -e \
   --arg environment "${expected_environment}" \
   --arg account "${expected_account}" \
@@ -60,14 +62,14 @@ jq -e \
 ' \
   --arg required_tag_subject "${required_tag_subject}" \
   --arg required_environment_subject "${required_environment_subject}" \
-  "${config_file}" >/dev/null || {
+  <<<"${config_json}" >/dev/null || {
   echo "GitOps AWS OIDC declaration failed the ${expected_environment} trust contract: ${config_file}" >&2
   exit 1
 }
 
-role_arn="$(jq -er '.spec.aws.role_arn' "${config_file}")"
-region="$(jq -er '.spec.aws.region' "${config_file}")"
-audience="$(jq -er '.spec.audience' "${config_file}")"
+role_arn="$(jq -er '.spec.aws.role_arn' <<<"${config_json}")"
+region="$(jq -er '.spec.aws.region' <<<"${config_json}")"
+audience="$(jq -er '.spec.audience' <<<"${config_json}")"
 
 {
   echo "role_arn=${role_arn}"

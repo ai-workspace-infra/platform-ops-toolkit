@@ -3,6 +3,12 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 matrix="${GITOPS_MATRIX_FILE:?GITOPS_MATRIX_FILE must point to the GitOps resource matrix}"
+source_matrix="${matrix}"
+matrix="$(mktemp)"
+trap 'rm -f "${matrix}"' EXIT
+DECLARATION_SOURCE="${source_matrix}" DECLARATION_OUTPUT="${matrix}" RUNNER_TEMP="${TMPDIR:-/tmp}" \
+  ruby "${repo_root}/.github/actions/gitops-yaml-json/render.rb"
+
 open_platform="${GITOPS_OPEN_PLATFORM_FILE:?GITOPS_OPEN_PLATFORM_FILE must point to the UAT open-platform declaration}"
 resource_roots="${GITOPS_RESOURCE_ROOTS:?GITOPS_RESOURCE_ROOTS must contain the GitOps GCP workload declaration roots}"
 dispatcher="${repo_root}/.github/scripts/platform-ops/provision/platform-ops_dispatch-hybrid-uat-matrix.sh"
@@ -43,7 +49,7 @@ jq -e '
   ([.spec.resources[] | select(.release_scope == "business") | .namespace] ==
     ["web-saas","ai-workspace","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","agent-proxy-tw","agent-proxy-ph"]) and
   .spec.resources[1].management_mode == "terraform+serverless" and
-  .spec.resources[1].lifecycle == "ephemeral" and
+  .spec.resources[1].lifecycle == "persistent" and
   .spec.resources[2].management_mode == "terraform" and
   .spec.resources[2].lifecycle == "ephemeral" and
   .spec.resources[2].provider == "gcp-cloud" and
@@ -57,7 +63,7 @@ jq -e '
   .spec.xconnect_network.gateway_vault_key == "tw-xconnect.svc.plus" and
   .spec.xconnect_network.one_vault_key == "observability.svc.plus" and
   ([.spec.resources[] | select((.management_mode == "terraform" or .management_mode == "terraform+serverless") and .lifecycle == "ephemeral") | .namespace] ==
-    ["web-saas","ai-workspace","agent-proxy-jp","agent-proxy-us","agent-proxy-sg"]) and
+    ["ai-workspace","agent-proxy-jp","agent-proxy-us","agent-proxy-sg"]) and
   all(.spec.resources[]; (.management_mode == "existing" or (.state_project == "svc.plus")))
 ' "${matrix}" >/dev/null
 
@@ -120,7 +126,7 @@ bash -n "${dispatcher}"
 
 dry_run="$(mktemp)"
 invalid_matrix="$(mktemp)"
-trap 'rm -f "${dry_run}" "${invalid_matrix}"' EXIT
+trap 'rm -f "${dry_run}" "${invalid_matrix}" "${matrix}"' EXIT
 jq '.spec.resources[0].release_scope = "business"' "${matrix}" >"${invalid_matrix}"
 if GH_TOKEN=dry-run GH_REPO=ai-workspace-infra/platform-ops-toolkit \
   MATRIX_FILE="${invalid_matrix}" OPERATION=deploy CHILD_REF=main \

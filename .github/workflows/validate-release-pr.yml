@@ -36,11 +36,11 @@ jobs:
       uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/gitops
-        ref: main
+        ref: 9f86245a2a98d44eb019e1620d2bbe1920bc3f9c
         path: gitops-hybrid-contract
         sparse-checkout-cone-mode: false
         sparse-checkout: |
-          topology/uat/hybrid/resource-matrix.json
+          topology/uat/hybrid/resource-matrix.yaml
           resources/onwalk.net/uat/gcp/open-platform.yaml
           resources/onwalk.net/uat/gcp/web-saas.yaml
           resources/svc.plus/uat/gcp/ai-workspace.yaml
@@ -48,6 +48,9 @@ jobs:
 
     - name: Install PyYAML
       run: pip install --quiet pyyaml
+
+    - name: Verify GitOps YAML machine-consumer contract
+      run: python3 .github/scripts/tests/test_gitops_yaml_json.py
 
     - name: Verify unified multi-cloud IaC state contract
       run: python3 scripts/tests/test_iac_state_contract.py
@@ -105,7 +108,7 @@ jobs:
 
     - name: Verify Hybrid UAT child failures cannot report green
       env:
-        GITOPS_MATRIX_FILE: ${{ github.workspace }}/gitops-hybrid-contract/topology/uat/hybrid/resource-matrix.json
+        GITOPS_MATRIX_FILE: ${{ github.workspace }}/gitops-hybrid-contract/topology/uat/hybrid/resource-matrix.yaml
         GITOPS_OPEN_PLATFORM_FILE: ${{ github.workspace }}/gitops-hybrid-contract/resources/onwalk.net/uat/gcp/open-platform.yaml
         GITOPS_RESOURCE_ROOTS: ${{ github.workspace }}/gitops-hybrid-contract/resources/onwalk.net/uat/gcp:${{ github.workspace }}/gitops-hybrid-contract/resources/svc.plus/uat/gcp
       run: |

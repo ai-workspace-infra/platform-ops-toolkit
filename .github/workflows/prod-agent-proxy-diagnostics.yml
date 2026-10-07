@@ -30,7 +30,7 @@ jobs:
       - id: aws_oidc
         run: .github/scripts/gitops/resolve_gitops_aws_oidc_config.sh
         env:
-          GITOPS_AWS_OIDC_CONFIG: gitops/resources/svc.plus/prod/aws/github-actions-oidc.json
+          GITOPS_AWS_OIDC_CONFIG: gitops/resources/svc.plus/prod/aws/github-actions-oidc.yaml
           EXPECTED_DEPLOYMENT_ENV: prod
       - uses: aws-actions/configure-aws-credentials@v4
         with:
