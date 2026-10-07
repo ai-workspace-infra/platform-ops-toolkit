@@ -540,7 +540,7 @@ jobs:
           echo 'Billing schema receipt published after access cleanup; application/CD writers remain paused. Full business copy, equality and main database cutover remain pending. Preview makes no schema changes.' >> "$GITHUB_STEP_SUMMARY"
 
   native_prod_business:
-    name: "[3] PROD | full-business preview, copy or comparison"
+    name: "${{ github.event.inputs.operation == 'native-core-users' && '[3] PROD | core users sync and four-field comparison' || '[3] PROD | full-business preview, copy or comparison' }}"
     if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.operation == 'native-business-plan' || github.event.inputs.operation == 'native-business-copy' || github.event.inputs.operation == 'native-business-compare' || github.event.inputs.operation == 'native-core-users') }}
     runs-on: ubuntu-latest
     environment: prod
@@ -600,7 +600,7 @@ jobs:
           cmdb_sha256: ${{ steps.full_business_control.outputs.cmdb_sha256 }}
           access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Run only the explicit full-business mode through fixed Playbooks owner
-        uses: ai-workspace-infra/playbooks/.github/actions/prod-full-business@1bc8531c23c6f51f7010c240f5d949463d8c9099
+        uses: ai-workspace-infra/playbooks/.github/actions/prod-full-business@008fcfc430f4c023bd092fb047c65a217e3b113e
         with:
           cmdb_dir: ${{ runner.temp }}/native-resource-cmdb
           cmdb_sha256: ${{ steps.full_business_control.outputs.cmdb_sha256 }}
@@ -636,8 +636,8 @@ jobs:
           if-no-files-found: error
       - name: State the completed boundary
         run: |
-          echo '## PROD full-business data operation' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Full-business receipt published after access cleanup. Preview does not copy business rows; copy and comparison do not authorize cutover. Source freeze, final catch-up, single writer and production acceptance remain separate gates.' >> "$GITHUB_STEP_SUMMARY"
+          echo '## PROD database operation receipt' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Receipt published after access cleanup. Core-user mode proves latest source/target count, email, password hash and Proxy UUID equality with a read-only source. It requires the exact native schema, without dynamic 53-table row equality. Business acceptance and Cloudflare switching are subsequent operations, outside this workflow acceptance.' >> "$GITHUB_STEP_SUMMARY"
 
   provision:
     if: ${{ github.event.inputs.operation != 'native-standby' && github.event.inputs.operation != 'native-init-plan' && github.event.inputs.operation != 'native-init' && github.event.inputs.operation != 'native-billing-plan' && github.event.inputs.operation != 'native-billing' && github.event.inputs.operation != 'native-business-plan' && github.event.inputs.operation != 'native-business-copy' && github.event.inputs.operation != 'native-business-compare' && github.event.inputs.operation != 'native-core-users' }}
