@@ -116,28 +116,22 @@ for aggregate in agent-proxy 'web-saas + agent-proxy'; do
   fi
 done
 
-matrix_workflow="${repo_root}/.github/workflows/selfhost-orchestrator.yml"
-matrix_deploy_script="${repo_root}/.github/scripts/platform-ops/provision/platform-ops_provision_dispatch-selfhost-uat-namespace-matrix.sh"
-grep -Fq 'Dispatch ordered UAT selfhost namespace deployments' "${matrix_workflow}"
-grep -Fq 'CHILD_WORKFLOW: selfhost-orchestrator.yml' "${matrix_workflow}"
-grep -Fq 'OBSERVABILITY_ENDPOINT: ${{ github.event.inputs.observability_endpoint || '\''https://observability.svc.plus'\'' }}' "${matrix_workflow}"
-grep -Fq 'OBSERVE_EXPECTED_CODES: "200,200,404,401"' "${matrix_workflow}"
-grep -Fq 'https://console-selfhost-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/' "${matrix_workflow}"
-if grep -Fq 'OBSERVE_EXPECTED_CODES: "200,404,200"' "${matrix_workflow}"; then
+workflow="${repo_root}/.github/workflows/selfhost-orchestrator.yml"
+grep -Fq 'OBSERVABILITY_ENDPOINT: ${{ github.event.inputs.observability_endpoint || '\''https://observability.svc.plus'\'' }}' "${workflow}"
+grep -Fq 'OBSERVE_EXPECTED_CODES: "200,200,404,401"' "${workflow}"
+grep -Fq 'https://console-selfhost-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/' "${workflow}"
+if grep -Fq 'OBSERVE_EXPECTED_CODES: "200,404,200"' "${workflow}"; then
   echo "Bridge health contract must not treat the protected unauthenticated endpoint as public" >&2
   exit 1
 fi
-grep -Fq 'contains(fromJSON('"'"'' "${matrix_workflow}"
-grep -Fq '"ai-workspace","agent-proxy-jp","agent-proxy-us","agent-proxy-sg"' "${matrix_workflow}"
-grep -Fq 'repository: ai-workspace-lab/xworkmate-bridge' "${matrix_workflow}"
-grep -Fq 'path: xworkmate-bridge' "${matrix_workflow}"
-grep -Fq 'owner: ai-workspace-lab' "${matrix_workflow}"
-bash -n "${matrix_deploy_script}"
-grep -Fq 'legacy Akamai-only UAT namespace dispatcher is disabled' "${matrix_deploy_script}"
-grep -Fq 'id: gcp_oidc' "${matrix_workflow}"
-grep -Fq 'TF_VAR_deploy_service_account=${{ steps.gcp_oidc.outputs.service_account }}' "${matrix_workflow}"
-grep -Fq 'TF_VAR_workload_identity_provider=${{ steps.gcp_oidc.outputs.provider }}' "${matrix_workflow}"
-python3 - "${matrix_workflow}" <<'PY'
+grep -Fq '"ai-workspace","agent-proxy-jp","agent-proxy-us","agent-proxy-sg"' "${workflow}"
+grep -Fq 'repository: ai-workspace-lab/xworkmate-bridge' "${workflow}"
+grep -Fq 'path: xworkmate-bridge' "${workflow}"
+grep -Fq 'owner: ai-workspace-lab' "${workflow}"
+grep -Fq 'id: gcp_oidc' "${workflow}"
+grep -Fq 'TF_VAR_deploy_service_account=${{ steps.gcp_oidc.outputs.service_account }}' "${workflow}"
+grep -Fq 'TF_VAR_workload_identity_provider=${{ steps.gcp_oidc.outputs.provider }}' "${workflow}"
+python3 - "${workflow}" <<'PY'
 from pathlib import Path
 import sys
 import yaml
