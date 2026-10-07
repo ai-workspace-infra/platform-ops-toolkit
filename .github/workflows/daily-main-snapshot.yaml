@@ -305,10 +305,10 @@ jobs:
     needs: [resolve-built-snapshot-tag, shared-readiness]
     if: >-
       ${{
-        always() &&
-        needs.resolve-built-snapshot-tag.result == 'success' &&
-        needs.shared-readiness.result == 'success' &&
-        (inputs.repositories || '') == ''
+      always() &&
+      needs.resolve-built-snapshot-tag.result == 'success' &&
+      needs.shared-readiness.result == 'success' &&
+      (inputs.repositories || '') == ''
       }}
     runs-on: ubuntu-latest
     outputs:
@@ -362,10 +362,10 @@ jobs:
     needs: [resolve-built-snapshot-tag, shared-readiness, resolve-dispatch-environment]
     if: >-
       ${{
-        always() &&
-        needs.resolve-built-snapshot-tag.result == 'success' &&
-        needs.shared-readiness.result == 'success' &&
-        needs.resolve-dispatch-environment.result == 'success'
+      always() &&
+      needs.resolve-built-snapshot-tag.result == 'success' &&
+      needs.shared-readiness.result == 'success' &&
+      needs.resolve-dispatch-environment.result == 'success'
       }}
     strategy:
       fail-fast: false
@@ -464,6 +464,7 @@ jobs:
       needs.snapshot.result != 'skipped' &&
       needs.resolve-built-snapshot-tag.result != 'failure' &&
       needs.shared-readiness.result != 'failure' &&
+      needs.resolve-dispatch-environment.result != 'failure' &&
       needs.dispatch-environment.result != 'failure'
       }}
     runs-on: ubuntu-latest
