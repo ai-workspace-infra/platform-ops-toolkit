@@ -167,7 +167,7 @@ jobs:
           # 标识现查真实 ID。target_domain 就是主机 label(命名约定保证),
           # 是自愈的主线索。
           EXPECTED_HOSTNAME: ${{ inputs.target_domain }}
-        uses: ai-workspace-infra/iac_modules/.github/actions/platform-resource-operations@eeba506886c5d08bbcd58d4866551ef32f845fd2
+        uses: ai-workspace-infra/iac_modules/.github/actions/platform-resource-operations@d6174eec8e7757736e9b61b9d65a17c41cd455b8
         with:
           operation: resize-preflight
           environment: ${{ inputs.vault_env_path }}

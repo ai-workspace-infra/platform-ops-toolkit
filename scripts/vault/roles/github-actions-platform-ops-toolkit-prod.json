@@ -30,7 +30,7 @@
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/ucloud-iac.yml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/gcp-oidc-bootstrap.yml@*",
       "ai-workspace-infra/iac_modules/.github/workflows/cloudflare-serverless-domains.yml@a7ac40fb0c3e620bdec89edd72b172afefc1f2ee",
-      "ai-workspace-infra/iac_modules/.github/workflows/cloudflare-serverless-domains.yml@eeba506886c5d08bbcd58d4866551ef32f845fd2"
+      "ai-workspace-infra/iac_modules/.github/workflows/cloudflare-serverless-domains.yml@d6174eec8e7757736e9b61b9d65a17c41cd455b8"
     ],
     "ref": [
       "refs/tags/v*",

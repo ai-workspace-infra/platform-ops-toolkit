@@ -68,7 +68,7 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
       - name: Run immutable IaC cleanup owner
         id: cleanup
-        uses: ai-workspace-infra/iac_modules/.github/actions/uat-compute-cleanup@eeba506886c5d08bbcd58d4866551ef32f845fd2
+        uses: ai-workspace-infra/iac_modules/.github/actions/uat-compute-cleanup@d6174eec8e7757736e9b61b9d65a17c41cd455b8
         with:
           policy: ${{ github.workspace }}/cleanup-gitops/topology/uat/serverless/cleanup-policy.yaml
           # Schedules remain plan-only until a reviewed activation changes this contract.
