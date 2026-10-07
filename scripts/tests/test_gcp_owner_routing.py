@@ -5,7 +5,7 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
-OWNER_SHA = "8373e926a6f7ba37a59a7b7ee864c7e87b102f58"
+OWNER_SHA = "9570b01959396e1d0e20331205b5cb5718f5c588"
 CONFIGURE = ROOT / ".github/actions/configure-gcp-oidc/action.yml"
 IDENTITY = ROOT / ".github/actions/load-gcp-cloud-identity/action.yml"
 AUTH_CALLERS = (

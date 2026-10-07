@@ -7,7 +7,7 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
-OWNER_SHA = "8373e926a6f7ba37a59a7b7ee864c7e87b102f58"
+OWNER_SHA = "9570b01959396e1d0e20331205b5cb5718f5c588"
 SERVERLESS = ROOT / ".github/workflows/serverless-orchestrator.yml"
 DIAGNOSTICS = ROOT / ".github/workflows/prod-agent-proxy-diagnostics.yml"
 GATE = ROOT / ".github/scripts/serverless/verify_cloud_run_digest_facts.sh"
@@ -71,6 +71,10 @@ class GcpDeliveryFactRoutingTests(unittest.TestCase):
         result = subprocess.run(["bash", str(GATE)], env=stray, text=True, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("traffic still reaches", result.stderr)
+        for traffic in ('[]', 'null', '["accounts-00042","accounts-00042"]'):
+            with self.subTest(traffic=traffic):
+                result = subprocess.run(["bash", str(GATE)], env={**base, "TRAFFIC_REVISIONS": traffic}, text=True, capture_output=True)
+                self.assertNotEqual(result.returncode, 0)
         mismatch = {**base, "SERVING_DIGEST": "sha256:" + "c" * 64}
         result = subprocess.run(["bash", str(GATE)], env=mismatch, text=True, capture_output=True)
         self.assertNotEqual(result.returncode, 0)

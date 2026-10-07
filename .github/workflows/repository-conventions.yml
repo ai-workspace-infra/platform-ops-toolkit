@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: 8373e926a6f7ba37a59a7b7ee864c7e87b102f58
+          ref: 9570b01959396e1d0e20331205b5cb5718f5c588
           path: contract/iac_modules
 
       - name: Checkout playbooks main
@@ -68,6 +68,7 @@ jobs:
           python3 scripts/ci/tests/test_delivery_workflow_handoff.py -v
           python3 scripts/ci/tests/test_nested_owner_action_checkout.py -v
           python3 scripts/tests/test_gcp_owner_routing.py -v
+          python3 scripts/tests/test_gcp_delivery_fact_routing.py -v
           python3 scripts/tests/test_setup_deployment_runner_owner_callers.py -v
           python3 scripts/tests/test_playbooks_owner_callers.py -v
 

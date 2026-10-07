@@ -22,7 +22,7 @@ set -euo pipefail
 }
 
 jq -e --arg revision "${LATEST_READY_REVISION}" \
-  'type == "array" and all(.[]; type == "string" and . == $revision)' \
+  'type == "array" and length == 1 and all(.[]; type == "string" and . == $revision)' \
   <<<"${TRAFFIC_REVISIONS}" >/dev/null || {
   echo "::error::${CLOUD_RUN_SERVICE_NAME}: traffic still reaches a revision other than ${LATEST_READY_REVISION}." >&2
   exit 1
