@@ -117,7 +117,28 @@ for gate in H1 H2 H3 H4 H5 H6; do
   grep -Fq "| ${gate} " "${gates}"
 done
 grep -Fq 'gateway_release_tag:$gateway' "${repo_root}/.github/scripts/xconnect-lab/lease.sh"
-grep -Fq 'wireguard-handshake' "${repo_root}/gitops/vpn-overlay/uat/xconnect-lab.json" 2>/dev/null || true
+if [[ -n "${XCONNECT_GITOPS_ROOT:-}" ]]; then
+  declaration="${XCONNECT_GITOPS_ROOT}/vpn-overlay/uat/xconnect-lab.json"
+  test -f "${declaration}" || {
+    echo "fixed-SHA XConnect declaration fixture is missing: ${declaration}" >&2
+    exit 1
+  }
+  if [[ -n "${XCONNECT_GITOPS_REF:-}" ]]; then
+    actual_ref="$(git -C "${XCONNECT_GITOPS_ROOT}" rev-parse HEAD)"
+    [[ "${actual_ref}" == "${XCONNECT_GITOPS_REF}" ]] || {
+      echo "XConnect declaration fixture is not checked out at ${XCONNECT_GITOPS_REF}" >&2
+      exit 1
+    }
+  fi
+  jq -e '
+    .kind == "XConnectLabTopology" and
+    .metadata.environment == "uat" and
+    .spec.gateway_transport.transport == "vless-xhttp" and
+    .spec.gateway_transport.profile.path == "/xconnect" and
+    .spec.gateway_transport.profile.host == "tw-xconnect.svc.plus" and
+    .spec.node_observation.mode == "until-expiry"
+  ' "${declaration}" >/dev/null
+fi
 
 if grep -Fq 'xconnect-zero-lab-linux-arm64' "${runner}" || grep -Fq 'xconnect-lab-zero.service' "${deploy}"; then
   echo "Formal UAT lab must not download or run the experimental Zero controller" >&2

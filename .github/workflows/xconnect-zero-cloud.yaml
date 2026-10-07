@@ -150,13 +150,13 @@ jobs:
       - name: Validate workflow and Vault contracts
         if: matrix.suite == 'contracts'
         run: |
-          bash .github/scripts/tests/xconnect_formal_uat_lab_contract_test.sh
-          bash .github/scripts/tests/xconnect_playbooks_observation_caller_contract_test.sh
-          bash .github/scripts/tests/xconnect_cloud_lab_vault_role_contract_test.sh
-          bash .github/scripts/tests/xconnect_gateway_dns_contract_test.sh
+          bash scripts/tests/control_plane/xconnect_formal_uat_lab_contract_test.sh
+          bash scripts/tests/control_plane/xconnect_playbooks_observation_caller_contract_test.sh
+          bash scripts/tests/control_plane/xconnect_cloud_lab_vault_role_contract_test.sh
+          bash scripts/tests/control_plane/xconnect_gateway_dns_contract_test.sh
           bash .github/scripts/tests/xconnect_xhttp_runtime_contract_test.sh
-          bash .github/scripts/tests/xconnect_ai_aggregator_matrix_contract_test.sh
-          bash .github/scripts/tests/xconnect_declared_network_contract_test.sh
+          bash scripts/tests/control_plane/xconnect_ai_aggregator_matrix_contract_test.sh
+          bash scripts/tests/control_plane/xconnect_declared_network_contract_test.sh
       - name: Validate runtime scripts and workflow inputs
         if: matrix.suite == 'runtime'
         env:
@@ -166,7 +166,7 @@ jobs:
           NETWORK_GITOPS_REF_INPUT: ${{ inputs.network_gitops_ref }}
         run: |
           python3 -m unittest discover -s .github/scripts/xconnect-lab -p 'test_*.py'
-          bash .github/scripts/tests/workflow_dispatch_input_limit_test.sh
+          bash scripts/tests/control_plane/workflow_dispatch_input_limit_test.sh
           bash -n .github/scripts/xconnect-lab/run.sh
           bash -n .github/scripts/xconnect-lab/deploy.sh
           bash -n .github/scripts/xconnect-lab/gateway.sh

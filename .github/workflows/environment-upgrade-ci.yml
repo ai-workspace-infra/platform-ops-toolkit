@@ -8,11 +8,11 @@ on:
       - scripts/vault/**
       - .github/workflows/environment-upgrade*.yml
       - .github/scripts/environment-upgrade/**
-      - .github/scripts/tests/environment_upgrade_test.py
-      - .github/scripts/tests/environment_data_operations_test.py
-      - .github/scripts/tests/import_receipt_test.py
+      - scripts/tests/control_plane/environment_upgrade_test.py
+      - scripts/tests/control_plane/environment_data_operations_test.py
+      - scripts/tests/control_plane/import_receipt_test.py
       - .github/scripts/snapshots/verify-promotion-manifest.py
-      - .github/scripts/tests/fixtures/uat-upgrade-acceptance.jq
+      - scripts/tests/control_plane/fixtures/uat-upgrade-acceptance.jq
       - docs/data_migration/environment-upgrade.md
       - docs/data_migration/environment-data-operations.md
   push:
@@ -21,11 +21,11 @@ on:
       - .github/workflows/environment-data-operations.yml
       - .github/workflows/environment-upgrade*.yml
       - .github/scripts/environment-upgrade/**
-      - .github/scripts/tests/environment_upgrade_test.py
-      - .github/scripts/tests/environment_data_operations_test.py
-      - .github/scripts/tests/import_receipt_test.py
+      - scripts/tests/control_plane/environment_upgrade_test.py
+      - scripts/tests/control_plane/environment_data_operations_test.py
+      - scripts/tests/control_plane/import_receipt_test.py
       - .github/scripts/snapshots/verify-promotion-manifest.py
-      - .github/scripts/tests/fixtures/uat-upgrade-acceptance.jq
+      - scripts/tests/control_plane/fixtures/uat-upgrade-acceptance.jq
 
 permissions:
   contents: read
@@ -41,6 +41,6 @@ jobs:
       - name: Falsify both environments and all phase gates without deployment credentials
         run: |
           python3 -m pip install PyYAML==6.0.3
-          python3 .github/scripts/tests/environment_upgrade_test.py
-          python3 .github/scripts/tests/environment_data_operations_test.py
-          python3 .github/scripts/tests/import_receipt_test.py
+          python3 scripts/tests/control_plane/environment_upgrade_test.py
+          python3 scripts/tests/control_plane/environment_data_operations_test.py
+          python3 scripts/tests/control_plane/import_receipt_test.py
