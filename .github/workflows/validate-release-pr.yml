@@ -118,6 +118,7 @@ jobs:
         python3 .github/scripts/tests/prod_native_init_control_test.py
         python3 .github/scripts/tests/prod_native_billing_control_test.py
         python3 .github/scripts/tests/prod_full_business_control_test.py
+        python3 .github/scripts/tests/selfhost_acceptance_test.py
 
     - name: Verify UAT business evidence is required for PROD promotion
       run: python3 .github/scripts/tests/uat_business_promotion_gate_test.py
