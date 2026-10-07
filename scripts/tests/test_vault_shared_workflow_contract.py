@@ -32,7 +32,7 @@ class VaultServerEntryTests(unittest.TestCase):
         self.assertIn("connection_mode: bootstrap-public", ENTRY.read_text(encoding="utf-8"))
         self.assertIn("xconnect-one", self.inputs["service_stage"]["options"])
         self.assertIn("vault-public-frontend", self.inputs["service_stage"]["options"])
-        self.assertEqual(self.inputs["playbooks_ref"]["default"], "bf7eaf0106a5f20c8337779e0b415bf6dc937986")
+        self.assertEqual(self.inputs["playbooks_ref"]["default"], "dbcdc8073228e1749ee88b669dcbfccc0549212d")
 
     def test_gateway_tls_is_read_with_the_scoped_xconnect_role_only_when_needed(self):
         steps = steps_by_name(self.jobs["node-stage"]["steps"])
@@ -192,10 +192,19 @@ class ProviderNeutralStageTests(unittest.TestCase):
         self.assertEqual(cleanup["steps"][-1]["with"]["phase"], "close")
 
     def test_stage_runner_receives_plan_outputs(self):
+        setup = self.steps["Prepare isolated Python and Ansible in the Playbooks owner"]
+        self.assertEqual(
+            setup["uses"],
+            "ai-workspace-infra/playbooks/.github/actions/setup-node-stage-runner@dbcdc8073228e1749ee88b669dcbfccc0549212d",
+        )
+        self.assertEqual(setup["with"]["venv_path"], "${{ runner.temp }}/node-stage-python")
+        self.assertEqual(str(setup["with"]["pyyaml_version"]), "6.0.2")
+        self.assertEqual(str(setup["with"]["ansible_core_version"]), "2.17.14")
+        self.assertEqual(str(setup["with"]["ansible_posix_version"]), "2.1.0")
         run = self.steps["Execute provider-neutral Vault node stage"]
         self.assertEqual(
             run["uses"],
-            "ai-workspace-infra/playbooks/.github/actions/vault-node-stage@bf7eaf0106a5f20c8337779e0b415bf6dc937986",
+            "ai-workspace-infra/playbooks/.github/actions/vault-node-stage@dbcdc8073228e1749ee88b669dcbfccc0549212d",
         )
         for field in ("tags", "requires", "confirms", "playbook", "action", "extra_vars", "stage"):
             self.assertEqual(run["with"][field], f"${{{{ steps.stage.outputs.{field} }}}}")
@@ -205,11 +214,19 @@ class ProviderNeutralStageTests(unittest.TestCase):
 
     def test_stage_is_resolved_after_access_and_auto_mode_can_stop(self):
         names = list(self.steps)
+        observe = self.steps["Observe the automatic migration in the Playbooks owner"]
+        self.assertEqual(
+            observe["uses"],
+            "ai-workspace-infra/playbooks/.github/actions/vault-migration-observation@dbcdc8073228e1749ee88b669dcbfccc0549212d",
+        )
+        self.assertEqual(observe["with"]["owner_root"], "${{ github.workspace }}/playbooks")
         resolve = self.steps["Resolve the stage to run"]
-        self.assertLess(names.index("Verify live SSH host keys against GitOps pins"), names.index("Resolve the stage to run"))
+        self.assertLess(names.index("Verify live SSH host keys against GitOps pins"), names.index("Observe the automatic migration in the Playbooks owner"))
+        self.assertLess(names.index("Observe the automatic migration in the Playbooks owner"), names.index("Resolve the stage to run"))
         self.assertLess(names.index("Resolve the stage to run"), names.index("Log in with the stage's scoped Vault role"))
-        self.assertIn("auto_migration.py", resolve["run"])
+        self.assertNotIn("auto_migration.py", resolve["run"])
         self.assertIn("stage_plan.py", resolve["run"])
+        self.assertIn("--recommended-stage", resolve["run"])
         report = self.steps["Report where migrate-auto stopped"]
         self.assertIn("steps.stage.outputs.blocked != ''", report["if"])
         snapshot = self.steps["Take, encrypt and upload a Raft snapshot"]
@@ -265,7 +282,8 @@ class MigrationWiringTests(unittest.TestCase):
         self.assertIn("vault-service-verify", options)
         resolve = self.steps["Resolve the stage to run"]["run"]
         self.assertIn('--backup "${backup}"', resolve)
-        self.assertIn('--observation "${OBSERVATION}"', resolve)
+        observe = self.steps["Observe the automatic migration in the Playbooks owner"]
+        self.assertEqual(observe["with"]["observation"], "${{ needs.declaration.outputs.observation }}")
         action = load(NODE_STAGE)
         gate = steps_by_name(action["runs"]["steps"])["Check live node state required by the stage"]
         self.assertIn("--select-next-peer", gate["run"])

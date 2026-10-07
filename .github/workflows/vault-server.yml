@@ -69,7 +69,7 @@ on:
         description: Immutable Playbooks owner commit; overrides are rejected by the node-stage checkout contract.
         type: string
         required: true
-        default: bf7eaf0106a5f20c8337779e0b415bf6dc937986
+        default: dbcdc8073228e1749ee88b669dcbfccc0549212d
 
 permissions:
   contents: read
@@ -262,7 +262,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/playbooks
-          ref: bf7eaf0106a5f20c8337779e0b415bf6dc937986
+          ref: dbcdc8073228e1749ee88b669dcbfccc0549212d
           path: playbooks
           persist-credentials: false
 
@@ -271,21 +271,21 @@ jobs:
           REQUESTED_PLAYBOOKS_REF: ${{ inputs.playbooks_ref }}
         run: |
           set -euo pipefail
-          expected=bf7eaf0106a5f20c8337779e0b415bf6dc937986
+          expected=dbcdc8073228e1749ee88b669dcbfccc0549212d
           [[ "${REQUESTED_PLAYBOOKS_REF}" == "${expected}" ]] || {
             echo "::error::playbooks_ref must equal the reviewed owner SHA ${expected}" >&2
             exit 1
           }
           test "$(git -C playbooks rev-parse HEAD)" = "${expected}"
 
-      - name: Prepare isolated Python and Ansible
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 -m venv "${RUNNER_TEMP}/node-stage-python"
-          "${RUNNER_TEMP}/node-stage-python/bin/python" -m pip install --disable-pip-version-check 'pyyaml==6.0.2' 'ansible-core==2.17.14'
-          "${RUNNER_TEMP}/node-stage-python/bin/ansible-galaxy" collection install 'ansible.posix:==2.1.0'
-          echo "${RUNNER_TEMP}/node-stage-python/bin" >> "${GITHUB_PATH}"
+      - name: Prepare isolated Python and Ansible in the Playbooks owner
+        uses: ai-workspace-infra/playbooks/.github/actions/setup-node-stage-runner@dbcdc8073228e1749ee88b669dcbfccc0549212d
+        with:
+          venv_path: ${{ runner.temp }}/node-stage-python
+          python: python3
+          pyyaml_version: 6.0.2
+          ansible_core_version: 2.17.14
+          ansible_posix_version: 2.1.0
 
       - name: Create the one-run SSH key
         if: ${{ needs.declaration.outputs.open_new == 'true' || needs.declaration.outputs.open_legacy == 'true' }}
@@ -417,8 +417,22 @@ jobs:
           python3 playbooks/scripts/node_deploy/prepare_known_hosts.py \
             --contract "${NODE_CONTRACT}" --output "${SSH_KNOWN_HOSTS}"
 
-      # migrate-auto chooses the next step from live state here, once access
-      # is open; every other stage resolves to itself.
+      - name: Observe the automatic migration in the Playbooks owner
+        id: migration_observation
+        if: ${{ inputs.service_stage == 'migrate-auto' }}
+        uses: ai-workspace-infra/playbooks/.github/actions/vault-migration-observation@dbcdc8073228e1749ee88b669dcbfccc0549212d
+        with:
+          contract: ${{ steps.access.outputs.contract }}
+          ssh_private_key: ${{ steps.access.outputs.ssh_private_key }}
+          known_hosts: ${{ runner.temp }}/node-known-hosts
+          vault_addr: ${{ needs.declaration.outputs.vault_addr }}
+          backup_config: ${{ needs.declaration.outputs.backup_config }}
+          observation: ${{ needs.declaration.outputs.observation }}
+          gateway_state: /var/lib/xconnect-gateway/${{ needs.declaration.outputs.environment }}/state.json
+          owner_root: ${{ github.workspace }}/playbooks
+
+      # Playbooks observes live state above. Toolkit only validates and expands
+      # the resulting recommendation through its pure stage plan.
       - name: Resolve the stage to run
         id: stage
         shell: bash
@@ -426,19 +440,30 @@ jobs:
           SERVICE_STAGE: ${{ inputs.service_stage }}
           CONFIRM: ${{ inputs.confirm }}
           MIGRATION: ${{ needs.declaration.outputs.migration }}
-          NODE_CONTRACT: ${{ steps.access.outputs.contract }}
-          VAULT_ADDR: ${{ needs.declaration.outputs.vault_addr }}
           BACKUP_CONFIG: ${{ needs.declaration.outputs.backup_config }}
-          OBSERVATION: ${{ needs.declaration.outputs.observation }}
+          RECOMMENDED_STAGE: ${{ steps.migration_observation.outputs.recommended_stage }}
+          OBSERVATION_BLOCKED: ${{ steps.migration_observation.outputs.blocked }}
         run: |
           set -euo pipefail
           backup=true
           [[ "${BACKUP_CONFIG}" != '{}' ]] || backup=false
           if [[ "${SERVICE_STAGE}" == migrate-auto ]]; then
-            python3 scripts/node_deploy/auto_migration.py \
-              --contract "${NODE_CONTRACT}" --key "${NODE_ACCESS_DIR}/id_ed25519" --known-hosts "${SSH_KNOWN_HOSTS}" \
-              --vault-addr "${VAULT_ADDR}" --backup-config "${BACKUP_CONFIG}" --observation "${OBSERVATION}" \
-              --github-output "${GITHUB_OUTPUT}"
+            if [[ -n "${RECOMMENDED_STAGE}" ]]; then
+              python3 scripts/node_deploy/stage_plan.py migrate-auto \
+                --confirm "${CONFIRM}" --migration "${MIGRATION}" --backup "${backup}" \
+                --recommended-stage "${RECOMMENDED_STAGE}" --github-output "${GITHUB_OUTPUT}" >/dev/null
+              echo "blocked=" >> "${GITHUB_OUTPUT}"
+            else
+              [[ -n "${OBSERVATION_BLOCKED}" ]] || {
+                echo '::error::Playbooks observation returned neither a recommendation nor a manual gate' >&2
+                exit 1
+              }
+              for value in \
+                'stage=' "blocked=${OBSERVATION_BLOCKED}" 'snapshot_first=false' \
+                'token=' 'action=' 'needs_observability=false'; do
+                printf '%s\n' "${value}" >> "${GITHUB_OUTPUT}"
+              done
+            fi
           else
             python3 scripts/node_deploy/stage_plan.py "${SERVICE_STAGE}" \
               --confirm "${CONFIRM}" --migration "${MIGRATION}" --backup "${backup}" \
@@ -590,7 +615,7 @@ jobs:
       - name: Execute provider-neutral Vault node stage
         id: node_deploy
         if: ${{ steps.access.outcome == 'success' && steps.stage.outputs.stage != '' }}
-        uses: ai-workspace-infra/playbooks/.github/actions/vault-node-stage@bf7eaf0106a5f20c8337779e0b415bf6dc937986
+        uses: ai-workspace-infra/playbooks/.github/actions/vault-node-stage@dbcdc8073228e1749ee88b669dcbfccc0549212d
         env:
           VECTOR_AUTH_USER: ${{ steps.observability.outputs.VECTOR_AUTH_USER }}
           VECTOR_AUTH_PASSWORD: ${{ steps.observability.outputs.VECTOR_AUTH_PASSWORD }}

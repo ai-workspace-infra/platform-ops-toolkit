@@ -199,7 +199,7 @@ jobs:
             ${{ env.VAULT_KV_ACTION_RUNNER }} GITEA_RUNNER_TOKEN | GITEA_RUNNER_TOKEN
 
       - name: Setup deployment runner
-        uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@bf7eaf0106a5f20c8337779e0b415bf6dc937986
+        uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@dbcdc8073228e1749ee88b669dcbfccc0549212d
         with:
           ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
           matrix_host: ${{ matrix.host }}

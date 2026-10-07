@@ -9,6 +9,10 @@ on:
       - ".github/workflows/**"
       - ".github/workflows/repository-conventions.yml"
       - "scripts/ci/**"
+      - "scripts/node_deploy/stage_plan.py"
+      - "scripts/node_deploy/README.md"
+      - "scripts/tests/test_stage_plan.py"
+      - "scripts/tests/test_vault_shared_workflow_contract.py"
       - "scripts/cloud/bootstrap/gcp/bootstrap_prod_selfhost.sh"
   push:
     branches: [main]
@@ -19,6 +23,10 @@ on:
       - ".github/workflows/**"
       - ".github/workflows/repository-conventions.yml"
       - "scripts/ci/**"
+      - "scripts/node_deploy/stage_plan.py"
+      - "scripts/node_deploy/README.md"
+      - "scripts/tests/test_stage_plan.py"
+      - "scripts/tests/test_vault_shared_workflow_contract.py"
       - "scripts/cloud/bootstrap/gcp/bootstrap_prod_selfhost.sh"
 
 permissions:
@@ -83,6 +91,11 @@ jobs:
 
       - name: Falsify ownership guard with new and changed execution fixtures
         run: python3 scripts/ci/tests/test_script_ownership.py
+
+      - name: Verify Vault owner recommendation handoff and pure stage planning
+        run: |
+          python3 -m unittest discover -s scripts/tests -p 'test_stage_plan.py' -v
+          python3 -m unittest discover -s scripts/tests -p 'test_vault_shared_workflow_contract.py' -v
 
       - uses: ./.github/actions/setup-yq
 

@@ -20,8 +20,9 @@ Stage names are grouped by prefix so the dispatch dropdown reads in order:
   and the new nodes join it over XConnect one at a time. Leadership then moves
   to the new nodes, the service DNS moves last, and the old peer is removed
   only after the declared observation window. The new nodes are never
-  initialized on this path. ``migrate-auto`` picks the next of these steps
-  from live state (see auto_migration.py) and stops at every manual gate.
+  initialized on this path. The Playbooks observation owner recommends the
+  next step from live state; ``migrate-auto`` validates and expands only that
+  recommendation here, and stops at every manual gate.
 
 ``one_node`` stages change exactly one peer per dispatch (the first declared
 peer that has not joined); the standalone ``vault-snapshot`` stage owns the
@@ -340,6 +341,12 @@ CHECKS = {
 }
 ACTIONS = {"", "snapshot", "cutover", "remove-legacy"}
 TOKENS = {"", "snapshot", "raft-operator", "xconnect"}
+AUTO_RECOMMENDATIONS = {
+    "migrate-convert",
+    "migrate-join",
+    "migrate-cutover",
+    "migrate-remove",
+}
 
 
 def plan(stage: str, confirm: str = "", migration: bool | None = None, backup: bool | None = None) -> dict:
@@ -362,6 +369,25 @@ def plan(stage: str, confirm: str = "", migration: bool | None = None, backup: b
     if entry["confirm"] and confirm != entry["confirm"]:
         raise ValueError(f"stage {stage} changes a live Vault; set confirm={entry['confirm']}")
     return {"stage": stage, **entry}
+
+
+def plan_auto(recommended_stage: str, confirm: str, migration: bool | None, backup: bool | None = None) -> dict:
+    """Validate an owner recommendation under the outer auto confirmation."""
+    plan("migrate-auto", confirm, migration, backup)
+    if recommended_stage not in AUTO_RECOMMENDATIONS:
+        raise ValueError(
+            f"owner recommended unsupported auto stage {recommended_stage!r}; "
+            f"choose one of {sorted(AUTO_RECOMMENDATIONS)}"
+        )
+    # The single MIGRATE-VAULT-AUTO confirmation authorizes the reviewed
+    # recommendation. Keep the chosen stage's own confirm value in extra_vars
+    # so its owner role still asserts the exact destructive operation.
+    return plan(
+        recommended_stage,
+        STAGES[recommended_stage].get("confirm", ""),
+        migration,
+        backup,
+    )
 
 
 def output_values(result: dict) -> dict[str, str]:
@@ -401,12 +427,18 @@ def main() -> None:
     parser.add_argument("--confirm", default="")
     parser.add_argument("--migration", choices=["true", "false"])
     parser.add_argument("--backup", choices=["true", "false"], help="whether spec.backup is declared")
+    parser.add_argument("--recommended-stage", default="", help="Playbooks owner recommendation for migrate-auto")
     parser.add_argument("--github-output", type=Path)
     args = parser.parse_args()
     migration = None if args.migration is None else args.migration == "true"
     backup = None if args.backup is None else args.backup == "true"
     try:
-        result = plan(args.stage, args.confirm, migration, backup)
+        if args.recommended_stage:
+            if args.stage != "migrate-auto":
+                raise ValueError("--recommended-stage is valid only with stage migrate-auto")
+            result = plan_auto(args.recommended_stage, args.confirm, migration, backup)
+        else:
+            result = plan(args.stage, args.confirm, migration, backup)
     except ValueError as error:
         print(f"::error::{error}", file=sys.stderr)
         raise SystemExit(1) from None
