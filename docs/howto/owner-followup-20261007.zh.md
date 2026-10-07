@@ -48,3 +48,13 @@ host keys 按部署云资源的 KV 环境/目标来源选择。独立 UAT runtim
 Vault role 源码仅允许两个精确 main workflow 和 UAT environment。源码更新不等于 live role 已应用。当前已完成 owner 测试、离线 caller contracts 和 Ansible syntax-check；PR CI 与只读 rehearsal 证据另记。SSH/XHTTP/WireGuard/私网 HTTP、Accounts 写入和 provider apply/destroy 均不得根据 mock 或 PR 合并标记验收完成。
 
 除纯测试目录迁移外，本批次保留旧执行文件。逐个删除前应记录 Toolkit/IaC/Playbooks/GitOps SHA、run/attempt、精确目标、receipt 与收敛证据，确认旧路径零调用，并保留固定 SHA 回退点。
+
+## 已发布与只读运行证据
+
+IaC [#417](https://github.com/ai-workspace-infra/iac_modules/pull/417)、Playbooks [#623](https://github.com/ai-workspace-infra/playbooks/pull/623)、Toolkit [#1376](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1376) 依次通过远端 CI 并合并 main。
+
+[Run 37641969087 / attempt 1](https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37641969087) 在 Toolkit `310ec72e39932982912f65f1cf8ab56951554045` 成功执行 `cloud-lab/dry-run`，固定 IaC `d7e49189a5de9c105a940f1c79abfb3b2b33bbd4`、Playbooks `9d585e147348800b1603c4f7b0d8a6bcf0546007`、GitOps `28430b835c4275eea1921aa7fd98c96dbc2c50ef`。
+
+Vault OIDC 登录、固定 checkout、声明校验、release artifacts、匿名 Accounts/Portal 边界、Terraform fmt/init backend=false/validate 通过。云凭证、DNS、AWS OIDC、prepare/apply、主机安装、邀请、额外节点、reconcile 和 cleanup 均跳过。
+
+Artifact `owner-receipt-service-xconnect-control-plane` ID `11492827205`，digest `sha256:afb692da5748c408e4f4e2a3d9501ca52ad81e88363c3cc3e894c71fdb526867`。下载后验证 owner/run/attempt/UAT/operation/scope/accepted；receipt 文件 checksum `0135cfed3f73a5f67bafcfea0264f3fb8ef3cfe63113740c7a226fce810a6f2b`。这是只读路径证据，SSH/数据面和新 Vault claim/key 字段仍待验证。
