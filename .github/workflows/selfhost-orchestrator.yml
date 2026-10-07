@@ -74,7 +74,7 @@ on:
         default: ""
         type: string
       operation:
-        description: "执行范围：plan 仅校验；infra 仅基础设施；deploy 部署应用；deploy+init 显式 UAT 空库初始化并部署；native-standby 仅准备 PROD PostgreSQL、保持应用停止；native-init-plan/native-init 受独立 PROD 数据审批保护的原生空库预演/初始化；native-billing-plan/native-billing 受相同保护的 Billing 原生增量预演/升级；native-business-plan/copy/compare 专用只读来源的全业务预演/复制/比对，均不授权切库；migrate 仅迁移；deploy+migrate 部署并迁移；destroy 销毁。迁移由此操作参数选择；GitOps 仅声明拓扑与能力。"
+        description: "执行范围：plan 仅校验；infra 仅基础设施；deploy 部署应用；deploy+init 显式 UAT 空库初始化并部署；native-standby 仅准备 PROD PostgreSQL、保持应用停止；native-init-plan/native-init 按受控合同策略执行原生空库预演/初始化（独立数据审批默认关闭，可显式开启）；native-billing-plan/native-billing 按相同策略执行 Billing 原生增量预演/升级；native-business-plan/copy/compare 专用只读来源的全业务预演/复制/比对，均不授权切库；migrate 仅迁移；deploy+migrate 部署并迁移；destroy 销毁。迁移由此操作参数选择；GitOps 仅声明拓扑与能力。"
         required: true
         default: "plan"
         type: choice
@@ -344,7 +344,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
-      - name: Verify independent PROD data review and exact successful standby/resource evidence
+      - name: Verify configured PROD data review policy and exact successful standby/resource evidence
         id: native_init_control
         env:
           GH_TOKEN: ${{ github.token }}
@@ -442,7 +442,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
-      - name: Verify independent PROD data review and exact successful initialization/standby/resource evidence
+      - name: Verify configured PROD data review policy and exact successful initialization/standby/resource evidence
         id: native_billing_control
         env:
           GH_TOKEN: ${{ github.token }}
@@ -549,7 +549,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
-      - name: Verify independent PROD review, approved source identity and exact successful parent evidence
+      - name: Verify configured PROD data review policy, approved source identity and exact successful parent evidence
         id: full_business_control
         env:
           GH_TOKEN: ${{ github.token }}
