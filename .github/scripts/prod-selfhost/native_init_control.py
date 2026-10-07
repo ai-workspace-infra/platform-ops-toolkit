@@ -122,9 +122,11 @@ def main():
     review_required = validate_data_review_config(contract, 'prod-native-init-only')
     get = BASE.get_json
     run_id = os.environ['GITHUB_RUN_ID']
-    validate_data_review(get('/environments/prod'), get('/actions/runs/' + run_id),
-        get('/actions/runs/' + run_id + '/approvals'), run_id, os.environ['GITHUB_SHA'], os.environ['GITHUB_REF'],
-        review_required)
+    run = get('/actions/runs/' + run_id)
+    environment = get('/environments/prod') if review_required else {}
+    approvals = get('/actions/runs/' + run_id + '/approvals') if review_required else []
+    validate_data_review(environment, run, approvals, run_id, os.environ['GITHUB_SHA'],
+        os.environ['GITHUB_REF'], review_required)
     validate_initialization(contract['initialization'])
     for key in ('gitops_commit', 'iac_commit', 'playbooks_commit'):
         require(re.fullmatch('[0-9a-f]{40}', contract.get(key, '')), 'fixed execution owner SHA missing')
