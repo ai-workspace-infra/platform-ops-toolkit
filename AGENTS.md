@@ -7,7 +7,7 @@
 
 - GitHub Actions 入口和 `workflow_dispatch`/`workflow_call` 输入校验；
 - 环境、目标和不可变 tag/SHA 选择；审批、Vault/OIDC 授权和精确 workflow allowlist；
-- 调用固定 SHA 的 Playbooks/IaC reusable workflow；关联、等待、证据来源和 checksum/digest 校验；
+- 调用固定 SHA 的 Playbooks reusable workflow 与 IaC owner composite action；关联、等待、证据来源和 checksum/digest 校验；
 - 最终放行、停止、回滚决策和脱敏发布证据。
 
 ## Toolkit 与 Pipeline 的分层
@@ -18,7 +18,7 @@
 
 重复的控制面逻辑（输入归一化、环境/目标校验、Vault/OIDC 预检、固定 SHA 派发、子运行关联、证据校验、脱敏和状态映射）必须优先转换为参数化、可版本化的 `.github/actions/<name>/` composite action，并提供明确的 inputs/outputs 与契约测试。
 
-`.github/actions` 不是执行逻辑的迁入点：云资源、DNS、Registry、State 仍归 IaC Modules；主机、服务、数据库、备份、恢复、健康检查仍归 Playbooks Roles；声明式片段仍归 GitOps。Toolkit action 只能调用已审核的 owner workflow，不得复制实现或新增 SSH、Provider API、Terraform、Ansible、Docker、systemd、数据库客户端和服务命令。
+`.github/actions` 不是执行逻辑的迁入点：云资源、DNS、Registry、State 仍归 IaC Modules；主机、服务、数据库、备份、恢复、健康检查仍归 Playbooks Roles；声明式片段仍归 GitOps。Toolkit action 只能调用已审核的 owner workflow/action，不得复制实现或新增 SSH、Provider API、Terraform、Ansible、Docker、systemd、数据库客户端和服务命令。
 
 新增 action 前必须搜索现有 action，证明它消除了重复的控制面代码，且没有形成第二条执行路径。
 
@@ -36,3 +36,7 @@
 
 `owner`、`caller`、副作用边界、固定 SHA、证据来源，以及“新增 owner → 切换 caller → 验证 → 删除旧副本”。
 没有真实 UAT 证据时不得声称部署/迁移/回滚完成。
+
+## 六云 IaC action 交接（v0.6）
+
+IaC 专属 targets/self-check/stage/auth/lifecycle/receipt/summary actions 统一保存于 iac_modules/.github/actions。Toolkit 固定 SHA checkout 后通过固定本地 uses 调用，动作与 Terraform 模块版本绑定；Toolkit 持有全部交付 workflows、runner、Environment 审批、DAG 和最终放行，不复制 provider 命令。GitOps 声明缺失或证据未核验时必须阻断。

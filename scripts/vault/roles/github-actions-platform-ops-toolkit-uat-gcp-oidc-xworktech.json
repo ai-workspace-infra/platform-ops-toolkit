@@ -15,7 +15,8 @@
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-resources-matrix.yaml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/gcp-iac-pipeline.yml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-orchestrator.yml@*",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/ai-aggregator-v1.yml@*"
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/ai-aggregator-v1.yml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/heads/main"
     ],
     "ref": [
       "refs/heads/main",

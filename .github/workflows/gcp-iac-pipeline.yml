@@ -1,6 +1,5 @@
-name: GCP IAC Platform Pipeline
-
-on:
+name: Compatibility / gcp-iac-pipeline
+'on':
   workflow_dispatch:
     inputs:
       deploy_action:
@@ -8,13 +7,19 @@ on:
         type: choice
         required: true
         default: plan
-        options: [plan, apply, destroy]
+        options:
+          - plan
+          - apply
+          - destroy
       vault_env_path:
         description: Target GCP environment.
         type: choice
         required: true
         default: uat
-        options: [uat, prod, shared]
+        options:
+          - uat
+          - prod
+          - shared
       github_environment:
         description: GitHub Environment used for approval and OIDC JWT claims (defaults to vault_env_path; shared uses prod).
         type: string
@@ -23,23 +28,23 @@ on:
       gcp_account_id:
         description: Readable GCP account identifier used in Vault runtime role/path.
         type: string
-        required: true
-        default: xworktech
+        required: false
+        default: ''
       gitops_repo_name:
         description: GitOps repository (URL or owner/repo).
         type: string
         required: false
-        default: https://github.com/ai-workspace-infra/gitops.git
+        default: ''
       gitops_repo_ref:
         description: GitOps repository branch, tag, or commit.
         type: string
         required: false
-        default: main
+        default: ''
       iac_ref:
-        description: Pinned iac_modules ref used for this run.
+        description: Owner code/module revision
         type: string
         required: false
-        default: 7d379d08c30fa89856b999f12b1fb5167773bdcb
+        default: ''
       gcp_resource_manifest:
         description: Optional manifest path inside GitOps; environment is validated against vault_env_path.
         type: string
@@ -55,6 +60,16 @@ on:
         type: string
         required: false
         default: 'false'
+      target_manifest:
+        description: Reviewed IaCPipelineTargets path; missing/ambiguous legacy identity fails closed
+        type: string
+        required: false
+        default: ''
+      gitops_ref:
+        description: Fixed declaration revision or explicitly selected ref
+        type: string
+        required: false
+        default: ''
   workflow_call:
     inputs:
       deploy_action:
@@ -70,19 +85,21 @@ on:
         default: ''
       gcp_account_id:
         type: string
-        required: true
+        required: false
+        default: ''
       gitops_repo_name:
         type: string
         required: false
-        default: https://github.com/ai-workspace-infra/gitops.git
+        default: ''
       gitops_repo_ref:
         type: string
         required: false
-        default: main
+        default: ''
       iac_ref:
+        description: Owner code/module revision
         type: string
         required: false
-        default: 7d379d08c30fa89856b999f12b1fb5167773bdcb
+        default: ''
       gcp_resource_manifest:
         type: string
         required: false
@@ -95,543 +112,64 @@ on:
         type: string
         required: false
         default: 'false'
-
+      target_manifest:
+        description: Reviewed IaCPipelineTargets path; missing/ambiguous legacy identity fails closed
+        type: string
+        required: false
+        default: ''
+      gitops_ref:
+        description: Fixed declaration revision or explicitly selected ref
+        type: string
+        required: false
+        default: ''
 permissions:
   contents: read
   id-token: write
-
-concurrency:
-  # Distinct manifests map to distinct Terraform state workspaces. Account-wide
-  # concurrency cancels queued siblings when Vault/Observability/IAM run together.
-  group: gcp-iac-${{ inputs.vault_env_path }}-${{ inputs.gcp_account_id }}-${{ inputs.gcp_resource_manifest || 'default' }}
-  cancel-in-progress: false
-
+  actions: read
 jobs:
-  gcp-platform:
-    name: GCP platform (${{ inputs.vault_env_path }}, action=${{ inputs.deploy_action }})
+  resolve:
     runs-on: ubuntu-latest
-    environment:
-      name: ${{ inputs.github_environment || (inputs.vault_env_path == 'shared' && 'prod' || inputs.vault_env_path) }}
-    env:
-      DEPLOY_ENV: ${{ inputs.vault_env_path }}
-      DEPLOY_ACTION: ${{ inputs.deploy_action || 'plan' }}
-      GCP_ACCOUNT_ID: ${{ inputs.gcp_account_id }}
-      GITOPS_REPO_NAME: ${{ inputs.gitops_repo_name || 'https://github.com/ai-workspace-infra/gitops.git' }}
-      GITOPS_REPO_REF: ${{ inputs.gitops_repo_ref || 'main' }}
-      IAC_REF: ${{ inputs.iac_ref || '7d379d08c30fa89856b999f12b1fb5167773bdcb' }}
-      GCP_RESOURCE_MANIFEST_INPUT: ${{ inputs.gcp_resource_manifest || '' }}
-      STATE_MIGRATION_SOURCE_KEY: ${{ inputs.state_migration_source_key || '' }}
-      ADOPT_EXISTING_PLATFORM_RESOURCES: ${{ inputs.adopt_existing_platform_resources || 'false' }}
-      GCP_IAC_DIR: iac_modules/terraform-hcl-standard/gcp-cloud
-
+    outputs:
+      target_manifest: ${{ steps.normalize.outputs.target_manifest }}
+      selectors: ${{ steps.normalize.outputs.selectors }}
+      action: ${{ steps.normalize.outputs.action }}
+      environment: ${{ steps.normalize.outputs.environment }}
+      gitops_sha: ${{ steps.normalize.outputs.gitops_sha }}
+      iac_sha: ${{ steps.normalize.outputs.iac_sha }}
     steps:
-      - name: Checkout platform operations source
-        uses: actions/checkout@v4
-
-      - name: Checkout GCP Terraform modules
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: ${{ env.IAC_REF }}
+          ref: ${{ inputs.iac_ref || 'be8456282f7495e098170e0894e742605a94dae6' }}
           path: iac_modules
-
-      - name: Setup GitOps and Terraform
-        uses: ./.github/actions/setup-iac-env
+          persist-credentials: false
+      - uses: actions/checkout@v4
         with:
-          gitops_repo_name: ${{ env.GITOPS_REPO_NAME }}
-          gitops_repo_ref: ${{ env.GITOPS_REPO_REF }}
-          gitops_target_path: gitops
-          aws_role_arn: ''
-          terraform_version: 1.10.5
-
-      - name: Install GCP manifest renderer dependencies
-        shell: bash
-        run: python3 -m pip install --disable-pip-version-check --no-cache-dir pyyaml jinja2
-
-      - name: Resolve and validate GCP resource manifest
-        id: config
-        shell: bash
-        env:
-          GCP_ENVIRONMENT: ${{ env.DEPLOY_ENV }}
-          DEPLOY_ACTION: ${{ env.DEPLOY_ACTION }}
-          GCP_ACCOUNT_ID: ${{ env.GCP_ACCOUNT_ID }}
-          GCP_RESOURCE_MANIFEST_INPUT: ${{ env.GCP_RESOURCE_MANIFEST_INPUT }}
-        run: |
-          set -euo pipefail
-          case "${GCP_ENVIRONMENT}" in
-            uat|prod|shared) ;;
-            *) echo "::error::vault_env_path must be uat, prod, or shared" >&2; exit 1 ;;
-          esac
-          if [[ "${GCP_ENVIRONMENT}" == shared && "${DEPLOY_ACTION}" == destroy ]]; then
-            echo "::error::destroy is disabled for the shared Vault environment" >&2
-            exit 1
-          fi
-          if [[ "${GCP_ENVIRONMENT}" == shared ]]; then
-            default_manifest="resources/xworktech.com/shared/gcp/vault-shared.yaml"
-          else
-            default_manifest="resources/xworktech.com/${GCP_ENVIRONMENT}/gcp/open-platform-${GCP_ENVIRONMENT}.yaml"
-          fi
-          manifest="${GCP_RESOURCE_MANIFEST_INPUT:-${default_manifest}}"
-          if [[ "${manifest}" == */web-saas.yaml && "${DEPLOY_ACTION}" == destroy ]]; then
-            echo "::error::Persistent web-saas hosts and data disks cannot be destroyed by this workflow" >&2
-            exit 1
-          fi
-          [[ "${manifest}" != /* && "${manifest}" != *..* ]] || { echo "::error::manifest path must be relative and cannot contain '..'" >&2; exit 1; }
-          [[ "${manifest}" == resources/*/${GCP_ENVIRONMENT}/gcp/*.yaml ]] || {
-            echo "::error::manifest must be under resources/<namespace>/${GCP_ENVIRONMENT}/gcp/" >&2
-            exit 1
-          }
-          test -f "gitops/${manifest}" || { echo "::error::GCP resource manifest not found: ${manifest}" >&2; exit 1; }
-          GCP_MANIFEST="${manifest}" ruby <<'RUBY'
-          require "yaml"
-          require "json"
-          manifest = ENV.fetch("GCP_MANIFEST")
-          doc = YAML.load_file(File.join("gitops", manifest))
-          environment = ENV.fetch("GCP_ENVIRONMENT")
-          account_id = ENV.fetch("GCP_ACCOUNT_ID")
-          if doc["kind"] == "GCPWorkloadNamespace"
-            metadata = doc.fetch("metadata")
-            spec = doc.fetch("spec")
-            abort "manifest environment mismatch" unless metadata.fetch("environment") == environment
-            abort "manifest provider must be gcp" unless metadata.fetch("provider") == "gcp"
-            abort "manifest account mismatch" unless spec.fetch("gcp_account_id") == account_id
-            project_id = spec.fetch("project_id").to_s
-            state_project = spec.fetch("state_project", project_id).to_s
-            organization_id = spec.fetch("organization_id").to_s
-            state_workspace = spec.fetch("workspace").to_s
-            state_namespace = spec.fetch("state_namespace").to_s
-            network_name = spec.fetch("network_name").to_s
-            abort "workspace/state_namespace/metadata.name must match" unless state_workspace == state_namespace && state_workspace == metadata.fetch("name")
-            state_key = spec.fetch("state").fetch("key").to_s
-            expected_key = "terraform/#{environment}/#{state_project}/gcp-cloud/#{account_id}/#{state_workspace}/terraform.tfstate"
-            abort "manifest state key mismatch" unless state_key == expected_key
-            resources = spec.fetch("resources", {})
-            spot = Array(resources["service_vms"]).first || Array(resources["spot_vms"]).first
-            if metadata.fetch("name") == "web-saas"
-              abort "persistent web-saas declaration required" unless spec.fetch("resource").fetch("lifecycle") == "persistent"
-              abort "web-saas requires STANDARD and deletion protection" unless spot&.fetch("provisioning_model", nil) == "STANDARD" && spot.fetch("deletion_protection", false) == true
-              abort "web-saas requires an independent /data disk" unless spot.fetch("data_disk", {}).fetch("mount_path", nil) == "/data"
-            end
-          else
-            global = doc.fetch("global")
-            abort "manifest environment mismatch" unless global.fetch("environment") == environment
-            project_id = global.fetch("project_id").to_s
-            organization_id = global.fetch("organization_id").to_s
-            state_workspace = manifest == "resources/xworktech.com/#{environment}/gcp/open-platform-#{environment}.yaml" ? "platform" : File.basename(manifest, ".yaml")
-            state_key = "terraform/#{environment}/#{project_id}/gcp-cloud/#{account_id}/#{state_workspace}/terraform.tfstate"
-            network_name = global.fetch("network_name", "").to_s
-            spot = Array(doc["service_vms"]).first || Array(doc["spot_vms"]).first
-          end
-          abort "invalid GCP project_id" unless project_id.match?(/\A[a-z][a-z0-9-]{4,28}[a-z0-9]\z/)
-          abort "unexpected GCP organization_id" unless organization_id == "744119519286"
-          abort "invalid state workspace" unless state_workspace.match?(/\A[a-z0-9][a-z0-9-]*\z/)
-          File.open(ENV.fetch("GITHUB_OUTPUT"), "a") do |io|
-            io.puts "manifest=#{manifest}"
-            io.puts "project_id=#{project_id}"
-            io.puts "state_workspace=#{state_workspace}"
-            io.puts "state_key=#{state_key}"
-            io.puts "network_name=#{network_name}"
-            io.puts "spot_instance_name=#{spot&.fetch("name", "")}"
-            io.puts "spot_instance_zone=#{spot&.fetch("zone", "")}"
-            io.puts "expected_provisioning_model=#{spot&.fetch("provisioning_model", "SPOT")}"
-            io.puts "expected_data_disk_device=#{spot&.fetch("data_disk", {})&.fetch("device_name", "")}"
-          end
-          RUBY
-
-      - name: Configure GCP credentials through Vault JWT and Google WIF
-        id: gcp_auth
-        uses: ./.github/actions/configure-gcp-oidc
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_ref || inputs.gitops_repo_ref || '4e052f34675a218df0179677088266c6e7f57f6c' }}
+          path: gitops
+          persist-credentials: false
+      - id: normalize
+        uses: ./iac_modules/.github/actions/iac-legacy-inputs
         with:
-          environment: ${{ env.DEPLOY_ENV }}
-          account_id: ${{ env.GCP_ACCOUNT_ID }}
-
-      - name: Verify manifest project matches Vault OIDC identity
-        env:
-          DECLARED_PROJECT_ID: ${{ steps.config.outputs.project_id }}
-          AUTHENTICATED_PROJECT_ID: ${{ steps.gcp_auth.outputs.project_id }}
-        run: |
-          set -euo pipefail
-          test "${DECLARED_PROJECT_ID}" = "${AUTHENTICATED_PROJECT_ID}" || {
-            echo "::error::GitOps project_id does not match the environment/account-scoped Vault OIDC identity" >&2
-            exit 1
-          }
-
-      - name: Render GitOps manifest into Terraform
-        working-directory: ${{ env.GCP_IAC_DIR }}
-        env:
-          GITOPS_ROOT: ${{ github.workspace }}/gitops
-          GCP_MANIFEST: ${{ github.workspace }}/gitops/${{ steps.config.outputs.manifest }}
-          GCP_WORKDIR: envs/${{ env.DEPLOY_ENV }}
-        run: |
-          python3 scripts/generate.py render \
-            --resources "${GCP_MANIFEST}" \
-            --workdir "${GCP_WORKDIR}"
-
-      - name: Prepare runtime identity Terraform variables
-        env:
-          RUNTIME_VARS: ${{ runner.temp }}/gcp-runtime.auto.tfvars.json
-          PROJECT_ID: ${{ steps.config.outputs.project_id }}
-          DEPLOY_SERVICE_ACCOUNT: ${{ steps.gcp_auth.outputs.service_account }}
-          WORKLOAD_IDENTITY_PROVIDER: ${{ steps.gcp_auth.outputs.provider }}
-        run: |
-          jq -n \
-            --arg project_id "${PROJECT_ID}" \
-            --arg service_account "${DEPLOY_SERVICE_ACCOUNT}" \
-            --arg provider "${WORKLOAD_IDENTITY_PROVIDER}" \
-            '{bootstrap_project_id:$project_id, project_id:$project_id, deploy_service_account:$service_account, workload_identity_provider:$provider}' \
-            > "${RUNTIME_VARS}"
-
-      - name: Initialize legacy state backend for controlled migration
-        if: ${{ env.DEPLOY_ACTION == 'apply' && inputs.state_migration_source_key != '' }}
-        working-directory: ${{ env.GCP_IAC_DIR }}
-        env:
-          TF_CLI_ARGS_init: >-
-            -backend-config="endpoint=${{ steps.gcp_auth.outputs.state_endpoint }}"
-            -backend-config="bucket=${{ steps.gcp_auth.outputs.state_bucket }}"
-            -backend-config="key=${{ inputs.state_migration_source_key }}"
-            -backend-config="access_key=${{ steps.gcp_auth.outputs.state_access_key }}"
-            -backend-config="secret_key=${{ steps.gcp_auth.outputs.state_secret_key }}"
-            -backend-config="region=${{ steps.gcp_auth.outputs.state_region }}"
-            -backend-config="skip_credentials_validation=true"
-            -backend-config="skip_metadata_api_check=true"
-            -backend-config="skip_region_validation=true"
-            -backend-config="use_path_style=true"
-            -backend-config="use_lockfile=true"
-        run: terraform -chdir="envs/${DEPLOY_ENV}" init -input=false -reconfigure
-
-      - name: Terraform init with shared state backend
-        working-directory: ${{ env.GCP_IAC_DIR }}
-        env:
-          TF_CLI_ARGS_init: >-
-            -backend-config="endpoint=${{ steps.gcp_auth.outputs.state_endpoint }}"
-            -backend-config="bucket=${{ steps.gcp_auth.outputs.state_bucket }}"
-            -backend-config="key=${{ steps.config.outputs.state_key }}"
-            -backend-config="access_key=${{ steps.gcp_auth.outputs.state_access_key }}"
-            -backend-config="secret_key=${{ steps.gcp_auth.outputs.state_secret_key }}"
-            -backend-config="region=${{ steps.gcp_auth.outputs.state_region }}"
-            -backend-config="skip_credentials_validation=true"
-            -backend-config="skip_metadata_api_check=true"
-            -backend-config="skip_region_validation=true"
-            -backend-config="use_path_style=true"
-            -backend-config="use_lockfile=true"
-        run: |
-          set -euo pipefail
-          if [[ -n "${STATE_MIGRATION_SOURCE_KEY}" ]]; then
-            echo "Migrating Terraform state from ${STATE_MIGRATION_SOURCE_KEY} to ${{ steps.config.outputs.state_key }}"
-            terraform -chdir="envs/${DEPLOY_ENV}" init -input=false -migrate-state -force-copy
-          else
-            terraform -chdir="envs/${DEPLOY_ENV}" init -input=false -reconfigure
-          fi
-
-      - name: Terraform format and validate
-        working-directory: ${{ env.GCP_IAC_DIR }}
-        run: |
-          terraform -chdir="envs/${DEPLOY_ENV}" fmt -check
-          terraform -chdir="envs/${DEPLOY_ENV}" validate -no-color
-
-      - name: Adopt privileged shared external IP policy
-        if: ${{ env.DEPLOY_ENV == 'shared' && env.DEPLOY_ACTION == 'apply' }}
-        working-directory: ${{ env.GCP_IAC_DIR }}
-        env:
-          PROJECT_ID: ${{ steps.config.outputs.project_id }}
-          RUNTIME_VARS: ${{ runner.temp }}/gcp-runtime.auto.tfvars.json
-        run: |
-          set -euo pipefail
-          tf_dir="envs/${DEPLOY_ENV}"
-          address='google_org_policy_policy.vm_external_ip_access'
-          # Only the Vault namespace owns the project policy. The other
-          # shared namespaces must not import or mutate it.
-          if ! grep -Rqs -- 'resource "google_org_policy_policy" "vm_external_ip_access"' "${tf_dir}"; then
-            exit 0
-          fi
-          state_entries="$(terraform -chdir="${tf_dir}" state list 2>&1)" || {
-            [[ "${state_entries}" == *'No state file was found!'* ]] || {
-              printf '%s\n' "${state_entries}" >&2
-              exit 1
-            }
-            state_entries=''
-          }
-          if ! grep -Fqx -- "${address}" <<<"${state_entries}"; then
-            echo "Adopting pre-seeded project external IP policy into shared Vault state."
-            project_number="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
-            [[ "${project_number}" =~ ^[0-9]+$ ]] || {
-              echo '::error::Could not resolve the numeric GCP project ID for Org Policy import.' >&2
-              exit 1
-            }
-            if ! terraform -chdir="${tf_dir}" import -input=false -no-color \
-              -var-file="${RUNTIME_VARS}" "${address}" \
-              "projects/${project_number}/policies/compute.vmExternalIpAccess"; then
-              echo '::error::The shared external IP allowlist must be created by an organization policy administrator before the runtime Terraform apply. Check GitOps and rerun the privileged policy bootstrap.' >&2
-              exit 1
-            fi
-          fi
-          state_entries="$(terraform -chdir="${tf_dir}" state list)"
-          grep -Fqx -- "${address}" <<<"${state_entries}" || {
-            echo '::error::Shared external IP policy was not recorded in Terraform state; refusing VM apply.' >&2
-            exit 1
-          }
-          # The day-to-day WIF identity cannot change Org Policy. Fail fast
-          # when the admin-seeded policy differs from the GitOps declaration.
-          if terraform -chdir="${tf_dir}" plan -input=false -no-color -detailed-exitcode \
-            -target="${address}" -var-file="${RUNTIME_VARS}" >/dev/null; then
-            echo 'Shared external IP policy matches GitOps.'
-          else
-            rc=$?
-            if [[ "${rc}" -eq 2 ]]; then
-              echo '::error::Shared external IP policy differs from GitOps. Reconcile it with the privileged policy bootstrap before runtime apply.' >&2
-            fi
-            exit "${rc}"
-          fi
-
-      - name: Adopt shared Vault HTTPS firewall
-        if: ${{ env.DEPLOY_ENV == 'shared' && env.DEPLOY_ACTION == 'apply' && steps.config.outputs.manifest == 'resources/svc.plus/shared/gcp/open-platform-shared-vault.yaml' }}
-        working-directory: ${{ env.GCP_IAC_DIR }}
-        env:
-          PROJECT_ID: ${{ steps.config.outputs.project_id }}
-          NETWORK_NAME: ${{ steps.config.outputs.network_name }}
-          RUNTIME_VARS: ${{ runner.temp }}/gcp-runtime.auto.tfvars.json
-        run: |
-          set -euo pipefail
-          tf_dir="envs/${DEPLOY_ENV}"
-          address='google_compute_firewall.vault_gateway_https'
-          if ! grep -Rqs -- 'resource "google_compute_firewall" "vault_gateway_https"' "${tf_dir}"; then
-            echo 'Shared Vault HTTPS firewall is not declared by this renderer; nothing to adopt.'
-            exit 0
-          fi
-          [[ -n "${NETWORK_NAME}" ]] || {
-            echo '::error::Shared Vault network_name is missing from the GitOps declaration.' >&2
-            exit 1
-          }
-          state_entries="$(terraform -chdir="${tf_dir}" state list 2>&1)" || {
-            [[ "${state_entries}" == *'No state file was found!'* ]] || {
-              printf '%s\n' "${state_entries}" >&2
-              exit 1
-            }
-            state_entries=''
-          }
-          if grep -Fqx -- "${address}" <<<"${state_entries}"; then
-            echo "state already contains ${address}"
-            exit 0
-          fi
-          remote_id="projects/${PROJECT_ID}/global/firewalls/${NETWORK_NAME}-vault-gateway-https"
-          echo "Adopting the pre-existing shared Vault HTTPS firewall from ${remote_id}."
-          terraform -chdir="${tf_dir}" import -input=false -no-color \
-            -var-file="${RUNTIME_VARS}" "${address}" "${remote_id}"
-
-      - name: Adopt existing GCP platform resources into target state
-        if: ${{ env.DEPLOY_ACTION == 'apply' && env.ADOPT_EXISTING_PLATFORM_RESOURCES == 'true' }}
-        working-directory: ${{ env.GCP_IAC_DIR }}
-        env:
-          PROJECT_ID: ${{ steps.config.outputs.project_id }}
-          REGION: ${{ env.GCP_REGION || 'asia-east1' }}
-          RUNTIME_VARS: ${{ runner.temp }}/gcp-runtime.auto.tfvars.json
-          NETWORK_NAME: open-platform-uat
-          INSTANCE_NETWORK_NAME: open-platform-uat
-        run: |
-          set -euo pipefail
-          tf=(terraform -chdir="envs/${DEPLOY_ENV}")
-          state_entries="$("${tf[@]}" state list)"
-          state_has() {
-            grep -Fqx -- "$1" <<<"${state_entries}"
-          }
-          import_if_missing() {
-            local address="$1" remote_id="$2"
-            if state_has "${address}"; then
-              echo "state already contains ${address}"
-            else
-              echo "adopting ${address} from ${remote_id}"
-              "${tf[@]}" import -input=false -var-file="${RUNTIME_VARS}" "${address}" "${remote_id}"
-            fi
-          }
-
-          import_if_missing 'module.network.google_compute_network.this' \
-            "projects/${PROJECT_ID}/global/networks/${NETWORK_NAME}"
-          import_if_missing 'module.network.google_compute_subnetwork.this' \
-            "projects/${PROJECT_ID}/regions/${REGION}/subnetworks/${NETWORK_NAME}-subnet"
-          import_if_missing 'module.network.google_compute_router.this[0]' \
-            "projects/${PROJECT_ID}/regions/${REGION}/routers/${NETWORK_NAME}-router"
-          import_if_missing 'module.network.google_compute_address.nat[0]' \
-            "projects/${PROJECT_ID}/regions/${REGION}/addresses/${NETWORK_NAME}-nat-ip"
-          import_if_missing 'module.network.google_compute_router_nat.this[0]' \
-            "projects/${PROJECT_ID}/regions/${REGION}/routers/${NETWORK_NAME}-router/${NETWORK_NAME}-nat"
-          import_if_missing 'module.artifact_registry.google_artifact_registry_repository.this' \
-            "projects/${PROJECT_ID}/locations/${REGION}/repositories/xwork-services"
-          import_if_missing 'module.cloud_run.google_cloud_run_v2_service.this' \
-            "projects/${PROJECT_ID}/locations/${REGION}/services/open-platform-uat"
-          import_if_missing 'google_compute_firewall.vault_raft_internal' \
-            "projects/${PROJECT_ID}/global/firewalls/${NETWORK_NAME}-vault-raft-internal"
-          if [[ "${DEPLOY_ENV}" == "uat" && "${PROJECT_ID}" == "open-platform-uat" ]]; then
-            import_if_missing 'google_org_policy_policy.vm_external_ip_access' \
-              "projects/${PROJECT_ID}/policies/compute.vmExternalIpAccess"
-          fi
-
-      # Apply only the plan that was inspected. Shared and PROD hold persistent
-      # state (Vault Raft data, ZITADEL/PostgreSQL, Observability history), so
-      # a plan that deletes or replaces anything -- including a ForceNew
-      # instance or disk rebuild -- is refused before apply.
-      - name: Terraform plan
-        if: ${{ env.DEPLOY_ACTION == 'plan' || env.DEPLOY_ACTION == 'apply' }}
-        working-directory: ${{ env.GCP_IAC_DIR }}
-        env:
-          RUNTIME_VARS: ${{ runner.temp }}/gcp-runtime.auto.tfvars.json
-          PLAN_FILE: ${{ runner.temp }}/gcp-platform.tfplan
-        run: |
-          set -euo pipefail
-          if [[ "${DEPLOY_ACTION}" != apply ]]; then
-            terraform -chdir="envs/${DEPLOY_ENV}" plan -input=false -no-color -var-file="${RUNTIME_VARS}"
-            exit 0
-          fi
-          terraform -chdir="envs/${DEPLOY_ENV}" plan -input=false -no-color -var-file="${RUNTIME_VARS}" -out="${PLAN_FILE}"
-          if [[ "${DEPLOY_ENV}" == shared || "${DEPLOY_ENV}" == prod || "${{ steps.config.outputs.expected_data_disk_device }}" != "" ]]; then
-            # Read the JSON from the real binary: the setup-terraform wrapper
-            # may add its own lines to stdout.
-            tf_bin=terraform
-            [[ -x "${TERRAFORM_CLI_PATH:-}/terraform-bin" ]] && tf_bin="${TERRAFORM_CLI_PATH}/terraform-bin"
-            destructive="$("${tf_bin}" -chdir="envs/${DEPLOY_ENV}" show -json "${PLAN_FILE}" \
-              | jq -r '.resource_changes[]? | select(.change.actions | index("delete")) | "\(.address) \(.change.actions | join("/"))"')"
-            if [[ -n "${destructive}" ]]; then
-              printf '::error::%s apply plan deletes or replaces persistent resources; reconcile drift explicitly before applying:\n%s\n' \
-                "${DEPLOY_ENV}" "${destructive}" >&2
-              exit 1
-            fi
-            echo "Plan contains no delete or replacement for persistent ${DEPLOY_ENV} resources."
-          fi
-
-      - name: Terraform apply
-        if: ${{ env.DEPLOY_ACTION == 'apply' }}
-        working-directory: ${{ env.GCP_IAC_DIR }}
-        env:
-          PLAN_FILE: ${{ runner.temp }}/gcp-platform.tfplan
-        run: terraform -chdir="envs/${DEPLOY_ENV}" apply -input=false -auto-approve "${PLAN_FILE}"
-
-      - name: Terraform destroy
-        if: ${{ env.DEPLOY_ACTION == 'destroy' }}
-        working-directory: ${{ env.GCP_IAC_DIR }}
-        env:
-          RUNTIME_VARS: ${{ runner.temp }}/gcp-runtime.auto.tfvars.json
-        run: terraform -chdir="envs/${DEPLOY_ENV}" destroy -input=false -auto-approve -var-file="${RUNTIME_VARS}"
-
-      - name: Verify GCP OIDC-created resource access
-        if: ${{ env.DEPLOY_ACTION == 'apply' }}
-        env:
-          PROJECT_ID: ${{ steps.config.outputs.project_id }}
-        run: |
-          test "$(gcloud projects describe "${PROJECT_ID}" --format='value(projectId)')" = "${PROJECT_ID}"
-          echo "GCP OIDC runtime identity can access ${PROJECT_ID}"
-
-      - name: Verify instance model and protected /data disk
-        if: ${{ env.DEPLOY_ACTION == 'apply' && steps.config.outputs.spot_instance_name != '' }}
-        env:
-          PROJECT_ID: ${{ steps.config.outputs.project_id }}
-          INSTANCE_NAME: ${{ steps.config.outputs.spot_instance_name }}
-          INSTANCE_ZONE: ${{ steps.config.outputs.spot_instance_zone }}
-          EXPECTED_MODEL: ${{ steps.config.outputs.expected_provisioning_model }}
-          DATA_DISK_DEVICE: ${{ steps.config.outputs.expected_data_disk_device }}
-        run: |
-          set -euo pipefail
-          model="$(gcloud compute instances describe "${INSTANCE_NAME}" \
-            --project="${PROJECT_ID}" --zone="${INSTANCE_ZONE}" \
-            --format='value(scheduling.provisioningModel)')"
-          test "${model}" = "${EXPECTED_MODEL}" || {
-            echo "Expected ${INSTANCE_NAME} to be ${EXPECTED_MODEL}, got ${model}" >&2
-            exit 1
-          }
-          if [[ -n "${DATA_DISK_DEVICE}" ]]; then
-            instance_json="$(gcloud compute instances describe "${INSTANCE_NAME}" --project="${PROJECT_ID}" --zone="${INSTANCE_ZONE}" --format=json)"
-            jq -e --arg device "${DATA_DISK_DEVICE}" '.deletionProtection == true and ([.disks[] | select(.deviceName == $device and .autoDelete == false)] | length) == 1' <<<"${instance_json}" >/dev/null || {
-              echo "::error::Persistent instance protection or data disk autoDelete=false is missing" >&2
-              exit 1
-            }
-          fi
-          echo "Instance verified: ${INSTANCE_NAME} (${INSTANCE_ZONE})"
-
-      - name: Verify declared Vault VM instances are running
-        if: ${{ env.DEPLOY_ACTION == 'apply' }}
-        env:
-          PROJECT_ID: ${{ steps.config.outputs.project_id }}
-          GCP_WORKDIR: ${{ env.GCP_IAC_DIR }}/envs/${{ env.DEPLOY_ENV }}
-        run: |
-          set -euo pipefail
-          resources_manifest="${GCP_WORKDIR}/resources_manifest.json"
-          test -s "${resources_manifest}" || {
-            echo "::error::Rendered GCP resources manifest is missing: ${resources_manifest}" >&2
-            exit 1
-          }
-
-          node_count="$(jq '.vault_nodes | length' "${resources_manifest}")"
-          if [[ "${node_count}" == 0 ]]; then
-            echo 'No Vault VMs are declared; skipping Vault VM runtime verification.'
-            exit 0
-          fi
-
-          while IFS= read -r node; do
-            name="$(jq -r '.name' <<<"${node}")"
-            zone="$(jq -r '.zone' <<<"${node}")"
-            wants_public_ip="$(jq -r '.public_ip // false' <<<"${node}")"
-            [[ "${name}" =~ ^[a-z][a-z0-9-]{0,61}[a-z0-9]$ ]] || {
-              echo "::error::Invalid Vault VM name in rendered manifest: ${name}" >&2
-              exit 1
-            }
-            [[ "${zone}" =~ ^[a-z]+-[a-z0-9]+-[a-z]$ ]] || {
-              echo "::error::Invalid Vault VM zone in rendered manifest: ${zone}" >&2
-              exit 1
-            }
-
-            instance="$(gcloud compute instances describe "${name}" \
-              --project="${PROJECT_ID}" --zone="${zone}" --format=json)"
-            status="$(jq -r '.status // empty' <<<"${instance}")"
-            [[ "${status}" == RUNNING ]] || {
-              echo "::error::Vault VM ${name} is not RUNNING (status=${status:-missing})" >&2
-              exit 1
-            }
-            if [[ "${wants_public_ip}" == true ]]; then
-              public_ip="$(jq -r '[.networkInterfaces[]?.accessConfigs[]?.natIP // empty] | first // empty' <<<"${instance}")"
-              [[ "${public_ip}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || {
-                echo "::error::Vault VM ${name} is missing its declared public IPv4 address" >&2
-                exit 1
-              }
-            fi
-            echo "Vault VM runtime verified: ${name} (${zone}, RUNNING, public_ip=${wants_public_ip})"
-          done < <(jq -c '.vault_nodes[]' "${resources_manifest}")
-
-      - name: Generate GCP CMDB and SSH inventory
-        if: ${{ env.DEPLOY_ACTION == 'apply' }}
-        working-directory: ${{ env.GCP_IAC_DIR }}
-        env:
-          GCP_MANIFEST: ${{ github.workspace }}/gitops/${{ steps.config.outputs.manifest }}
-        run: |
-          python3 scripts/generate.py inventory \
-            --resources "${GCP_MANIFEST}" \
-            --workdir "envs/${DEPLOY_ENV}"
-
-      - name: Publish GCP inventory to the S3-compatible state store
-        if: ${{ env.DEPLOY_ACTION == 'apply' }}
-        env:
-          AWS_ACCESS_KEY_ID: ${{ steps.gcp_auth.outputs.state_access_key }}
-          AWS_SECRET_ACCESS_KEY: ${{ steps.gcp_auth.outputs.state_secret_key }}
-          AWS_DEFAULT_REGION: ${{ steps.gcp_auth.outputs.state_region }}
-          STATE_ENDPOINT: ${{ steps.gcp_auth.outputs.state_endpoint }}
-          STATE_BUCKET: ${{ steps.gcp_auth.outputs.state_bucket }}
-          STATE_KEY: ${{ steps.config.outputs.state_key }}
-        run: |
-          set -euo pipefail
-          [[ "${STATE_KEY}" == terraform/*/terraform.tfstate ]] || {
-            echo 'Invalid Terraform state key for inventory publication' >&2
-            exit 1
-          }
-          inventory_key="${STATE_KEY#terraform/}"
-          inventory_key="inventory/${inventory_key%/terraform.tfstate}.json"
-          aws --endpoint-url "${STATE_ENDPOINT}" s3 cp \
-            "${GCP_IAC_DIR}/envs/${DEPLOY_ENV}/cmdb.json" \
-            "s3://${STATE_BUCKET}/${inventory_key}" --only-show-errors
-          echo "Published inventory/${DEPLOY_ENV} CMDB record."
-
-      - name: Attach GCP CMDB and SSH inventory
-        if: ${{ env.DEPLOY_ACTION == 'apply' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: gcp-${{ inputs.vault_env_path }}-${{ steps.config.outputs.state_workspace }}-inventory
-          path: |
-            ${{ env.GCP_IAC_DIR }}/envs/${{ env.DEPLOY_ENV }}/cmdb.json
-            ${{ env.GCP_IAC_DIR }}/envs/${{ env.DEPLOY_ENV }}/inventory.ini
-          if-no-files-found: error
+          inputs-json: ${{ toJSON(inputs) }}
+          stage: resources
+          provider: gcp-cloud
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+  pipeline:
+    needs: resolve
+    if: ${{ !cancelled() && needs.resolve.result == 'success' }}
+    uses: ./.github/workflows/iac-self-check-matrix.yml
+    with:
+      action: ${{ needs.resolve.outputs.action }}
+      environment: ${{ needs.resolve.outputs.environment }}
+      target_manifest: ${{ needs.resolve.outputs.target_manifest }}
+      gitops_ref: ${{ needs.resolve.outputs.gitops_sha }}
+      iac_ref: ${{ needs.resolve.outputs.iac_sha }}
+      stage_scope: resources
+      bootstrap_mode: verify
+      selectors: ${{ needs.resolve.outputs.selectors }}
+      correlation_id: ${{ github.run_id }}:${{ github.run_attempt }}:compat
+    secrets: inherit

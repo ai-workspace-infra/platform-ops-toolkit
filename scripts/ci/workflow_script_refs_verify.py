@@ -97,10 +97,27 @@ def check_local_refs(where, run, root_repo, roots):
             fail(where, f"R1 references {ref}, which is not in {owner}")
 
 
-def check_uses(where, uses, reusable=False):
+def check_uses(where, uses, reusable=False, checkouts=None, roots=None, step=None):
     if not (isinstance(uses, str) and uses.startswith("./")):
         return
-    target = REPO_ROOT / uses[2:]
+    relative = uses[2:]
+    sibling = re.fullmatch(r"(iac_modules|playbooks)/(\.github/actions/[\w-]+)", relative)
+    if sibling and not reusable:
+        repository, action = sibling.groups()
+        checkout = (checkouts or {}).get((SIBLINGS[repository], repository))
+        if checkout is None:
+            fail(where, f"R3 owner action {uses} has no preceding checkout of {SIBLINGS[repository]}")
+            return
+        if checkout.get("if") and not (step or {}).get("if"):
+            fail(where, f"R3 owner checkout is conditional but {uses} is unconditional")
+        if not (checkout.get("with") or {}).get("ref"):
+            fail(where, f"R3 owner action {uses} checkout has no explicit ref")
+        root = (roots or {}).get(repository)
+        if root is None:
+            return  # R4 is optional, exactly as for sibling scripts.
+        target = root / action
+    else:
+        target = REPO_ROOT / relative
     if reusable:
         if not target.is_file():
             fail(where, f"R2 calls reusable workflow {uses}, which does not exist")
@@ -138,7 +155,7 @@ def walk_steps(where, steps, roots):
             continue
         label = f"{where} step {index + 1} ({step.get('name') or step.get('uses') or 'run'})"
         uses = step.get("uses")
-        check_uses(label, uses)
+        check_uses(label, uses, checkouts=checkouts, roots=roots, step=step)
         if isinstance(uses, str) and uses.startswith("actions/checkout@"):
             options = step.get("with") or {}
             repository = options.get("repository")

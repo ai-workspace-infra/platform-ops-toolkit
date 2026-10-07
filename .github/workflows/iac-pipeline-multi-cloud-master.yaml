@@ -1,239 +1,390 @@
-name: Multi Cloud Master Pipeline
-
-on:
-  push:
-    branches: [main]
-    paths:
-    - '.github/workflows/iac-pipeline-multi-cloud-master.yaml'
+name: Multi-cloud IaC Pipeline
+'on':
   workflow_dispatch:
     inputs:
-      deploy_action:
-        description: "Deployment action"
+      action:
+        description: check/plan/apply/destroy
         type: choice
-        options: [plan, apply, destroy]
+        required: false
         default: plan
-      run_landingzone:
-        description: "Run LandingZone Baseline"
-        type: boolean
-        default: true
-      run_account:
-        description: "Run Account Matrix"
-        type: boolean
-        default: true
-      run_resources:
-        description: "Run Resources Matrix"
-        type: boolean
-        default: true
-      project:
-        description: "环境(项目) / Project (Base Domain, e.g. svc.plus, onwalk.net)"
-        type: string
-        default: svc.plus
-      vault_env_path:
-        description: "环境 / Vault Environment (e.g. sit, uat, prod)"
-        type: choice
-        options: [sit, uat, prod]
-        default: sit
-      cloud_provider:
-        description: "服务商 / Cloud Provider (必选, 无默认值 —— 决定 terraform 模块目录、config 路径与 backend key, 选错等于部署到错误目标)"
+        options:
+          - check
+          - plan
+          - apply
+          - destroy
+      environment:
+        description: sit/uat/prod/shared
         type: choice
         required: true
-        options: [aws-cloud, gcp-cloud, azure-cloud, vultr-vps, akamai-cloud, ucloud, ulighthost]
-      state_account:
-        description: "Concrete cloud account name or ID; aliases such as primary/default are not allowed"
+        options:
+          - sit
+          - uat
+          - prod
+          - shared
+      target_manifest:
+        description: GitOps IaCPipelineTargets path; no implicit target fallback
         type: string
         required: true
-      workspace:
-        description: "Terraform/external inventory workspace"
+      gitops_ref:
+        description: Resolved once to a full declaration SHA
+        type: string
+        default: 4e052f34675a218df0179677088266c6e7f57f6c
+        required: false
+      iac_ref:
+        description: Owner actions and modules from one resolved SHA
+        type: string
+        default: be8456282f7495e098170e0894e742605a94dae6
+        required: false
+      stage_scope:
+        description: all/bootstrap/account/resources
+        type: choice
+        default: resources
+        required: false
+        options:
+          - all
+          - bootstrap
+          - account
+          - resources
+      bootstrap_mode:
+        description: verify/reconcile
+        type: choice
+        default: verify
+        required: false
+        options:
+          - verify
+          - reconcile
+      correlation_id:
+        description: Root caller correlation
+        type: string
+        default: ''
+        required: false
+      selectors:
+        description: Optional legacy identity selectors as JSON; cannot override GitOps
+        type: string
+        default: '{}'
+        required: false
+  workflow_call:
+    inputs:
+      action:
+        description: check/plan/apply/destroy
         type: string
         required: false
-        default: platform
-      resource_manifest:
-        description: "GitOps manifest path for Akamai, UCloud, or an external provider"
+        default: plan
+      environment:
+        description: sit/uat/prod/shared
         type: string
+        required: true
+      target_manifest:
+        description: GitOps IaCPipelineTargets path; no implicit target fallback
+        type: string
+        required: true
+      gitops_ref:
+        description: Resolved once to a full declaration SHA
+        type: string
+        default: 4e052f34675a218df0179677088266c6e7f57f6c
         required: false
-        default: ''
-      accounts_components:
-        description: "账号层级组件选择 (逗号分隔)"
+      iac_ref:
+        description: Owner actions and modules from one resolved SHA
         type: string
-        default: 'vpc,role'
-      resources_components:
-        description: "资源层级组件选择 (逗号分隔)"
+        default: be8456282f7495e098170e0894e742605a94dae6
+        required: false
+      stage_scope:
+        description: all/bootstrap/account/resources
         type: string
-        default: 's3,ec2'
-      gitops_repo_name:
-        description: "GitOps repository (URL or owner/repo)"
+        default: resources
+        required: false
+      bootstrap_mode:
+        description: verify/reconcile
         type: string
-        default: https://github.com/cloud-neutral-workshop/gitops.git
-      gitops_repo_ref:
-        description: "GitOps repo ref (branch/tag/sha) to use"
-        type: string
-        default: main
-      gcp_account_id:
-        description: "GCP account identifier used for the Vault JWT role"
-        type: string
-        default: xworktech
-      gcp_resource_manifest:
-        description: "Optional GCP GitOps manifest path; environment is validated before Terraform"
+        default: verify
+        required: false
+      correlation_id:
+        description: Root caller correlation
         type: string
         default: ''
-      gcp_iac_ref:
-        description: "Pinned iac_modules ref used when cloud_provider=gcp-cloud"
+        required: false
+      selectors:
+        description: Optional legacy identity selectors as JSON; cannot override GitOps
         type: string
-        default: 7d379d08c30fa89856b999f12b1fb5167773bdcb
-      aws_region:
-        description: "AWS region used only when cloud_provider=aws-cloud"
-        type: string
-        default: ap-northeast-1
-      aws_role_arn:
-        description: "AWS OIDC role used only when cloud_provider=aws-cloud"
-        type: string
-        default: ''
-      ucloud_iac_ref:
-        description: "Pinned iac_modules ref used when cloud_provider=ucloud"
-        type: string
-        default: main
-
+        default: '{}'
+        required: false
+    outputs:
+      result:
+        description: result
+        value: ${{ jobs.summary.outputs.result }}
+      gitops_sha:
+        description: gitops_sha
+        value: ${{ jobs.summary.outputs.gitops_sha }}
+      iac_sha:
+        description: iac_sha
+        value: ${{ jobs.summary.outputs.iac_sha }}
+      receipt_artifact_id:
+        description: receipt_artifact_id
+        value: ${{ jobs.summary.outputs.receipt_artifact_id }}
+      receipt_sha256:
+        description: receipt_sha256
+        value: ${{ jobs.summary.outputs.receipt_sha256 }}
+      inventory_artifact_id:
+        description: inventory_artifact_id
+        value: ${{ jobs.summary.outputs.inventory_artifact_id }}
+      deploy_matrix:
+        description: deploy_matrix
+        value: ${{ jobs.summary.outputs.deploy_matrix }}
 permissions:
-  id-token: write
   contents: read
-
+  id-token: write
+  actions: read
 jobs:
-  prepare-matrix:
+  prepare:
     runs-on: ubuntu-latest
     outputs:
-      account_components: ${{ steps.parse.outputs.account }}
-      resources_components: ${{ steps.parse.outputs.resources }}
+      gitops_sha: ${{ steps.targets.outputs.gitops_sha }}
+      iac_sha: ${{ steps.targets.outputs.iac_sha }}
+      targets: ${{ steps.targets.outputs.targets }}
+      github_environment: ${{ steps.targets.outputs.github_environment }}
+      contract_sha256: ${{ steps.targets.outputs.contract_sha256 }}
+      correlation_id: ${{ steps.targets.outputs.correlation_id }}
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-
-    - id: parse
-      env:
-        INPUT_RESOURCES_COMPONENTS_____S3_EC2_: ${{ inputs.resources_components || 's3,ec2' }}
-        INPUT_ACCOUNTS_COMPONENTS_____VPC_ROLE_: ${{ inputs.accounts_components || 'vpc,role' }}
-      run: |-
-        .github/scripts/platform-ops/provision/iac-pipeline-multi-cloud-master_prepare-matrix_step-0.sh
-
-  landingzone:
-    needs: prepare-matrix
-    if: ${{ contains(fromJSON('["aws-cloud", "azure-cloud", "vultr-vps"]'), inputs.cloud_provider) && inputs.run_landingzone != false }}
-    uses: ./.github/workflows/iac-pipeline-multi-cloud-landingzone-baseline.yaml
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: ${{ inputs.iac_ref }}
+          path: iac_modules
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_ref }}
+          path: gitops
+          persist-credentials: false
+      - id: targets
+        uses: ./iac_modules/.github/actions/iac-targets
+        with:
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          target-manifest: ${{ inputs.target_manifest }}
+          environment: ${{ inputs.environment }}
+          action: ${{ inputs.action }}
+          stage-scope: ${{ inputs.stage_scope }}
+          bootstrap-mode: ${{ inputs.bootstrap_mode }}
+          gitops-ref: ${{ inputs.gitops_ref }}
+          iac-ref: ${{ inputs.iac_ref }}
+          correlation-id: ${{ inputs.correlation_id }}
+          selectors: ${{ inputs.selectors }}
+          contract-file: ${{ runner.temp }}/iac-contract/context.json
+      - uses: ./iac_modules/.github/actions/iac-self-check
+        with:
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          providers: aws-cloud,azure-cloud,vultr-vps,gcp-cloud,ucloud,akamai-cloud
+          report-file: ${{ runner.temp }}/iac-contract/static-check.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iac-contract-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/iac-contract
+          if-no-files-found: error
+          retention-days: 7
+  bootstrap:
+    needs:
+      - prepare
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && (inputs.action == 'plan' || inputs.action == 'apply') && (inputs.stage_scope
+      == 'all' || inputs.stage_scope == 'bootstrap') }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.targets) }}
+    uses: ./.github/workflows/iac-pipeline-multi-cloud-stages.yaml
     with:
-      # push (this file's own change) 走的是空 inputs 上下文, || 'apply' 会让
-      # 那条路径悄悄用 apply 建资源。三个子 workflow 自己对 push/PR 的默认值
-      # 都是 'plan' (workflow_dispatch 的 deploy_action 选项 default 也是
-      # plan), 这里跟它们保持一致, 也保持这个文件自身声明的默认值一致。
-      deploy_action: ${{ inputs.deploy_action || 'plan' }}
-      project: ${{ inputs.project || 'svc.plus' }}
-      vault_env_path: ${{ inputs.vault_env_path || 'sit' }}
-      cloud_provider: ${{ inputs.cloud_provider }}
-      state_account: ${{ inputs.state_account }}
-      gitops_repo_name: ${{ inputs.gitops_repo_name || 'https://github.com/cloud-neutral-workshop/gitops.git' }}
-      gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
-      gcp_account_id: ${{ inputs.gcp_account_id || 'xworktech' }}
-      aws_region: ${{ inputs.aws_region || 'ap-northeast-1' }}
-      aws_role_arn: ${{ inputs.aws_role_arn || '' }}
-
-  gcp-platform:
-    needs: prepare-matrix
-    if: ${{ inputs.cloud_provider == 'gcp-cloud' }}
-    uses: ./.github/workflows/gcp-iac-pipeline.yml
-    with:
-      deploy_action: ${{ inputs.deploy_action || 'plan' }}
-      vault_env_path: ${{ inputs.vault_env_path || 'uat' }}
-      gcp_account_id: ${{ inputs.gcp_account_id || 'xworktech' }}
-      gcp_resource_manifest: ${{ inputs.gcp_resource_manifest || '' }}
-      iac_ref: ${{ inputs.gcp_iac_ref || '7d379d08c30fa89856b999f12b1fb5167773bdcb' }}
-      gitops_repo_name: ${{ inputs.gitops_repo_name || 'https://github.com/ai-workspace-infra/gitops.git' }}
-      gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
+      stage: bootstrap
+      action: ${{ inputs.action }}
+      target_id: ${{ matrix.target_id }}
+      environment: ${{ inputs.environment }}
+      gitops_sha: ${{ needs.prepare.outputs.gitops_sha }}
+      iac_sha: ${{ needs.prepare.outputs.iac_sha }}
+      contract_sha256: ${{ needs.prepare.outputs.contract_sha256 }}
+      dependency_stages: ''
+      provider: ${{ matrix.provider }}
+      lock_key: ${{ matrix.lock_key }}
     secrets: inherit
-
   account:
-    needs: [landingzone, prepare-matrix]
-    if: |
-      always() &&
-      needs.prepare-matrix.result == 'success' &&
-      contains(fromJSON('["aws-cloud", "azure-cloud", "vultr-vps"]'), inputs.cloud_provider) &&
-      (inputs.run_account != false) &&
-      (needs.landingzone.result == 'success' || needs.landingzone.result == 'skipped')
-    uses: ./.github/workflows/iac-pipeline-multi-cloud-account-matrix.yaml
+    needs:
+      - prepare
+      - bootstrap
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && (inputs.action == 'plan' || inputs.action == 'apply') && (inputs.stage_scope
+      == 'all' || inputs.stage_scope == 'account') && (needs.bootstrap.result == 'success' || (needs.bootstrap.result == 'skipped' && inputs.stage_scope
+      != 'all')) }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.targets) }}
+    uses: ./.github/workflows/iac-pipeline-multi-cloud-stages.yaml
     with:
-      deploy_action: ${{ inputs.deploy_action || 'plan' }}
-      project: ${{ inputs.project || 'svc.plus' }}
-      vault_env_path: ${{ inputs.vault_env_path || 'sit' }}
-      cloud_provider: ${{ inputs.cloud_provider }}
-      state_account: ${{ inputs.state_account }}
-      components_json: ${{ needs.prepare-matrix.outputs.account_components }}
-      gitops_repo_name: ${{ inputs.gitops_repo_name || 'https://github.com/cloud-neutral-workshop/gitops.git' }}
-      gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
-      gcp_account_id: ${{ inputs.gcp_account_id || 'xworktech' }}
+      stage: account
+      action: ${{ inputs.action }}
+      target_id: ${{ matrix.target_id }}
+      environment: ${{ inputs.environment }}
+      gitops_sha: ${{ needs.prepare.outputs.gitops_sha }}
+      iac_sha: ${{ needs.prepare.outputs.iac_sha }}
+      contract_sha256: ${{ needs.prepare.outputs.contract_sha256 }}
+      dependency_stages: bootstrap
+      provider: ${{ matrix.provider }}
+      lock_key: ${{ matrix.lock_key }}
     secrets: inherit
-
   resources:
-    needs: [account, prepare-matrix]
-    if: |
-      always() &&
-      needs.prepare-matrix.result == 'success' &&
-      contains(fromJSON('["aws-cloud", "azure-cloud", "vultr-vps"]'), inputs.cloud_provider) &&
-      (inputs.run_resources != false) &&
-      (needs.account.result == 'success' || needs.account.result == 'skipped')
-    uses: ./.github/workflows/iac-pipeline-multi-cloud-resources-matrix.yaml
+    needs:
+      - prepare
+      - bootstrap
+      - account
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && (inputs.action == 'plan' || inputs.action == 'apply') && (inputs.stage_scope
+      == 'all' || inputs.stage_scope == 'resources') && (needs.bootstrap.result == 'success' || (needs.bootstrap.result == 'skipped' && inputs.stage_scope
+      != 'all')) && (needs.account.result == 'success' || (needs.account.result == 'skipped' && inputs.stage_scope != 'all')) }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.targets) }}
+    uses: ./.github/workflows/iac-pipeline-multi-cloud-stages.yaml
     with:
-      deploy_action: ${{ inputs.deploy_action || 'plan' }}
-      project: ${{ inputs.project || 'svc.plus' }}
-      vault_env_path: ${{ inputs.vault_env_path || 'sit' }}
-      cloud_provider: ${{ inputs.cloud_provider }}
-      state_account: ${{ inputs.state_account }}
-      components_json: ${{ needs.prepare-matrix.outputs.resources_components }}
-      gitops_repo_name: ${{ inputs.gitops_repo_name || 'https://github.com/cloud-neutral-workshop/gitops.git' }}
-      gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
-      gcp_account_id: ${{ inputs.gcp_account_id || 'xworktech' }}
-      aws_region: ${{ inputs.aws_region || 'ap-northeast-1' }}
-      aws_role_arn: ${{ inputs.aws_role_arn || '' }}
+      stage: resources
+      action: ${{ inputs.action }}
+      target_id: ${{ matrix.target_id }}
+      environment: ${{ inputs.environment }}
+      gitops_sha: ${{ needs.prepare.outputs.gitops_sha }}
+      iac_sha: ${{ needs.prepare.outputs.iac_sha }}
+      contract_sha256: ${{ needs.prepare.outputs.contract_sha256 }}
+      dependency_stages: bootstrap,account
+      provider: ${{ matrix.provider }}
+      lock_key: ${{ matrix.lock_key }}
     secrets: inherit
-
-  akamai-cloud:
-    needs: prepare-matrix
-    if: ${{ inputs.cloud_provider == 'akamai-cloud' }}
-    uses: ./.github/workflows/akamai-cloud-iac.yml
+  destroy-resources:
+    needs:
+      - prepare
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && inputs.action == 'destroy' && (inputs.stage_scope == 'all' || inputs.stage_scope
+      == 'resources') }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.targets) }}
+    uses: ./.github/workflows/iac-pipeline-multi-cloud-stages.yaml
     with:
-      deploy_action: ${{ inputs.deploy_action || 'plan' }}
-      vault_env_path: ${{ inputs.vault_env_path || 'uat' }}
-      project: ${{ inputs.project || 'svc.plus' }}
-      account: ${{ inputs.state_account }}
-      workspace: ${{ inputs.workspace || 'platform' }}
-      resource_manifest: ${{ inputs.resource_manifest || '' }}
-      gitops_repo_name: ${{ inputs.gitops_repo_name || 'ai-workspace-infra/gitops' }}
-      gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
+      stage: resources
+      action: ${{ inputs.action }}
+      target_id: ${{ matrix.target_id }}
+      environment: ${{ inputs.environment }}
+      gitops_sha: ${{ needs.prepare.outputs.gitops_sha }}
+      iac_sha: ${{ needs.prepare.outputs.iac_sha }}
+      contract_sha256: ${{ needs.prepare.outputs.contract_sha256 }}
+      dependency_stages: ''
+      provider: ${{ matrix.provider }}
+      lock_key: ${{ matrix.lock_key }}
     secrets: inherit
-
-  external-inventory:
-    needs: prepare-matrix
-    if: ${{ inputs.cloud_provider == 'ulighthost' }}
-    uses: ./.github/workflows/external-inventory-state.yml
+  destroy-account:
+    needs:
+      - prepare
+      - destroy-resources
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && inputs.action == 'destroy' && (inputs.stage_scope == 'all' || inputs.stage_scope
+      == 'account') && (needs.destroy-resources.result == 'success' || (needs.destroy-resources.result == 'skipped' && inputs.stage_scope != 'all'))
+      }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.targets) }}
+    uses: ./.github/workflows/iac-pipeline-multi-cloud-stages.yaml
     with:
-      cloud_provider: ${{ inputs.cloud_provider }}
-      vault_env_path: ${{ inputs.vault_env_path || 'uat' }}
-      project: ${{ inputs.project || 'svc.plus' }}
-      account: ${{ inputs.state_account }}
-      workspace: ${{ inputs.workspace || 'platform' }}
-      resource_manifest: ${{ inputs.resource_manifest }}
-      gitops_repo_name: ${{ inputs.gitops_repo_name || 'ai-workspace-infra/gitops' }}
-      gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
+      stage: account
+      action: ${{ inputs.action }}
+      target_id: ${{ matrix.target_id }}
+      environment: ${{ inputs.environment }}
+      gitops_sha: ${{ needs.prepare.outputs.gitops_sha }}
+      iac_sha: ${{ needs.prepare.outputs.iac_sha }}
+      contract_sha256: ${{ needs.prepare.outputs.contract_sha256 }}
+      dependency_stages: resources
+      provider: ${{ matrix.provider }}
+      lock_key: ${{ matrix.lock_key }}
     secrets: inherit
-
-  ucloud:
-    needs: prepare-matrix
-    if: ${{ inputs.cloud_provider == 'ucloud' }}
-    uses: ./.github/workflows/ucloud-iac.yml
+  destroy-bootstrap:
+    needs:
+      - prepare
+      - destroy-resources
+      - destroy-account
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && inputs.action == 'destroy' && (inputs.stage_scope == 'all' || inputs.stage_scope
+      == 'bootstrap') && (needs.destroy-resources.result == 'success' || (needs.destroy-resources.result == 'skipped' && inputs.stage_scope !=
+      'all')) && (needs.destroy-account.result == 'success' || (needs.destroy-account.result == 'skipped' && inputs.stage_scope != 'all')) }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.targets) }}
+    uses: ./.github/workflows/iac-pipeline-multi-cloud-stages.yaml
     with:
-      deploy_action: ${{ inputs.deploy_action || 'plan' }}
-      vault_env_path: ${{ inputs.vault_env_path || 'uat' }}
-      project: ${{ inputs.project || 'svc.plus' }}
-      account: ${{ inputs.state_account }}
-      workspace: ${{ inputs.workspace || 'platform' }}
-      resource_manifest: ${{ inputs.resource_manifest || '' }}
-      gitops_repo_name: ${{ inputs.gitops_repo_name || 'ai-workspace-infra/gitops' }}
-      gitops_repo_ref: ${{ inputs.gitops_repo_ref || 'main' }}
-      iac_ref: ${{ inputs.ucloud_iac_ref || 'main' }}
+      stage: bootstrap
+      action: ${{ inputs.action }}
+      target_id: ${{ matrix.target_id }}
+      environment: ${{ inputs.environment }}
+      gitops_sha: ${{ needs.prepare.outputs.gitops_sha }}
+      iac_sha: ${{ needs.prepare.outputs.iac_sha }}
+      contract_sha256: ${{ needs.prepare.outputs.contract_sha256 }}
+      dependency_stages: resources,account
+      provider: ${{ matrix.provider }}
+      lock_key: ${{ matrix.lock_key }}
     secrets: inherit
+  summary:
+    if: ${{ always() }}
+    needs:
+      - prepare
+      - bootstrap
+      - account
+      - resources
+      - destroy-resources
+      - destroy-account
+      - destroy-bootstrap
+    runs-on: ubuntu-latest
+    outputs:
+      result: ${{ steps.summary.outputs.result }}
+      gitops_sha: ${{ steps.summary.outputs.gitops_sha }}
+      iac_sha: ${{ steps.summary.outputs.iac_sha }}
+      receipt_sha256: ${{ steps.summary.outputs.receipt_sha256 }}
+      deploy_matrix: ${{ steps.summary.outputs.deploy_matrix }}
+      receipt_artifact_id: ${{ steps.receipt.outputs.artifact-id }}
+      inventory_artifact_id: ${{ steps.receipt.outputs.artifact-id }}
+    steps:
+      - name: Fail closed when preparation failed
+        if: needs.prepare.result != 'success'
+        run: |-
+          echo "::error::IaC preparation failed or was cancelled; resource execution is blocked."
+          exit 1
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: ${{ needs.prepare.outputs.iac_sha }}
+          path: iac_modules
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ needs.prepare.outputs.gitops_sha }}
+          path: gitops
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: iac-contract-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/iac-contract
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: iac-stage-${{ github.run_id }}-${{ github.run_attempt }}-*
+          path: ${{ runner.temp }}/iac-evidence
+          merge-multiple: false
+      - id: summary
+        uses: ./iac_modules/.github/actions/iac-summary
+        with:
+          target-contract-file: ${{ runner.temp }}/iac-contract/context.json
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+          evidence-dir: ${{ runner.temp }}/iac-evidence
+          needs-json: ${{ toJSON(needs) }}
+          output-dir: ${{ runner.temp }}/iac-summary
+      - id: receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: iac-summary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/iac-summary
+          if-no-files-found: error
+          retention-days: 7

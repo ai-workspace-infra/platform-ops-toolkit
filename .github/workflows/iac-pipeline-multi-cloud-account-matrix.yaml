@@ -1,66 +1,84 @@
-name: Multi Cloud IAC Pipeline (Account/VPC Matrix)
-
-on:
-  push:
-    branches:
-      - main
-      - 'release/**'
-    paths:
-    - 'terraform-hcl-standard/**'
-    - '.github/workflows/iac-pipeline-multi-cloud-account-matrix.yaml'
-  pull_request:
-    paths:
-    - 'terraform-hcl-standard/**'
-    - '.github/workflows/iac-pipeline-multi-cloud-account-matrix.yaml'
+name: Compatibility / iac-pipeline-multi-cloud-account-matrix
+'on':
   workflow_dispatch:
     inputs:
       deploy_action:
         type: choice
-        options: [plan, apply, destroy]
+        options:
+          - plan
+          - apply
+          - destroy
         default: plan
       project:
-        description: "环境(项目) / Project (Base Domain)"
+        description: "\u73AF\u5883(\u9879\u76EE) / Project (Base Domain)"
         type: string
-        default: svc.plus
+        default: ''
+        required: false
       vault_env_path:
-        description: "Vault environment (e.g. sit, uat, prod)"
+        description: Vault environment (e.g. sit, uat, prod)
         type: choice
-        options: [sit, uat, prod]
+        options:
+          - sit
+          - uat
+          - prod
         default: sit
       cloud_provider:
-        description: "服务商 / Cloud Provider"
+        description: "\u670D\u52A1\u5546 / Cloud Provider"
         type: choice
         required: true
-        options: [aws-cloud, gcp-cloud, azure-cloud, vultr-vps]
+        options:
+          - aws-cloud
+          - gcp-cloud
+          - azure-cloud
+          - vultr-vps
       state_account:
-        description: "Canonical state account segment"
+        description: Canonical state account segment
         type: string
         required: false
-        default: default
+        default: ''
       components_json:
-        description: '账号层级组件选择 (JSON数组格式，如 ["vpc","role"])'
+        description: "\u8D26\u53F7\u5C42\u7EA7\u7EC4\u4EF6\u9009\u62E9 (JSON\u6570\u7EC4\u683C\u5F0F\uFF0C\u5982 [\"vpc\",\"role\"])"
         type: string
-        default: '["vpc","role"]'
+        default: '[]'
       gitops_repo_name:
-        description: "GitOps repository (URL or owner/repo)"
+        description: GitOps repository (URL or owner/repo)
         type: string
-        default: https://github.com/cloud-neutral-workshop/gitops.git
+        default: ''
+        required: false
       gitops_repo_ref:
-        description: "GitOps repo ref (branch/tag/sha) to use"
+        description: GitOps repo ref (branch/tag/sha) to use
         type: string
-        default: main
+        default: ''
+        required: false
       gcp_account_id:
-        description: "GCP account identifier used for Vault JWT/WIF authentication"
+        description: GCP account identifier used for Vault JWT/WIF authentication
         type: string
-        default: xworktech
+        default: ''
+        required: false
       gcp_resource_manifest:
-        description: "Optional GCP GitOps manifest path"
+        description: Optional GCP GitOps manifest path
         type: string
         default: ''
       gcp_iac_ref:
-        description: "Pinned iac_modules ref used for GCP"
+        description: Pinned iac_modules ref used for GCP
         type: string
-        default: 7d379d08c30fa89856b999f12b1fb5167773bdcb
+        default: ''
+        required: false
+      target_manifest:
+        description: Reviewed IaCPipelineTargets path; missing/ambiguous legacy identity fails closed
+        type: string
+        required: false
+        default: ''
+      iac_ref:
+        description: Owner code/module revision
+        type: string
+        required: false
+        default: ''
+      gitops_ref:
+        description: Fixed declaration revision or explicitly selected ref
+        type: string
+        required: false
+        default: ''
   workflow_call:
     inputs:
       deploy_action:
@@ -70,7 +88,7 @@ on:
       project:
         type: string
         required: false
-        default: svc.plus
+        default: ''
       vault_env_path:
         type: string
         required: false
@@ -81,23 +99,23 @@ on:
       state_account:
         type: string
         required: false
-        default: default
+        default: ''
       components_json:
         type: string
         required: false
-        default: '["vpc","role"]'
+        default: '[]'
       gitops_repo_name:
         type: string
         required: false
-        default: https://github.com/cloud-neutral-workshop/gitops.git
+        default: ''
       gitops_repo_ref:
         type: string
         required: false
-        default: main
+        default: ''
       gcp_account_id:
         type: string
         required: false
-        default: xworktech
+        default: ''
       gcp_resource_manifest:
         type: string
         required: false
@@ -105,151 +123,88 @@ on:
       gcp_iac_ref:
         type: string
         required: false
-        default: ca46a49497366921b95a7b95b56b86d2c98224
-
+        default: ''
+      target_manifest:
+        description: Reviewed IaCPipelineTargets path; missing/ambiguous legacy identity fails closed
+        type: string
+        required: false
+        default: ''
+      iac_ref:
+        description: Owner code/module revision
+        type: string
+        required: false
+        default: ''
+      gitops_ref:
+        description: Fixed declaration revision or explicitly selected ref
+        type: string
+        required: false
+        default: ''
+  push:
+    branches:
+      - main
+      - release/**
+    paths:
+      - terraform-hcl-standard/**
+      - .github/workflows/iac-pipeline-multi-cloud-account-matrix.yaml
+  pull_request:
+    paths:
+      - terraform-hcl-standard/**
+      - .github/workflows/iac-pipeline-multi-cloud-account-matrix.yaml
 permissions:
-  id-token: write
   contents: read
-
-env:
-  PROJECT: ${{ inputs.project || github.event.inputs.project || 'svc.plus' }}
-  CLOUD_PROVIDER: ${{ inputs.cloud_provider || github.event.inputs.cloud_provider || 'aws-cloud' }}
-  DEPLOY_ENV: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' && 'uat' || ((startsWith(github.ref, 'refs/heads/release/v') || startsWith(github.ref, 'refs/tags/v')) && 'prod' || 'sit')) || inputs.vault_env_path || github.event.inputs.vault_env_path || 'sit' }}
-  DEPLOY_ACTION: ${{ inputs.deploy_action || github.event.inputs.deploy_action || 'plan' }}
-  BASE_DIR: iac_modules/terraform-hcl-standard/${{ inputs.cloud_provider || github.event.inputs.cloud_provider || 'aws-cloud' }}/component/
-  CONFIG_DIR: gitops/${{ inputs.project || github.event.inputs.project || 'svc.plus' }}/${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' && 'uat' || ((startsWith(github.ref, 'refs/heads/release/v') || startsWith(github.ref, 'refs/tags/v')) && 'prod' || 'sit')) || inputs.vault_env_path || github.event.inputs.vault_env_path || 'sit' }}/${{ inputs.cloud_provider || github.event.inputs.cloud_provider || 'aws-cloud' }}
-  GITOPS_REPO_ROOT: gitops
-  GCP_ACCOUNT_ID: ${{ inputs.gcp_account_id || github.event.inputs.gcp_account_id || 'xworktech' }}
-  STATE_ACCOUNT: ${{ inputs.state_account || github.event.inputs.state_account || 'default' }}
-
+  id-token: write
+  actions: read
 jobs:
-  terraform:
-    name: "${{ matrix.component }} :: pipeline (action=${{ inputs.deploy_action || github.event.inputs.deploy_action || 'plan' }})"
-    if: (inputs.cloud_provider || github.event.inputs.cloud_provider || 'aws-cloud') != 'gcp-cloud'
-    runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        component: ${{ fromJSON(inputs.components_json || github.event.inputs.components_json || '["vpc","role"]') }}
-
-    steps:
-    - name: Checkout Toolkit
-      uses: actions/checkout@v7
-
-    - name: Checkout iac_modules
-      uses: actions/checkout@v7
-      with:
-        repository: ai-workspace-infra/iac_modules
-        path: iac_modules
-
-    - name: Load Vault secrets
-      id: vault
-      uses: hashicorp/vault-action@v4
-      with:
-        url: https://vault.svc.plus
-        method: jwt
-        role: github-actions-platform-ops-toolkit-${{ env.DEPLOY_ENV }}
-        jwtGithubAudience: vault
-        secrets: |
-          kv/data/CICD/${{ env.DEPLOY_ENV }}/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
-          kv/data/CICD/${{ env.DEPLOY_ENV }}/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
-          kv/data/CICD/${{ env.DEPLOY_ENV }}/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
-          kv/data/CICD/${{ env.DEPLOY_ENV }}/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
-          kv/data/CICD/${{ env.DEPLOY_ENV }}/iac_state TF_STATE_REGION | TF_STATE_REGION
-
-    - name: Setup IaC Environment
-      uses: ./.github/actions/setup-iac-env
-      with:
-        gitops_repo_name: ${{ inputs.gitops_repo_name || github.event.inputs.gitops_repo_name || 'https://github.com/cloud-neutral-workshop/gitops.git' }}
-        gitops_repo_ref: ${{ inputs.gitops_repo_ref || github.event.inputs.gitops_repo_ref || 'main' }}
-        gitops_target_path: ${{ env.GITOPS_REPO_ROOT }}
-
-    - name: Configure GCP credentials through Vault JWT and Google WIF
-      if: env.CLOUD_PROVIDER == 'gcp-cloud'
-      uses: ./.github/actions/configure-gcp-oidc
-      with:
-        environment: ${{ env.DEPLOY_ENV }}
-        account_id: ${{ env.GCP_ACCOUNT_ID }}
-
-    - name: Load AWS config
-      if: ${{ env.CLOUD_PROVIDER == 'aws-cloud' }}
-      run: |-
-        iac_modules/scripts/pipeline/multi-cloud-load-aws-config.sh
-
-    - uses: aws-actions/configure-aws-credentials@v4
-      if: ${{ env.CLOUD_PROVIDER == 'aws-cloud' && env.AWS_ROLE_ARN != '' }}
-      with:
-        aws-region: ${{ env.AWS_REGION }}
-        role-to-assume: ${{ env.AWS_ROLE_ARN }}
-
-    - name: Setup Terraform CLI Args
-      env:
-        VAULT_TF_STATE_BUCKET: ${{ steps.vault.outputs.TF_STATE_BUCKET }}
-        VAULT_TF_STATE_ENDPOINT: ${{ steps.vault.outputs.TF_STATE_ENDPOINT }}
-        VAULT_TF_STATE_SECRET_KEY: ${{ steps.vault.outputs.TF_STATE_SECRET_KEY }}
-        VAULT_TF_STATE_REGION: ${{ steps.vault.outputs.TF_STATE_REGION }}
-        MATRIX_COMPONENT: ${{ matrix.component }}
-        VAULT_TF_STATE_ACCESS_KEY: ${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}
-      run: |-
-        iac_modules/scripts/pipeline/multi-cloud-terraform-cli-args.sh accounts
-
-    - name: Init
-      uses: ./.github/actions/terraform-command
-      with:
-        command: init
-        config_dir: ${{ env.CONFIG_DIR }}
-        working_directory: ${{ env.BASE_DIR }}/${{ matrix.component }}
-
-    - name: Plan
-      uses: ./.github/actions/terraform-command
-      with:
-        command: plan
-        config_dir: ${{ env.CONFIG_DIR }}
-        working_directory: ${{ env.BASE_DIR }}/${{ matrix.component }}
-
-    - name: Apply
-      if: ${{ env.DEPLOY_ACTION == 'apply' }}
-      uses: ./.github/actions/terraform-command
-      with:
-        command: apply
-        config_dir: ${{ env.CONFIG_DIR }}
-        working_directory: ${{ env.BASE_DIR }}/${{ matrix.component }}
-
-    - name: Destroy
-      if: ${{ env.DEPLOY_ACTION == 'destroy' }}
-      uses: ./.github/actions/terraform-command
-      with:
-        command: destroy
-        config_dir: ${{ env.CONFIG_DIR }}
-        working_directory: ${{ env.BASE_DIR }}/${{ matrix.component }}
-
-    - name: Skip Apply/Destroy
-      if: ${{ env.DEPLOY_ACTION != 'apply' && env.DEPLOY_ACTION != 'destroy' }}
-      uses: ./.github/actions/terraform-command
-      with:
-        command: skip
-        config_dir: ${{ env.CONFIG_DIR }}
-        working_directory: ${{ env.BASE_DIR }}/${{ matrix.component }}
-
-    - name: Output
-      if: ${{ env.DEPLOY_ACTION == 'apply' }}
-      uses: ./.github/actions/terraform-command
-      with:
-        command: output
-        config_dir: ${{ env.CONFIG_DIR }}
-        working_directory: ${{ env.BASE_DIR }}/${{ matrix.component }}
-
-  gcp-platform:
-    name: "Deploy GCP platform"
-    if: ${{ inputs.cloud_provider == 'gcp-cloud' }}
-    uses: ./.github/workflows/gcp-iac-pipeline.yml
+  static-check:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    uses: ./.github/workflows/iac-self-check-matrix.yml
     with:
-      deploy_action: ${{ inputs.deploy_action || github.event.inputs.deploy_action || 'plan' }}
-      vault_env_path: ${{ inputs.vault_env_path || github.event.inputs.vault_env_path || 'uat' }}
-      gcp_account_id: ${{ inputs.gcp_account_id || github.event.inputs.gcp_account_id || 'xworktech' }}
-      gcp_resource_manifest: ${{ inputs.gcp_resource_manifest || github.event.inputs.gcp_resource_manifest || '' }}
-      iac_ref: ${{ inputs.gcp_iac_ref || github.event.inputs.gcp_iac_ref || '7d379d08c30fa89856b999f12b1fb5167773bdcb' }}
-      gitops_repo_name: ${{ inputs.gitops_repo_name || github.event.inputs.gitops_repo_name || 'https://github.com/ai-workspace-infra/gitops.git' }}
-      gitops_repo_ref: ${{ inputs.gitops_repo_ref || github.event.inputs.gitops_repo_ref || 'main' }}
+      action: check
+    secrets: inherit
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      target_manifest: ${{ steps.normalize.outputs.target_manifest }}
+      selectors: ${{ steps.normalize.outputs.selectors }}
+      action: ${{ steps.normalize.outputs.action }}
+      environment: ${{ steps.normalize.outputs.environment }}
+      gitops_sha: ${{ steps.normalize.outputs.gitops_sha }}
+      iac_sha: ${{ steps.normalize.outputs.iac_sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: ${{ inputs.iac_ref || inputs.gcp_iac_ref || 'be8456282f7495e098170e0894e742605a94dae6' }}
+          path: iac_modules
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_ref || inputs.gitops_repo_ref || '4e052f34675a218df0179677088266c6e7f57f6c' }}
+          path: gitops
+          persist-credentials: false
+      - id: normalize
+        uses: ./iac_modules/.github/actions/iac-legacy-inputs
+        with:
+          inputs-json: ${{ toJSON(inputs) }}
+          stage: account
+          provider: ''
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+    if: github.event_name != 'push' && github.event_name != 'pull_request'
+  pipeline:
+    needs: resolve
+    if: ${{ !cancelled() && needs.resolve.result == 'success' }}
+    uses: ./.github/workflows/iac-pipeline-multi-cloud-master.yaml
+    with:
+      action: ${{ needs.resolve.outputs.action }}
+      environment: ${{ needs.resolve.outputs.environment }}
+      target_manifest: ${{ needs.resolve.outputs.target_manifest }}
+      gitops_ref: ${{ needs.resolve.outputs.gitops_sha }}
+      iac_ref: ${{ needs.resolve.outputs.iac_sha }}
+      stage_scope: account
+      bootstrap_mode: verify
+      selectors: ${{ needs.resolve.outputs.selectors }}
+      correlation_id: ${{ github.run_id }}:${{ github.run_attempt }}:compat
     secrets: inherit

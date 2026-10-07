@@ -1,29 +1,33 @@
-name: Akamai Cloud IaC
-
-on:
+name: Compatibility / akamai-cloud-iac
+'on':
   workflow_dispatch:
     inputs:
       deploy_action:
         type: choice
         required: true
         default: plan
-        options: [plan, apply, destroy]
+        options:
+          - plan
+          - apply
+          - destroy
       vault_env_path:
         type: choice
         required: true
         default: uat
-        options: [uat, prod]
+        options:
+          - uat
+          - prod
       project:
         type: string
-        required: true
-        default: svc.plus
+        required: false
+        default: ''
       account:
         type: string
         required: true
       workspace:
         type: string
-        required: true
-        default: ai-workspace
+        required: false
+        default: ''
       resource_manifest:
         description: Relative path in GitOps; defaults to resources/<project>/<env>/akamai/<workspace>.yaml.
         type: string
@@ -32,15 +36,26 @@ on:
       gitops_repo_name:
         type: string
         required: false
-        default: ai-workspace-infra/gitops
+        default: ''
       gitops_repo_ref:
         type: string
         required: false
-        default: main
+        default: ''
       iac_ref:
+        description: Owner code/module revision
         type: string
         required: false
-        default: main
+        default: ''
+      target_manifest:
+        description: Reviewed IaCPipelineTargets path; missing/ambiguous legacy identity fails closed
+        type: string
+        required: false
+        default: ''
+      gitops_ref:
+        description: Fixed declaration revision or explicitly selected ref
+        type: string
+        required: false
+        default: ''
   workflow_call:
     inputs:
       deploy_action:
@@ -52,13 +67,15 @@ on:
         required: true
       project:
         type: string
-        required: true
+        required: false
+        default: ''
       account:
         type: string
         required: true
       workspace:
         type: string
-        required: true
+        required: false
+        default: ''
       resource_manifest:
         type: string
         required: false
@@ -66,212 +83,74 @@ on:
       gitops_repo_name:
         type: string
         required: false
-        default: ai-workspace-infra/gitops
+        default: ''
       gitops_repo_ref:
         type: string
         required: false
-        default: main
+        default: ''
       iac_ref:
+        description: Owner code/module revision
         type: string
         required: false
-        default: main
-
+        default: ''
+      target_manifest:
+        description: Reviewed IaCPipelineTargets path; missing/ambiguous legacy identity fails closed
+        type: string
+        required: false
+        default: ''
+      gitops_ref:
+        description: Fixed declaration revision or explicitly selected ref
+        type: string
+        required: false
+        default: ''
 permissions:
   contents: read
   id-token: write
-
-concurrency:
-  group: akamai-cloud-${{ inputs.vault_env_path }}-${{ inputs.project }}-${{ inputs.account }}-${{ inputs.workspace }}
-  cancel-in-progress: false
-
+  actions: read
 jobs:
-  terraform:
+  resolve:
     runs-on: ubuntu-latest
-    environment:
-      name: ${{ inputs.vault_env_path }}
-    env:
-      DEPLOY_ACTION: ${{ inputs.deploy_action || 'plan' }}
-      DEPLOY_ENV: ${{ inputs.vault_env_path }}
-      PROJECT: ${{ inputs.project }}
-      ACCOUNT: ${{ inputs.account }}
-      WORKSPACE: ${{ inputs.workspace }}
-      GITOPS_REPO: ${{ inputs.gitops_repo_name }}
-      GITOPS_REF: ${{ inputs.gitops_repo_ref }}
-      IAC_REF: ${{ inputs.iac_ref }}
-      MANIFEST_INPUT: ${{ inputs.resource_manifest }}
-      TF_ROOT: ${{ github.workspace }}/iac_modules/terraform-hcl-standard/akamai-cloud/envs/${{ inputs.vault_env_path }}/${{ inputs.workspace }}
+    outputs:
+      target_manifest: ${{ steps.normalize.outputs.target_manifest }}
+      selectors: ${{ steps.normalize.outputs.selectors }}
+      action: ${{ steps.normalize.outputs.action }}
+      environment: ${{ steps.normalize.outputs.environment }}
+      gitops_sha: ${{ steps.normalize.outputs.gitops_sha }}
+      iac_sha: ${{ steps.normalize.outputs.iac_sha }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Checkout IaC modules
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: ${{ env.IAC_REF }}
+          ref: ${{ inputs.iac_ref || 'be8456282f7495e098170e0894e742605a94dae6' }}
           path: iac_modules
-
-      - name: Checkout GitOps declarations
-        uses: actions/checkout@v4
+          persist-credentials: false
+      - uses: actions/checkout@v4
         with:
-          repository: ${{ env.GITOPS_REPO }}
-          ref: ${{ env.GITOPS_REF }}
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_ref || inputs.gitops_repo_ref || '4e052f34675a218df0179677088266c6e7f57f6c' }}
           path: gitops
-
-      - name: Resolve canonical state contract
-        id: contract
-        run: |
-          python3 scripts/iac/resolve_iac_contract.py \
-            --environment "${DEPLOY_ENV}" --project "${PROJECT}" \
-            --provider akamai-cloud --account "${ACCOUNT}" --workspace "${WORKSPACE}" \
-            --github-output
-
-      - name: Validate Akamai account name
-        run: |
-          set -euo pipefail
-          [[ "${ACCOUNT}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
-            echo 'account must contain only letters, numbers, dot, underscore, or hyphen' >&2
-            exit 1
-          }
-          case "${ACCOUNT}" in
-            primary|default|main)
-              echo 'account must be a concrete account name or ID, not an alias' >&2
-              exit 1
-              ;;
-          esac
-          if [[ "${DEPLOY_ENV}" == uat ]]; then
-            [[ "${PROJECT}" == svc.plus ]] || { echo 'UAT Akamai state contract requires GitOps project svc.plus' >&2; exit 1; }
-            case "${WORKSPACE}" in
-              web-saas|open-platform|ai-workspace|agent-proxy-jp|agent-proxy-us|agent-proxy-sg|ai-aggregator-gateway|ai-aggregator-cpa-codex-01|ai-aggregator-cpa-codex-02|ai-aggregator-cpa-claude-01|ai-aggregator-cpa-grok-01) ;;
-              *) echo "UAT Akamai requires one of the six isolated namespaces; aggregate/legacy workspace '${WORKSPACE}' is forbidden" >&2; exit 1 ;;
-            esac
-          fi
-
-      - name: Load Akamai Cloud and state credentials from Vault
-        id: vault
-        uses: hashicorp/vault-action@v4
+          persist-credentials: false
+      - id: normalize
+        uses: ./iac_modules/.github/actions/iac-legacy-inputs
         with:
-          url: https://vault.svc.plus
-          method: jwt
-          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path }}-akamai-oidc-bootstrap-${{ inputs.account }}
-          jwtGithubAudience: vault
-          exportToken: false
-          secrets: |
-            kv/data/CICD/${{ inputs.vault_env_path }}/akamai-cloud/${{ inputs.account }} LINODE_TOKEN | LINODE_TOKEN ;
-            kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
-            kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
-            kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
-            kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
-            kv/data/CICD/${{ inputs.vault_env_path }}/iac_state TF_STATE_REGION | TF_STATE_REGION
-
-      - name: Validate Linode token without exposing it
-        env:
-          LINODE_TOKEN: ${{ steps.vault.outputs.LINODE_TOKEN }}
-        run: |
-          set -euo pipefail
-          normalized_token="$(printf '%s' "${LINODE_TOKEN}" | tr -d '\r\n')"
-          [[ -n "${normalized_token}" ]] || { echo 'LINODE_TOKEN is empty' >&2; exit 1; }
-          echo "::add-mask::${normalized_token}"
-          {
-            echo 'LINODE_TOKEN<<AKAMAI_TOKEN_EOF'
-            printf '%s\n' "${normalized_token}"
-            echo 'AKAMAI_TOKEN_EOF'
-          } >> "${GITHUB_ENV}"
-          curl --fail --silent --show-error --header "Authorization: Bearer ${normalized_token}" \
-            https://api.linode.com/v4/profile | jq -e '.username and .email' >/dev/null
-
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.10.5
-
-      - name: Resolve GitOps resource declaration
-        id: manifest
-        run: |
-          set -euo pipefail
-          manifest="${MANIFEST_INPUT:-resources/${PROJECT}/${DEPLOY_ENV}/akamai/${WORKSPACE}.yaml}"
-          [[ "${manifest}" != /* && "${manifest}" != *..* ]] || { echo "invalid resource manifest path" >&2; exit 1; }
-          [[ "${manifest}" == resources/*/${DEPLOY_ENV}/akamai/*.yaml ]] || { echo "manifest must be under resources/<project>/${DEPLOY_ENV}/akamai/" >&2; exit 1; }
-          if [[ "${DEPLOY_ENV}" == uat && "${manifest}" != "resources/${PROJECT}/uat/akamai/${WORKSPACE}.yaml" ]]; then
-            echo "UAT Akamai namespace must use its matching canonical one-resource manifest" >&2
-            exit 1
-          fi
-          test -f "gitops/${manifest}"
-          echo "path=${manifest}" >> "$GITHUB_OUTPUT"
-
-      - name: Prepare isolated Terraform namespace root
-        run: mkdir -p "${TF_ROOT}"
-
-      - name: Render Akamai Terraform root
-        env:
-          GITOPS_ROOT: ${{ github.workspace }}/gitops
-          TF_STATE_ENDPOINT: ${{ steps.vault.outputs.TF_STATE_ENDPOINT }}
-          TF_STATE_REGION: ${{ steps.vault.outputs.TF_STATE_REGION }}
-        working-directory: ${{ env.TF_ROOT }}
-        run: |
-          python3 "${GITHUB_WORKSPACE}/iac_modules/terraform-hcl-standard/akamai-cloud/scripts/generate.py" render \
-            --resources "${GITHUB_WORKSPACE}/gitops/${{ steps.manifest.outputs.path }}" \
-            --workdir "${TF_ROOT}" \
-            --namespace "${WORKSPACE}"
-
-      - name: Configure S3-compatible state backend
-        env:
-          TF_STATE_ENDPOINT: ${{ steps.vault.outputs.TF_STATE_ENDPOINT }}
-          TF_STATE_BUCKET: ${{ steps.vault.outputs.TF_STATE_BUCKET }}
-          TF_STATE_ACCESS_KEY: ${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}
-          TF_STATE_SECRET_KEY: ${{ steps.vault.outputs.TF_STATE_SECRET_KEY }}
-          TF_STATE_REGION: ${{ steps.vault.outputs.TF_STATE_REGION }}
-          TF_STATE_KEY: ${{ steps.contract.outputs.state_key }}
-        run: |
-          set -euo pipefail
-          umask 077
-          backend="${RUNNER_TEMP}/akamai-backend.hcl"
-          printf '%s\n' \
-            "bucket = \"${TF_STATE_BUCKET}\"" \
-            "key = \"${TF_STATE_KEY}\"" \
-            "region = \"${TF_STATE_REGION}\"" \
-            "access_key = \"${TF_STATE_ACCESS_KEY}\"" \
-            "secret_key = \"${TF_STATE_SECRET_KEY}\"" \
-            'skip_credentials_validation = true' \
-            'skip_region_validation = true' \
-            'skip_requesting_account_id = true' \
-            'skip_metadata_api_check = true' \
-            'skip_s3_checksum = true' \
-            'use_path_style = true' \
-            'use_lockfile = true' > "${backend}"
-          terraform -chdir="${TF_ROOT}" init -input=false -reconfigure -backend-config="${backend}"
-
-      - name: Terraform validate and plan
-        run: |
-          set -euo pipefail
-          export TF_VAR_linode_token="${LINODE_TOKEN}"
-          root="${TF_ROOT}"
-          terraform -chdir="${root}" validate -no-color
-          if [[ "${DEPLOY_ACTION}" != destroy ]]; then terraform -chdir="${root}" plan -input=false -no-color; fi
-
-      - name: Assert safe single-namespace Akamai destroy scope
-        if: ${{ inputs.deploy_action == 'destroy' }}
-        env:
-          ENV_STEPS_ROUTE_OUTPUTS_CLOUD_PROVIDER: akamai-cloud
-          ENV_STEPS_ROUTE_OUTPUTS_TERRAFORM_WORKSPACE: ${{ inputs.workspace }}
-          ENV_STEPS_ROUTE_OUTPUTS_STATE_KEY: ${{ steps.contract.outputs.state_key }}
-          HOSTS_MANIFEST: ${{ env.TF_ROOT }}/hosts_manifest.json
-          OPEN_PLATFORM_ACCEPTANCE_FILE: ${{ github.workspace }}/config/open-platform-uat-cleanup-acceptance.json
-        working-directory: ${{ env.TF_ROOT }}
-        run: bash "${GITHUB_WORKSPACE}/iac_modules/scripts/pipeline/assert-destroy-scope.sh"
-
-      - name: Terraform apply or destroy
-        if: ${{ inputs.deploy_action == 'apply' || inputs.deploy_action == 'destroy' }}
-        run: |
-          set -euo pipefail
-          export TF_VAR_linode_token="${LINODE_TOKEN}"
-          terraform -chdir="${TF_ROOT}" "${DEPLOY_ACTION}" -input=false -auto-approve
-
-      - name: Produce CMDB after apply
-        if: ${{ inputs.deploy_action == 'apply' }}
-        env:
-          GITOPS_ROOT: ${{ github.workspace }}/gitops
-        working-directory: ${{ env.TF_ROOT }}
-        run: |
-          python3 "${GITHUB_WORKSPACE}/iac_modules/terraform-hcl-standard/akamai-cloud/scripts/generate.py" inventory \
-            --resources "${GITHUB_WORKSPACE}/gitops/${{ steps.manifest.outputs.path }}" \
-            --workdir "${TF_ROOT}" \
-            --namespace "${WORKSPACE}"
+          inputs-json: ${{ toJSON(inputs) }}
+          stage: resources
+          provider: akamai-cloud
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
+  pipeline:
+    needs: resolve
+    if: ${{ !cancelled() && needs.resolve.result == 'success' }}
+    uses: ./.github/workflows/iac-self-check-matrix.yml
+    with:
+      action: ${{ needs.resolve.outputs.action }}
+      environment: ${{ needs.resolve.outputs.environment }}
+      target_manifest: ${{ needs.resolve.outputs.target_manifest }}
+      gitops_ref: ${{ needs.resolve.outputs.gitops_sha }}
+      iac_ref: ${{ needs.resolve.outputs.iac_sha }}
+      stage_scope: resources
+      bootstrap_mode: verify
+      selectors: ${{ needs.resolve.outputs.selectors }}
+      correlation_id: ${{ github.run_id }}:${{ github.run_attempt }}:compat
+    secrets: inherit
