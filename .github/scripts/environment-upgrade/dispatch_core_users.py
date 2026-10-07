@@ -33,6 +33,8 @@ def require(condition, message):
 
 def validate_core_receipt(receipt, run):
     require(receipt.get("environment") == "prod", "core receipt environment differs")
+    require(receipt.get("scope") == "core_users" and receipt.get("stage") == "core_users_copied",
+            "core receipt scope differs")
     require(receipt.get("host") == "web-saas-prod" and receipt.get("database") == "account",
             "core receipt target differs")
     require(receipt.get("source_read_only") is True and receipt.get("target_writes") is True,
@@ -53,6 +55,7 @@ def validate_core_receipt(receipt, run):
             "source and target core-user identity sets differ")
     require(receipt.get("user_count") == core["source"]["count"],
             "core-user count differs from source user count")
+    require(receipt.get("tables") == {}, "core receipt must not claim dynamic table equality")
     require(run.get("status") == "completed" and run.get("conclusion") == "success",
             "Selfhost child did not complete successfully")
     # The owner receipt may contain table-level counts/digests. It is consumed
@@ -72,7 +75,7 @@ def dispatch_inputs(tag):
         "target_domain_base": "svc.plus",
         "observability_endpoint": "https://observability.svc.plus",
         "xray_exporter_image": "",
-        "operation": "native-business-copy",
+        "operation": "native-core-users",
         "target_domains": "web-saas",
         "open_platform_service": "all",
         "cloud_provider": "gcp-cloud",

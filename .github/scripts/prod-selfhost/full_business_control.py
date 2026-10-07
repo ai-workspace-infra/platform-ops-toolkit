@@ -19,7 +19,8 @@ _loader = importlib.util.spec_from_file_location('native_billing_control', Path(
 BILLING = importlib.util.module_from_spec(_loader)
 _loader.loader.exec_module(BILLING)
 INIT, BASE, require = BILLING.INIT, BILLING.BASE, BILLING.require
-MODES = {'native-business-plan': 'preview', 'native-business-copy': 'copy', 'native-business-compare': 'compare'}
+MODES = {'native-business-plan': 'preview', 'native-business-copy': 'copy',
+         'native-business-compare': 'compare', 'native-core-users': 'core_users'}
 ACCOUNTS_SQL = '842cef3beb98ef819dc854ecdf5f85683233641a0cd85a9156b30ad59f7e0206'
 BILLING_SQL = 'a7133f3ef2ea9013a055cfd1442a7488d2b837f289e0f5d9b61624d4fde9bc53'
 
