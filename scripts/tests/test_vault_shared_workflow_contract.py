@@ -32,7 +32,7 @@ class VaultServerEntryTests(unittest.TestCase):
         self.assertIn("connection_mode: bootstrap-public", ENTRY.read_text(encoding="utf-8"))
         self.assertIn("xconnect-one", self.inputs["service_stage"]["options"])
         self.assertIn("vault-public-frontend", self.inputs["service_stage"]["options"])
-        self.assertEqual(self.inputs["playbooks_ref"]["default"], "4c5187f0ae64d49b8cc0004f1e96b91f637fc3c4")
+        self.assertEqual(self.inputs["playbooks_ref"]["default"], "ab05b38ae4d0f4c2930e5ff7c975aa534ba829a2")
 
     def test_gateway_tls_is_read_with_the_scoped_xconnect_role_only_when_needed(self):
         steps = steps_by_name(self.jobs["node-stage"]["steps"])
@@ -191,9 +191,13 @@ class ProviderNeutralStageTests(unittest.TestCase):
 
     def test_stage_runner_receives_plan_outputs(self):
         run = self.steps["Execute provider-neutral Vault node stage"]
-        self.assertEqual(run["uses"], "./.github/actions/vault-node-stage")
+        self.assertEqual(
+            run["uses"],
+            "ai-workspace-infra/playbooks/.github/actions/vault-node-stage@ab05b38ae4d0f4c2930e5ff7c975aa534ba829a2",
+        )
         for field in ("tags", "requires", "confirms", "playbook", "action", "extra_vars", "stage"):
             self.assertEqual(run["with"][field], f"${{{{ steps.stage.outputs.{field} }}}}")
+        self.assertEqual(run["with"]["owner_root"], "${{ github.workspace }}/playbooks")
         self.assertIn("steps.stage.outputs.stage != ''", run["if"])
         self.assertIn("steps.stage.outputs.needs_observability == 'true'", self.steps["Read observability ingestion credentials"]["if"])
 

@@ -56,19 +56,14 @@ runs:
         chmod 600 "${SSH_KEY}-cert.pub"
         ssh-keygen -L -f "${SSH_KEY}-cert.pub" | grep -E 'Valid:|Principals:' -A1 | sed 's/^/  /'
 
-    - name: Build the existing node's NodeDeployment
+    - name: Build the existing node's NodeDeployment through Playbooks owner
       id: contract
       if: ${{ inputs.phase == 'open' }}
-      shell: bash
-      env:
-        SERVICE_MANIFEST: ${{ inputs.service_manifest }}
-        SSH_KEY: ${{ inputs.ssh_key }}
-      run: |
-        set -euo pipefail
-        contract="$(dirname "${SSH_KEY}")/legacy-nodes.json"
-        python3 "${GITHUB_WORKSPACE}/scripts/node_deploy/legacy_source.py" contract \
-          --service-manifest "gitops/${SERVICE_MANIFEST}" --output "${contract}"
-        echo "contract=${contract}" >> "${GITHUB_OUTPUT}"
+      uses: ./playbooks/.github/actions/node-contract-existing
+      with:
+        service_manifest: ${{ github.workspace }}/gitops/${{ inputs.service_manifest }}
+        output: ${{ runner.temp }}/node-access/legacy-nodes.json
+        owner_root: ${{ github.workspace }}/playbooks
 
     - name: Remove the SSH certificate
       if: ${{ inputs.phase == 'close' }}
