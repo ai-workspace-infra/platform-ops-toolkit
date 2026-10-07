@@ -143,9 +143,9 @@
     "environment": "prod",
     "host": "web-saas-prod",
     "database": "account",
-    "accounts_commit": "6c32d91e263e353a6a35f50daeac807441a43135",
-    "image": "ghcr.io/ai-workspace-services/accounts:sha-6c32d91e263e353a6a35f50daeac807441a43135",
-    "image_digest": "sha256:fea22872ee7e71984995f38f73586fe3b5a3eb4cbedbade6b5f6dae4dd745e0b",
+    "accounts_commit": "8844be6ad3e7ab3685f75312f06aa3ea4202a05a",
+    "image": "ghcr.io/ai-workspace-services/accounts:sha-8844be6ad3e7ab3685f75312f06aa3ea4202a05a",
+    "image_digest": "sha256:e8bfd120a4ba6f3af9b091832b21484da355cb0e344d576de1e188e095272d64",
     "schema_sha256": "842cef3beb98ef819dc854ecdf5f85683233641a0cd85a9156b30ad59f7e0206",
     "migration_version": 2026100701,
     "business_tables": [
