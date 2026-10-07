@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - ".github/scripts/**"
+      - ".github/actions/**"
+      - ".github/config/**"
+      - ".github/workflows/**"
       - ".github/workflows/repository-conventions.yml"
       - "scripts/ci/**"
       - "scripts/cloud/bootstrap/gcp/bootstrap_prod_selfhost.sh"
@@ -11,6 +14,9 @@ on:
     branches: [main]
     paths:
       - ".github/scripts/**"
+      - ".github/actions/**"
+      - ".github/config/**"
+      - ".github/workflows/**"
       - ".github/workflows/repository-conventions.yml"
       - "scripts/ci/**"
       - "scripts/cloud/bootstrap/gcp/bootstrap_prod_selfhost.sh"
@@ -62,6 +68,20 @@ jobs:
 
       - name: Falsify ownership guard with new and changed execution fixtures
         run: python3 scripts/ci/tests/test_script_ownership.py
+
+      - uses: ./.github/actions/setup-yq
+
+      - name: Reject active test-named executors, timeout commands and retired wrapper callers
+        run: |
+          bash scripts/ci/active-entry-ownership-verify.sh
+          bash scripts/ci/tests/active-entry-ownership-test.sh
+
+      - name: Verify YAML and Shell control-plane contracts
+        run: |
+          bash scripts/ci/action-metadata-verify.sh .github/actions/prod-selfhost-control/action.yml .github/actions/serverless-runtime/action.yml .github/actions/serverless-summary/action.yml .github/actions/setup-yq/action.yml
+          bash .github/actions/prod-selfhost-control/tests/control-test.sh
+          bash .github/actions/serverless-runtime/tests/runtime-test.sh
+          bash .github/actions/serverless-summary/tests/summary-test.sh
 
       - name: Verify fixed PROD bootstrap controller and credential guards
         run: bash scripts/ci/test_prod_selfhost_bootstrap_controller.sh

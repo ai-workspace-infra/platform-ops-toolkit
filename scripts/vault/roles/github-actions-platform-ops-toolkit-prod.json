@@ -29,7 +29,8 @@
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/external-inventory-state.yml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/ucloud-iac.yml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/gcp-oidc-bootstrap.yml@*",
-      "ai-workspace-infra/iac_modules/.github/workflows/cloudflare-serverless-domains.yml@a7ac40fb0c3e620bdec89edd72b172afefc1f2ee"
+      "ai-workspace-infra/iac_modules/.github/workflows/cloudflare-serverless-domains.yml@a7ac40fb0c3e620bdec89edd72b172afefc1f2ee",
+      "ai-workspace-infra/iac_modules/.github/workflows/cloudflare-serverless-domains.yml@bd098cba5acde525f2f1c4d3bc3a7bd6338c9077"
     ],
     "ref": [
       "refs/tags/v*",

@@ -1,0 +1,149 @@
+---
+schema: 1
+policy: frozen-debt-not-an-exemption-or-a-deletion-gate
+legacy:
+- path: ".github/scripts/platform-ops/deploy/platform-ops_deploy_base_restore-caddy-certs.sh"
+  owner: playbooks
+  sha256: 90514bb33ba242bf5c60e3fee43221c4072e2aa7e39fb9bd94e417accacd2f00
+- path: ".github/scripts/platform-ops/dns/platform-ops_sit_all_in_one_dns_reconcile.sh"
+  owner: iac_modules
+  sha256: a8160b11869a46ec9814849384a153d0cfe904b74aaead0dd2e42277b87c7911
+- path: ".github/scripts/serverless/sync_smtp_secrets.sh"
+  owner: iac_modules
+  sha256: 5f38decf009777e1ab3904365ed2574b523a597c0ec9b85e8da8540e543a618b
+- path: ".github/scripts/xconnect-existing-one-uat/deploy.sh"
+  owner: playbooks
+  sha256: 24f4202a24baba3005908be2a5b981ef210984e352d59fd4266945afdde45417
+- path: ".github/scripts/xconnect-lab/deploy.sh"
+  owner: playbooks
+  sha256: ac5fbd4a66a2c3ffb318bb31186dcfd658adecf47ddd495340bd7885647cb043
+- path: ".github/scripts/xconnect-lab/desktop.sh"
+  owner: playbooks
+  sha256: 8e11ad5c59c959700f7b000c9f91612bc6dd57bd9ab319e244723aa0a0084e03
+- path: ".github/scripts/xconnect-lab/enroll-node.sh"
+  owner: playbooks
+  sha256: 0f1b7619713c3a1ff578008ed20ae87876cbb51493f8bf1bb309d323b85c5b1e
+- path: ".github/scripts/xconnect-lab/gateway.sh"
+  owner: playbooks
+  sha256: 4e2197b02ba9475c30859cae7b0602173effe9f6527d0552aac965676fecc7f0
+- path: ".github/scripts/xconnect-lab/lease.sh"
+  owner: iac_modules
+  sha256: a86176b185904be9360cce187ea1acfebc120042d2c0a0f7fe870a936087f414
+- path: ".github/scripts/xconnect-lab/prepare.py"
+  owner: iac_modules
+  sha256: 1493056cde3bb9c4e5b823ded360c005226d2eace71012dfce406c259e87e31c
+- path: ".github/scripts/xconnect-lab/reconcile-gateway-dns.sh"
+  owner: iac_modules
+  sha256: 1cf5a9a1b480f06c5926634fc4898a34bcb397f511e8013a07a064b79cbe685d
+- path: ".github/scripts/xconnect-lab/remote-client-observation.sh"
+  owner: playbooks
+  sha256: 4940ff4903fe9856c6ef1024b9368946ca7cdb5c6ce6a87eef1f5a73702f5c14
+- path: ".github/scripts/xconnect-lab/remote-gateway-observation.sh"
+  owner: playbooks
+  sha256: e25b2310725414371ac87b7a79c46ecd8cafc7886c14b4ec229631161ce117c8
+- path: ".github/scripts/xconnect-lab/run.sh"
+  owner: iac_modules
+  sha256: e94473433845a0ec82015e9985048838fcccb435e850fbfd2397b3bc490b2a3a
+- path: ".github/scripts/platform-ops/observe/run_k6_performance_test.sh"
+  owner: playbooks
+  sha256: 38582d8e0e60d3487bdf1ddba12378aa2b54a7b32b2eea5346c6636fd47541ab
+- path: ".github/scripts/xconnect-lab/node-observation.sh"
+  owner: playbooks
+  sha256: 0a15ebb10388ca8117a3b98a1a558bf856129c57298a66d7777cf15caacbed71
+- path: ".github/scripts/serverless/run_cloudflare_target.sh"
+  owner: iac_modules
+  sha256: a3d71826afc5d6f6a3d54e0edcc7a1726cc12bb220fcdaacba598246f35be5c2
+- path: ".github/scripts/platform-ops/deploy/uat_orchestrator_runner.sh"
+  owner: iac_modules
+  sha256: e9c6943516a99c5547fb26186e01ca203a533e63887412e0e65ec4c0838a231c
+- path: ".github/scripts/platform-ops/deploy/uat_cleanup_runner.sh"
+  owner: iac_modules
+  sha256: 32e0b658f0ab792f19dcf85c8f45599261e77fd7ad510952edf9f282bbbe4e7d
+- path: ".github/scripts/resize/resize-instance_preflight.sh"
+  owner: iac_modules
+  sha256: a4a4a030d5401bc9697695eb16b5727d63a41c3b2dfb960291c27a868574e6ab
+- path: ".github/scripts/platform-ops/provision/platform-ops_provision_render-existing-host-cmdb.sh"
+  owner: iac_modules
+  sha256: 6c39b2b0cc6a6a672f24c6091a3a4401cc93e5bdbabdcfcae6886a9c28ffba33
+- path: ".github/scripts/resize/resize-instance_healthcheck.sh"
+  owner: playbooks
+  sha256: 47565189462877d384c24320d228d2212905a3698c8903b2c8c7b77cadba09fd
+- path: ".github/scripts/serverless/verify_frontend_boundary_assets.sh"
+  owner: playbooks
+  sha256: 84cfd65642087e70ed03fb74b0d4bb1d61357407dec22bdd2777c0f28dce5c97
+- path: ".github/scripts/xconnect-lab/probe-control-plane.py"
+  owner: playbooks
+  sha256: c4a08da939a8fec0a293fd815712632f8c25b34bcfdad42eec3cedd9d7529b69
+- path: ".github/scripts/snapshots/check-shared-readiness.sh"
+  owner: playbooks
+  sha256: c4278be1951318bb5f9698f1e59357d76b1a2a9dabdc0cdaa831336b6ac1df72
+- path: ".github/scripts/serverless/verify_summary.sh"
+  owner: toolkit
+  sha256: 4a95c26ba047fd68e30b5d701f436c32afb47cd09c5a5476fc6fb9ab90f42cf0
+- path: scripts/serverless_uat/deploy_orchestrator.py
+  owner: split-toolkit-iac_modules
+  sha256: a02c04d42f1c6588ffb966a4309ef78e7c4f536fd00f3f3d5353238dc87828b3
+- path: scripts/serverless_uat/deploy_cloudflare_pages.sh
+  owner: iac_modules
+  sha256: e3d275b60911cde2bf2ef8abe0c54131b70c6074f18360cfe59a43367a164398
+- path: scripts/serverless_uat/deploy_cloudflare_worker.sh
+  owner: iac_modules
+  sha256: 49c136844b123515765e6763f2402eea96ec3eeccc7100d198b39be358cfae14
+- path: scripts/serverless_uat/deploy_cloudrun_services.sh
+  owner: iac_modules
+  sha256: 9535a2f7c33d7a871c8549804fafa62e0094cba19844f3d003308977690b98f2
+- path: scripts/serverless_uat/deploy_frontend_router.sh
+  owner: iac_modules
+  sha256: 72f357230245323d0d7114783764b2c41a264382fb147a4c02be36d9ad5bf747
+- path: scripts/serverless_uat/deploy_portal_opennext_worker.sh
+  owner: iac_modules
+  sha256: 3b1c2ad2024e4f43e929c915587236c9a126142421d6726dcbe0a980537a89f1
+- path: scripts/serverless_uat/destroy_ephemeral_compute.sh
+  owner: iac_modules
+  sha256: 90835fbac54511a9bd1ca6cdd481ccfd2d1412238193333fe87909bd0924e009
+- path: scripts/serverless_uat/verify_serverless_public_chain.sh
+  owner: playbooks
+  sha256: '041498f7a073405dfe81fb08ffacd2d2d54b84751874a480702cae84beb7ab23'
+- path: scripts/serverless_uat/verify_brand_site_review_readiness.sh
+  owner: playbooks
+  sha256: fe1ae5032fb0104dafbb696dc2bc8eeb7a8848610bf4ea44e0f284bd951a8e8b
+- path: ".github/actions/node-access-gcp/action.yml"
+  owner: iac_modules
+  sha256: 68077cbaade28df9e9a5a0265c39542d48307041376ebd1ad4a0f7abaf4b39a4
+  status: requires-owner-split
+- path: ".github/actions/setup-deployment-runner/scripts/setup.sh"
+  owner: split-toolkit-playbooks
+  sha256: 5adafe9411153d8246b4995459072244eede7e5e376d2a21d2a24116013671f6
+  status: requires-owner-split
+- path: scripts/serverless_uat/bootstrap_stripe_catalog.sh
+  owner: playbooks-or-service-owner
+  sha256: 96ed4b867056b7c4511129d1fd5083829724ad9a91db70da3c472e0a1e04d1b9
+  status: requires-owner-split
+- path: scripts/serverless_uat/reset_xconnect_overlay.sh
+  owner: playbooks
+  sha256: 8c0dff3cabf5b9031c327db6d842b3d57850eec805e95675c5d12ff257f26d52
+  status: requires-owner-split
+retired_workflow_entries:
+- ".github/scripts/platform-ops/deploy/uat_cleanup_runner.sh"
+- ".github/scripts/platform-ops/deploy/uat_orchestrator_runner.sh"
+- ".github/scripts/platform-ops/dns/platform-ops_sit_all_in_one_dns_reconcile.sh"
+- ".github/scripts/platform-ops/observe/run_k6_performance_test.sh"
+- ".github/scripts/platform-ops/provision/platform-ops_provision_render-existing-host-cmdb.sh"
+- ".github/scripts/resize/resize-instance_healthcheck.sh"
+- ".github/scripts/resize/resize-instance_preflight.sh"
+- ".github/scripts/serverless/run_cloudflare_target.sh"
+- ".github/scripts/serverless/sync_smtp_secrets.sh"
+- ".github/scripts/serverless/verify_frontend_boundary_assets.sh"
+- ".github/scripts/serverless/verify_summary.sh"
+- ".github/scripts/snapshots/check-shared-readiness.sh"
+- ".github/scripts/xconnect-lab/node-observation.sh"
+- ".github/scripts/xconnect-lab/probe-control-plane.py"
+- ".github/scripts/xconnect-lab/run.sh node-observation"
+- scripts/serverless_uat/deploy_cloudflare_pages.sh
+- scripts/serverless_uat/deploy_cloudflare_worker.sh
+- scripts/serverless_uat/deploy_cloudrun_services.sh
+- scripts/serverless_uat/deploy_frontend_router.sh
+- scripts/serverless_uat/deploy_portal_opennext_worker.sh
+- scripts/serverless_uat/destroy_ephemeral_compute.sh
+- scripts/serverless_uat/verify_brand_site_review_readiness.sh
+- scripts/serverless_uat/verify_serverless_public_chain.sh

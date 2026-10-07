@@ -197,7 +197,7 @@ run/tag/SHA/attempt 与原 artifact bytes，不执行主机或数据库命令。
 及已发布 Accounts `ac3239a6ddb89fd49c2b15416bf5f6ea588c6797` 镜像/digest，受限执行器只将版本
 `2026100601` 升至 `2026100701`，52+1 表、零业务行、无 seed/down/reset，应用/CD 写者保持停止。
 
-生产初始化尚未执行，因此 `.github/config/prod-native-billing.json` 的 `initialization_accepted=false`，
+生产初始化尚未执行，因此 `.github/config/prod-native-billing.yaml` 的 `initialization_accepted=false`，
 实际 init run/artifact/hash 为空；不得把 CI、预演、待机成功或手写回执填成实际初始化成功。
 取得真实 apply 回执、校验 cleanup 和原始 artifact 后才能通过 PR 更新该接受记录。
 控制守卫在读取凭据和打开访问之前拒绝未接受初始化；IaC 同轮临时访问总是清理，成功 schema evidence
@@ -240,7 +240,7 @@ Vault policy 源码允许当前 PROD 路径且 role 绑定原 workflow/版本 ta
 连接凭据经 SSH/容器 stdin 传递，不写主机 env 文件或 Docker 持久配置；Registry auth 仅在私密 tmpfs 临时目录。
 回执仅含来源/快照/目录摘要、逐表行数和摘要、scope/版本/时间与只读状态，不含业务行、email 或 Proxy UUID。
 
-当前 `.github/config/prod-full-business.json` 的来源为 `ready=false / identity_sha256=null`，
+当前 `.github/config/prod-full-business.yaml` 的来源为 `ready=false / identity_sha256=null`，
 初始化/Billing/复制 acceptance 均为 false，实际回执字段均为空。必须取得并审核真实前序回执后再通过 PR 更新，
 不得用 CI、预演或手写回执填充。当前 PROD 独立审核仍未配置成功，因此生产主库继续保持 Serverless。
 

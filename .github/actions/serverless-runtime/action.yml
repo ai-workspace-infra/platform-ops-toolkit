@@ -1,0 +1,13 @@
+name: Prepare Cloud Run runtime authorization and inputs
+description: Read the selected Vault/GitOps contract without deploying any resources.
+inputs:
+  environment: {required: true, description: "Exact sit, uat or prod environment"}
+  service: {required: true, description: "accounts, billing-service or content-service"}
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        RUNTIME_ENVIRONMENT: ${{ inputs.environment }}
+        CLOUD_RUN_SERVICE: ${{ inputs.service }}
+      run: bash "$GITHUB_ACTION_PATH/prepare.sh"

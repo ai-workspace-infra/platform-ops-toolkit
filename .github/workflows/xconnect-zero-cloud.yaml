@@ -402,7 +402,12 @@ jobs:
         run: bash .github/scripts/xconnect-lab/run.sh topology
       - name: Verify formal Accounts and deployed Portal BFF boundary
         if: inputs.mode != 'cleanup'
-        run: python3 .github/scripts/xconnect-lab/probe-control-plane.py gitops/vpn-overlay/uat/xconnect-lab.json
+        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@8b29bd81f03c7726f28698ea7c78471827d3c961
+        with:
+          operation: xconnect-control-plane
+          environment: uat
+        env:
+          XCONNECT_DECLARATION_JSON: ${{ github.workspace }}/gitops/vpn-overlay/uat/xconnect-lab.json
       - name: Private CLI release access
         if: inputs.mode != 'cleanup'
         id: cli-token
@@ -532,7 +537,10 @@ jobs:
           retention-days: 1
       - name: Keep verified Gateway/Linux One Spot until lease expiry
         if: inputs.mode == 'apply'
-        run: bash .github/scripts/xconnect-lab/run.sh node-observation
+        uses: ai-workspace-infra/playbooks/.github/actions/xconnect-node-observation@8b29bd81f03c7726f28698ea7c78471827d3c961
+        with:
+          lab_dir: ${{ env.LAB_DIR }}
+          window: ${{ env.NODE_OBSERVATION_WINDOW_MINUTES }}
 
   existing_one:
     name: Existing UAT One / ${{ inputs.mode }}

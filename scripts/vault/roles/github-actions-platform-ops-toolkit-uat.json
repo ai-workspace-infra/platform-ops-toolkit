@@ -36,7 +36,8 @@
       "ai-workspace-infra/playbooks/.github/workflows/uat-data-import.yaml@70f4ca484e5bfdf84d4fd6d322f49d93f20aee86",
       "ai-workspace-infra/playbooks/.github/workflows/uat-data-import.yaml@1f84c847bf1b7be94c2ce796ad07c6a01369eba5",
       "ai-workspace-infra/playbooks/.github/workflows/uat-data-import.yaml@b82d727808696278613df248e01c29059048be35",
-      "ai-workspace-infra/iac_modules/.github/workflows/cloudflare-serverless-domains.yml@a7ac40fb0c3e620bdec89edd72b172afefc1f2ee"
+      "ai-workspace-infra/iac_modules/.github/workflows/cloudflare-serverless-domains.yml@a7ac40fb0c3e620bdec89edd72b172afefc1f2ee",
+      "ai-workspace-infra/iac_modules/.github/workflows/cloudflare-serverless-domains.yml@bd098cba5acde525f2f1c4d3bc3a7bd6338c9077"
     ],
     "ref": [
       "refs/heads/main",

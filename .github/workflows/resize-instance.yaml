@@ -167,7 +167,10 @@ jobs:
           # 标识现查真实 ID。target_domain 就是主机 label(命名约定保证),
           # 是自愈的主线索。
           EXPECTED_HOSTNAME: ${{ inputs.target_domain }}
-        run: ${{ github.workspace }}/.github/scripts/resize/resize-instance_preflight.sh
+        uses: ai-workspace-infra/iac_modules/.github/actions/platform-resource-operations@bd098cba5acde525f2f1c4d3bc3a7bd6338c9077
+        with:
+          operation: resize-preflight
+          environment: ${{ inputs.vault_env_path }}
 
       - name: Checkout reviewed resize provider executors
         if: steps.preflight.outputs.direction == 'downgrade'
@@ -183,7 +186,7 @@ jobs:
         if: steps.preflight.outputs.direction == 'downgrade'
         env:
           VULTR_API_KEY: ${{ steps.vault.outputs.VULTR_API_KEY }}
-          INSTANCE_ID: ${{ inputs.instance_id }}
+          INSTANCE_ID: ${{ steps.preflight.outputs.instance_id }}
         run: ${{ github.workspace }}/iac_modules/scripts/pipeline/vultr-instance-snapshot.sh
 
       - name: Apply upgrade or create replacement
@@ -194,7 +197,7 @@ jobs:
           OPERATION_ID: ${{ steps.preflight.outputs.operation_id }}
           DIRECTION: ${{ steps.preflight.outputs.direction }}
           TARGET_PLAN: ${{ inputs.target_plan }}
-          INSTANCE_ID: ${{ inputs.instance_id }}
+          INSTANCE_ID: ${{ steps.preflight.outputs.instance_id }}
           REGION: ${{ steps.preflight.outputs.region }}
           OS_ID: ${{ steps.preflight.outputs.os_id }}
           LABEL: ${{ steps.preflight.outputs.label }}
@@ -207,7 +210,10 @@ jobs:
         env:
           REPLACEMENT_IP: ${{ steps.terraform.outputs.replacement_ip }}
           TARGET_DOMAIN: ${{ inputs.target_domain }}
-        run: ${{ github.workspace }}/.github/scripts/resize/resize-instance_healthcheck.sh
+        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@8b29bd81f03c7726f28698ea7c78471827d3c961
+        with:
+          operation: resize-health
+          environment: ${{ inputs.vault_env_path }}
 
       - name: Load Cloudflare credential for DNS cutover
         id: cloudflare
@@ -240,7 +246,7 @@ jobs:
         if: inputs.destroy_old_instance && steps.preflight.outputs.direction == 'downgrade' && inputs.switch_dns
         env:
           VULTR_API_KEY: ${{ steps.vault.outputs.VULTR_API_KEY }}
-          INSTANCE_ID: ${{ inputs.instance_id }}
+          INSTANCE_ID: ${{ steps.preflight.outputs.instance_id }}
           REPLACEMENT_IP: ${{ steps.terraform.outputs.replacement_ip }}
           CONFIRM_DESTROY: ${{ inputs.destroy_old_instance }}
         run: ${{ github.workspace }}/iac_modules/scripts/pipeline/vultr-destroy-source-instance.sh

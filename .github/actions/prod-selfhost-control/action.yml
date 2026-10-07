@@ -1,0 +1,30 @@
+name: Verify immutable PROD selfhost evidence
+description: Shell control-plane gate for exact resource, approval, schema and parent receipts.
+inputs:
+  mode:
+    required: true
+    description: standby, availability, initialization, billing, or full-business
+  contract:
+    required: true
+    description: Checked-in YAML contract from this immutable Toolkit checkout
+  destination:
+    required: true
+    description: Fresh private resource-artifact directory under runner.temp
+outputs:
+  gitops_commit: {description: Verified GitOps commit, value: '${{ steps.verify.outputs.gitops_commit }}'}
+  cmdb_sha256: {description: Original verified CMDB checksum, value: '${{ steps.verify.outputs.cmdb_sha256 }}'}
+  billing_commit: {description: Qualified Billing commit, value: '${{ steps.verify.outputs.billing_commit }}'}
+  dry_run: {description: Explicit plan operation, value: '${{ steps.verify.outputs.dry_run }}'}
+  data_gate_verified: {description: Required parent and configured review checks passed, value: '${{ steps.verify.outputs.data_gate_verified }}'}
+  mode: {description: Qualified full-business operation, value: '${{ steps.verify.outputs.mode }}'}
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/setup-yq
+    - id: verify
+      shell: bash
+      env:
+        CONTROL_MODE: ${{ inputs.mode }}
+        CONTROL_CONTRACT: ${{ inputs.contract }}
+        CONTROL_DESTINATION: ${{ inputs.destination }}
+      run: bash "$GITHUB_ACTION_PATH/control.sh"

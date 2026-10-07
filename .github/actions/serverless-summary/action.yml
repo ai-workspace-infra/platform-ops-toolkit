@@ -1,0 +1,11 @@
+name: Verify selected serverless owner receipts
+description: Fail-closed final control-plane summary, with no Provider or service execution.
+inputs:
+  receipts: {required: true, description: "Current-run owner receipt artifact directory"}
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        OWNER_RECEIPTS_DIR: ${{ inputs.receipts }}
+      run: bash "$GITHUB_ACTION_PATH/verify.sh"
