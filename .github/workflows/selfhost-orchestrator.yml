@@ -74,11 +74,11 @@ on:
         default: ""
         type: string
       operation:
-        description: "执行范围：plan 仅校验；infra 仅基础设施；deploy 部署应用；deploy+init 显式 UAT 空库初始化并部署；native-standby 仅准备 PROD PostgreSQL、保持应用停止；native-init-plan/native-init 按受控合同策略执行原生空库预演/初始化（独立数据审批默认关闭，可显式开启）；native-billing-plan/native-billing 按相同策略执行 Billing 原生增量预演/升级；native-business-plan/copy/compare 专用只读来源的全业务预演/复制/比对，均不授权切库；migrate 仅迁移；deploy+migrate 部署并迁移；destroy 销毁。迁移由此操作参数选择；GitOps 仅声明拓扑与能力。"
+        description: "执行范围：plan 仅校验；infra 仅基础设施；deploy 部署应用；deploy+init 显式 UAT 空库初始化并部署；native-standby 仅准备 PROD PostgreSQL、保持应用停止；native-init-plan/native-init 按受控合同策略执行原生空库预演/初始化；native-billing-plan/native-billing 执行 Billing 原生增量预演/升级；native-business-plan/copy/compare 执行全业务预演/复制/比对；native-core-users 仅按 release tag 复制并比对最新用户 email、密码 hash、Proxy UUID，均不授权切库；migrate 仅迁移；deploy+migrate 部署并迁移；destroy 销毁。GitOps 仅声明拓扑与能力。"
         required: true
         default: "plan"
         type: choice
-        options: [plan, infra, deploy, deploy+init, native-standby, native-init-plan, native-init, native-billing-plan, native-billing, native-business-plan, native-business-copy, native-business-compare, migrate, deploy+migrate, destroy]
+        options: [plan, infra, deploy, deploy+init, native-standby, native-init-plan, native-init, native-billing-plan, native-billing, native-business-plan, native-business-copy, native-business-compare, native-core-users, migrate, deploy+migrate, destroy]
       target_domains:
         description: "选择要执行的业务域 (Business Domain)"
         required: true
@@ -541,7 +541,7 @@ jobs:
 
   native_prod_business:
     name: "[3] PROD | full-business preview, copy or comparison"
-    if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.operation == 'native-business-plan' || github.event.inputs.operation == 'native-business-copy' || github.event.inputs.operation == 'native-business-compare') }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.operation == 'native-business-plan' || github.event.inputs.operation == 'native-business-copy' || github.event.inputs.operation == 'native-business-compare' || github.event.inputs.operation == 'native-core-users') }}
     runs-on: ubuntu-latest
     environment: prod
     steps:
@@ -640,7 +640,7 @@ jobs:
           echo 'Full-business receipt published after access cleanup. Preview does not copy business rows; copy and comparison do not authorize cutover. Source freeze, final catch-up, single writer and production acceptance remain separate gates.' >> "$GITHUB_STEP_SUMMARY"
 
   provision:
-    if: ${{ github.event.inputs.operation != 'native-standby' && github.event.inputs.operation != 'native-init-plan' && github.event.inputs.operation != 'native-init' && github.event.inputs.operation != 'native-billing-plan' && github.event.inputs.operation != 'native-billing' && github.event.inputs.operation != 'native-business-plan' && github.event.inputs.operation != 'native-business-copy' && github.event.inputs.operation != 'native-business-compare' }}
+    if: ${{ github.event.inputs.operation != 'native-standby' && github.event.inputs.operation != 'native-init-plan' && github.event.inputs.operation != 'native-init' && github.event.inputs.operation != 'native-billing-plan' && github.event.inputs.operation != 'native-billing' && github.event.inputs.operation != 'native-business-plan' && github.event.inputs.operation != 'native-business-copy' && github.event.inputs.operation != 'native-business-compare' && github.event.inputs.operation != 'native-core-users' }}
     name: "[0] Prepare | profile + infra"
     environment: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.vault_env_path == 'prod') && 'prod' || (github.event_name == 'workflow_dispatch' && github.event.inputs.vault_env_path == 'uat' && 'uat' || (github.event_name == 'push' && github.ref == 'refs/heads/main' && 'uat' || ((startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || ''))) }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
@@ -2389,7 +2389,7 @@ jobs:
     # that every declared need has produced a result. This satisfies the
     # workflow gating contract without turning a failure into a skipped summary.
     if: >-
-      ${{ always() && !cancelled() && github.event.inputs.operation != 'native-standby' && github.event.inputs.operation != 'native-init-plan' && github.event.inputs.operation != 'native-init' && github.event.inputs.operation != 'native-billing-plan' && github.event.inputs.operation != 'native-billing' && github.event.inputs.operation != 'native-business-plan' && github.event.inputs.operation != 'native-business-copy' && github.event.inputs.operation != 'native-business-compare' &&
+      ${{ always() && !cancelled() && github.event.inputs.operation != 'native-standby' && github.event.inputs.operation != 'native-init-plan' && github.event.inputs.operation != 'native-init' && github.event.inputs.operation != 'native-billing-plan' && github.event.inputs.operation != 'native-billing' && github.event.inputs.operation != 'native-business-plan' && github.event.inputs.operation != 'native-business-copy' && github.event.inputs.operation != 'native-business-compare' && github.event.inputs.operation != 'native-core-users' &&
       needs.provision.result != '' &&
       needs.deploy_web_saas.result != '' &&
       needs.capture_web_saas_baseline.result != '' &&
