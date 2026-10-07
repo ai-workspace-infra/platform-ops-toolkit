@@ -27,21 +27,42 @@ import sys
 from pathlib import Path
 
 expected_claims = {
-    "repository": "ai-workspace-infra/platform-ops-toolkit",
-    "job_workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/xconnect-zero-cloud.yaml@refs/heads/main",
-    "ref": "refs/heads/main",
+    "github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab": {
+        "repository": "ai-workspace-infra/platform-ops-toolkit",
+        "job_workflow_ref": [
+            "ai-workspace-infra/platform-ops-toolkit/.github/workflows/xconnect-zero-cloud.yaml@refs/heads/main",
+            "ai-workspace-infra/platform-ops-toolkit/.github/workflows/xconnect-runtime-control.yml@refs/heads/main",
+        ],
+        "ref": "refs/heads/main",
+        "environment": "uat",
+    },
+    "github-actions-platform-ops-toolkit-uat-xconnect-existing-one": {
+        "repository": "ai-workspace-infra/platform-ops-toolkit",
+        "job_workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/xconnect-zero-cloud.yaml@refs/heads/main",
+        "ref": "refs/heads/main",
+    },
 }
-expected_roles = {
-    "github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab",
-    "github-actions-platform-ops-toolkit-uat-xconnect-existing-one",
-}
+
+
+def strings(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from strings(item)
+
+
 for value in sys.argv[1:]:
     role = json.loads(Path(value).read_text(encoding="utf-8"))
-    if role.get("role_name") not in expected_roles:
-        raise SystemExit(f"unexpected XConnect UAT Vault role: {role.get('role_name')!r}")
-    if role.get("bound_claims") != expected_claims:
+    role_name = role.get("role_name")
+    if role_name not in expected_claims:
+        raise SystemExit(f"unexpected XConnect UAT Vault role: {role_name!r}")
+    if role.get("bound_claims") != expected_claims[role_name]:
         raise SystemExit(f"{role['role_name']} must use the exact Toolkit workflow claim set")
-    if any("*" in claim for claim in expected_claims.values()):
+    if any("*" in claim for claim in strings(role["bound_claims"])):
         raise SystemExit("XConnect UAT workflow claims must not contain wildcards")
     if role.get("bound_audiences") != ["vault"]:
         raise SystemExit(f"{role['role_name']} must bind only the Vault audience")

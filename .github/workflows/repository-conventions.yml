@@ -65,6 +65,8 @@ jobs:
           python3 scripts/ci/tests/test_nested_owner_action_checkout.py -v
           python3 scripts/tests/test_gcp_owner_routing.py -v
           python3 scripts/tests/test_gcp_delivery_fact_routing.py -v
+          python3 scripts/tests/test_followup_iac_owner_routing.py -v
+          python3 scripts/tests/test_followup_host_xconnect.py -v
           python3 scripts/tests/test_setup_deployment_runner_owner_callers.py -v
           python3 scripts/tests/test_playbooks_owner_callers.py -v
 

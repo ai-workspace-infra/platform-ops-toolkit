@@ -7,8 +7,8 @@ rewritten or unavailable owner SHA.
 
 ## Trusted SSH input
 
-`xconnect-runtime-control.yml` and the external Gateway reconciliation stage
-read the SSH identity and host trust from the same UAT deployment record:
+`xconnect-runtime-control.yml` reads the SSH identity and host trust from the
+same UAT deployment record:
 
 - `kv/data/CICD/uat` field `SSH_PRIVATE_DEPLOY_KEY_B64`
 - `kv/data/CICD/uat` field `SSH_KNOWN_HOSTS_B64`
@@ -21,7 +21,7 @@ trust-on-first-use fallback.
 The repository configuration proves only the expected field name and read
 path. It does not prove that `SSH_KNOWN_HOSTS_B64` is currently populated or
 that its host keys match UAT. Seed and independently verify that field before
-dispatching either caller.
+dispatching the runtime-control caller.
 
 The external persistent Gateway reconciliation uses its target-specific record
 instead: `kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus`. The host, user,

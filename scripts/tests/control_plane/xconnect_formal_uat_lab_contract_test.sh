@@ -85,7 +85,21 @@ if grep -Fq 'xconnect-gateway up --state-dir "$state"' "${repo_root}/.github/scr
   exit 1
 fi
 grep -Fq 'timeout-minutes: 90' "${workflow}"
-grep -Fq "default: '9570b01959396e1d0e20331205b5cb5718f5c588'" "${workflow}"
+python3 - "${workflow}" <<'PY'
+import re
+import sys
+import yaml
+
+workflow = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+trigger = workflow.get("on", workflow.get(True))
+owner_sha = trigger["workflow_dispatch"]["inputs"]["iac_ref"]["default"]
+assert re.fullmatch(r"[0-9a-f]{40}", owner_sha)
+for name in ("apply", "cleanup"):
+    job = workflow["jobs"][name]
+    assert job["env"]["IAC_REF"] == "${{ inputs.iac_ref || '" + owner_sha + "' }}"
+    checkout = next(step for step in job["steps"] if step.get("with", {}).get("repository") == "ai-workspace-infra/iac_modules")
+    assert checkout["with"]["ref"] == "${{ env.IAC_REF }}"
+PY
 grep -Fq 'uses: ./iac_modules/.github/actions/xconnect-lab-lifecycle' "${workflow}"
 for stage in preflight prepare apply cleanup; do
   grep -Fq "operation: ${stage}" "${workflow}"
