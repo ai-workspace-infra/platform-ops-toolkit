@@ -1,0 +1,87 @@
+name: Cloudflare Serverless domains / Toolkit delivery
+on:
+  workflow_call:
+    inputs:
+      environment: {required: true, type: string}
+      dns_mode: {required: true, type: string}
+      gitops_ref: {required: true, type: string}
+      release_ref: {required: true, type: string}
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: public-dns-${{ inputs.environment }}
+  cancel-in-progress: false
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout immutable IaC execution library
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: 17a9973a82401d60641e5c2663d6f48924d8e77e
+          path: iac_modules
+          persist-credentials: false
+      - name: Checkout exact GitOps declaration
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_ref }}
+          fetch-depth: 0
+          path: gitops
+          persist-credentials: false
+      - run: python3 -m pip install PyYAML==6.0.2
+      - name: Validate domain request before Vault authorization
+        uses: ./iac_modules/.github/actions/serverless-domains-context
+        with:
+          phase: prepare
+          environment: ${{ inputs.environment }}
+          dns-mode: ${{ inputs.dns_mode }}
+          release-ref: ${{ inputs.release_ref }}
+          gitops-sha: ${{ inputs.gitops_ref }}
+          gitops-root: ${{ github.workspace }}/gitops
+          iac-root: ${{ github.workspace }}/iac_modules
+          config-file: ${{ runner.temp }}/edge-routing.json
+      - name: Authorize the selected domain operation
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.environment }}
+          jwtGithubAudience: vault
+          exportToken: false
+          secrets: |
+            kv/data/${{ inputs.environment }}/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
+            kv/data/${{ inputs.environment }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN
+      - name: Execute the IaC domain owner
+        uses: ./iac_modules/.github/actions/cloudflare-serverless-domains
+        with:
+          config_file: ${{ runner.temp }}/edge-routing.json
+          dns_mode: ${{ inputs.dns_mode }}
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_API_TOKEN }}
+      - name: Record completed domain operation evidence
+        uses: ./iac_modules/.github/actions/serverless-domains-context
+        with:
+          phase: receipt
+          environment: ${{ inputs.environment }}
+          dns-mode: ${{ inputs.dns_mode }}
+          release-ref: ${{ inputs.release_ref }}
+          gitops-sha: ${{ inputs.gitops_ref }}
+          gitops-root: ${{ github.workspace }}/gitops
+          iac-root: ${{ github.workspace }}/iac_modules
+          config-file: ${{ runner.temp }}/edge-routing.json
+          receipt-file: ${{ runner.temp }}/domains-owner-receipt/receipt.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: owner-receipt-provider-domains
+          path: ${{ runner.temp }}/domains-owner-receipt/receipt.json
+          if-no-files-found: error
+          retention-days: 7

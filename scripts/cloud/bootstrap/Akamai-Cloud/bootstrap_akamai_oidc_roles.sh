@@ -129,6 +129,7 @@ verify_role_claims() {
     --arg iac_workflow "ai-workspace-infra/platform-ops-toolkit/.github/workflows/akamai-cloud-iac.yml@*" \
     --arg selfhost_workflow "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-orchestrator.yml@*" \
     --arg preflight_workflow "ai-workspace-infra/iac_modules/.github/workflows/akamai-state-preflight.yml@f8b3d52e4f2b6528fcf4fa762ea7bf83f8145d06" \
+    --arg toolkit_preflight "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-akamai-state-preflight.yaml@refs/heads/main" \
     --arg expected_ref "refs/heads/main" \
     --arg expected_environment "$expected_environment" '
       def as_array: if type == "array" then . else [.] end;
@@ -138,14 +139,14 @@ verify_role_claims() {
       | (
           ($workflows | index($iac_workflow)) != null
           and ($workflows | index($selfhost_workflow)) != null
-          and ($expected_environment != "uat" or ($workflows | index($preflight_workflow)) != null)
+          and ($expected_environment != "uat" or (($workflows | index($preflight_workflow)) != null and ($workflows | index($toolkit_preflight)) != null))
           and ($claims.repository == $repository)
           and (($refs | index($expected_ref)) != null)
           and ($claims.environment == $expected_environment)
         )
     ' <<<"$role_json" >/dev/null; then
     echo "::error::Vault role ${role_name} was written/read, but its repository/ref/environment/job_workflow_ref claims are not the Akamai Cloud contract for ${env_name}/${account}." >&2
-    echo "::error::Required workflows: akamai-cloud-iac.yml and selfhost-orchestrator.yml; UAT also requires pinned IaC akamai-state-preflight.yml; required ref: refs/heads/main; required environment: ${expected_environment}." >&2
+    echo "::error::Required workflows: akamai-cloud-iac.yml and selfhost-orchestrator.yml; UAT also requires legacy and Toolkit Akamai preflight workflow claims; required ref: refs/heads/main; required environment: ${expected_environment}." >&2
     return 1
   fi
 }

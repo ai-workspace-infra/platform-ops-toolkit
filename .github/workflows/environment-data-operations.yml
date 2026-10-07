@@ -156,7 +156,7 @@ jobs:
     name: IaC / read-only Akamai inventory
     needs: request_gate
     if: ${{ inputs.mode == 'akamai_preflight' }}
-    uses: ai-workspace-infra/iac_modules/.github/workflows/akamai-state-preflight.yml@f8b3d52e4f2b6528fcf4fa762ea7bf83f8145d06
+    uses: ./.github/workflows/iac-akamai-state-preflight.yaml
     with:
       environment: ${{ inputs.environment }}
       account: ${{ needs.request_gate.outputs.account }}

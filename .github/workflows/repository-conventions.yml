@@ -57,6 +57,7 @@ jobs:
         run: |
           python3 -m pip install PyYAML==6.0.2
           python3 scripts/ci/unified_iac_contract_test.py -v
+          python3 scripts/ci/tests/test_delivery_workflow_handoff.py -v
 
       - name: Verify repository conventions
         run: >-
