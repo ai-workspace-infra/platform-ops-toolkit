@@ -145,7 +145,7 @@
     "database": "account",
     "accounts_commit": "6c32d91e263e353a6a35f50daeac807441a43135",
     "image": "ghcr.io/ai-workspace-services/accounts:sha-6c32d91e263e353a6a35f50daeac807441a43135",
-    "image_digest": "sha256:1a95f8ae2f86bf6f66ddccdc95dbfc1cb575eb8e78ab83db6a4696906ce6f09f",
+    "image_digest": "sha256:fea22872ee7e71984995f38f73586fe3b5a3eb4cbedbade6b5f6dae4dd745e0b",
     "schema_sha256": "842cef3beb98ef819dc854ecdf5f85683233641a0cd85a9156b30ad59f7e0206",
     "migration_version": 2026100701,
     "business_tables": [
