@@ -42,4 +42,6 @@ fixture; jq '.run_attempt="2"' "$OWNER_RECEIPTS_DIR/accounts/receipt.json" > "$t
 fixture; jq '.accepted=false' "$OWNER_RECEIPTS_DIR/accounts/receipt.json" > "$tmp/new"; mv "$tmp/new" "$OWNER_RECEIPTS_DIR/accounts/receipt.json"; reject 'unaccepted receipt'
 fixture; jq '.environment="prod"' "$OWNER_RECEIPTS_DIR/accounts/receipt.json" > "$tmp/new"; mv "$tmp/new" "$OWNER_RECEIPTS_DIR/accounts/receipt.json"; reject 'different environment'
 fixture; rm -rf "$OWNER_RECEIPTS_DIR"; DEPLOYS_CLOUD_RUN=false CLOUD_RUN_RESULT=skipped run; echo 'PASS unselected stages skipped'
-echo '16 summary checks passed; unknown/empty/missing receipts cannot pass.'
+fixture; mkdir -p "$tmp/bin"; printf '#!/usr/bin/env bash\nexit 2\n' > "$tmp/bin/find"; chmod +x "$tmp/bin/find"
+PATH="$tmp/bin:$PATH" reject 'receipt enumeration failure'
+echo '17 summary checks passed; unknown/empty/missing receipts cannot pass.'

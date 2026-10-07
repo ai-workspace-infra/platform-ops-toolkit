@@ -11,7 +11,7 @@
 | XConnect node observation | Playbooks Role + same-run 动态 outputs/handoff 校验 | 9 项动态目标测试；仍为 summary-only，未证明安装、加入或桌面验收 |
 | Vultr preflight、existing-target CMDB、SIT DNS、SMTP、Registry facts、Cloud Run/Cloudflare 部署 | 固定 SHA 的 IaC action；目标选择/OIDC 留在 Toolkit | 已切 caller；4 项资源事实、5 项 SMTP 与 4 项 Provider target binding 模拟校验；既有 DNS owner 测试通过 |
 | UAT compute cleanup | GitOps 白名单 + 独立 main-only OIDC role + 固定 SHA IaC owner | 8 项模拟校验；策略 disabled，schedule 仅 plan；没有执行真实删除 |
-| serverless 最终汇总 | Toolkit `serverless-summary` action | 16 项校验；本次选中阶段必须成功，并提供正确 owner SHA/environment/release/run/attempt 的 receipt；unknown、空值、缺件、跨 run 或未 accepted 均失败 |
+| serverless 最终汇总 | Toolkit `serverless-summary` action | 17 项校验；本次选中阶段必须成功，并提供正确 owner SHA/environment/release/run/attempt 的 receipt；unknown、空值、缺件、跨 run 或未 accepted 均失败 |
 | 扫描漏检 | 新 Shell active-entry guard 补充现有 guard | 8 项负例；不再按 `_test.sh` 文件名排除；识别 timeout 前缀和已退休 wrapper 的正式调用 |
 
 审阅中的 owner pins：
@@ -46,7 +46,7 @@ Cleanup 的 enabled=false 策略不能 apply，也不删除数据库、持久数
 
 ## 验证与未证明范围
 
-81 项新增离线/模拟校验、15 项既有所有权 guard 测试、repository conventions、PROD bootstrap guard、owner DNS 模拟测试、Bash syntax、YAML 重复键与 composite metadata 检查通过。历史 resource/standby/initialized/billing parent 的只读兼容 replay 通过；这不等于本批新运行通过 UAT。
+82 项新增离线/模拟校验、15 项既有所有权 guard 测试、repository conventions、PROD bootstrap guard、owner DNS 模拟测试、Bash syntax、YAML 重复键与 composite metadata 检查通过。历史 resource/standby/initialized/billing parent 的只读兼容 replay 通过；这不等于本批新运行通过 UAT。
 
 Actionlint v1.7.12 的完整检查仍包含既有诊断：未声明 workflow input/matrix output、空 choice option，以及过时的 App Token/job context 类型数据库。新增 metadata 解析问题已修复。`client-id` 与 `job.workflow_*` 的支持分别按 [官方 action metadata](https://raw.githubusercontent.com/actions/create-github-app-token/v3/action.yml) 与 [GitHub context reference](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#job-context)核对；不把这些类型数据库误报当作源码修复，也不声称完整 lint 为零。
 

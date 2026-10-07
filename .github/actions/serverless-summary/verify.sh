@@ -39,7 +39,8 @@ stage EDGE_GATEWAY "$edge"
 files=()
 files_count=0
 if [[ -d "$OWNER_RECEIPTS_DIR" ]]; then
-  while IFS= read -r file; do files+=("$file"); files_count=$((files_count+1)); done < <(rg --files "$OWNER_RECEIPTS_DIR" | rg '(^|/)receipt\.json$' || true)
+  find "$OWNER_RECEIPTS_DIR" -type f -name receipt.json -print0 > "$tmp/receipt-list"
+  while IFS= read -r -d '' file; do files+=("$file"); files_count=$((files_count+1)); done < "$tmp/receipt-list"
 fi
 (( files_count <= 25 ))
 if (( files_count )); then jq -s '.' "${files[@]}" > "$tmp/receipts"; else echo '[]' > "$tmp/receipts"; fi
