@@ -2467,6 +2467,7 @@ jobs:
       needs.capture_web_saas_baseline.result != '' &&
       needs.initialize_empty_web_saas.result != '' &&
       needs.accept_web_saas_upgrade.result != '' &&
+      needs.prod_availability.result != '' &&
       needs.deploy_agent_proxy.result != '' &&
       needs.deploy_agent_proxy_non_iac.result != '' &&
       needs.switch_dns.result != '' &&
