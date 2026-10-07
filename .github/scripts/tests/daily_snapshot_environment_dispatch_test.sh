@@ -27,11 +27,12 @@ chmod +x "${workdir}/gh"
 run_dispatch() {
   local environment="$1"
   local workflow="$2"
+  local tag="${3:-uat-daily-build-2026.10.07-r1}"
   local output="${workdir}/${environment}.output"
   : >"${output}"
   env PATH="${workdir}:${PATH}" GH_LOG="${workdir}/${environment}.gh.log" \
     GH_TOKEN=dispatch-token RUN_STATUS_TOKEN=status-token \
-    GITHUB_OUTPUT="${output}" SNAPSHOT_TAG=uat-daily-build-2026.10.07-r1 \
+    GITHUB_OUTPUT="${output}" SNAPSHOT_TAG="${tag}" \
     DEPLOY_ENV="${environment}" DISPATCH_WORKFLOW="${workflow}" \
     DISPATCH_OPERATION=deploy DISPATCH_TARGET_DOMAINS=all \
     TARGET_DOMAIN_BASE="${environment}.onwalk.net" \
@@ -52,5 +53,15 @@ run_dispatch uat hybrid-orchestrator.yml
 grep -Fq -- '-f vault_env_path=uat' "${workdir}/uat.gh.log"
 grep -Fq -- '-f deploy_tag=uat-daily-build-2026.10.07-r1' "${workdir}/uat.gh.log"
 grep -Fq -- '-f target_domain_base=uat.onwalk.net' "${workdir}/uat.gh.log"
+
+run_dispatch prod selfhost-orchestrator.yml v2026.10.07-r1
+grep -Fq -- '-f vault_env_path=prod' "${workdir}/prod.gh.log"
+grep -Fq -- '-f deploy_tag=v2026.10.07-r1' "${workdir}/prod.gh.log"
+grep -Fq -- '-f source_ref=v2026.10.07-r1' "${workdir}/prod.gh.log"
+grep -Fq -- '-f target_domain_base=svc.plus' "${workdir}/prod.gh.log"
+if grep -Fq -- '-f dns_mode=prod-cutover' "${workdir}/prod.gh.log"; then
+  echo 'PROD Daily dispatch unexpectedly requested DNS cutover.' >&2
+  exit 1
+fi
 
 echo "daily_snapshot_environment_dispatch_test: PASS"

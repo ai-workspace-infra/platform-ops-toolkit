@@ -16,8 +16,8 @@ document = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
 inputs = document[True]["workflow_dispatch"]["inputs"]
 jobs = document["jobs"]
 
-if set(inputs["deploy_env"]["options"]) != {"sit", "uat"}:
-    raise SystemExit("Daily Snapshot must expose only parameter-selectable sit and uat environments")
+if set(inputs["deploy_env"]["options"]) != {"sit", "uat", "prod"}:
+    raise SystemExit("Daily Snapshot must expose parameter-selectable sit, uat and prod environments")
 for removed in (
     "enable_migration", "migration_config_json", "adopt_accounts_baseline",
     "apply_accounts_schema_migration", "accounts_schema_expected_version",
@@ -31,23 +31,31 @@ for removed_job in ("resolve-accepted-uat", "promote-prod"):
     if removed_job in jobs:
         raise SystemExit(f"obsolete Daily job remains: {removed_job}")
 
-for required_job in ("resolve-built-snapshot-tag", "shared-readiness", "dispatch-environment", "snapshot-summary"):
+for required_job in ("resolve-built-snapshot-tag", "shared-readiness", "resolve-dispatch-environment", "dispatch-environment", "snapshot-summary"):
     if required_job not in jobs:
         raise SystemExit(f"missing Daily job: {required_job}")
 
 dispatch = jobs["dispatch-environment"]
-matrix = dispatch["strategy"]["matrix"]["include"]
-if {entry["environment"] for entry in matrix} != {"sit", "uat"}:
-    raise SystemExit("Dispatch matrix must declare both sit and uat mappings")
-if "matrix.environment == (inputs.deploy_env || 'uat')" not in dispatch["if"]:
-    raise SystemExit("Dispatch matrix must select the environment from deploy_env")
+if dispatch["strategy"]["matrix"] != "${{ fromJSON(needs.resolve-dispatch-environment.outputs.matrix) }}":
+    raise SystemExit("Dispatch matrix must come from the selected environment output")
+if "matrix.environment == (inputs.deploy_env || 'uat')" in dispatch["if"]:
+    raise SystemExit("Dispatch job-level if must not reference the matrix context")
+if "needs.resolve-dispatch-environment.result == 'success'" not in dispatch["if"]:
+    raise SystemExit("Dispatch job must wait for the selected environment output")
 if "matrix.environment" not in dispatch["name"]:
     raise SystemExit("Dispatch matrix job name must expose the selected environment")
+
+selection = jobs["resolve-dispatch-environment"]
+selection_text = " ".join(step.get("run", "") for step in selection["steps"])
+for required in ("serverless-orchestrator.yml", "hybrid-orchestrator.yml", "selfhost-orchestrator.yml", "DEPLOY_ENV"):
+    if required not in selection_text:
+        raise SystemExit(f"environment selector missing mapping: {required}")
 
 workflow_text = workflow_path.read_text(encoding="utf-8")
 for required in (
     "resolve-dispatch-gitops-target.sh", "dispatch-environment-combined.sh",
     "aggregate-environment-dispatch-status.sh", "environment-dispatch-${{ matrix.environment }}",
+    "selfhost-orchestrator.yml",
 ):
     if required not in workflow_text:
         raise SystemExit(f"missing environment dispatch wiring: {required}")
@@ -70,6 +78,10 @@ if "needs.dispatch-environment.result == 'failure'" not in " ".join(
     step.get("if", "") + step.get("run", "") for step in summary["steps"]
 ):
     raise SystemExit("Daily summary must fail when the selected environment dispatch fails")
+if "needs.resolve-dispatch-environment.result == 'failure'" not in " ".join(
+    step.get("if", "") + step.get("run", "") for step in summary["steps"]
+):
+    raise SystemExit("Daily summary must fail when environment selection fails")
 PY
 
 grep -Fq 'daily-build-' "${repo_root}/.github/scripts/snapshots/resolve-daily-snapshot-tag.sh"

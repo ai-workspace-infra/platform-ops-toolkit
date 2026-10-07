@@ -4,9 +4,9 @@
 
 `Daily Main Snapshot` 仅使用 GitHub App 认证。workflow 通过 GitHub OIDC 登录 Vault，读取 App 私钥并按目标组织生成 installation token。
 
-Daily 负责 SIT/UAT 快照构建、Shared 只读就绪检查和按参数选择环境的发布矩阵。
-PROD 晋级、release tag 创建和生产制品校验不属于 Daily；这些工作由受保护的
-Playbooks role + GitOps 发布入口负责。详见[多环境交付与发布规范](standards/multi-environment-delivery-and-release-standard.md)。
+Daily 负责 SIT/UAT 快照构建、Shared 只读就绪检查，以及按参数选择 SIT/UAT/PROD 的发布矩阵。
+PROD 只接受已经验证的受保护 `v*` tag，并由 Selfhost Orchestrator 执行资源部署；Daily
+不创建 release tag、执行数据迁移或切换生产 DNS。详见[多环境交付与发布规范](standards/multi-environment-delivery-and-release-standard.md)。
 
 ## 前置配置
 
@@ -42,14 +42,14 @@ GitHub App `daily-snapshot-tag`（App ID `4405545`）需要安装到四个目标
 2. 选择 `Daily Main Snapshot`。
 3. 点击 `Run workflow`。
 4. 确认 workflow ref 使用受保护的 `main`。
-5. 选择 `deploy_env`（`sit` 或 `uat`）。矩阵只执行所选环境的映射，不把 UAT 写死为
-   默认派发目标；可选填写 `snapshot_tag` / `snapshot_source_ref`。
+5. 选择 `deploy_env`（`sit`、`uat` 或 `prod`）。矩阵只执行所选环境的映射，不把 UAT 写死为
+   默认派发目标；PROD 必须使用已验证的受保护 `v*` tag，可选填写 `snapshot_tag` / `snapshot_source_ref`。
 
 workflow 会从各仓库当时的 `main` SHA 创建不可变的
 `daily-build-YYYY.MM.DD` tag，并继续执行目标仓库的构建触发流程。
 构建等待会同时按 tag 名和 SHA 匹配，避免误用同名历史运行。
 
-汇总 Job 会把本次运行的环境（`sit` 或 `uat`）写入每条矩阵记录，
+汇总 Job 会把本次运行的环境（`sit`、`uat` 或 `prod`）写入每条矩阵记录，
 并上传 `daily-snapshot-summary-<environment>` artifact。环境总览或其他只读同步器
 应读取该 artifact 的 `daily-snapshot-summary.json`，按 `environment`、组织和仓库
 展示状态；不要把 UAT 和 PROD 的同名 tag 或构建结果合并成一条资源记录。
@@ -64,11 +64,11 @@ observed state。只有声明而没有观察记录的资源必须显示为 `decl
 
 1. 从各组织状态 artifact 解析唯一的不可变快照 tag；
 2. 只读检查 Shared 就绪：Vault → Observability → IAM（`check-shared-readiness.sh`）。任一失败即停止，不发布业务；Shared 的部署、升级、迁移属于独立的 `open-platform-orchestrator.yml`，Daily 不触碰；
-3. 根据 `deploy_env` 选择 GitOps 拓扑文件和对应 orchestrator：SIT 使用 Serverless，UAT 使用 Hybrid；派发参数、目标域名和 Vault 环境均来自矩阵/GitOps，不由脚本硬编码；等待子流程完成并在汇总 Job 中写入环境回执。
+3. 根据 `deploy_env` 选择 GitOps 拓扑文件和对应 orchestrator：SIT 使用 Serverless，UAT 使用 Hybrid，PROD 使用 Selfhost；派发参数、目标域名和 Vault 环境均来自矩阵/GitOps，不由脚本硬编码；等待子流程完成并在汇总 Job 中写入环境回执。PROD 使用 `dns_mode=none`，不执行主库或 DNS 切换。
 
-Daily 不接受迁移、基线采纳或 PROD 晋级参数。需要数据库导入、schema migration、baseline
-或生产发布时，直接使用 `environment-data-operations.yml` 及其 Playbooks role，并按
-GitOps 拓扑校验目标环境和执行路径。
+Daily 不接受迁移、基线采纳或 release tag 创建参数。需要数据库导入、schema migration、baseline
+或生产数据切换时，直接使用 `environment-data-operations.yml` 及其 Playbooks role，并按
+GitOps 拓扑校验目标环境和执行路径；Daily 的 PROD 路径只部署已验证 `v*` 制品，不触碰数据。
 
 部分仓库筛选或 SIT 快照不会自动触发 UAT；这避免不完整制品集进入 UAT。
 
@@ -80,18 +80,20 @@ JP/US/SG 使用 `akamai-cloud` 并包含 Ulighthost existing PH/TW。PROD 旧 AW
 
 稳定发布 tag 与日常构建 tag 共用同一个跨仓库打标脚本，区别只在 tag
 值和路由语义：`daily-build-*` 是每日自动构建，`uat-daily-build-*` 是允许的
-UAT 构建/重试 tag，`sit-*` 是低频 SIT 验证。`v*` / `release/v*` 的生产发布由
-受保护的 Playbooks + GitOps 流程负责，Daily 不创建或晋级这些 tag。
+UAT 构建/重试 tag，`sit-*` 是低频 SIT 验证。`v*` / `release/v*` 的生产 tag 由
+受保护的 Playbooks + GitOps 流程负责；Daily 只消费已存在且已验证的 `v*` tag 派发 Selfhost，
+不创建或晋级这些 tag。
 
 路由组合约定：
 
 - `main + uat`：常规交付默认路径。
 - `main + sit`：低频手动验证，基本不参与日常调度。
+- `main + prod`：仅允许已验证的 `v*` tag，派发 Selfhost Orchestrator，保持 `dns_mode=none`。
 - `daily-build-*`：每日自动构建入口。
 - `uat-daily-build-*`：允许的 UAT 构建、重试与验证入口。
 - `release/*`（不含 `release/v*`）：UAT 路径，不得进入 PROD。
-- `vYYYY.MM.DD[-rN]`：PROD 稳定发布 tag，由受保护的正式发布流程或 Daily 的
-  `prod-release` 晋级步骤创建；已存在且指向别处时拒绝，不移动、覆盖或删除。
+- `vYYYY.MM.DD[-rN]`：PROD 稳定发布 tag，由受保护的正式发布流程创建；Daily 仅校验并消费该 tag，
+  已存在且指向别处时拒绝，不移动、覆盖或删除。
 
 `main` 只能作为 workflow 的控制面入口，不能作为 PROD 制品来源；PROD 制品是 UAT
 验收清单中的镜像 digest。不要手工预建 `v*` tag。

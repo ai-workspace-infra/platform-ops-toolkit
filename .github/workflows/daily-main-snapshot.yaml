@@ -7,22 +7,23 @@ on:
   workflow_dispatch:
     inputs:
       snapshot_tag:
-        description: "要发布的 tag：SIT/UAT 填 daily-build-* 或 uat-daily-build-*。PROD 使用受保护的 v* / release/v* 发布流程。"
+        description: "要发布的 tag：SIT/UAT 填 daily-build-* 或 uat-daily-build-*；PROD 填受保护的 v* 发布 tag。"
         required: false
         type: string
       snapshot_source_ref:
-        description: "引用的 tag/ref：SIT/UAT 留空才使用 main；PROD 使用受保护的 v* / release/v* 发布流程。"
+        description: "引用的 tag/ref：SIT/UAT 留空使用 main；PROD 必须填写已验证的 v* 或 UAT snapshot tag。"
         required: false
         default: ''
         type: string
       deploy_env:
-        description: "目标环境：sit 或 uat；PROD 由受保护的 v* / release/v* 发布流程负责。"
+        description: "目标环境：sit、uat 或 prod；PROD 使用受保护的 v* 发布链路。"
         required: true
         default: uat
         type: choice
         options:
           - sit
           - uat
+          - prod
       repositories:
         description: "可选：精确仓库列表，逗号分隔，例如 ai-workspace-services/accounts"
         required: false
@@ -279,6 +280,7 @@ jobs:
         env:
           SNAPSHOT_STATUS_DIRECTORY: ${{ runner.temp }}/daily-snapshot-status
           SNAPSHOT_CANONICAL_ORGANIZATION: ai-workspace-services
+          DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
 
   shared-readiness:
     name: Check shared platform readiness
@@ -298,33 +300,76 @@ jobs:
           SHARED_IAM_ISSUER: ${{ inputs.shared_iam_issuer || 'https://iam.svc.plus' }}
           SHARED_READINESS_TIMEOUT_SECONDS: ${{ inputs.shared_readiness_timeout_seconds || '20' }}
 
-  dispatch-environment:
-    name: ${{ matrix.environment }} ${{ matrix.name }}
+  resolve-dispatch-environment:
+    name: Select requested environment dispatch
     needs: [resolve-built-snapshot-tag, shared-readiness]
     if: >-
       ${{
       always() &&
       needs.resolve-built-snapshot-tag.result == 'success' &&
       needs.shared-readiness.result == 'success' &&
-      (inputs.repositories || '') == '' &&
-      matrix.environment == (inputs.deploy_env || 'uat')
+      (inputs.repositories || '') == ''
+      }}
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - name: Resolve environment dispatch mapping
+        id: select
+        env:
+          DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
+        run: |
+          set -euo pipefail
+          case "${DEPLOY_ENV}" in
+            sit)
+              name='Serverless Orchestrator'
+              workflow='serverless-orchestrator.yml'
+              operation='deploy'
+              target_domains='web-saas'
+              topology_mode='serverless'
+              ;;
+            uat)
+              name='Hybrid Orchestrator'
+              workflow='hybrid-orchestrator.yml'
+              operation='deploy'
+              target_domains='all'
+              topology_mode='hybrid'
+              ;;
+            prod)
+              name='Selfhost Orchestrator'
+              workflow='selfhost-orchestrator.yml'
+              operation='deploy'
+              target_domains='web-saas'
+              topology_mode='selfhost'
+              ;;
+            *)
+              echo "Unsupported deploy_env: ${DEPLOY_ENV}" >&2
+              exit 2
+              ;;
+          esac
+          matrix_json="$(jq -cn \
+            --arg environment "${DEPLOY_ENV}" \
+            --arg name "${name}" \
+            --arg workflow "${workflow}" \
+            --arg operation "${operation}" \
+            --arg target_domains "${target_domains}" \
+            --arg topology_mode "${topology_mode}" \
+            '{include:[{environment:$environment,name:$name,workflow:$workflow,operation:$operation,target_domains:$target_domains,topology_mode:$topology_mode}]}')"
+          printf 'matrix=%s\n' "${matrix_json}" >> "$GITHUB_OUTPUT"
+
+  dispatch-environment:
+    name: ${{ matrix.environment }} ${{ matrix.name }}
+    needs: [resolve-built-snapshot-tag, shared-readiness, resolve-dispatch-environment]
+    if: >-
+      ${{
+      always() &&
+      needs.resolve-built-snapshot-tag.result == 'success' &&
+      needs.shared-readiness.result == 'success' &&
+      needs.resolve-dispatch-environment.result == 'success'
       }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - environment: sit
-            name: Serverless Orchestrator
-            workflow: serverless-orchestrator.yml
-            operation: deploy
-            target_domains: web-saas
-            topology_mode: serverless
-          - environment: uat
-            name: Hybrid Orchestrator
-            workflow: hybrid-orchestrator.yml
-            operation: deploy
-            target_domains: all
-            topology_mode: hybrid
+      matrix: ${{ fromJSON(needs.resolve-dispatch-environment.outputs.matrix) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -411,7 +456,7 @@ jobs:
 
   snapshot-summary:
     name: Summarize daily snapshot status
-    needs: [resolve-snapshot-tag, snapshot, resolve-built-snapshot-tag, shared-readiness, dispatch-environment]
+    needs: [resolve-snapshot-tag, snapshot, resolve-built-snapshot-tag, shared-readiness, resolve-dispatch-environment, dispatch-environment]
     if: >-
       ${{
       always() &&
@@ -419,6 +464,7 @@ jobs:
       needs.snapshot.result != 'skipped' &&
       needs.resolve-built-snapshot-tag.result != 'failure' &&
       needs.shared-readiness.result != 'failure' &&
+      needs.resolve-dispatch-environment.result != 'failure' &&
       needs.dispatch-environment.result != 'failure'
       }}
     runs-on: ubuntu-latest
@@ -471,6 +517,7 @@ jobs:
           ${{
             needs.snapshot.result == 'failure' ||
             needs.shared-readiness.result == 'failure' ||
+            needs.resolve-dispatch-environment.result == 'failure' ||
             needs.dispatch-environment.result == 'failure'
           }}
         run: exit 1
