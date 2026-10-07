@@ -90,12 +90,22 @@ class DataControlPlaneTests(unittest.TestCase):
         self.assertEqual(entry['permissions']['actions'], 'write')
         self.assertEqual(entry['jobs']['request_gate']['environment'], '${{ inputs.environment }}')
         for job, owner in (('legacy_import', 'playbooks'), ('serverless_database', 'playbooks'),
-                           ('selfhost_database', 'playbooks'), ('selfhost_components', 'playbooks'),
-                           ('akamai_preflight', 'iac_modules')):
+                           ('selfhost_database', 'playbooks'), ('selfhost_components', 'playbooks')):
             uses = entry['jobs'][job]['uses']
             self.assertRegex(uses, rf'^ai-workspace-infra/{owner}/.github/workflows/[^@]+@[0-9a-f]{{40}}$')
             if owner == 'playbooks':
                 self.assertEqual(uses.rsplit('@', 1)[1], {'selfhost_database': '7d660cdb4066e2a4cf3fed68bccafea939771e64', 'legacy_import': 'b82d727808696278613df248e01c29059048be35'}.get(job, REVIEWED_PLAYBOOKS_HEAD))
+        self.assertEqual(entry['jobs']['akamai_preflight']['uses'], './.github/workflows/iac-akamai-state-preflight.yaml')
+        preflight = workflow('iac-akamai-state-preflight.yaml')
+        self.assertEqual(set(preflight['on']), {'workflow_call'})
+        steps = preflight['jobs']['inspect']['steps']
+        checkout = next(step['with'] for step in steps if step.get('with', {}).get('repository') == 'ai-workspace-infra/iac_modules')
+        self.assertRegex(checkout['ref'], r'^[0-9a-f]{40}$')
+        self.assertEqual(checkout['path'], 'iac_modules')
+        self.assertEqual(preflight['jobs']['inspect']['environment'], 'uat')
+        owner_steps = [step for step in steps if step.get('uses') == './iac_modules/.github/actions/akamai-state-preflight']
+        self.assertEqual(len(owner_steps), 2)
+        self.assertEqual(owner_steps[0]['with']['phase'], 'validate')
         self.assertLessEqual(len(entry['on']['workflow_dispatch']['inputs']), 25)
         self.assertIn('core_users', entry['on']['workflow_dispatch']['inputs']['mode']['options'])
         self.assertIn('core_users', entry['jobs'])
