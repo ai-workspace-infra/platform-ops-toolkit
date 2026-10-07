@@ -26,7 +26,7 @@ on:
         description: Advanced override - reviewed playbooks commit SHA
         type: string
         required: false
-        default: '1308c585bbb3806b69279be678dad2feb8099699'
+        default: '9d585e147348800b1603c4f7b0d8a6bcf0546007'
       cli_release_tag:
         description: Advanced override - XConnect-One GitHub Release tag
         type: string
@@ -345,12 +345,13 @@ jobs:
     needs: preflight
     if: github.event_name == 'workflow_dispatch' && inputs.deployment_profile == 'cloud-lab' && inputs.mode != 'cleanup'
     runs-on: ubuntu-24.04
+    environment: uat
     timeout-minutes: 90
     env:
       MODE: ${{ inputs.mode }}
       IAC_REF: ${{ inputs.iac_ref || '9570b01959396e1d0e20331205b5cb5718f5c588' }}
       GITOPS_REF: ${{ inputs.gitops_ref || '28430b835c4275eea1921aa7fd98c96dbc2c50ef' }}
-      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '1308c585bbb3806b69279be678dad2feb8099699' }}
+      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '9d585e147348800b1603c4f7b0d8a6bcf0546007' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.8' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
@@ -419,7 +420,7 @@ jobs:
         run: bash .github/scripts/xconnect-lab/run.sh topology
       - name: Verify formal Accounts and deployed Portal BFF boundary
         if: inputs.mode != 'cleanup'
-        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@8b29bd81f03c7726f28698ea7c78471827d3c961
+        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@9d585e147348800b1603c4f7b0d8a6bcf0546007
         with:
           operation: xconnect-control-plane
           environment: uat
@@ -591,7 +592,7 @@ jobs:
           retention-days: 1
       - name: Keep verified Gateway/Linux One Spot until lease expiry
         if: inputs.mode == 'apply'
-        uses: ai-workspace-infra/playbooks/.github/actions/xconnect-node-observation@8b29bd81f03c7726f28698ea7c78471827d3c961
+        uses: ai-workspace-infra/playbooks/.github/actions/xconnect-node-observation@9d585e147348800b1603c4f7b0d8a6bcf0546007
         with:
           lab_dir: ${{ env.LAB_DIR }}
           window: ${{ env.NODE_OBSERVATION_WINDOW_MINUTES }}
@@ -601,12 +602,13 @@ jobs:
     needs: preflight
     if: github.event_name == 'workflow_dispatch' && inputs.deployment_profile == 'existing-one' && inputs.mode != 'cleanup'
     runs-on: ubuntu-24.04
+    environment: uat
     timeout-minutes: 30
     env:
       XCONNECT_VAULT_ROLE: github-actions-platform-ops-toolkit-uat-xconnect-existing-one
       MODE: ${{ inputs.mode }}
       GITOPS_REF: ${{ inputs.gitops_ref || '28430b835c4275eea1921aa7fd98c96dbc2c50ef' }}
-      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '1308c585bbb3806b69279be678dad2feb8099699' }}
+      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '9d585e147348800b1603c4f7b0d8a6bcf0546007' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.8' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}
@@ -751,11 +753,12 @@ jobs:
     # Selection is therefore evaluated by the first step below.
     if: github.event_name == 'workflow_dispatch' && inputs.deployment_profile == 'cloud-lab' && inputs.mode == 'apply'
     runs-on: ubuntu-24.04
+    environment: uat
     timeout-minutes: 30
     env:
       MODE: ${{ inputs.mode }}
       GITOPS_REF: ${{ inputs.gitops_ref || '28430b835c4275eea1921aa7fd98c96dbc2c50ef' }}
-      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '1308c585bbb3806b69279be678dad2feb8099699' }}
+      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '9d585e147348800b1603c4f7b0d8a6bcf0546007' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
       GATEWAY_PROVIDER: ${{ inputs.gateway_provider || 'external' }}
       EXTERNAL_GATEWAY_ID: ${{ inputs.external_gateway_id || 'gw-uat-tw-xconnect' }}
@@ -879,6 +882,7 @@ jobs:
     needs: [apply, enroll_node_matrix]
     if: github.event_name == 'workflow_dispatch' && inputs.deployment_profile == 'cloud-lab' && inputs.mode == 'apply' && inputs.gateway_provider == 'external'
     runs-on: ubuntu-24.04
+    environment: uat
     timeout-minutes: 20
     env:
       GATEWAY_PROVIDER: ${{ inputs.gateway_provider || 'external' }}
@@ -901,30 +905,61 @@ jobs:
           secrets: |
             kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus host | EXTERNAL_GATEWAY_HOST ;
             kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus user | EXTERNAL_GATEWAY_USER ;
-            kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus ssh_private_key_b64 | EXTERNAL_GATEWAY_SSH_PRIVATE_KEY_B64
-      - name: Reconcile Gateway Peer Table
+            kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus ssh_private_key_b64 | EXTERNAL_GATEWAY_SSH_PRIVATE_KEY_B64 ;
+            kv/data/prod/ulighthost-xconnect/tw-xconnect.svc.plus known_hosts_b64 | SSH_KNOWN_HOSTS_B64
+      - name: Build private Gateway owner inputs
+        env:
+          PRIVATE_KEY_B64: ${{ steps.bootstrap.outputs.EXTERNAL_GATEWAY_SSH_PRIVATE_KEY_B64 }}
+          KNOWN_HOSTS_B64: ${{ steps.bootstrap.outputs.SSH_KNOWN_HOSTS_B64 }}
         run: |
-          echo "Reconciling Gateway with all matrix enrolled peers..."
-          mkdir -p "$RUNNER_TEMP/gateway"
-          printf '%s' "$EXTERNAL_GATEWAY_SSH_PRIVATE_KEY_B64" | base64 --decode > "$RUNNER_TEMP/gateway/key"
-          chmod 600 "$RUNNER_TEMP/gateway/key"
-          ssh -i "$RUNNER_TEMP/gateway/key" -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new \
-            "$EXTERNAL_GATEWAY_USER@$EXTERNAL_GATEWAY_HOST" \
-            'sudo xconnect-gateway up --state-dir /var/lib/xconnect-gateway --tls-cert /etc/xconnect-gateway/tls.crt --tls-key /etc/xconnect-gateway/tls.key'
-          rm -rf "$RUNNER_TEMP/gateway"
-          echo "Gateway peer reconciliation complete."
+          set -euo pipefail
+          install -d -m 700 "$RUNNER_TEMP/xconnect-gateway-owner"
+          printf '%s' "$PRIVATE_KEY_B64" | base64 --decode > "$RUNNER_TEMP/xconnect-gateway-owner/key"
+          printf '%s' "$KNOWN_HOSTS_B64" | base64 --decode > "$RUNNER_TEMP/xconnect-gateway-owner/known_hosts"
+          jq -cn \
+            '{xconnect_gateway_state_dir:"/var/lib/xconnect-gateway",
+              xconnect_gateway_frontend:"caddy-unix-h2c",
+              xconnect_gateway_listen_socket:"/run/xconnect-gateway/xray.sock"}' \
+            > "$RUNNER_TEMP/xconnect-gateway-owner/variables.json"
+          test -s "$RUNNER_TEMP/xconnect-gateway-owner/key"
+          test -s "$RUNNER_TEMP/xconnect-gateway-owner/known_hosts"
+          chmod 600 "$RUNNER_TEMP/xconnect-gateway-owner/key" \
+            "$RUNNER_TEMP/xconnect-gateway-owner/known_hosts" \
+            "$RUNNER_TEMP/xconnect-gateway-owner/variables.json"
+      - name: Reconcile Gateway Peer Table
+        uses: ai-workspace-infra/playbooks/.github/actions/xconnect-lab-runtime@9d585e147348800b1603c4f7b0d8a6bcf0546007
+        with:
+          owner-sha: 9d585e147348800b1603c4f7b0d8a6bcf0546007
+          operation: gateway_reconcile
+          target: ${{ steps.bootstrap.outputs.EXTERNAL_GATEWAY_HOST }}
+          ssh-user: ${{ steps.bootstrap.outputs.EXTERNAL_GATEWAY_USER }}
+          private-key-file: ${{ runner.temp }}/xconnect-gateway-owner/key
+          known-hosts-file: ${{ runner.temp }}/xconnect-gateway-owner/known_hosts
+          variables-file: ${{ runner.temp }}/xconnect-gateway-owner/variables.json
+          receipt-file: ${{ runner.temp }}/xconnect-gateway-owner/receipt.json
+      - name: Upload sanitized same-run Gateway owner receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: xconnect-gateway-owner-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/xconnect-gateway-owner/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Remove private Gateway owner inputs
+        if: ${{ always() }}
+        run: rm -rf "$RUNNER_TEMP/xconnect-gateway-owner"
 
   cleanup:
     name: UAT lab / explicit cleanup
     needs: preflight
     if: github.event_name == 'workflow_dispatch' && inputs.deployment_profile == 'cloud-lab' && inputs.mode == 'cleanup'
     runs-on: ubuntu-24.04
+    environment: uat
     timeout-minutes: 45
     env:
       MODE: cleanup
       IAC_REF: ${{ inputs.iac_ref || '9570b01959396e1d0e20331205b5cb5718f5c588' }}
       GITOPS_REF: ${{ inputs.gitops_ref || '28430b835c4275eea1921aa7fd98c96dbc2c50ef' }}
-      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '1308c585bbb3806b69279be678dad2feb8099699' }}
+      PLAYBOOKS_REF: ${{ inputs.playbooks_ref || '9d585e147348800b1603c4f7b0d8a6bcf0546007' }}
       CLI_RELEASE_TAG: ${{ inputs.cli_release_tag || 'v0.1.14' }}
       GATEWAY_RELEASE_TAG: ${{ inputs.gateway_release_tag || 'v0.1.8' }}
       XRAY_RELEASE_TAG: ${{ inputs.xray_release_tag || 'v26.3.27' }}

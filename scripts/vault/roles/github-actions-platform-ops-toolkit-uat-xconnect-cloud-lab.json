@@ -9,8 +9,12 @@
   "bound_claims_type": "glob",
   "bound_claims": {
     "repository": "ai-workspace-infra/platform-ops-toolkit",
-    "job_workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/xconnect-zero-cloud.yaml@refs/heads/main",
-    "ref": "refs/heads/main"
+    "job_workflow_ref": [
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/xconnect-zero-cloud.yaml@refs/heads/main",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/xconnect-runtime-control.yml@refs/heads/main"
+    ],
+    "ref": "refs/heads/main",
+    "environment": "uat"
   },
   "token_policies": [
     "github-actions-platform-ops-toolkit-uat-xconnect-cloud-lab"

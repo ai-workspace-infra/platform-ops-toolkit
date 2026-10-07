@@ -1147,7 +1147,7 @@ jobs:
           GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
 
       - name: Verify public Console to Accounts CORS chain
-        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@8b29bd81f03c7726f28698ea7c78471827d3c961
+        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@9d585e147348800b1603c4f7b0d8a6bcf0546007
         with:
           operation: public-chain
           environment: ${{ inputs.vault_env_path || 'uat' }}
@@ -1157,7 +1157,7 @@ jobs:
           SERVERLESS_DNS_MODE: ${{ inputs.dns_mode || 'none' }}
 
       - name: Verify Frontend Router boundary assets
-        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@8b29bd81f03c7726f28698ea7c78471827d3c961
+        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@9d585e147348800b1603c4f7b0d8a6bcf0546007
         with:
           operation: frontend-assets
           environment: ${{ inputs.vault_env_path || 'uat' }}
