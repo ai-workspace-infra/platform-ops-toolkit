@@ -42,8 +42,16 @@ class WorkflowHandoff(unittest.TestCase):
         for environment in ['sit', 'uat', 'prod']:
             role = json.loads((ROOT/f'scripts/vault/roles/github-actions-platform-ops-toolkit-{environment}.json').read_text())
             claims = role['bound_claims']['job_workflow_ref']
-            self.assertIn('ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-cloudflare-serverless-domains.yaml@refs/heads/main', claims)
+            prefix = 'ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-cloudflare-serverless-domains.yaml@'
+            self.assertEqual([c.removeprefix(prefix) for c in claims if c.startswith(prefix)], role['bound_claims']['ref'])
+            self.assertNotIn(prefix + '*', claims)
             self.assertTrue(any('iac_modules/.github/workflows/cloudflare-serverless-domains.yml@' in v for v in claims))
+            if environment == 'prod':
+                from fnmatch import fnmatchcase
+                selected = [c for c in claims if c.startswith(prefix)]
+                self.assertTrue(any(fnmatchcase(prefix + 'refs/tags/v2026.10.07-r1', c) for c in selected))
+                for ref in ('refs/heads/main', 'refs/heads/feature/demo', 'refs/tags/daily-build-2026.10.07'):
+                    self.assertFalse(any(fnmatchcase(prefix + ref, c) for c in selected))
         template = json.loads((ROOT/'scripts/vault/templates/akamai-oidc-role-uat.json.tmpl').read_text())
         self.assertIn('ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-akamai-state-preflight.yaml@refs/heads/main', template['bound_claims']['job_workflow_ref'])
 
