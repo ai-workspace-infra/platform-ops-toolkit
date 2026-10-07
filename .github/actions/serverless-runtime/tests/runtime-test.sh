@@ -38,10 +38,10 @@ fixture() {
 }
 run() { bash "$action/prepare.sh" > "$tmp/log" 2>&1 || { sed -n '/jq: error/p' "$tmp/log" >&2; return 1; }; }
 reject() { if run; then echo "Unexpected acceptance: $1" >&2; exit 1; fi; [[ ! -s "$GITHUB_ENV" ]]; echo "PASS reject $1"; }
-fixture; run; rg -q 'postgresql://postgres.tenant:a%40b%3A%2F%23%3F@' "$GITHUB_ENV"; ! rg -q 'cicd' "$tmp/reads"; echo 'PASS encoded database credential and minimal service reads'
-fixture; jq '.data.data.DATABASE_PASSWORD = "" | .data.data.SUPABASE_CONNECT_URI="postgresql://postgres:p%40ss@aws.pooler.supabase.com:5432/postgres"' "$tmp/database" > "$tmp/new"; mv "$tmp/new" "$tmp/database"; run; rg -q 'postgres.tenant:p%40ss@' "$GITHUB_ENV"; echo 'PASS encoded URI credential retained'
+fixture; run; grep -Eq 'postgresql://postgres.tenant:a%40b%3A%2F%23%3F@' "$GITHUB_ENV"; ! grep -Eq 'cicd' "$tmp/reads"; echo 'PASS encoded database credential and minimal service reads'
+fixture; jq '.data.data.DATABASE_PASSWORD = "" | .data.data.SUPABASE_CONNECT_URI="postgresql://postgres:p%40ss@aws.pooler.supabase.com:5432/postgres"' "$tmp/database" > "$tmp/new"; mv "$tmp/new" "$tmp/database"; run; grep -Eq 'postgres.tenant:p%40ss@' "$GITHUB_ENV"; echo 'PASS encoded URI credential retained'
 fixture; jq '.data.data.DATABASE_PASSWORD = "" | .data.data.SUPABASE_CONNECT_URI="postgresql://postgres@aws.pooler.supabase.com:5432/postgres"' "$tmp/database" > "$tmp/new"; mv "$tmp/new" "$tmp/database"; reject 'missing database password'
 fixture; jq '.metadata.environment="prod"' "$tmp/routing" > "$tmp/new"; mv "$tmp/new" "$tmp/routing"; reject 'different environment declaration'
-fixture; CLOUD_RUN_SERVICE=accounts run; rg -q 'GITHUB_CLIENT_SECRET' "$GITHUB_ENV"; echo 'PASS Accounts runtime contract'
+fixture; CLOUD_RUN_SERVICE=accounts run; grep -Eq 'GITHUB_CLIENT_SECRET' "$GITHUB_ENV"; echo 'PASS Accounts runtime contract'
 fixture; jq '.data.data={}' "$tmp/cicd" > "$tmp/new"; mv "$tmp/new" "$tmp/cicd"; CLOUD_RUN_SERVICE=accounts reject 'missing bootstrap credential'
 echo '6 private runtime checks passed using mock Vault responses.'

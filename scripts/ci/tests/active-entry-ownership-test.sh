@@ -21,4 +21,7 @@ fixture; printf 'gh workflow run owner.yml\n' > "$tmp/repo/.github/scripts/dispa
 bash "$checker" "$tmp/repo" "$tmp/registry" >/dev/null; echo 'PASS pure control dispatch'
 fixture; printf 'schema: 1\nlegacy: []\nretired_workflow_entries: [.github/scripts/wrapper.sh]\n' > "$tmp/registry"
 printf 'steps:\n  - run: bash .github/scripts/wrapper.sh\n' > "$tmp/repo/.github/workflows/caller.yml"; reject 'retired formal wrapper route'
-echo '7 active-entry checks passed without runtime execution.'
+fixture; printf 'echo safe_control\n' > "$tmp/repo/.github/scripts/control.sh"
+mkdir -p "$tmp/bin"; printf '#!/usr/bin/env bash\nexit 2\n' > "$tmp/bin/grep"; chmod +x "$tmp/bin/grep"
+PATH="$tmp/bin:$PATH" reject 'source search dependency failure'
+echo '8 active-entry checks passed without runtime execution.'

@@ -6,6 +6,15 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 yq -o=json '.' "$registry" > "$tmp/registry"
 jq -e '.schema == 1 and (.legacy | type == "array")' "$tmp/registry" >/dev/null
+for tool in yq jq grep git shasum awk sed sort; do
+  command -v "$tool" >/dev/null || { echo "::error::Missing ownership checker dependency: $tool" >&2; exit 2; }
+done
+# Search errors must fail the checker, rather than being treated as no match.
+matches() {
+  local status=0
+  grep "$@" || status=$?
+  case "$status" in 0) return 0 ;; 1) return 1 ;; *) echo '::error::Ownership source search failed' >&2; exit 2 ;; esac
+}
 errors=0
 fail() { echo "::error::$1" >&2; errors=$((errors+1)); }
 while IFS=$'\t' read -r path expected; do
@@ -24,7 +33,7 @@ while IFS= read -r relative; do
   # Join continuations, discard full-line comments and preserve invocations.
   awk '!/^[[:space:]]*#/ { if (sub(/\\$/, "")) { printf "%s ", $0 } else print }' "$file" |
     sed -E 's/gcloud[[:space:]]+run[[:space:]]+(services|revisions)[[:space:]]+describe/toolkit_metadata_gate/g; s/docker[[:space:]]+buildx[[:space:]]+imagetools[[:space:]]+inspect/toolkit_metadata_gate/g; s/aws[[:space:]]+sts[[:space:]]+get-caller-identity/toolkit_identity_gate/g' > "$tmp/source"
-  if rg -q "$pattern" "$tmp/source"; then
+  if matches -Eq "$pattern" "$tmp/source"; then
     jq -e --arg path "$relative" 'any(.legacy[]; .path == $path)' "$tmp/registry" >/dev/null ||
       fail "Execution must move to an owner: $relative"
   fi
@@ -32,7 +41,7 @@ done < <(git -C "$root" ls-files -co --exclude-standard .github/scripts .github/
 # Scan direct callers as well as their frozen implementation. Thin wrappers
 # cannot remain the formal route after their owner caller has been switched.
 while IFS= read -r entry; do
-  if rg -Fql -- "$entry" "$root/.github/workflows"; then fail "Retired execution route remains active: $entry"; fi
+  if matches -Frql -- "$entry" "$root/.github/workflows"; then fail "Retired execution route remains active: $entry"; fi
 done < <(jq -r '.retired_workflow_entries[]' "$tmp/registry")
 (( errors == 0 )) || exit 1
 echo 'Active entry ownership verified; frozen bytes are debt, not UAT acceptance or deletion authorization.'

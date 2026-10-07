@@ -15,8 +15,8 @@ fixture() {
       owner_commit:$owner,run_id:"123",run_attempt:"1",environment:"uat",release_ref:$release,operation:"cloud-run",target:"accounts"}' > "$OWNER_RECEIPTS_DIR/accounts/receipt.json"
 }
 run() { bash "$action/verify.sh" > "$tmp/log" 2>&1; }
-reject() { if run; then echo "Unexpected acceptance: $1" >&2; exit 1; fi; rg -q '\| Verify \| failure \|' "$GITHUB_STEP_SUMMARY"; ! rg -q '\| Verify \| success \|' "$GITHUB_STEP_SUMMARY"; echo "PASS reject $1"; }
-fixture; run; rg -q '\| Verify \| success \|' "$GITHUB_STEP_SUMMARY"; echo 'PASS selected service with exact owner receipt'
+reject() { if run; then echo "Unexpected acceptance: $1" >&2; exit 1; fi; grep -Eq '\| Verify \| failure \|' "$GITHUB_STEP_SUMMARY"; ! grep -Eq '\| Verify \| success \|' "$GITHUB_STEP_SUMMARY"; echo "PASS reject $1"; }
+fixture; run; grep -Eq '\| Verify \| success \|' "$GITHUB_STEP_SUMMARY"; echo 'PASS selected service with exact owner receipt'
 fixture; CLOUD_RUN_RESULT=unknown reject unknown
 fixture; CLOUD_RUN_RESULT= reject empty
 fixture; CLOUD_RUN_RESULT=skipped reject 'selected stage skipped'
