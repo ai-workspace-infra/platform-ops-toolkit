@@ -30,3 +30,10 @@ If a secret is exposed in the repository:
 1. **Revoke** immediately in Vault/Provider.
 2. **Generate** a new credential.
 3. Purge the Git history (e.g. using `git filter-repo`)—do not merely "delete" the file in a new commit.
+
+## 5. Legacy Workflow and Matrix Cleanup
+- A job explicitly marked `legacy`, `deprecated`, or `disabled` is not an accepted long-term compatibility layer. Remove it from the workflow once the replacement entry point is active; do not keep a dead matrix as a guarded job.
+- Removing a legacy matrix is a complete dependency-graph change: remove the job, every `needs` reference, job outputs, summary environment/result fields, dead `if` branches, and dispatch scripts that have no remaining caller.
+- Update or delete contract tests that assert the retired path. Verify the repository has no remaining references to the retired job, matrix outputs, dispatcher, or legacy guard.
+- Preserve active provider and namespace routing. A retired aggregate matrix must not be confused with a still-used single-namespace route or the current Hybrid Orchestrator.
+- Before merging, run shell syntax checks, the affected routing/dispatch contract tests, YAML parsing, and a `needs`-graph check so no active job points to a deleted dependency.
