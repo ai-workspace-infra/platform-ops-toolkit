@@ -78,7 +78,7 @@ on:
         required: true
         default: "plan"
         type: choice
-        options: [plan, infra, deploy, deploy+init, native-standby, native-init-plan, native-init, native-billing-plan, native-billing, native-business-plan, native-business-copy, native-business-compare, migrate, deploy+migrate, destroy]
+        options: [plan, infra, deploy, deploy+init, native-standby, native-init-plan, native-init, native-billing-plan, native-billing, native-business-plan, native-business-copy, native-business-compare, native-runtime-plan, native-runtime-qualify, migrate, deploy+migrate, destroy]
       target_domains:
         description: "选择要执行的业务域 (Business Domain)"
         required: true
@@ -333,6 +333,101 @@ jobs:
         run: |
           echo '## PROD PostgreSQL standby' >> "$GITHUB_STEP_SUMMARY"
           echo 'PostgreSQL and independent storage verified; application/CD writers remain paused. Schema initialization, full business copy, equality and main database cutover are pending.' >> "$GITHUB_STEP_SUMMARY"
+
+  native_prod_runtime:
+    name: "[1b] PROD | isolated managed runtime image qualification"
+    if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.operation == 'native-runtime-plan' || github.event.inputs.operation == 'native-runtime-qualify') }}
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: Checkout immutable control source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify configured PROD image review and exact successful standby/resource evidence
+        id: managed_runtime_control
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/prod-selfhost/managed_runtime_control.py \
+            --contract .github/config/prod-managed-runtime.json \
+            --destination "$RUNNER_TEMP/native-resource-cmdb" \
+            --spec-output "$RUNNER_TEMP/managed-runtime-spec.json"
+      - name: Checkout fixed GitOps declaration
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ steps.managed_runtime_control.outputs.gitops_commit }}
+          path: native-gitops
+          persist-credentials: false
+      - name: Configure exact PROD GitHub OIDC deploy identity
+        uses: ./.github/actions/configure-gcp-oidc
+        with:
+          environment: prod
+          account_id: xworktech
+          load_state_contract: 'false'
+          vault_addr: https://vault.svc.plus
+      - name: Configure cloud access runtime
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Read only registry pull runtime credentials
+        id: native_vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-prod
+          jwtGithubAudience: vault
+          exportToken: false
+          exportEnv: false
+          secrets: |
+            kv/data/CICD GHCR_USERNAME | NATIVE_GHCR_USERNAME ;
+            kv/data/CICD GHCR_TOKEN | NATIVE_GHCR_TOKEN
+      - name: Open same-run cloud access through fixed IaC owner
+        id: native_access
+        uses: ai-workspace-infra/iac_modules/.github/actions/prod-selfhost-access@254dd6321449ab12b862220c8876b482d7032fcd
+        with:
+          phase: open
+          cmdb_file: ${{ runner.temp }}/native-resource-cmdb/cmdb.json
+          cmdb_sha256: ${{ steps.managed_runtime_control.outputs.cmdb_sha256 }}
+          access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Preview or qualify both fixed service images in temporary isolated standby containers
+        uses: ai-workspace-infra/playbooks/.github/actions/prod-managed-runtime@4b86130204816d2a1a182d89aee4346c7dfead2c
+        with:
+          cmdb_dir: ${{ runner.temp }}/native-resource-cmdb
+          cmdb_sha256: ${{ steps.managed_runtime_control.outputs.cmdb_sha256 }}
+          gitops_checkout: ${{ github.workspace }}/native-gitops
+          gitops_commit: ${{ steps.managed_runtime_control.outputs.gitops_commit }}
+          access_file: ${{ steps.native_access.outputs.access_file }}
+          spec_file: ${{ runner.temp }}/managed-runtime-spec.json
+          dry_run: ${{ steps.managed_runtime_control.outputs.dry_run }}
+          runtime_gate_verified: ${{ steps.managed_runtime_control.outputs.runtime_gate_verified }}
+          ghcr_username: ${{ steps.native_vault.outputs.NATIVE_GHCR_USERNAME }}
+          ghcr_token: ${{ steps.native_vault.outputs.NATIVE_GHCR_TOKEN }}
+      - name: Revoke cloud access even if image qualification failed
+        if: ${{ always() && steps.native_access.outcome != '' && steps.native_access.outcome != 'skipped' }}
+        uses: ai-workspace-infra/iac_modules/.github/actions/prod-selfhost-access@254dd6321449ab12b862220c8876b482d7032fcd
+        with:
+          phase: close
+          cmdb_file: ${{ runner.temp }}/native-resource-cmdb/cmdb.json
+          cmdb_sha256: ${{ steps.managed_runtime_control.outputs.cmdb_sha256 }}
+          access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Retain original authoritative CMDB for the next controlled stage
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-ops-toolkit-cmdb
+          path: ${{ runner.temp }}/native-resource-cmdb
+          if-no-files-found: error
+      - name: Publish sanitized image qualification only after successful cleanup
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-managed-runtime-receipt
+          path: ${{ runner.temp }}/prod-managed-runtime-receipt.json
+          if-no-files-found: error
+      - name: State the completed boundary
+        run: |
+          echo '## PROD managed runtime image qualification' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Image receipt published after probe/access cleanup; application/CD writers remain paused. No database credential/access, business deployment, initialization/copy/equality or cutover acceptance. Data operations retain their separate independent review gate.' >> "$GITHUB_STEP_SUMMARY"
 
   native_prod_init:
     name: "[2] PROD | native empty schema only"
@@ -640,7 +735,7 @@ jobs:
           echo 'Full-business receipt published after access cleanup. Preview does not copy business rows; copy and comparison do not authorize cutover. Source freeze, final catch-up, single writer and production acceptance remain separate gates.' >> "$GITHUB_STEP_SUMMARY"
 
   provision:
-    if: ${{ github.event.inputs.operation != 'native-standby' && github.event.inputs.operation != 'native-init-plan' && github.event.inputs.operation != 'native-init' && github.event.inputs.operation != 'native-billing-plan' && github.event.inputs.operation != 'native-billing' && github.event.inputs.operation != 'native-business-plan' && github.event.inputs.operation != 'native-business-copy' && github.event.inputs.operation != 'native-business-compare' }}
+    if: ${{ github.event.inputs.operation != 'native-standby' && github.event.inputs.operation != 'native-init-plan' && github.event.inputs.operation != 'native-init' && github.event.inputs.operation != 'native-billing-plan' && github.event.inputs.operation != 'native-billing' && github.event.inputs.operation != 'native-business-plan' && github.event.inputs.operation != 'native-business-copy' && github.event.inputs.operation != 'native-business-compare' && github.event.inputs.operation != 'native-runtime-plan' && github.event.inputs.operation != 'native-runtime-qualify' }}
     name: "[0] Prepare | profile + infra"
     environment: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.vault_env_path == 'prod') && 'prod' || (github.event_name == 'workflow_dispatch' && github.event.inputs.vault_env_path == 'uat' && 'uat' || (github.event_name == 'push' && github.ref == 'refs/heads/main' && 'uat' || ((startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || ''))) }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
@@ -2454,7 +2549,7 @@ jobs:
     # that every declared need has produced a result. This satisfies the
     # workflow gating contract without turning a failure into a skipped summary.
     if: >-
-      ${{ always() && !cancelled() && github.event.inputs.operation != 'native-standby' && github.event.inputs.operation != 'native-init-plan' && github.event.inputs.operation != 'native-init' && github.event.inputs.operation != 'native-billing-plan' && github.event.inputs.operation != 'native-billing' && github.event.inputs.operation != 'native-business-plan' && github.event.inputs.operation != 'native-business-copy' && github.event.inputs.operation != 'native-business-compare' &&
+      ${{ always() && !cancelled() && github.event.inputs.operation != 'native-standby' && github.event.inputs.operation != 'native-init-plan' && github.event.inputs.operation != 'native-init' && github.event.inputs.operation != 'native-billing-plan' && github.event.inputs.operation != 'native-billing' && github.event.inputs.operation != 'native-business-plan' && github.event.inputs.operation != 'native-business-copy' && github.event.inputs.operation != 'native-business-compare' && github.event.inputs.operation != 'native-runtime-plan' && github.event.inputs.operation != 'native-runtime-qualify' &&
       needs.provision.result != '' &&
       needs.deploy_web_saas.result != '' &&
       needs.capture_web_saas_baseline.result != '' &&
