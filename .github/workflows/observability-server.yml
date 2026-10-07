@@ -850,7 +850,7 @@ jobs:
           path: playbooks
 
       - name: Install Ansible runtime
-        uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@ab05b38ae4d0f4c2930e5ff7c975aa534ba829a2
+        uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@bf7eaf0106a5f20c8337779e0b415bf6dc937986
         with:
           install_ansible: 'true'
 
@@ -913,7 +913,7 @@ jobs:
           ref: ${{ inputs.source_ref }}
           path: playbooks
       - name: Install Ansible runtime
-        uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@ab05b38ae4d0f4c2930e5ff7c975aa534ba829a2
+        uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@bf7eaf0106a5f20c8337779e0b415bf6dc937986
         with:
           install_ansible: 'true'
       - name: Load SSH deployment key from Vault
@@ -992,7 +992,7 @@ jobs:
           printf '%s' "${SSH_PRIVATE_DEPLOY_KEY_B64}" | base64 --decode > "${RUNNER_TEMP}/observability-ssh/id_deploy"
           chmod 600 "${RUNNER_TEMP}/observability-ssh/id_deploy"
       - name: Install Ansible runtime
-        uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@ab05b38ae4d0f4c2930e5ff7c975aa534ba829a2
+        uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@bf7eaf0106a5f20c8337779e0b415bf6dc937986
         with:
           install_ansible: 'true'
       - name: Verify Grafana health and exact dashboard asset set
@@ -1061,7 +1061,7 @@ jobs:
           path: playbooks
       - name: Install Ansible runtime
         if: matrix.enabled
-        uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@ab05b38ae4d0f4c2930e5ff7c975aa534ba829a2
+        uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@bf7eaf0106a5f20c8337779e0b415bf6dc937986
         with:
           install_ansible: 'true'
       - name: Load SSH deployment key from Vault
@@ -1147,7 +1147,7 @@ jobs:
           persist-credentials: false
       - name: Install Ansible runtime
         if: inputs.dns_action == 'cutover'
-        uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@ab05b38ae4d0f4c2930e5ff7c975aa534ba829a2
+        uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@bf7eaf0106a5f20c8337779e0b415bf6dc937986
         with:
           install_ansible: 'true'
       - name: Load Cloudflare DNS token from Vault

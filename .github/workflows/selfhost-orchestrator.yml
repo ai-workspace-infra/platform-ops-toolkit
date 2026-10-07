@@ -1230,7 +1230,7 @@ jobs:
           ${{ runner.os }}-pip-
 
     - name: Setup deployment runner
-      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@ab05b38ae4d0f4c2930e5ff7c975aa534ba829a2
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@bf7eaf0106a5f20c8337779e0b415bf6dc937986
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         matrix_host: ${{ matrix.host }}
@@ -1803,7 +1803,7 @@ jobs:
           ${{ env.VAULT_KV }} CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN
 
     - name: Setup DNS deployment runner
-      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@ab05b38ae4d0f4c2930e5ff7c975aa534ba829a2
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@bf7eaf0106a5f20c8337779e0b415bf6dc937986
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         install_ansible: 'true'
@@ -1977,7 +1977,7 @@ jobs:
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64
 
     - name: Setup deployment runner
-      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@ab05b38ae4d0f4c2930e5ff7c975aa534ba829a2
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@bf7eaf0106a5f20c8337779e0b415bf6dc937986
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         matrix_host: ${{ matrix.host }}
@@ -2065,7 +2065,7 @@ jobs:
           ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64
 
     - name: Setup deployment runner
-      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@ab05b38ae4d0f4c2930e5ff7c975aa534ba829a2
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@bf7eaf0106a5f20c8337779e0b415bf6dc937986
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         matrix_host: ${{ matrix.host }}
@@ -2270,7 +2270,7 @@ jobs:
           ${{ runner.os }}-pip-
 
     - name: Setup deployment runner
-      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@ab05b38ae4d0f4c2930e5ff7c975aa534ba829a2
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@bf7eaf0106a5f20c8337779e0b415bf6dc937986
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         matrix_host: ${{ matrix.host }}
@@ -2433,7 +2433,7 @@ jobs:
 
     - name: Setup deployment runner
       id: runner
-      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@ab05b38ae4d0f4c2930e5ff7c975aa534ba829a2
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@bf7eaf0106a5f20c8337779e0b415bf6dc937986
       with:
         matrix_host: ${{ matrix.host }}
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
@@ -2748,7 +2748,7 @@ jobs:
           ${{ runner.os }}-pip-
 
     - name: Setup deployment runner
-      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@ab05b38ae4d0f4c2930e5ff7c975aa534ba829a2
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@bf7eaf0106a5f20c8337779e0b415bf6dc937986
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         matrix_host: ${{ matrix.host }}
