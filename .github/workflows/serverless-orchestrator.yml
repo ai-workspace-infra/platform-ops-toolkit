@@ -532,7 +532,7 @@ jobs:
       - uses: ./.github/actions/setup-yq
 
       - name: Verify target Artifact Registry through the IaC owner
-        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@17a9973a82401d60641e5c2663d6f48924d8e77e
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@7fbd3f990954a7c175a04678cf798f9165a71770
         with:
           operation: registry-preflight
           environment: ${{ inputs.vault_env_path || 'uat' }}
@@ -582,7 +582,7 @@ jobs:
       - name: Sync SMTP credentials from Vault to Secret Manager
         id: smtp
         if: ${{ matrix.service == 'accounts' }}
-        uses: ai-workspace-infra/iac_modules/.github/actions/platform-resource-operations@17a9973a82401d60641e5c2663d6f48924d8e77e
+        uses: ai-workspace-infra/iac_modules/.github/actions/platform-resource-operations@7fbd3f990954a7c175a04678cf798f9165a71770
         with:
           operation: smtp-sync
           environment: ${{ inputs.vault_env_path || 'uat' }}
@@ -602,7 +602,7 @@ jobs:
           GITOPS_OAUTH_GITHUB_CONFIG: ${{ runner.temp }}/accounts-github-oauth.json
 
       - name: Deploy Cloud Run service through the Provider owner
-        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@17a9973a82401d60641e5c2663d6f48924d8e77e
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@7fbd3f990954a7c175a04678cf798f9165a71770
         with:
           operation: cloud-run
           environment: ${{ inputs.vault_env_path || 'uat' }}
@@ -790,7 +790,7 @@ jobs:
             kv/data/WEB_SAAS INTERNAL_SERVICE_TOKEN | INTERNAL_SERVICE_TOKEN
 
       - name: Deploy SSR Worker boundary
-        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@17a9973a82401d60641e5c2663d6f48924d8e77e
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@7fbd3f990954a7c175a04678cf798f9165a71770
         with:
           operation: ssr
           environment: ${{ inputs.vault_env_path || 'uat' }}
@@ -881,7 +881,7 @@ jobs:
             kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN ;
 
       - name: Deploy Frontend Router Worker
-        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@17a9973a82401d60641e5c2663d6f48924d8e77e
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@7fbd3f990954a7c175a04678cf798f9165a71770
         with:
           operation: frontend-router
           environment: ${{ inputs.vault_env_path || 'uat' }}
@@ -978,7 +978,7 @@ jobs:
             kv/data/WEB_SAAS INTERNAL_SERVICE_TOKEN | INTERNAL_SERVICE_TOKEN
 
       - name: Deploy edge-gateway Worker boundary
-        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@17a9973a82401d60641e5c2663d6f48924d8e77e
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@7fbd3f990954a7c175a04678cf798f9165a71770
         with:
           operation: edge-gateway
           environment: ${{ inputs.vault_env_path || 'uat' }}
@@ -1066,7 +1066,7 @@ jobs:
           path: ${{ runner.temp }}/edge-assets
 
       - name: Deploy Cloudflare Pages static assets
-        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@17a9973a82401d60641e5c2663d6f48924d8e77e
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@7fbd3f990954a7c175a04678cf798f9165a71770
         with:
           operation: static-pages
           environment: ${{ inputs.vault_env_path || 'uat' }}
@@ -1347,7 +1347,7 @@ jobs:
 
       - name: Run immutable UAT cleanup owner
         id: cleanup
-        uses: ai-workspace-infra/iac_modules/.github/actions/uat-compute-cleanup@17a9973a82401d60641e5c2663d6f48924d8e77e
+        uses: ai-workspace-infra/iac_modules/.github/actions/uat-compute-cleanup@7fbd3f990954a7c175a04678cf798f9165a71770
         with:
           policy: ${{ github.workspace }}/gitops/topology/uat/serverless/cleanup-policy.yaml
           mode: apply
@@ -1394,7 +1394,7 @@ jobs:
         env:
           RELEASE_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}
           RELEASE_TAG: ${{ inputs.tag_ref }}
-          PROVIDER_OWNER_SHA: 17a9973a82401d60641e5c2663d6f48924d8e77e
+          PROVIDER_OWNER_SHA: 7fbd3f990954a7c175a04678cf798f9165a71770
           PLAYBOOKS_OWNER_SHA: 8b29bd81f03c7726f28698ea7c78471827d3c961
           DEPLOYS_CLOUD_RUN: ${{ inputs.deploy_cloud_run }}
           DEPLOYS_CLOUDFLARE: ${{ inputs.deploy_cloudflare }}

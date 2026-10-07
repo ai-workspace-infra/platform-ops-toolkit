@@ -53,6 +53,7 @@ INTERPRETERS = ("bash", "sh", "python", "python3", "ruby", "source", ".")
 
 violations = []
 checked = {"local": 0, "sibling": 0}
+called_actions = set()
 
 
 def fail(where, message):
@@ -147,15 +148,28 @@ def check_sibling_refs(where, step, run, checkouts, roots):
             fail(where, f"R4 {SIBLINGS[repo]}:{rel} is called bare but is not executable")
 
 
-def walk_steps(where, steps, roots):
-    checkouts = {}
-    root_repo = None
+def walk_steps(where, steps, roots, inherited_checkouts=None, root_repo=None, action_chain=(), inherited_if=None):
+    checkouts = dict(inherited_checkouts or {})
     for index, step in enumerate(steps or []):
         if not isinstance(step, dict):
             continue
         label = f"{where} step {index + 1} ({step.get('name') or step.get('uses') or 'run'})"
         uses = step.get("uses")
-        check_uses(label, uses, checkouts=checkouts, roots=roots, step=step)
+        effective_step = dict(step)
+        if inherited_if and not effective_step.get('if'):
+            effective_step['if'] = inherited_if
+        check_uses(label, uses, checkouts=checkouts, roots=roots, step=effective_step)
+        if isinstance(uses, str) and uses.startswith('./.github/actions/'):
+            target = REPO_ROOT / uses[2:]
+            action_file = next((p for p in (target/'action.yml', target/'action.yaml') if p.is_file()), None)
+            if action_file is not None:
+                if action_file in action_chain:
+                    fail(label, 'R2 recursive local action dependency')
+                else:
+                    called_actions.add(action_file)
+                    document = load(action_file) or {}
+                    walk_steps(label, (document.get('runs') or {}).get('steps'), roots,
+                               checkouts, root_repo, (*action_chain, action_file), effective_step.get('if'))
         if isinstance(uses, str) and uses.startswith("actions/checkout@"):
             options = step.get("with") or {}
             repository = options.get("repository")
@@ -167,7 +181,7 @@ def walk_steps(where, steps, roots):
         run = step.get("run")
         if isinstance(run, str):
             check_local_refs(label, run, root_repo, roots)
-            check_sibling_refs(label, step, run, checkouts, roots)
+            check_sibling_refs(label, effective_step, run, checkouts, roots)
 
 
 def main():
@@ -196,7 +210,10 @@ def main():
         document = load(path) or {}
         name = f"actions/{path.parent.name}"
         steps = (document.get("runs") or {}).get("steps")
-        walk_steps(name, steps, roots)
+        # Called composites were checked at every call site with that job's
+        # preceding checkouts. Uncalled actions still need a standalone check.
+        if path not in called_actions:
+            walk_steps(name, steps, roots, action_chain=(path,))
         for step in steps or []:
             run = step.get("run") if isinstance(step, dict) else None
             if not isinstance(run, str):

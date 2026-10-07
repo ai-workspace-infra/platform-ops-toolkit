@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: 17a9973a82401d60641e5c2663d6f48924d8e77e
+          ref: 7fbd3f990954a7c175a04678cf798f9165a71770
           path: iac_modules
           persist-credentials: false
       - name: Checkout exact GitOps declaration
