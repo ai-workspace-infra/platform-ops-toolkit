@@ -60,7 +60,6 @@ kv/uat/platform/oidc/xworktech
 ## TC-01：静态契约和 Terraform 检查
 
 ```bash
-bash .github/scripts/tests/gcp_oidc_bootstrap_contract_test.sh
 python3 -m unittest scripts/tests/test_iac_state_contract.py
 
 git -C ../oidc-iac-WC diff --name-only origin/main...HEAD \
@@ -238,7 +237,8 @@ else
   echo "AWS bootstrap/IAC changed unexpectedly" >&2
   exit 1
 fi
-bash .github/scripts/tests/gcp_oidc_bootstrap_contract_test.sh
+# Provider and host readiness checks are owned by the pinned IaC/Playbooks
+# workflows; this repository does not run business or infrastructure checks.
 ```
 
 AWS bootstrap/IAC 不应被 GCP 修改；如需要确认 AWS 实际链路，应使用原有 AWS

@@ -277,10 +277,9 @@ Daily 控制面可以从 `main` 创建 release，但 PROD 子工作流必须在�
 验证命令：
 
 ```text
-bash .github/scripts/tests/shared_readiness_probe_test.sh
-bash .github/scripts/tests/daily_snapshot_uat_gate_contract_test.sh
-bash .github/scripts/tests/daily_snapshot_combined_dispatch_test.sh
-bash .github/scripts/tests/daily_snapshot_promote_uat_tag_test.sh
+# Infrastructure, host, database, API, DNS and business checks run from the
+# pinned Playbooks role checklist. Toolkit validation covers only secrets and
+# immutable TAG/ref rules.
 ```
 
 这些是本地契约/模拟验证，不等同于真实云侧 `apply`、DNS 切换或业务发布成功；真实发布仍需在合并后的 `main` 上以 GitHub Actions run 作为证据。
@@ -552,8 +551,7 @@ PROD Hybrid、Selfhost 制品证明、独立 DNS 审批及真实端到端验收�
   plan 要替换 `i-0289f628cb875beaf`（2 add / 2 destroy），UAT apply 守卫正确拒绝。
   [gitops#369](https://github.com/ai-workspace-infra/gitops/pull/369) 将该主机固定到当前运行镜像，并要求 UAT
   Hybrid 路由的每台 AWS Terraform 主机都固定 `ami_id`；否则每个新上游镜像都会阻断 UAT 及其后的晋级。
-- Daily 现已提供受保护的 `deploy_env=prod` / UAT→PROD 晋级入口；
-  `daily_snapshot_uat_gate_contract_test.sh`、`prod_accepted_uat_promotion_test.sh` 和
-  `daily_snapshot_prod_manifest_test.sh` 覆盖入口、验收 run、digest manifest 和审批边界。
+- Daily 现已提供受保护的 `deploy_env=prod` / UAT→PROD 晋级入口；入口、验收 run、digest
+  manifest 和审批边界由 Playbooks role checklist 与固定回执覆盖。
   仍未执行真实 PROD：跨项目 AR 只读授权、PROD AWS 登录用户、PROD Hybrid（GAP-06/07）
   与 DNS 切换仍需单独审批。

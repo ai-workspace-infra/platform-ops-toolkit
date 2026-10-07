@@ -123,7 +123,6 @@ spec:
     Playbooks role + GitOps 入口负责。
 
 ### 5.3 契约测试与验证
-* **`.github/scripts/tests/data_migration_mode_contract_test.sh`**: 补充双端 Supabase 校验测试；
-* **`.github/scripts/tests/serverless_dispatch_contract_test.sh`**: 补充 `upgrade` 选项测试；
-* **`.github/scripts/tests/daily_snapshot_environment_dispatch_test.sh`**: 覆盖 SIT/UAT
-  参数选择、不可变 tag 和子工作流派发行为断言。
+业务迁移、DNS、主机和数据验收检查归入 Playbooks 的 role checklist；Toolkit
+只保留不可变 tag、派发和回执边界检查。对应的 `presetup`/`postsetup`
+清单由 Playbooks 维护。

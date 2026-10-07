@@ -36,9 +36,7 @@ YAML、tfvars、plan artifact 或测试日志。
 
 ```bash
 python3 scripts/tests/test_iac_state_contract.py
-bash .github/scripts/tests/gcp_oidc_bootstrap_contract_test.sh
 bash ../iac_modules/scripts/pipeline/tests/action_runner_iac_dispatch_test.sh
-bash .github/scripts/tests/platform_ops_dispatch_contract_test.sh
 bash .github/scripts/tests/xconnect_cloud_lab_vault_role_contract_test.sh
 ```
 

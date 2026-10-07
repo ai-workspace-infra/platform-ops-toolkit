@@ -34,7 +34,7 @@ Canonical Console DNS validation now selects the hostname by environment. UAT/SI
 
 ```sh
 python3 -m unittest discover -s scripts/serverless_uat -p 'test_console_dns_validation.py'
-bash .github/scripts/tests/serverless_cloudflare_domains_contract_test.sh
+# DNS and endpoint acceptance is a Playbooks postsetup role responsibility.
 git diff --check
 ```
 
