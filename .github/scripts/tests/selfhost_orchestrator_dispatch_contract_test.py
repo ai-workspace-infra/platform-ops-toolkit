@@ -1,6 +1,7 @@
 """Contract tests for the Selfhost Orchestrator manual dispatch surface."""
 
 from pathlib import Path
+import re
 import unittest
 
 import yaml
@@ -73,6 +74,12 @@ class SelfhostDispatchContractTests(unittest.TestCase):
         self.assertEqual(self.inputs["vault_env_path"]["options"], ["sit", "uat", "prod"])
         self.assertEqual(self.inputs["agent_proxy_plan"]["default"], "1C2G")
         self.assertEqual(self.inputs["instance_plan"]["default"], "2C4G")
+
+    def test_web_saas_doco_cd_owner_is_immutable(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        match = re.search(r"ai-workspace-infra/playbooks/\.github/workflows/web-saas-domain-cd\.yaml@([0-9a-f]{40})", text)
+        self.assertIsNotNone(match)
+        self.assertNotIn("web-saas-domain-cd.yaml@main", text)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,8 @@ import re
 import subprocess
 
 MODES = {"preflight", "backup", "rehearsal", "upgrade", "rollback", "legacy_import", "akamai_preflight",
-         "checkpoint", "probe", "baseline", "migrate", "selfhost_probe", "selfhost_init", "selfhost_verify"}
+         "checkpoint", "probe", "baseline", "migrate", "selfhost_probe", "selfhost_init", "selfhost_verify",
+         "core_users"}
 
 IMPORT_FIELDS = {
     "confirm_legacy_import", "dry_run", "environment", "vault_env_path", "target_environment",
@@ -57,9 +58,12 @@ def main():
     config = json.loads(os.environ.get("DATA_CONFIG_JSON", "{}"))
     validate_config(config, mode)
     if 'execution_path' in config:
-        require(config['execution_path'] == 'selfhost_roles', 'unknown execution_path')
-        require(environment == 'uat' and mode in {'preflight', 'backup'},
-                'Selfhost component roles are UAT-only preflight/backup, not full release acceptance')
+        if config['execution_path'] == 'selfhost_roles':
+            require(environment == 'uat' and mode in {'preflight', 'backup'},
+                    'Selfhost component roles are UAT-only preflight/backup, not full release acceptance')
+        else:
+            require(mode == 'core_users' and config['execution_path'] == 'selfhost_core_users',
+                    'unknown execution_path')
     if 'account' in config:
         require(isinstance(config['account'], str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,62}", config['account']),
                 "account must be a plain identifier")
@@ -70,6 +74,14 @@ def main():
         require(config.get("supabase_target_existing_strategy", "reject") != "replace_public", "destructive replacement disabled")
         config.setdefault('dry_run', True)
         require(type(config['dry_run']) is bool, 'dry_run must be a JSON boolean')
+    if mode == "core_users":
+        require(environment == "prod", "core_users synchronization is PROD-only")
+        require(re.fullmatch(r"v[0-9]+(?:\.[0-9]+)+(?:-r[1-9][0-9]*)?", os.environ.get("RELEASE_TAG", "")),
+                "core_users requires an immutable PROD release tag")
+        require(config.get("execution_path", "selfhost_core_users") == "selfhost_core_users",
+                "core_users requires the fixed Selfhost execution path")
+        require(config.get("source_read_only") is True,
+                "core_users requires a Vault-resolved read-only source contract")
     if mode == "rollback":
         require(config.get("rollback_mode", "soft") == "soft", "automated database restore is disabled")
         require(False, "standalone same-digest rollback executor not registered; destructive DB restore retired")

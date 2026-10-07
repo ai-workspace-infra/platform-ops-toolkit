@@ -1922,7 +1922,7 @@ jobs:
       fail-fast: false
       matrix:
         host: ${{ fromJSON(needs.provision.outputs.hosts_web_saas) }}
-    uses: ai-workspace-infra/playbooks/.github/workflows/web-saas-domain-cd.yaml@main
+    uses: ai-workspace-infra/playbooks/.github/workflows/web-saas-domain-cd.yaml@ed7397b9b61b244b36000acebd50519a2649f310
     with:
       target_host: ${{ matrix.host }}
       deploy_env: ${{ needs.provision.outputs.deployment_env }}

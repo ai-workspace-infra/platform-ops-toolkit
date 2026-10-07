@@ -136,6 +136,18 @@ def validate_parent_receipt(contract, kind, archive):
             require(isinstance(proof, dict) and set(proof) == {'rows', 'sha256'} and type(proof['rows']) is int and
                 proof['rows'] >= 0 and re.fullmatch('[0-9a-f]{64}', proof.get('sha256') or ''), 'invalid per-table digest evidence')
         require(tables['users']['rows'] == receipt['user_count'], 'user count evidence differs')
+        core = receipt.get('core_users')
+        require(isinstance(core, dict) and set(core) == {'source', 'target'}, 'core user identity evidence missing')
+        for side in ('source', 'target'):
+            proof = core[side]
+            require(isinstance(proof, dict) and set(proof) ==
+                {'count', 'email_sha256', 'password_hash_sha256', 'email_proxy_sha256'} and
+                type(proof['count']) is int and proof['count'] > 0 and
+                all(re.fullmatch('[0-9a-f]{64}', proof[key]) for key in
+                    ('email_sha256', 'password_hash_sha256', 'email_proxy_sha256')),
+                'core user identity digest is invalid')
+        require(core['source'] == core['target'] and core['source']['count'] == receipt['user_count'],
+                'core user email, password hash or Proxy UUID differs')
         times = []
         for key in ('snapshot_started_at', 'completed_at'):
             value = receipt.get(key)
