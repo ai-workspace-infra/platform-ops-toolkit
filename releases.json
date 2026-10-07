@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "source": "github-actions",
-  "updatedAt": "2026-10-07T00:22:30.075272+00:00",
+  "updatedAt": "2026-10-07T06:18:04.536094+00:00",
   "timezone": "Asia/Shanghai",
   "coverage": {
     "since": "2026-09-04T02:53:34Z",
@@ -653,9 +653,16 @@
     "37441932293": "1:2026-10-06T09:17:55Z",
     "37442265114": "1:2026-10-06T09:28:11Z",
     "37528628185": "1:2026-10-06T21:18:42Z",
-    "37530914204": "1:2026-10-06T21:17:41Z"
+    "37530914204": "2:2026-10-07T01:25:09Z",
+    "37565784887": "1:2026-10-07T03:14:00Z"
   },
   "gaps": [
+    {
+      "runId": 37565784887,
+      "workflow": "daily-main-snapshot.yaml",
+      "status": "completed",
+      "reason": "No immutable release evidence"
+    },
     {
       "runId": 37438046388,
       "workflow": "daily-main-snapshot.yaml",
@@ -2031,48 +2038,6 @@
       "reason": "No immutable release evidence"
     },
     {
-      "runId": 34089703969,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 34077171041,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 34076121376,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 34075314397,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 34074618211,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 34074253152,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 34073213374,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
       "runId": 36393389514,
       "workflow": "serverless-orchestrator.yml",
       "status": "completed",
@@ -2350,6 +2315,63 @@
       "url": "https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37530914204",
       "startedAt": "2026-10-06T21:02:00Z",
       "completedAt": "2026-10-06T21:17:33Z",
+      "repositories": [
+        {
+          "repository": "ai-workspace-services/accounts",
+          "tag": "daily-build-2026.10.06-r6",
+          "sha": "",
+          "build": "unknown",
+          "deployment": "success"
+        },
+        {
+          "repository": "ai-workspace-services/billing-service",
+          "tag": "daily-build-2026.10.06-r6",
+          "sha": "",
+          "build": "unknown",
+          "deployment": "success"
+        },
+        {
+          "repository": "ai-workspace-services/content-service",
+          "tag": "daily-build-2026.10.06-r6",
+          "sha": "",
+          "build": "unknown",
+          "deployment": "success"
+        },
+        {
+          "repository": "ai-workspace-services/portal",
+          "tag": "daily-build-2026.10.06-r6",
+          "sha": "",
+          "build": "unknown",
+          "deployment": "success"
+        },
+        {
+          "repository": "ai-workspace-services/frontend-router",
+          "tag": "daily-build-2026.10.06-r6",
+          "sha": "",
+          "build": "unknown",
+          "deployment": "success"
+        },
+        {
+          "repository": "ai-workspace-services/edge-gateway",
+          "tag": "daily-build-2026.10.06-r6",
+          "sha": "",
+          "build": "unknown",
+          "deployment": "success"
+        }
+      ]
+    },
+    {
+      "id": "37530914204:2:uat:daily-build-2026.10.06-r6",
+      "runId": 37530914204,
+      "attempt": 2,
+      "environment": "uat",
+      "tag": "daily-build-2026.10.06-r6",
+      "scope": "serverless",
+      "status": "success",
+      "workflow": "serverless-orchestrator.yml",
+      "url": "https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/37530914204",
+      "startedAt": "2026-10-06T21:02:00Z",
+      "completedAt": "2026-10-07T01:25:03Z",
       "repositories": [
         {
           "repository": "ai-workspace-services/accounts",
