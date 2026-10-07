@@ -87,6 +87,7 @@ class DataControlPlaneTests(unittest.TestCase):
         self.assertIn('workflow_call', entry['on'])
         self.assertEqual(entry['concurrency']['group'], 'environment-data-operations-${{ inputs.environment }}')
         self.assertEqual(entry['concurrency']['cancel-in-progress'], 'false')
+        self.assertEqual(entry['permissions']['actions'], 'write')
         self.assertEqual(entry['jobs']['request_gate']['environment'], '${{ inputs.environment }}')
         for job, owner in (('legacy_import', 'playbooks'), ('serverless_database', 'playbooks'),
                            ('selfhost_database', 'playbooks'), ('selfhost_components', 'playbooks'),
