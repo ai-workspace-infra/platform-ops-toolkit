@@ -120,6 +120,8 @@ def main() -> int:
     expected_records = {
         f"console{env_suffix}.{expected_host_zone}": f"console-selfhost-{expected_environment}.{expected_host_zone}",
         f"accounts{env_suffix}.{expected_host_zone}": f"accounts-selfhost-{expected_environment}.{expected_host_zone}",
+        f"billing{env_suffix}.{expected_host_zone}": f"billing-selfhost-{expected_environment}.{expected_host_zone}",
+        f"postgresql{env_suffix}.{expected_host_zone}": f"postgresql-selfhost-{expected_environment}.{expected_host_zone}",
     }
     if canonical_records != expected_records:
         fail(
