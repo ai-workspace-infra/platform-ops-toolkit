@@ -24,7 +24,10 @@ if [ -z "${VAULT_TOKEN:-}" ]; then
 fi
 export VAULT_ADDR="${VAULT_ADDR:-https://vault.svc.plus}"
 
-DOMAINS=("onwalk.net" "svc.plus" "xworkmate.com")
+# Each entry is issued as the apex plus its wildcard SAN and persisted under
+# kv/CICD/domains/<domain>. Keep xworktech.com separate from the host-specific
+# selfhost-prod.xworktech.com certificate used by the web-saas edge.
+DOMAINS=("onwalk.net" "svc.plus" "xworkmate.com" "xworktech.com")
 
 workdir=$(mktemp -d)
 trap 'rm -rf "${workdir}"' EXIT
