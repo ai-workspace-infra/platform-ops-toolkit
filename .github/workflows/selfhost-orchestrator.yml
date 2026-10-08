@@ -232,6 +232,7 @@ env:
   # kv/data/<env>/* 规则天然完成隔离, 不需要任何额外 policy。
   VAULT_KV_BILLING: kv/data/${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || github.event.inputs.vault_env_path || 'uat' }}/billing-service
   VAULT_KV_DATABASES: kv/data/${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || github.event.inputs.vault_env_path || 'uat' }}/databases
+  VAULT_KV_SMTP: kv/data/${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || github.event.inputs.vault_env_path || 'uat' }}/platform/smtp/google
   VAULT_KV_AGENT_PROXY: kv/data/${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || github.event.inputs.vault_env_path || 'uat' }}/agent-proxy
   PLAYBOOKS_DIR: infra/playbooks
   AKAMAI_ACCOUNT: ${{ github.event.inputs.akamai_account || 'manbuzhe2026' }}
@@ -1162,6 +1163,21 @@ jobs:
         sparse-checkout-cone-mode: false
         sparse-checkout: |
           resources/svc.plus/${{ needs.provision.outputs.deployment_env }}/${{ needs.provision.outputs.provider_gitops_dir }}/agent-proxy*.yaml
+          topology/prod/runtime-selection.yaml
+
+    - name: Validate GitOps SMTP Vault contract
+      if: >-
+        ${{ needs.provision.outputs.deployment_env == 'prod' &&
+        contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'),
+        needs.provision.outputs.target_domains) }}
+      env:
+        GITOPS_RUNTIME_SELECTION: ${{ github.workspace }}/gitops/topology/prod/runtime-selection.yaml
+      run: |
+        set -euo pipefail
+        test -s "${GITOPS_RUNTIME_SELECTION}"
+        grep -Fq 'path: vault://kv/prod/platform/smtp/google' "${GITOPS_RUNTIME_SELECTION}"
+        grep -Fq 'username_ref: vault://kv/prod/platform/smtp/google#username' "${GITOPS_RUNTIME_SELECTION}"
+        grep -Fq 'password_ref: vault://kv/prod/platform/smtp/google#password' "${GITOPS_RUNTIME_SELECTION}"
 
     # The AI Workspace playbook builds the Hermes ACP adapter from the
     # sibling xworkmate-bridge checkout when the prebuilt bridge override is
@@ -1234,6 +1250,8 @@ jobs:
           ${{ env.VAULT_KV }} GHCR_TOKEN | GHCR_PASSWORD ;
           ${{ env.VAULT_KV_DATABASES }} postgres_root_password | WEB_SAAS_POSTGRES_PASSWORD ;
           ${{ env.VAULT_KV_DATABASES }} account_pg_password | WEB_SAAS_ACCOUNT_PG_PASSWORD ;
+          ${{ env.VAULT_KV_SMTP }} username | SMTP_USERNAME ;
+          ${{ env.VAULT_KV_SMTP }} password | SMTP_PASSWORD ;
           ${{ env.VAULT_KV_WEB_SAAS }} AUTH_TOKEN_PUBLIC_TOKEN | WEB_SAAS_AUTH_TOKEN_PUBLIC_TOKEN ;
           ${{ env.VAULT_KV_WEB_SAAS }} AUTH_TOKEN_REFRESH_SECRET | WEB_SAAS_AUTH_TOKEN_REFRESH_SECRET ;
           ${{ env.VAULT_KV_WEB_SAAS }} AUTH_TOKEN_ACCESS_SECRET | WEB_SAAS_AUTH_TOKEN_ACCESS_SECRET ;
@@ -1371,6 +1389,15 @@ jobs:
         # compatibility variable, but source it from the canonical account
         # credential rather than a separate billing secret.
         BILLING_DB_PASSWORD:               ${{ steps.vault.outputs.WEB_SAAS_ACCOUNT_PG_PASSWORD }}
+        # Non-secret transport settings mirror the Cloud Run Accounts profile;
+        # credentials come only from the environment-scoped Vault path above.
+        SMTP_HOST:                          smtp.gmail.com
+        SMTP_PORT:                          "587"
+        SMTP_FROM:                          XWorkmate <no-reply@xworktech.com>
+        SMTP_TLS_MODE:                      auto
+        SMTP_REQUIRED:                      ${{ needs.provision.outputs.deployment_env == 'prod' && 'true' || 'false' }}
+        SMTP_USERNAME:                      ${{ steps.vault.outputs.SMTP_USERNAME }}
+        SMTP_PASSWORD:                      ${{ steps.vault.outputs.SMTP_PASSWORD }}
         # The canonical root email is not a secret and older Vault mounts do
         # not contain ROOT_BOOTSTRAP_EMAIL. Use a Vault value when present,
         # otherwise keep fresh UAT bootstrap compatible with the accounts
