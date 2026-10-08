@@ -27,7 +27,7 @@ export VAULT_ADDR="${VAULT_ADDR:-https://vault.svc.plus}"
 # Each entry is issued as the apex plus its wildcard SAN and persisted under
 # kv/CICD/domains/<domain>. Keep xworktech.com separate from the host-specific
 # selfhost-prod.xworktech.com certificate used by the web-saas edge.
-DOMAINS=("onwalk.net" "svc.plus" "xworkmate.com" "xworktech.com")
+DOMAINS=("xworktech.com" "onwalk.net" "svc.plus" "xworkmate.com")
 
 workdir=$(mktemp -d)
 trap 'rm -rf "${workdir}"' EXIT
@@ -87,6 +87,10 @@ EOCF
   fi
   
   if [ "$acme_success" = false ]; then
+    if [ "$DOMAIN" = "xworktech.com" ]; then
+      echo "  -> [错误] xworktech.com 必须使用受信任的 ACME 泛域名证书，拒绝回退到自签证书。" >&2
+      exit 1
+    fi
     echo "  -> 使用自签模式 (Fallback) 生成内部证书..."
     
     openssl genrsa -out "${workdir}/ca.key" 2048 2>/dev/null
