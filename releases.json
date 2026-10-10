@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "source": "github-actions",
-  "updatedAt": "2026-10-10T07:32:29.500163+00:00",
+  "updatedAt": "2026-10-10T13:58:15.827817+00:00",
   "timezone": "Asia/Shanghai",
   "coverage": {
     "since": "2026-09-04T02:53:34Z",
@@ -1551,48 +1551,6 @@
     },
     {
       "runId": 34517006271,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 34481967911,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 34481442110,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 34477529852,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 34472645514,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 34467806918,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 34456762406,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 34454859315,
       "workflow": "daily-main-snapshot.yaml",
       "status": "completed",
       "reason": "No immutable release evidence"
