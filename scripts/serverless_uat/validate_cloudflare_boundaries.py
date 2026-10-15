@@ -117,8 +117,11 @@ def main() -> int:
         expected_host = f"{service}-{endpoint_mode}-{environment}.{mode_suffix}"
         if service == "agent-proxy" and mode == "hybrid" and environment == "prod":
             expected_host = f"agent-proxy-selfhost-prod-jp.{mode_suffix}"
-        if service in {"accounts", "billing"}:
-            expected_host = f"{service}.svc.plus" if environment == "prod" else f"{service}-{environment}.onwalk.net"
+        if service in {"accounts", "billing"} and environment == "prod":
+            # PROD keeps the canonical public hosts. UAT GitOps declares the
+            # mode-qualified edge origins (accounts-serverless-uat, etc.);
+            # canonical UAT hosts remain enforced via domains / canonical_records.
+            expected_host = f"{service}.svc.plus"
         if endpoint.get("host") != expected_host:
             raise SystemExit(f"public_endpoints.{service}.host must be {expected_host!r}")
         if endpoint.get("access") != access:
@@ -201,9 +204,15 @@ def main() -> int:
         raise SystemExit("Serverless console host must match the canonical domain serverless target")
     if hosts["accounts"] != domains[canonical_accounts]["serverless"]:
         raise SystemExit("Serverless accounts host must match the canonical domain serverless target")
-    expected_billing = "billing.svc.plus" if environment == "prod" else f"billing-{environment}.onwalk.net"
+    # PROD keeps the canonical Billing host; UAT declares the mode-qualified
+    # serverless origin (billing-serverless-uat), matching accounts_host.
+    expected_billing = (
+        "billing.svc.plus"
+        if environment == "prod"
+        else f"billing-serverless-{environment}.onwalk.net"
+    )
     if serverless.get("billing_host") != expected_billing:
-        raise SystemExit("Serverless billing_host must use the canonical environment Billing contract")
+        raise SystemExit("Serverless billing_host must use the environment Billing contract")
     billing_origin_host = serverless.get("billing_origin_host", "")
     expected_billing_origin = f"billing-origin-serverless-{environment}.{mode_suffix}"
     if billing_origin_host and billing_origin_host != expected_billing_origin:
